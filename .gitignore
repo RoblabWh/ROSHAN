@@ -1,0 +1,56 @@
+# Prerequisites
+*.d
+
+# Compiled Object files
+*.slo
+*.lo
+*.o
+*.obj
+*.pyc
+
+# Precompiled Headers
+*.gch
+*.pch
+
+# Compiled Dynamic libraries
+*.so
+*.dylib
+*.dll
+
+# Fortran module files
+*.mod
+*.smod
+
+# Compiled Static libraries
+*.lai
+*.la
+*.a
+*.lib
+
+# Executables
+*.exe
+*.out
+*.app
+
+# Folders
+cmake-build-debug
+.idea
+.vscode
+build
+
+
+# Dependencies
+externals/imgui
+externals/ImGuiFileDialog
+externals/*
+nodejs
+
+# Server Junk
+openstreetmap/data.json
+openstreetmap/node_modules/
+openstreetmap/package-lock.json
+openstreetmap/server.log
+openstreetmap/server.pid
+
+# Large Files
+CLMS_CLCplus_RASTER_2018_010m_eu_03035_V1_1.tif
