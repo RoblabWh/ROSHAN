@@ -9,9 +9,9 @@
 #include <SDL.h>
 #include <deque>
 #include <memory>
-#include "rendering/DroneRenderer.h"
-#include "../models/stochasticlagrangian/model_parameters.h"
-#include "../models/stochasticlagrangian/firemodel_gridmap.h"
+#include "agents/drone_agent/rendering/DroneRenderer.h"
+#include "src/models/firespin/model_parameters.h"
+#include "src/models/firespin/firemodel_gridmap.h"
 #include "drone_state.h"
 
 // TODO Remove circular dependency

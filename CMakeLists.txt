@@ -2,18 +2,26 @@ cmake_minimum_required(VERSION 3.25)
 project(ROSHAN)
 set(CMAKE_CXX_STANDARD 17)
 
+set(MY_CPP_BUILD_PATH "${CMAKE_BINARY_DIR}")
+
+# Generate a JSON configuration file
+file(WRITE "config.json"
+        "{\n\"module_directory\": \"${MY_CPP_BUILD_PATH}\"\n}\n")
+
 # set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -Wall")
 #set(CMAKE_CXX_FLAGS_DEBUG "-g")
 #set(CMAKE_CXX_FLAGS_RELEASE "-O3")
 
 add_subdirectory(externals/pybind11)
 set(PYTHON_EXECUTABLE "$ENV{CONDA_PREFIX}/bin/python")
+include_directories(${CMAKE_SOURCE_DIR}/src)
 
 # set cmake module path
 set(CMAKE_MODULE_PATH ${CMAKE_MODULE_PATH} "${CMAKE_SOURCE_DIR}/cmake/")
 
 # Find and link against OpenGL
 find_package(OpenGL REQUIRED)
+
 
 # Add the imgui library
 file(GLOB IMGUI_SOURCES ${CMAKE_SOURCE_DIR}/externals/imgui/*.cpp)
@@ -48,72 +56,71 @@ set(SDL2_LIBRARIES /usr/local/lib/libSDL2.so)
 
 # Core sources
 set(CORE_SOURCES
-        main.cpp
-        engine_core.cpp engine_core.h
-        CORINE/dataset_handler.cpp CORINE/dataset_handler.h
+        src/main.cpp
+        src/engine_core.cpp src/engine_core.h
+        src/corine/dataset_handler.cpp src/corine/dataset_handler.h
         externals/ImGuiFileDialog/ImGuiFileDialog.cpp externals/ImGuiFileDialog/ImGuiFileDialog.h
-        state.h
-        action.h
-        model_interface.h
-        point.h
-        point_hash.h
+        src/state.h
+        src/action.h
+        src/model_interface.h
+        src/point.h
+        src/point_hash.h
 )
 
 set(AGENT_SOURCES
-        drone_agent/drone.cpp drone_agent/drone.h
-        drone_agent/rendering/DroneRenderer.cpp drone_agent/rendering/DroneRenderer.h
-        drone_agent/drone_state.cpp drone_agent/drone_state.h
-        drone_agent/drone_action.h
-        agent.h
+        src/agents/drone_agent/drone.cpp src/agents/drone_agent/drone.h
+        src/agents/drone_agent/rendering/DroneRenderer.cpp src/agents/drone_agent/rendering/DroneRenderer.h
+        src/agents/drone_agent/drone_state.cpp src/agents/drone_agent/drone_state.h
+        src/agents/drone_agent/drone_action.h
+        src/agent.h
 )
 
 set(FIREMODEL_SOURCES
-        models/stochasticlagrangian/firemodel.cpp models/stochasticlagrangian/firemodel.h
-        models/stochasticlagrangian/firemodel_gridmap.cpp models/stochasticlagrangian/firemodel_gridmap.h
-        models/stochasticlagrangian/rendering/firemodel_renderer.cpp models/stochasticlagrangian/rendering/firemodel_renderer.h
-        models/stochasticlagrangian/rendering/firemodel_camera.cpp models/stochasticlagrangian/rendering/firemodel_camera.h
-        models/stochasticlagrangian/firemodel_firecell.cpp models/stochasticlagrangian/firemodel_firecell.h
-        models/stochasticlagrangian/particles/virtual_particle.cpp models/stochasticlagrangian/particles/virtual_particle.h
-        models/stochasticlagrangian/particles/radiation_particle.cpp models/stochasticlagrangian/particles/radiation_particle.h
-        models/stochasticlagrangian/wind.cpp models/stochasticlagrangian/wind.h
-        models/stochasticlagrangian/utils.h
-        models/stochasticlagrangian/model_parameters.h
-        models/stochasticlagrangian/firemodel_cell_interface.h
-        models/stochasticlagrangian/cell_classes/cell_generic_unburned.cpp
-        models/stochasticlagrangian/cell_classes/cell_sealed.cpp
-        models/stochasticlagrangian/cell_classes/cell_woody_needle_leaved_trees.cpp
-        models/stochasticlagrangian/cell_classes/cell_woody_breadleaved_deciduous_trees.cpp
-        models/stochasticlagrangian/cell_classes/cell_woody_broadleaved_evergreen_trees.cpp
-        models/stochasticlagrangian/cell_classes/cell_low_growing_woody_plants.cpp
-        models/stochasticlagrangian/cell_classes/cell_permanent_herbaceous.cpp
-        models/stochasticlagrangian/cell_classes/cell_periodically_herbaceous.cpp
-        models/stochasticlagrangian/cell_classes/cell_lichens_and_mosses.cpp
-        models/stochasticlagrangian/cell_classes/cell_non_and_sparsley_vegetated.cpp
-        models/stochasticlagrangian/cell_classes/cell_water.cpp
-        models/stochasticlagrangian/cell_classes/cell_snow_and_ice.cpp
-        models/stochasticlagrangian/cell_classes/cell_generic_burning.cpp
-        models/stochasticlagrangian/cell_classes/cell_outside_area.cpp
-        models/stochasticlagrangian/cell_classes/cell_generic_burned.cpp
-        models/stochasticlagrangian/rendering/firemodel_pixelbuffer.cpp
-        models/stochasticlagrangian/rendering/firemodel_pixelbuffer.cpp models/stochasticlagrangian/rendering/firemodel_pixelbuffer.h
-        models/stochasticlagrangian/utils.cpp
+        src/models/firespin/firemodel.cpp src/models/firespin/firemodel.h
+        src/models/firespin/firemodel_gridmap.cpp src/models/firespin/firemodel_gridmap.h
+        src/models/firespin/rendering/firemodel_renderer.cpp src/models/firespin/rendering/firemodel_renderer.h
+        src/models/firespin/rendering/firemodel_camera.cpp src/models/firespin/rendering/firemodel_camera.h
+        src/models/firespin/firemodel_firecell.cpp src/models/firespin/firemodel_firecell.h
+        src/models/firespin/particles/virtual_particle.cpp src/models/firespin/particles/virtual_particle.h
+        src/models/firespin/particles/radiation_particle.cpp src/models/firespin/particles/radiation_particle.h
+        src/models/firespin/wind.cpp src/models/firespin/wind.h
+        src/models/firespin/utils.h
+        src/models/firespin/model_parameters.h
+        src/models/firespin/firemodel_cell_interface.h
+        src/models/firespin/cell_classes/cell_generic_flooded.cpp
+        src/models/firespin/cell_classes/cell_generic_unburned.cpp
+        src/models/firespin/cell_classes/cell_sealed.cpp
+        src/models/firespin/cell_classes/cell_woody_needle_leaved_trees.cpp
+        src/models/firespin/cell_classes/cell_woody_breadleaved_deciduous_trees.cpp
+        src/models/firespin/cell_classes/cell_woody_broadleaved_evergreen_trees.cpp
+        src/models/firespin/cell_classes/cell_low_growing_woody_plants.cpp
+        src/models/firespin/cell_classes/cell_permanent_herbaceous.cpp
+        src/models/firespin/cell_classes/cell_periodically_herbaceous.cpp
+        src/models/firespin/cell_classes/cell_lichens_and_mosses.cpp
+        src/models/firespin/cell_classes/cell_non_and_sparsley_vegetated.cpp
+        src/models/firespin/cell_classes/cell_water.cpp
+        src/models/firespin/cell_classes/cell_snow_and_ice.cpp
+        src/models/firespin/cell_classes/cell_generic_burning.cpp
+        src/models/firespin/cell_classes/cell_outside_area.cpp
+        src/models/firespin/cell_classes/cell_generic_burned.cpp
+        src/models/firespin/rendering/firemodel_pixelbuffer.cpp
+        src/models/firespin/rendering/firemodel_pixelbuffer.cpp src/models/firespin/rendering/firemodel_pixelbuffer.h
+        src/models/firespin/utils.cpp
 )
 
 set(GAMEOFLIFE_SOURCES
-        models/gameoflife/gameoflife_infinite.cpp models/gameoflife/gameoflife_infinite.h
-        models/gameoflife/gameoflife_infinite_renderer.cpp models/gameoflife/gameoflife_infinite_renderer.h
-        models/gameoflife/gameoflife_types.h
-        models/gameoflife_simple/gameoflife_fixed.cpp models/gameoflife_simple/gameoflife_fixed.h
-        models/gameoflife_simple/gameoflife_fixed_renderer.cpp models/gameoflife_simple/gameoflife_fixed_renderer.h
-        models/stochasticlagrangian/cell_classes/cell_generic_flooded.cpp
+        src/models/legacy/gameoflife/gameoflife_infinite.cpp src/models/legacy/gameoflife/gameoflife_infinite.h
+        src/models/legacy/gameoflife/gameoflife_infinite_renderer.cpp src/models/legacy/gameoflife/gameoflife_infinite_renderer.h
+        src/models/legacy/gameoflife/gameoflife_types.h
+        src/models/legacy/gameoflife_simple/gameoflife_fixed.cpp src/models/legacy/gameoflife_simple/gameoflife_fixed.h
+        src/models/legacy/gameoflife_simple/gameoflife_fixed_renderer.cpp src/models/legacy/gameoflife_simple/gameoflife_fixed_renderer.h
 )
 
 # Python bindings
-pybind11_add_module(firesim python_bindings.cpp
+pybind11_add_module(firesim src/python_bindings.cpp
         ${CORE_SOURCES}
         ${AGENT_SOURCES}
         ${FIREMODEL_SOURCES}
-        ${GAMEOFLIFE_SOURCES}
         ${IMGUI_SOURCES}
 )
 #set(LIBFFI_LIBRARIES "/lib/x86_64-linux-gnu/libffi.so.7" "/lib/x86_64-linux-gnu/libp11-kit.so.0")

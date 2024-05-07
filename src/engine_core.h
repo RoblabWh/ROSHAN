@@ -19,10 +19,8 @@
 #include <SDL.h>
 #include <iostream>
 #include "model_interface.h"
-#include "models/gameoflife/gameoflife_infinite.h"
-#include "models/gameoflife_simple/gameoflife_fixed.h"
-#include "models/stochasticlagrangian/firemodel.h"
-#include "CORINE/dataset_handler.h"
+#include "models/firespin/firemodel.h"
+#include "corine/dataset_handler.h"
 #include "agent.h"
 #include "action.h"
 

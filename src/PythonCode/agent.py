@@ -1,11 +1,5 @@
-import cProfile
-import sys
-from typing import List, Tuple, Deque
-
 from ppo import PPO
 from td3 import TD3
-
-sys.path.insert(0, '../../cmake-build-debug')
 
 
 class Agent:

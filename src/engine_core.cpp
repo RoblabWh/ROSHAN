@@ -42,9 +42,6 @@ bool EngineCore::Init(int mode){
     auto rendererDeleter = [](SDL_Renderer* r) { SDL_DestroyRenderer(r); };
     renderer_ = std::shared_ptr<SDL_Renderer>(renderer, rendererDeleter);
     SDL_GetRendererOutputSize(renderer_.get(), &width_, &height_);
-    //SDL_RendererInfo info;
-    //SDL_GetRendererInfo(renderer, &info);
-    //SDL_Log("Current SDL_Renderer: %s", info.name);
 
     // Setup Dear ImGui context
     IMGUI_CHECKVERSION();
@@ -56,7 +53,6 @@ bool EngineCore::Init(int mode){
     }
     auto ioDeleter = [](ImGuiIO* i) { ImGui::DestroyContext(); };
     io_ = std::shared_ptr<ImGuiIO>(io, ioDeleter);
-    //(void)io_;
     io_->ConfigFlags |= ImGuiConfigFlags_NavEnableKeyboard;     // Enable Keyboard Controls
     io_->ConfigFlags |= ImGuiConfigFlags_NavEnableGamepad;      // Enable Gamepad Controls
 
@@ -65,7 +61,6 @@ bool EngineCore::Init(int mode){
     ImGuiStyle& style = ImGui::GetStyle();
     style.FrameBorderSize = 1.0f; // Set border size to 1.0f
     style.FrameRounding = 6.0f; // Set rounding to 5.0f
-    //ImGui::StyleColorsLight();
 
     // Setup Platform/Renderer backends
     if (!ImGui_ImplSDL2_InitForSDLRenderer(window_.get(), renderer_.get())){
@@ -77,8 +72,6 @@ bool EngineCore::Init(int mode){
         return false;
     }
 
-    //agent_memory_ = Memory(5000);
-    //agent_ = std::make_shared<DroneNetworkAgent>();
     StartServer();
     mode_ = mode;
     model_ = nullptr;
@@ -89,20 +82,8 @@ void EngineCore::Update() {
     if (update_simulation_) {
         SDL_GetRendererOutputSize(renderer_.get(), &width_, &height_);
         model_->SetWidthHeight(width_, height_);
-
-
-//        // Select actions from observations using policy
-//        std::vector<std::shared_ptr<Action>> actions = agent_->SelectActions(observations);
         model_->Update();
-//        // Execute actions and observe reward and next state
-//        auto [next_observations, rewards, dones] = model_->Step(actions);
-//
-//        agent_memory_.InsertState(observations, actions, rewards, next_observations, dones);
-//        if (agent_memory_.IsReadyToTrain()) {
-//            auto [batch_states, batch_actions, batch_rewards, batch_next_states, batch_dones] = agent_memory_.SampleBatch();
-//            agent_->Update(batch_states, batch_actions, batch_rewards, batch_next_states, batch_dones);
-//            agent_memory_.ClearMemory();
-//        }
+
         SDL_Delay(delay_);
     }
 }
@@ -110,29 +91,20 @@ void EngineCore::Update() {
 bool EngineCore::ImGuiModelSelection(){
     if (model_ == nullptr) {
         SDL_GetRendererOutputSize(renderer_.get(), &width_, &height_);
-        ImVec2 window_size = ImVec2(500, 120);
+        ImVec2 window_size = ImVec2(250, 55);
         ImGui::SetNextWindowSize(window_size);
         ImVec2 appWindowPos = ImVec2((width_ - window_size.x) * 0.5f, (height_ - window_size.y) * 0.5f);
         ImGui::SetNextWindowPos(appWindowPos);
 
         ImGui::Begin("Model Selection", nullptr, ImGuiWindowFlags_NoResize | ImGuiWindowFlags_NoCollapse | ImGuiWindowFlags_NoMove);
-        ImGui::Spacing();
+        //ImGui::Spacing();
 
         ImGui::PushStyleColor(ImGuiCol_Button, ImVec4(0.45f, 0.6f, 0.85f, 1.0f));
         ImGui::PushStyleColor(ImGuiCol_ButtonHovered, ImVec4(0.45f, 0.7f, 0.95f, 1.0f));
         ImGui::PushStyleColor(ImGuiCol_ButtonActive, ImVec4(0.45f, 0.5f, 0.75f, 1.0f));
 
-        if (ImGui::Button("Game of Life (Infinite Grid)", ImVec2(-1, 0))) {
-            model_ = GameOfLifeInfinite::GetInstance(renderer_);
-        }
-        ImGui::Separator();
-        if (ImGui::Button("Game of Life (Fixed Grid)", ImVec2(-1, 0))) {
-            model_ = GameOfLifeFixed::GetInstance(renderer_);
-        }
-        ImGui::Separator();
         if (ImGui::Button("FireSPIN", ImVec2(-1, 0))) {
             model_ = FireModel::GetInstance(renderer_, mode_);
-//            model_->Initialize();
         }
 
         ImGui::PopStyleColor(3);
@@ -298,7 +270,6 @@ void EngineCore::StopServer() {
     std::cout << kill_command << std::endl;
     std::system(kill_command.c_str());
 }
-
 
 
 std::vector<std::deque<std::shared_ptr<State>>> EngineCore::GetObservations() {

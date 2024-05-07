@@ -1,22 +1,26 @@
-import sys
+import json
 import os
+import sys
 import warnings
-import torch
+from pathlib import Path
 import numpy as np
+from utils import find_project_root
 
-# Add path to module directories #TODO make this more elegant
 script_directory = os.path.dirname(os.path.abspath(__file__))
-module_directory = os.path.join(script_directory, '../../build/')
-sys.path.insert(0, module_directory)
+root_directory = find_project_root(Path(script_directory))
+
+with open(Path(root_directory / 'config.json'), 'r') as f:
+    config = json.load(f)
+
+sys.path.insert(0, config['module_directory'])
+
+# Change the current working directory, so that the python script has the same folder as the c++ executable
+os.chdir(config['module_directory'])
 
 import firesim
 from agent import Agent
 from memory import Memory
 from utils import Logger
-import cProfile
-
-# Change the current working directory, so that the python script has the same folder as the c++ executable
-os.chdir(module_directory)
 
 
 def restructure_data(observations_):
@@ -39,7 +43,8 @@ def restructure_data(observations_):
         all_maps.append(maps)
         all_positions.append(positions)
 
-    return np.array(all_terrains), np.array(all_fire_statuses), np.array(all_velocities), np.array(all_maps), np.array(all_positions)
+    return np.array(all_terrains), np.array(all_fire_statuses), np.array(all_velocities), np.array(all_maps), np.array(
+        all_positions)
 
 
 def log_outcome(rewards, terminals, dones, stats):
@@ -49,10 +54,10 @@ def log_outcome(rewards, terminals, dones, stats):
 
     if terminals[0]:
         print("Episode: {} finished with terminal state".format(stats['episode'][-1]))
-        if dones[0]: # Drone died
+        if dones[0]:  # Drone died
             print("Drone died.\n")
             stats['died'][-1] += 1
-        else: # Drone reached goal
+        else:  # Drone reached goal
             print("Drone extinguished all fires.\n")
             stats['reached'][-1] += 1
 
@@ -107,14 +112,15 @@ if __name__ == '__main__':
         engine.Update()
         engine.Render()
         if engine.AgentIsRunning():
-            t += 1 #TODO use simulation time instead of timesteps
+            t += 1  # TODO use simulation time instead of timesteps
             observations = engine.GetObservations()
             obs = restructure_data(observations)
             if train:
                 actions, action_logprobs = agent.act(obs, t)
                 drone_actions = []
                 for activation in actions:
-                    drone_actions.append(firesim.DroneAction(activation[0], activation[1], int(np.round(activation[2]))))
+                    drone_actions.append(
+                        firesim.DroneAction(activation[0], activation[1], int(np.round(activation[2]))))
                 next_observations, rewards, terminals, _ = engine.Step(drone_actions)
                 next_obs = restructure_data(next_observations)
                 memory.add(obs, actions, action_logprobs, rewards, next_obs, terminals)
@@ -125,22 +131,9 @@ if __name__ == '__main__':
                 actions = agent.act_certain(obs)
                 drone_actions = []
                 for activation in actions:
-                    drone_actions.append(firesim.DroneAction(activation[0], activation[1], int(np.round(activation[2]))))
+                    drone_actions.append(
+                        firesim.DroneAction(activation[0], activation[1], int(np.round(activation[2]))))
                 next_observations, rewards, terminals, dones = engine.Step(drone_actions)
                 log_outcome(rewards, terminals, dones, stats)
 
     engine.Clean()
-
-    # agent = Agent('ppo')
-    # ppo = agent.algorithm
-    #
-    # ppo.gamma = 1
-    # rewards = torch.tensor(np.array([1, 1, 1, 1]), dtype=torch.float32).to('cuda')
-    # masks = torch.tensor(np.array([1, 1, 1, 0]), dtype=torch.float32).to('cuda')
-    # values = torch.tensor(np.array([0.5, 1.2, 4, 0.4]), dtype=torch.float32).to('cuda')
-    # returns = ppo.calculate_returns(rewards)
-    # ppo.gamma = 0.99
-    # ppo._lambda = 0.7
-    # adv = ppo.get_advantages(values, masks, rewards)
-    # print(returns)
-    # print(adv)

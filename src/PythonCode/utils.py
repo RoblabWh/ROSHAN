@@ -1,7 +1,14 @@
 import numpy as np
 import torch
+from pathlib import Path
 from torch.utils.tensorboard import SummaryWriter
 
+def find_project_root(current_path):
+    # Search for a prominent marker of the project root
+    for parent in current_path.parents:
+        if (parent / '.git').is_dir():
+            return parent
+    raise Exception('Could not find project root directory')
 
 def initialize_output_weights(m, out_type):
     """

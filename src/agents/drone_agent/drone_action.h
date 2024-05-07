@@ -5,7 +5,7 @@
 #ifndef ROSHAN_DRONE_ACTION_H
 #define ROSHAN_DRONE_ACTION_H
 
-#include "../action.h"
+#include "action.h"
 
 class DroneAction : public Action{
 public:

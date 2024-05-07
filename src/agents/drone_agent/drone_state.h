@@ -12,8 +12,8 @@
 #include <iostream>
 #include <numeric>
 #include <algorithm>
-#include "../../models/stochasticlagrangian/utils.h"
-#include "../state.h"
+#include "models/firespin/utils.h"
+#include "state.h"
 
 
 class DroneState : public State{
