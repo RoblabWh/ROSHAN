@@ -106,14 +106,8 @@ set(FIREMODEL_SOURCES
         src/models/firespin/rendering/firemodel_pixelbuffer.cpp
         src/models/firespin/rendering/firemodel_pixelbuffer.cpp src/models/firespin/rendering/firemodel_pixelbuffer.h
         src/models/firespin/utils.cpp
-)
-
-set(GAMEOFLIFE_SOURCES
-        src/models/legacy/gameoflife/gameoflife_infinite.cpp src/models/legacy/gameoflife/gameoflife_infinite.h
-        src/models/legacy/gameoflife/gameoflife_infinite_renderer.cpp src/models/legacy/gameoflife/gameoflife_infinite_renderer.h
-        src/models/legacy/gameoflife/gameoflife_types.h
-        src/models/legacy/gameoflife_simple/gameoflife_fixed.cpp src/models/legacy/gameoflife_simple/gameoflife_fixed.h
-        src/models/legacy/gameoflife_simple/gameoflife_fixed_renderer.cpp src/models/legacy/gameoflife_simple/gameoflife_fixed_renderer.h
+        src/models/firespin/rendering/firemodel_imgui.cpp
+        src/models/firespin/rendering/firemodel_imgui.h
 )
 
 # Python bindings

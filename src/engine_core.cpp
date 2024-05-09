@@ -167,10 +167,7 @@ void EngineCore::Render() {
     if(!ImGuiModelSelection()) {
         std::function<void(bool&, bool&, int&)> controls =
                 std::bind(&EngineCore::ImGuiSimulationControls, this, std::placeholders::_1, std::placeholders::_2, std::placeholders::_3);
-        model_->ShowControls(controls, update_simulation_, render_simulation_, delay_);
-        model_->ImGuiModelMenu();
-        model_->Config();
-        model_->ShowPopups();
+        model_->ImGuiRendering(controls, update_simulation_, render_simulation_, delay_);
     }
 
     // Rendering

@@ -6,6 +6,8 @@
 #define ROSHAN_UTILS_H
 
 #include <string>
+#include <filesystem>
+#include <optional>
 
 std::string formatTime(int seconds);
 
@@ -29,5 +31,6 @@ enum CellState { GENERIC_UNBURNED = 0,
                  CELL_STATE_COUNT};
 
 std::string CellStateToString(CellState cell_state);
+std::optional<std::filesystem::path> find_project_root(const std::filesystem::path& start);
 
 #endif //ROSHAN_UTILS_H

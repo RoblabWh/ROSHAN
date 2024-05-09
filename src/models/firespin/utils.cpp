@@ -64,3 +64,19 @@ std::string formatTime(int total_seconds) {
 
     return formatted_time;
 }
+
+std::optional<std::filesystem::path> find_project_root(const std::filesystem::path& start) {
+    std::filesystem::path current = start;
+
+    // Search for .git directory, which is a good indicator of a project root
+    while (current.has_relative_path()) {
+        if (std::filesystem::exists(current / ".git")) {
+            return current;
+        }
+        if (current.parent_path() == current) {
+            break;
+        }
+        current = current.parent_path();
+    }
+    return std::nullopt;
+}

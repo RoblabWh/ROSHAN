@@ -1,5 +1,6 @@
 import torch
 import torch.nn as nn
+import os
 import warnings
 import numpy as np
 from copy import deepcopy
@@ -27,7 +28,10 @@ class PPO:
     :param ckpt: The checkpoint to restore from.
     """
 
-    def __init__(self, vision_range, lr, betas, gamma, _lambda, K_epochs, eps_clip, restore=False, ckpt=None):
+    def __init__(self, vision_range, lr, betas, gamma, _lambda, K_epochs, eps_clip, restore=False, ckpt=None,
+                 model_path="../models/"):
+
+        # Algorithm parameters
         self.lr = lr
         self.betas = betas
         self.gamma = gamma
@@ -35,26 +39,36 @@ class PPO:
         self.eps_clip = eps_clip
         self.K_epochs = K_epochs
 
-        # current policy
+        # Folder the models are stored in
+        if os.path.isfile(model_path):
+            raise ValueError("Model path must be a directory, not a file")
+        if not os.path.exists(model_path):
+            print(f"Creating model directory under {os.path.abspath(model_path)}")
+            os.makedirs(model_path)
+        self.model_path = model_path
+
+        # Current Policy
         self.policy = ActorCritic(vision_range=vision_range)
         if restore:
-            pretained_model = torch.load(ckpt, map_location=lambda storage, loc: storage)
-            self.policy.load_state_dict(pretained_model)
+            self.load_model(ckpt)
 
         self.optimizer_a = torch.optim.Adam(self.policy.actor.parameters(), lr=lr, betas=betas, eps=1e-5)
         self.optimizer_c = torch.optim.Adam(self.policy.critic.parameters(), lr=lr, betas=betas, eps=1e-5)
-        # self.optimizer = torch.optim.Adam(self.policy.ac.parameters(), lr=lr, betas=betas, eps=1e-5)
-
-        # old policy: initialize old policy with current policy's parameter
-        # self.old_policy = ActorCritic(vision_range=vision_range)
-        # self.old_policy.load_state_dict(self.policy.state_dict())
 
         self.MSE_loss = nn.MSELoss()
         self.running_reward_std = RunningMeanStd()
 
-    def load_model(self, path):
-        self.policy.load_state_dict(torch.load(path, map_location=lambda storage, loc: storage))
+    def set_eval(self):
         self.policy.eval()
+
+    def load_model(self, path):
+        path = os.path.join(self.model_path, path)
+        try:
+            self.policy.load_state_dict(torch.load(path, map_location=lambda storage, loc: storage))
+            return True
+        except FileNotFoundError:
+            warnings.warn(f"Could not load model from {path}. Falling back to train mode.")
+            return False
 
     def select_action(self, observations):
         return self.policy.act(observations)
@@ -62,7 +76,9 @@ class PPO:
     def select_action_certain(self, observations):
         return self.policy.act_certain(observations)
 
-    def saveCurrentWeights(self, ckpt_folder, env_name):
+    def saveCurrentWeights(self, logger):
+        print("Saving best weights with reward {}".format(logger.reward_best))
+        torch.save(self.policy.state_dict(), 'best.pth')
         print('Saving current weights to ' + ckpt_folder + '/' + env_name + '_current.pth')
         torch.save(self.policy.state_dict(), ckpt_folder + '/PPO_continuous_{}_current.pth'.format(env_name))
 
@@ -107,7 +123,7 @@ class PPO:
         norm_adv = (advantages - advantages.mean()) / (advantages.std() + 1e-10)
 
         returns = torch.FloatTensor(returns).to(device)
-        #norm_returns = (returns - returns.mean()) / (returns.std() + 1e-10)
+        # norm_returns = (returns - returns.mean()) / (returns.std() + 1e-10)
 
         return norm_adv, returns
 
@@ -141,7 +157,7 @@ class PPO:
         # Logger
         log_values = []
         logger.add_reward([np.array(rewards.detach().cpu()).mean()])
-        
+
         # Normalize rewards by running reward
         # self.running_reward_std.update(np.array(rewards))
         # rewards = np.clip(np.array(rewards) / self.running_reward_std.get_std(), -10, 10)
@@ -151,14 +167,15 @@ class PPO:
         if logger.better_reward():
             print("Saving best weights with reward {}".format(logger.reward_best))
             torch.save(self.policy.state_dict(), 'best.pth')
-        
+
         rewards = (rewards - rewards.mean()) / (rewards.std() + 1e-10)
 
         # Advantages
         with torch.no_grad():
             _, values_, _ = self.policy.evaluate(states, actions)
             if masks[-1] == 1:
-                last_state = (states[0][-1].unsqueeze(0), states[1][-1].unsqueeze(0), states[2][-1].unsqueeze(0), states[3][-1].unsqueeze(0), states[4][-1].unsqueeze(0))
+                last_state = (states[0][-1].unsqueeze(0), states[1][-1].unsqueeze(0), states[2][-1].unsqueeze(0),
+                              states[3][-1].unsqueeze(0), states[4][-1].unsqueeze(0))
                 bootstrapped_value = self.policy.critic(last_state).detach()
                 values_ = torch.cat((values_, bootstrapped_value[0]), dim=0)
             advantages, returns = self.get_advantages(values_.detach(), masks, rewards)
@@ -169,7 +186,7 @@ class PPO:
             for index in BatchSampler(SubsetRandomSampler(range(batch_size)), mini_batch_size, False):
                 # Evaluate old actions and values using current policy
                 batch_states = (
-                states[0][index], states[1][index], states[2][index], states[3][index], states[4][index])
+                    states[0][index], states[1][index], states[2][index], states[3][index], states[4][index])
                 batch_actions = actions[index]
                 logprobs, values, dist_entropy = self.policy.evaluate(batch_states, batch_actions)
                 log_values.append(values.detach().mean().item())
