@@ -27,6 +27,8 @@ class Agent:
         # Load model, return True if successful and set model to evaluation mode
         if self.algorithm.load_model(path):
             self.algorithm.set_eval()
+            return True
+        return False
 
     def update(self, memory, batch_size, mini_batch_size):
         self.algorithm.update(memory, batch_size, mini_batch_size, self.logger)

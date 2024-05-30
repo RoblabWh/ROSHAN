@@ -36,9 +36,9 @@ public:
     std::vector<std::vector<int>> GetFireStatus() { return fire_status_; }
     std::vector<std::vector<double>> GetFireStatusNorm();
     std::vector<std::vector<int>> GetMap() { return map_; }
-    std::vector<std::vector<double>> GetMapNorm();
+    static std::vector<std::vector<double>> GetMapNorm();
     std::pair<int, int> GetPosition() { return position_; }
-    std::pair<double, double> GetPositionNorm();
+    std::pair<double, double> GetPositionNorm() const;
     int DroneSeesFire();
     // For python visibility
     std::pair<double, double> get_velocity() const { return velocity_; }

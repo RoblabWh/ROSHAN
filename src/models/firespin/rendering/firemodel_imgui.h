@@ -18,9 +18,14 @@
 class ImguiHandler {
 public:
     ImguiHandler(bool python_code, FireModelParameters &parameters);
-    void Config(std::shared_ptr<GridMap> gridmap, std::shared_ptr<std::vector<std::shared_ptr<DroneAgent>>> drones,
-                std::shared_ptr<FireModelRenderer> model_renderer, std::shared_ptr<DatasetHandler> dataset_handler,
-                std::vector<std::vector<int>> &current_raster_data, double running_time, std::vector<double> rewards, std::shared_ptr<Wind> wind, bool &agent_is_running);
+    void Config(std::shared_ptr<GridMap> gridmap, std::shared_ptr<FireModelRenderer> model_renderer,
+                std::vector<std::vector<int>> &current_raster_data, double running_time,
+                std::shared_ptr<Wind> wind);
+    void FileHandling(std::shared_ptr<DatasetHandler> dataset_handler, std::vector<std::vector<int>> &current_raster_data);
+    void PyConfig(std::vector<float> rewards, int rewards_pos,std::vector<float> all_rewards,
+                  bool &agent_is_running, std::string &user_input, std::string &model_output,
+                  std::shared_ptr<std::vector<std::shared_ptr<DroneAgent>>> drones,
+                  std::shared_ptr<FireModelRenderer> model_renderer);
     void ShowControls(std::function<void(bool&, bool&, int&)> controls, bool &update_simulation, bool &render_simulation, int &delay);
     void ImGuiModelMenu(std::shared_ptr<FireModelRenderer> model_renderer, std::vector<std::vector<int>> &current_raster_data);
     void ImGuiSimulationSpeed();
@@ -59,6 +64,11 @@ private:
     //For the Popup of Cells
     std::set<std::pair<int, int>> popups_;
     std::map<std::pair<int, int>, bool> popup_has_been_opened_;
+
+    //Helper
+    void DrawGrid(const std::vector<std::vector<int>>& grid, std::shared_ptr<FireModelRenderer> renderer, float cell_size, bool is_fire_status = false);
+
+    void DrawBuffer(std::vector<float> buffer, int buffer_pos);
 };
 
 #endif //ROSHAN_FIREMODEL_IMGUI_H

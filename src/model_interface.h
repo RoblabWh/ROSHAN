@@ -28,7 +28,9 @@ public:
     virtual void SetWidthHeight(int width, int height) = 0;
     virtual void HandleEvents(SDL_Event event, ImGuiIO* io) = 0;
     virtual void ImGuiSimulationSpeed() = 0;
+    virtual void GetData(std::string data) = 0;
     virtual void ImGuiRendering(std::function<void(bool&, bool&, int&)> controls, bool &update_simulation, bool &render_simulation, int &delay) = 0;
+    virtual std::string GetUserInput() = 0;
 };
 
 

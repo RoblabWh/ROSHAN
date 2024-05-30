@@ -82,189 +82,220 @@ void ImguiHandler::ImGuiModelMenu(std::shared_ptr<FireModelRenderer> model_rende
     }
 }
 
-void ImguiHandler::Config(std::shared_ptr<GridMap> gridmap, std::shared_ptr<std::vector<std::shared_ptr<DroneAgent>>> drones,
-                          std::shared_ptr<FireModelRenderer> model_renderer, std::shared_ptr<DatasetHandler> dataset_handler,
-                          std::vector<std::vector<int>> &current_raster_data, double running_time, std::vector<double> rewards,
-                          std::shared_ptr<Wind> wind, bool &agent_is_running) {
-    if(show_demo_window_)
+void ImguiHandler::Config(std::shared_ptr<GridMap> gridmap, std::shared_ptr<FireModelRenderer> model_renderer,
+                          std::vector<std::vector<int>> &current_raster_data, double running_time,
+                          std::shared_ptr<Wind> wind) {
+    if (show_demo_window_)
         ImGui::ShowDemoWindow(&show_demo_window_);
 
     if (!ImGuiOnStartup(model_renderer, current_raster_data)) {
 
         ImGui::PushStyleVar(ImGuiStyleVar_FramePadding, ImVec2(5, 7));
 
-        if(show_model_parameter_config_)
+        if (show_model_parameter_config_)
             ShowParameterConfig(wind);
 
         if (show_model_analysis_) {
             ImGui::Begin("Simulation Analysis");
             ImGui::Spacing();
-            ImGui::Text("Number of particles: %d", gridmap->GetNumParticles());
-            ImGui::Text("Number of cells: %d", gridmap->GetNumCells());
-            ImGui::Text("Running Time: %s", formatTime(running_time).c_str());
-            ImGui::Text("Height: %.2fkm | Width: %.2fkm", gridmap->GetRows() * parameters_.GetCellSize() / 1000,
-                        gridmap->GetCols() * parameters_.GetCellSize() / 1000);
+            std::string analysis_text;
+            analysis_text += "Number of particles: " + std::to_string(gridmap->GetNumParticles()) + "\n";
+            analysis_text += "Number of cells: " + std::to_string(gridmap->GetNumCells()) + "\n";
+            analysis_text += "Running Time: " + formatTime(running_time) + "\n";
+            analysis_text +=
+                    "Height: " + std::to_string(gridmap->GetRows() * parameters_.GetCellSize() / 1000) + "km | ";
+            analysis_text += "Width: " + std::to_string(gridmap->GetCols() * parameters_.GetCellSize() / 1000) + "km";
+            ImGui::TextWrapped("%s", analysis_text.c_str());
             ImGui::End();
         }
 
-        if (show_rl_controls_ && python_code_) {
-            ImGui::Begin("RL Controls");
-            bool button_color = false;
-            if (agent_is_running) {
-                ImGui::PushStyleColor(ImGuiCol_Button, ImVec4(0.35f, 0.6f, 0.85f, 1.0f));
-                ImGui::PushStyleColor(ImGuiCol_ButtonHovered, ImVec4(0.45f, 0.7f, 0.95f, 1.0f));
-                ImGui::PushStyleColor(ImGuiCol_ButtonActive, ImVec4(0.25f, 0.5f, 0.75f, 1.0f));
-                button_color = true;
-            }
-            if (ImGui::Button(agent_is_running ? "Stop Training" : "Start Training")) {
-                agent_is_running = !agent_is_running;
-            }
-            if (ImGui::IsItemHovered())
-                ImGui::SetTooltip("Click to %s Reinforcement Learning.", agent_is_running ? "stop" : "start");
-            if (button_color) {
-                ImGui::PopStyleColor(3);
-            }
-            ImGui::SameLine();
-            if (ImGui::Button("Reset Drones")) {
-                onResetDrones();
-            }
-            ImGui::End();
-        }
-
-        if (show_drone_analysis_ && python_code_) {
-            ImGuiWindowFlags window_flags = ImGuiWindowFlags_HorizontalScrollbar | ImGuiWindowFlags_AlwaysVerticalScrollbar;
-            ImGui::Begin("Drone Analysis", NULL, window_flags);
-            ImGui::Spacing();
-
-            static int current_drone_index = 0;
-            if (drones->size() > 0) {
-                // Create an array of drone names
-                std::vector<const char*> drone_names;
-                for (int i = 0; i < drones->size(); ++i) {
-                    drone_names.push_back(std::to_string((*drones)[i]->GetId()).c_str());
-                }
-
-                // Create a combo box for selecting a drone
-                ImGui::Combo("Select Drone", &current_drone_index, &drone_names[0], drones->size());
-
-                // Get the currently selected drone
-                auto& selected_drone = (*drones)[current_drone_index];
-
-                ImGui::Text("Drone %d", selected_drone->GetId());
-                ImGui::Text("Grid Position: (%d, %d)", selected_drone->GetGridPosition().first,
-                            selected_drone->GetGridPosition().second);
-                ImGui::Text("Out of Area Counter: %d", selected_drone->GetOutOfAreaCounter());
-                ImGui::Text("Real Position: (%.2f, %.2f)", selected_drone->GetRealPosition().first,
-                            selected_drone->GetRealPosition().second);
-                ImGui::Text("Network Input:");
-                ImGui::Text("Relative Position: %.2f, %.2f", selected_drone->GetLastState().GetPositionNorm().first,
-                            selected_drone->GetLastState().GetPositionNorm().second);
-                ImGui::Text("Velocity (x,y) m/s: %.2f, %.2f", selected_drone->GetLastState().GetVelocityNorm().first,
-                            selected_drone->GetLastState().GetVelocityNorm().second);
-                ImGui::Text("Terrain");
-                // Calculate the size and position of each cell
-                float cell_size = 15.0f;
-                ImVec2 cursor_pos = ImGui::GetCursorScreenPos();
-                ImVec2 first_map_origin = cursor_pos;
-
-                std::vector<std::vector<int>> terrain = selected_drone->GetLastState().get_terrain();
 
 
-                // Draw each cell
-                for (int y = 0; y < terrain.size(); ++y) {
-                    for (int x = 0; x < terrain[y].size(); ++x) {
-                        ImVec4 color = model_renderer->GetMappedColor(terrain[y][x]);
-                        ImVec2 p_min = ImVec2(cursor_pos.x + x * cell_size, cursor_pos.y + y * cell_size);
-                        ImVec2 p_max = ImVec2(cursor_pos.x + (x + 1) * cell_size, cursor_pos.y + (y + 1) * cell_size);
-                        ImGui::GetWindowDrawList()->AddRectFilled(p_min, p_max, IM_COL32(color.x * 255, color.y * 255, color.z * 255, color.w * 255));
-                    }
-                }
-
-                std::vector<std::vector<int>> fire_status = selected_drone->GetLastState().get_fire_status();
-
-                // Set the cursor to the position of the second map
-                ImVec2 second_map_origin = ImVec2(first_map_origin.x + terrain[0].size() * cell_size + 10, first_map_origin.y);
-                ImGui::SetCursorScreenPos(second_map_origin);
-                cursor_pos = ImGui::GetCursorScreenPos();
-
-                ImGui::Text("FireStatus");
-                for (int y = 0; y < fire_status.size(); ++y) {
-                    for (int x = 0; x < fire_status[y].size(); ++x) {
-                        ImVec4 color = fire_status[y][x] == 1 ? ImVec4(255 / 255.f, 0, 0, 255 / 255.f) : ImVec4(0, 0, 0, 255 / 255.f);
-                        ImVec2 p_min = ImVec2(cursor_pos.x + x * cell_size, cursor_pos.y + y * cell_size);
-                        ImVec2 p_max = ImVec2(cursor_pos.x + (x + 1) * cell_size, cursor_pos.y + (y + 1) * cell_size);
-                        ImGui::GetWindowDrawList()->AddRectFilled(p_min, p_max, IM_COL32(color.x * 255, color.y * 255, color.z * 255, color.w * 255));
-                    }
-                }
-
-                std::vector<std::vector<int>> map = selected_drone->GetLastState().get_map();
-
-                ImVec2 third_map_origin = ImVec2(first_map_origin.x, first_map_origin.y + terrain.size() * cell_size + 10);
-                ImGui::SetCursorScreenPos(third_map_origin);
-                cell_size = 5.0f;
-                cursor_pos = ImGui::GetCursorScreenPos();
-
-                ImGui::Text("Map");
-                for (int x = 0; x < map.size(); ++x) {
-                    for (int y = 0; y < map[x].size(); ++y) {
-                        ImVec4 color = map[x][y] == 1 ? ImVec4(255 / 255.f, 0, 0, 255 / 255.f) : ImVec4(0, 0, 0, 255 / 255.f);
-                        ImVec2 p_min = ImVec2(cursor_pos.x + x * cell_size, cursor_pos.y + y * cell_size);
-                        ImVec2 p_max = ImVec2(cursor_pos.x + (x + 1) * cell_size, cursor_pos.y + (y + 1) * cell_size);
-                        ImGui::GetWindowDrawList()->AddRectFilled(p_min, p_max, IM_COL32(color.x * 255, color.y * 255, color.z * 255, color.w * 255));
-                    }
-                }
-                if (ImGui::Begin("Rewards List")) {
-                    if (ImGui::BeginChild("RewardChild", ImVec2(0, 200), true)) {  // 200 is the height; adjust as required
-                        for (size_t i = 0; i < rewards.size(); ++i) {
-                            ImGui::Text("Reward %zu: %f", i, rewards[i]);
-                        }
-                    }
-                    ImGui::EndChild();
-                }
-                ImGui::End();
-
-            } else {
-                ImGui::Text("No drones available.");
-            }
-
-            ImGui::Spacing();
-            ImGui::End();
-        }
-
-        if (open_file_dialog_) {
-            std::string filePathName;
-            // open Dialog Simple
-            IGFD::FileDialogConfig config;
-            config.path = "../maps";
-            ImGuiFileDialog::Instance()->OpenDialog("ChooseFileDlgKey", "Choose File", ".tif", config);
-
-            // display
-            if (ImGuiFileDialog::Instance()->Display("ChooseFileDlgKey")) {
-                // action if OK
-                if (ImGuiFileDialog::Instance()->IsOk()) {
-                    filePathName = ImGuiFileDialog::Instance()->GetFilePathName();
-                    std::string filePath = ImGuiFileDialog::Instance()->GetCurrentPath();
-                    if (load_map_from_disk_){
-                        dataset_handler->LoadMap(filePathName);
-                        std::vector<std::vector<int>> rasterData;
-                        dataset_handler->LoadMapDataset(rasterData);
-                        current_raster_data.clear();
-                        current_raster_data = rasterData;
-                        parameters_.map_is_uniform_ = false;
-                        load_map_from_disk_ = false;
-                        init_gridmap_ = true;
-                    }
-                    else if (save_map_to_disk_) {
-                        dataset_handler->SaveRaster(filePathName);
-                        save_map_to_disk_ = false;
-                    }
-                }
-                // close
-                ImGuiFileDialog::Instance()->Close();
-                open_file_dialog_ = false;
-            }
-        }
         ImGui::PopStyleVar();
+    }
+}
+
+void ImguiHandler::PyConfig(std::vector<float> rewards, int rewards_pos,std::vector<float> all_rewards,
+                            bool &agent_is_running, std::string &user_input, std::string &model_output,
+                            std::shared_ptr<std::vector<std::shared_ptr<DroneAgent>>> drones,
+                            std::shared_ptr<FireModelRenderer> model_renderer) {
+    if (show_rl_controls_ && python_code_) {
+        static char input_text[512] = "";
+        ImGui::Begin("RL Controls", NULL, ImGuiWindowFlags_AlwaysVerticalScrollbar);
+        bool button_color = false;
+        if (agent_is_running) {
+            ImGui::PushStyleColor(ImGuiCol_Button, ImVec4(0.35f, 0.6f, 0.85f, 1.0f));
+            ImGui::PushStyleColor(ImGuiCol_ButtonHovered, ImVec4(0.45f, 0.7f, 0.95f, 1.0f));
+            ImGui::PushStyleColor(ImGuiCol_ButtonActive, ImVec4(0.25f, 0.5f, 0.75f, 1.0f));
+            button_color = true;
+        }
+        if (ImGui::Button(agent_is_running ? "Stop Training" : "Start Training")) {
+            agent_is_running = !agent_is_running;
+        }
+        if (ImGui::IsItemHovered())
+            ImGui::SetTooltip("Click to %s Reinforcement Learning.", agent_is_running ? "stop" : "start");
+        if (button_color) {
+            ImGui::PopStyleColor(3);
+        }
+        ImGui::SameLine();
+        if (ImGui::Button("Reset Drones")) {
+            onResetDrones();
+        }
+
+        ImGui::Text("Ask ROSHAN-AI a question:");
+        ImGui::InputText("##input", input_text, IM_ARRAYSIZE(input_text));
+        if (ImGui::Button("Send")) {
+            // Do something with the text
+            user_input = input_text;
+            // Clear the input text
+            memset(input_text, 0, sizeof(input_text));
+        }
+        ImGui::TextWrapped("%s", model_output.c_str());
+        ImGui::End();
+    }
+
+    if (show_drone_analysis_ && python_code_) {
+        ImGuiWindowFlags window_flags =
+                ImGuiWindowFlags_HorizontalScrollbar | ImGuiWindowFlags_AlwaysVerticalScrollbar;
+        ImGui::Begin("Drone Analysis", &show_drone_analysis_, window_flags);
+        ImGui::Spacing();
+
+        static int current_drone_index = 0;
+
+        if (drones->size() > 0) {
+            // Create an array of drone names
+            std::vector<std::string> drone_names;
+            for (const auto &drone: *drones) {
+                drone_names.push_back(std::to_string(drone->GetId()));
+            }
+
+            // Create a combo box for selecting a drone
+            ImGui::Combo("Select Drone", &current_drone_index, [](void *data, int idx, const char **out_text) {
+                auto &names = *static_cast<std::vector<std::string> *>(data);
+                if (idx < 0 || idx >= names.size()) return false;
+                *out_text = names[idx].c_str();
+                return true;
+            }, &drone_names, drone_names.size());
+
+            // Get the currently selected drone
+            auto &selected_drone = (*drones)[current_drone_index];
+
+            // Use columns to separate text and images
+            ImGui::Columns(2, nullptr, true);
+
+            // Display drone information
+            ImGui::Text("Drone %d", selected_drone->GetId());
+            std::pair<double, double> pos = selected_drone->GetLastState().GetPositionNorm();
+            ImGui::Text("Grid Position: (%f, %f)", pos.first, pos.second);
+            ImGui::Text("Out of Area Counter: %d", selected_drone->GetOutOfAreaCounter());
+            ImGui::Text("Real Position: (%.2f, %.2f)", selected_drone->GetRealPosition().first,
+                        selected_drone->GetRealPosition().second);
+            ImGui::Spacing();
+
+            // Display network input information
+            ImGui::Text("Network Input:");
+            ImGui::BulletText("Relative Position: %.2f, %.2f",
+                              selected_drone->GetLastState().GetPositionNorm().first,
+                              selected_drone->GetLastState().GetPositionNorm().second);
+            ImGui::BulletText("Velocity (x,y) m/s: %.2f, %.2f",
+                              selected_drone->GetLastState().GetVelocityNorm().first,
+                              selected_drone->GetLastState().GetVelocityNorm().second);
+
+            // Move to the next column
+            ImGui::NextColumn();
+
+            // Draw terrain map
+            ImVec2 title_origin = ImGui::GetCursorScreenPos();
+            ImGui::Text("Terrain");
+            ImVec2 map_origin = ImGui::GetCursorScreenPos();
+            DrawGrid(selected_drone->GetLastState().get_terrain(), model_renderer, 5.0f);
+
+            // Fire Status Title
+            ImVec2 firedet_title_origin = ImVec2(
+                    title_origin.x + selected_drone->GetLastState().get_terrain()[0].size() * 5.0f + 10,
+                    title_origin.y);
+            ImGui::SetCursorScreenPos(firedet_title_origin);
+            ImGui::Text("Fire Status");
+            // Draw fire status map
+            ImVec2 firedet_map_origin = ImVec2(
+                    map_origin.x + selected_drone->GetLastState().get_terrain()[0].size() * 5.0f + 10,
+                    map_origin.y);
+            ImGui::SetCursorScreenPos(firedet_map_origin);
+            DrawGrid(selected_drone->GetLastState().get_fire_status(), model_renderer, 5.0f, true);
+
+            // Perception Map Title
+            ImVec2 perception_title_origin = ImVec2(
+                    firedet_title_origin.x + selected_drone->GetLastState().get_terrain().size() * 5.0f + 10,
+                    firedet_title_origin.y);
+            ImGui::SetCursorScreenPos(perception_title_origin);
+            ImGui::Text("Perception Map");
+
+            // Draw perception map
+            ImVec2 perception_map_origin = ImVec2(
+                    firedet_map_origin.x + selected_drone->GetLastState().get_terrain().size() * 5.0f + 10,
+                    firedet_map_origin.y);
+            ImGui::SetCursorScreenPos(perception_map_origin);
+            DrawGrid(selected_drone->GetLastState().get_map(), model_renderer, 2.0f, true);
+
+            // Move back to one column to column 1
+            ImGui::Columns(1);
+            ImGui::Spacing();
+            ImGui::Text("Episodic Rewards");
+            // Plot rewards using ImGui::PlotLines
+            if (!rewards.empty()) {
+                this->DrawBuffer(rewards, rewards_pos);
+            } else {
+                ImGui::Text("No rewards data available.");
+            }
+            ImGui::Text("Accumulated Episodic Rewards");
+            if (!all_rewards.empty()) {
+                this->DrawBuffer(all_rewards, all_rewards.size());
+            } else {
+                ImGui::Text("No total rewards data available.");
+            }
+        } else {
+            ImGui::Text("No drones available.");
+        }
+
+        ImGui::End();
+    }
+}
+
+void ImguiHandler::FileHandling(std::shared_ptr<DatasetHandler> dataset_handler, std::vector<std::vector<int>> &current_raster_data){
+
+    // Show the file dialog for loading and saving maps
+    if (open_file_dialog_) {
+        std::string filePathName;
+        // open Dialog Simple
+        IGFD::FileDialogConfig config;
+        config.path = "../maps";
+        ImGuiFileDialog::Instance()->OpenDialog("ChooseFileDlgKey", "Choose File", ".tif", config);
+
+        // display
+        if (ImGuiFileDialog::Instance()->Display("ChooseFileDlgKey")) {
+            // action if OK
+            if (ImGuiFileDialog::Instance()->IsOk()) {
+                filePathName = ImGuiFileDialog::Instance()->GetFilePathName();
+                std::string filePath = ImGuiFileDialog::Instance()->GetCurrentPath();
+                if (load_map_from_disk_){
+                    dataset_handler->LoadMap(filePathName);
+                    std::vector<std::vector<int>> rasterData;
+                    dataset_handler->LoadMapDataset(rasterData);
+                    current_raster_data.clear();
+                    current_raster_data = rasterData;
+                    parameters_.map_is_uniform_ = false;
+                    load_map_from_disk_ = false;
+                    init_gridmap_ = true;
+                }
+                else if (save_map_to_disk_) {
+                    dataset_handler->SaveRaster(filePathName);
+                    save_map_to_disk_ = false;
+                }
+            }
+            // close
+            ImGuiFileDialog::Instance()->Close();
+            open_file_dialog_ = false;
+        }
     }
 }
 
@@ -468,7 +499,7 @@ void ImguiHandler::HandleEvents(SDL_Event event, ImGuiIO *io, std::shared_ptr<Gr
         if (event.window.event == SDL_WINDOWEVENT_SIZE_CHANGED) {
             model_renderer->ResizeEvent();
         }
-    } else if (event.type == SDL_KEYDOWN && parameters_.GetNumberOfDrones() == 1 && !agent_is_running) {
+    } else if (event.type == SDL_KEYDOWN && parameters_.GetNumberOfDrones() == 1 && !agent_is_running && !io->WantTextInput) {
         if (event.key.keysym.sym == SDLK_w)
             onMoveDrone(0, 0, parameters_.GetDroneSpeed(0.1), 0);
         // MoveDroneByAngle(0, 0.25, 0, 0);
@@ -496,6 +527,49 @@ void ImguiHandler::HandleEvents(SDL_Event event, ImGuiIO *io, std::shared_ptr<Gr
             browser_selection_flag_ = false;
             parameters_.map_is_uniform_ = false;
             onResetGridMap(&current_raster_data);
+        }
+    }
+}
+
+void ImguiHandler::DrawBuffer(std::vector<float> buffer, int buffer_pos) {
+    // Calculate the minimum and maximum values from the data
+    float min_value = *std::min_element(buffer.begin(), buffer.end());
+    float max_value = *std::max_element(buffer.begin(), buffer.end());
+    // Calculate the position and size of the graph
+    //ImVec2 graph_pos = ImGui::GetCursorScreenPos();
+    ImGui::PlotLines("", buffer.data(), static_cast<int>(buffer.size()), 0, nullptr, min_value, max_value, ImVec2(0, 150));
+    // Get the draw list
+    ImDrawList* draw_list = ImGui::GetWindowDrawList();
+
+    // Get the position and size of the plot
+    ImVec2 graph_pos = ImGui::GetItemRectMin(); // Top-left corner of the plot
+    ImVec2 graph_size = ImGui::GetItemRectSize(); // Size of the plot
+
+    // Ensure pos_index is within bounds
+    if (buffer_pos >= 0 && buffer_pos < buffer.size()) {
+        // Calculate the x-position of the data point in screen coordinates
+        float x = graph_pos.x + ((float)buffer_pos / (buffer.size() - 1)) * graph_size.x;
+
+        // Draw a vertical line at the data point position
+        draw_list->AddLine(ImVec2(x, graph_pos.y), ImVec2(x, graph_pos.y + graph_size.y), IM_COL32(255, 0, 0, 255), 2.0f);
+
+        // Optionally, add a text label at the data point position
+        char label[32];
+        snprintf(label, sizeof(label), "Value: %.2f", buffer[buffer_pos]);
+        draw_list->AddText(ImVec2(x + 10, graph_pos.y), IM_COL32(255, 255, 255, 255), label);
+    }
+}
+
+void ImguiHandler::DrawGrid(const std::vector<std::vector<int>>& grid, std::shared_ptr<FireModelRenderer> renderer, float cell_size, bool is_fire_status) {
+    ImVec2 cursor_pos = ImGui::GetCursorScreenPos();
+    for (int y = 0; y < grid.size(); ++y) {
+        for (int x = 0; x < grid[y].size(); ++x) {
+            ImVec4 color = is_fire_status
+                           ? (grid[y][x] == 1 ? ImVec4(1.0f, 0.0f, 0.0f, 1.0f) : ImVec4(0.0f, 1.0f, 0.0f, 1.0f))
+                           : renderer->GetMappedColor(grid[y][x]);
+            ImVec2 p_min = ImVec2(cursor_pos.x + x * cell_size, cursor_pos.y + y * cell_size);
+            ImVec2 p_max = ImVec2(cursor_pos.x + (x + 1) * cell_size, cursor_pos.y + (y + 1) * cell_size);
+            ImGui::GetWindowDrawList()->AddRectFilled(p_min, p_max, IM_COL32(color.x * 255, color.y * 255, color.z * 255, color.w * 255));
         }
     }
 }

@@ -71,7 +71,7 @@ std::vector<std::vector<double>> DroneState::GetMapNorm() {
     return std::vector<std::vector<double>>();
 }
 
-std::pair<double, double> DroneState::GetPositionNorm() {
+std::pair<double, double> DroneState::GetPositionNorm() const {
     double x = (static_cast<double>(position_.first) + 0.5 * cell_size_) / (map_dimensions_.first * cell_size_);
     double y = (static_cast<double>(position_.second) + 0.5 * cell_size_) / (map_dimensions_.second * cell_size_);
     return std::make_pair(x, y);

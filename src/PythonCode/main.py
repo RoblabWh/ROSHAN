@@ -94,13 +94,19 @@ if __name__ == '__main__':
     # Stats to log
     stats = {'died': [0], 'reached': [0], 'time': [0], 'reward': [0], 'episode': [0]}
 
+    llm_support = True
+
+    if llm_support:
+        from llmsupport import LLMPredictorAPI
+        llm = LLMPredictorAPI("mistralai/Mistral-7B-Instruct-v0.3")
+
     engine = firesim.EngineCore()
     memory = Memory()
     logger = Logger(log_dir='./logs', log_interval=1)
     agent = Agent('ppo', logger)
     train = False
     if not train:
-        agent.algorithm.load_model('best.pth')
+        train = not agent.algorithm.load_model('best.pth')
     logger.set_logging(True)
     if memory.max_size <= batch_size:
         warnings.warn("Memory size is smaller than horizon. Setting horizon to memory size.")
@@ -115,6 +121,7 @@ if __name__ == '__main__':
             t += 1  # TODO use simulation time instead of timesteps
             observations = engine.GetObservations()
             obs = restructure_data(observations)
+
             if train:
                 actions, action_logprobs = agent.act(obs, t)
                 drone_actions = []
@@ -134,6 +141,13 @@ if __name__ == '__main__':
                     drone_actions.append(
                         firesim.DroneAction(activation[0], activation[1], int(np.round(activation[2]))))
                 next_observations, rewards, terminals, dones = engine.Step(drone_actions)
-                log_outcome(rewards, terminals, dones, stats)
+                if not train:
+                    log_outcome(rewards, terminals, dones, stats)
+        else:
+            obs, rewards = None, None
+
+        user_input = engine.GetUserInput()
+        if llm_support and user_input != "":
+            llm(engine, user_input, obs, rewards)
 
     engine.Clean()

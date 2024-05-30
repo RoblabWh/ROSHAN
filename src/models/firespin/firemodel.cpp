@@ -6,7 +6,7 @@
 
 std::shared_ptr<FireModel> FireModel::instance_ = nullptr;
 
-FireModel::FireModel(std::shared_ptr<SDL_Renderer> renderer, int mode) {
+FireModel::FireModel(std::shared_ptr<SDL_Renderer> renderer, int mode) : rewards_(300) {
     // Find the project root directory
     auto start_path = std::filesystem::current_path();
     auto project_root = find_project_root(start_path);
@@ -29,6 +29,8 @@ FireModel::FireModel(std::shared_ptr<SDL_Renderer> renderer, int mode) {
     model_renderer_ = FireModelRenderer::GetInstance(renderer, parameters_);
     wind_ = std::make_shared<Wind>(parameters_);
     this->setupImGui();
+    user_input_ = "";
+    model_output_ = "Here goes the model output.";
     gridmap_ = nullptr;
     running_time_ = 0;
 }
@@ -42,7 +44,8 @@ void FireModel::ResetGridMap(std::vector<std::vector<int>>* rasterData) {
 
     if (python_code_){
         last_distance_to_fire_ = std::numeric_limits<double>::max();
-        int fires = 4;
+        int cells = gridmap_->GetNumCells();
+        int fires = static_cast<int>(cells * 0.01);
         std::pair<int, int> drone_position = drones_->at(0)->GetGridPosition();
         if(gridmap_->CellCanIgnite(drone_position.first, drone_position.second))
             gridmap_->IgniteCell(drone_position.first, drone_position.second);
@@ -100,7 +103,6 @@ void FireModel::Update() {
 
 std::vector<std::deque<std::shared_ptr<State>>> FireModel::GetObservations() {
     std::vector<std::deque<std::shared_ptr<State>>> all_drone_states;
-
     all_drone_states.reserve(drones_->size());
     if (gridmap_ != nullptr) {
         //Get observations
@@ -155,7 +157,7 @@ void FireModel::ResetDrones() {
     for (int i = 0; i < parameters_.GetNumberOfDrones(); ++i) {
         auto newDrone = std::make_shared<DroneAgent>(model_renderer_->GetRenderer(), gridmap_->GetRandomPointInGrid(), parameters_, i);
         std::pair<std::vector<std::vector<int>>, std::vector<std::vector<int>>> drone_view = gridmap_->GetDroneView(newDrone);
-        newDrone->Initialize(drone_view.first, drone_view.second, std::make_pair(gridmap_->GetCols(), gridmap_->GetRows()), parameters_.GetCellSize());
+        newDrone->Initialize(drone_view.first, drone_view.second, std::make_pair(gridmap_->GetRows(), gridmap_->GetCols()), parameters_.GetCellSize());
         drones_->push_back(newDrone);
     }
 }
@@ -165,7 +167,7 @@ double FireModel::CalculateReward(bool drone_in_grid, bool fire_extinguished, bo
 
     // check the boundaries of the network
     if (!drone_in_grid) {
-        reward += -2 * max_distance;
+        reward += -50 * max_distance;
         if(drone_terminal) {
             reward -= 10;
             return reward;
@@ -219,7 +221,7 @@ std::tuple<std::vector<std::deque<std::shared_ptr<State>>>, std::vector<double>,
     if (gridmap_ != nullptr) {
         std::vector<std::deque<std::shared_ptr<State>>> next_observations;
         std::vector<bool> terminals;
-        rewards_.clear();
+        std::vector<double> rewards;
         // TODO this is dirty
         bool drone_died = false;
         bool all_fires_ext = false;
@@ -234,6 +236,7 @@ std::tuple<std::vector<std::deque<std::shared_ptr<State>>>, std::vector<double>,
 
             std::pair<int, int> drone_position = drones_->at(i)->GetGridPosition();
             bool drone_in_grid = gridmap_->IsPointInGrid(drone_position.first, drone_position.second);
+
             // Calculate distance to nearest fire, dirty maybe change that later(lol never gonna happen)
             double distance_to_fire = drones_->at(i)->FindNearestFireDistance();
 
@@ -289,14 +292,22 @@ std::tuple<std::vector<std::deque<std::shared_ptr<State>>>, std::vector<double>,
             }
             double reward = CalculateReward(drone_in_grid, drone_dispensed_water, terminals[i],
                                 water_dispense, near_fires, max_distance, distance_to_fire);
-            rewards_.push_back(reward);
+            rewards.push_back(reward);
+            rewards_.put(static_cast<float>(reward));
+
             if (!terminals[i]) {
                 last_distance_to_fire_ = distance_to_fire;
                 last_near_fires_ = near_fires;
+            } else {
+                std::cout << "Drone " << i << " terminated" << std::endl;
+                auto buffer = rewards_.getBuffer();
+                float sum = std::accumulate(buffer.begin(), buffer.end(), 0.0f);
+                all_rewards_.push_back(sum / buffer.size());
+                rewards_.reset();
             }
         }
 
-        return {next_observations, rewards_, terminals, std::make_pair(drone_died, all_fires_ext)};
+        return {next_observations, rewards, terminals, std::make_pair(drone_died, all_fires_ext)};
 
     }
     return {};
@@ -341,8 +352,10 @@ void FireModel::ImGuiRendering(std::function<void(bool &, bool &, int &)> contro
                              bool &render_simulation, int &delay) {
     imgui_handler_->ShowControls(controls, update_simulation, render_simulation, delay);
     imgui_handler_->ImGuiModelMenu(model_renderer_, current_raster_data_);
-    imgui_handler_->Config(gridmap_, drones_, model_renderer_, dataset_handler_,
-                           current_raster_data_, running_time_, rewards_, wind_, agent_is_running_);
+    imgui_handler_->Config(gridmap_, model_renderer_,
+                           current_raster_data_, running_time_, wind_);
+    imgui_handler_->PyConfig(rewards_.getBuffer(), rewards_.getHead(), all_rewards_, agent_is_running_, user_input_, model_output_, drones_, model_renderer_);
+    imgui_handler_->FileHandling(dataset_handler_, current_raster_data_);
     imgui_handler_->ShowPopups(gridmap_, current_raster_data_);
 }
 
@@ -352,5 +365,15 @@ void FireModel::HandleEvents(SDL_Event event, ImGuiIO *io) {
 
 void FireModel::ImGuiSimulationSpeed() {
     imgui_handler_->ImGuiSimulationSpeed();
+}
+
+std::string FireModel::GetUserInput() {
+    std::string tmp_input = user_input_;
+    user_input_ = "";
+    return tmp_input;
+}
+
+void FireModel::GetData(std::string data) {
+    model_output_ = data;
 }
 

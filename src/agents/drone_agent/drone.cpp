@@ -40,7 +40,7 @@ void DroneAgent::Update(double netout_speed_x, double netout_speed_y, std::vecto
 void DroneAgent::Initialize(std::vector<std::vector<int>> terrain, std::vector<std::vector<int>> fire_status, std::pair<int, int> size, double cell_size) {
     for(int i = 0; i < 4; ++i) {
         std::vector<std::vector<int>> map(size.first, std::vector<int>(size.second, -1));
-        std::pair<double, double> size_ = std::make_pair(size.first * parameters_.GetCellSize(), size.second * parameters_.GetCellSize());
+        //std::pair<double, double> size_ = std::make_pair(size.first * parameters_.GetCellSize(), size.second * parameters_.GetCellSize());
         DroneState new_state = DroneState(0, 0, parameters_.GetMaxVelocity(), terrain, fire_status, map, size, position_, cell_size);
         drone_states_.push_front(new_state);
     }

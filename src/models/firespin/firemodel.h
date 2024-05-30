@@ -11,6 +11,7 @@
 #include <map>
 #include <chrono>
 #include <thread>
+#include "utils.h"
 #include "model_interface.h"
 #include "firemodel_gridmap.h"
 #include "src/models/firespin/rendering/firemodel_renderer.h"
@@ -44,6 +45,8 @@ public:
     void HandleEvents(SDL_Event event, ImGuiIO* io) override;
     void ImGuiSimulationSpeed() override;
     void ImGuiRendering(std::function<void(bool&, bool&, int&)> controls, bool &update_simulation, bool &render_simulation, int &delay) override;
+    std::string GetUserInput() override;
+    void GetData(std::string data) override;
 
 private:
     explicit FireModel(std::shared_ptr<SDL_Renderer> renderer, int mode);
@@ -67,7 +70,8 @@ private:
     void ResetDrones();
     std::shared_ptr<std::vector<std::shared_ptr<DroneAgent>>> drones_;
     std::vector<std::deque<DroneState>> observations_;
-    std::vector<double> rewards_;
+    CircularBuffer<float> rewards_;
+    std::vector<float> all_rewards_;
 
     // RL Flags
     bool python_code_ = true;
@@ -76,6 +80,8 @@ private:
     // Dirty Variables
     double last_distance_to_fire_;
     int last_near_fires_;
+    std::string user_input_;
+    std::string model_output_;
 
     //ImGui Stuff
     std::shared_ptr<ImguiHandler> imgui_handler_;

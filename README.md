@@ -66,6 +66,10 @@ https://github.com/libsdl-org/SDL_image/releases/tag/release-2.6.3
 
 `conda install packaging`
 
+##### LLM Support
+
+`pip install transformers[torch] onnxruntime bitsandbytes optimum onnx`
+
 #### Compile
 
 `cd \ROSHAN`
