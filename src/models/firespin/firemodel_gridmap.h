@@ -15,7 +15,7 @@
 #include <random>
 #include <iostream>
 #include <memory>
-#include "src/agents/drone_agent/drone.h"
+#include "src/reinforcementlearning/drone_agent/drone.h"
 
 // TODO Remove circular dependency
 class DroneAgent;
@@ -27,6 +27,7 @@ public:
 
     int GetRows() const { return rows_; }
     int GetCols() const { return cols_; }
+    FireModelParameters &GetParameters() { return parameters_; }
     void IgniteCell(int x, int y);
     bool WaterDispension(int x, int y);
     void ExtinguishCell(int x, int y);
@@ -38,7 +39,7 @@ public:
     bool IsBurning() const;
     int GetNumParticles() { return virtual_particles_.size() + radiation_particles_.size();}
     bool CellCanIgnite(int x, int y) const { return cells_[x][y]->CanIgnite(); }
-    void ShowCellInfo(int x, int y) { cells_[x][y]->ShowInfo(); }
+    void ShowCellInfo(int x, int y) { cells_[x][y]->ShowInfo(this->GetRows(), this->GetCols()); }
     int GetNumCells() const { return rows_ * cols_; }
     std::vector<VirtualParticle> GetVirtualParticles() const { return virtual_particles_; }
     std::vector<RadiationParticle> GetRadiationParticles() const { return radiation_particles_; }

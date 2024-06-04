@@ -17,7 +17,7 @@
 #include <chrono>
 #include <SDL_image.h>
 #include <memory>
-#include "agents/drone_agent/drone.h"
+#include "reinforcementlearning/drone_agent/drone.h"
 
 #include "src/models/firespin/cell_classes/cell_generic_burned.cpp"
 #include "src/models/firespin/cell_classes/cell_generic_unburned.cpp"
@@ -48,6 +48,7 @@ public:
     void SetScreenResolution();
     void SetGridMap(std::shared_ptr<GridMap> gridmap) { gridmap_ = gridmap; SetFullRedraw(); }
     std::shared_ptr<SDL_Renderer> GetRenderer() { return renderer_; }
+    std::shared_ptr<GridMap> GetGridMap() { return gridmap_; }
 
     // Converter Functions
     std::pair<int, int> ScreenToGridPosition(int x, int y);

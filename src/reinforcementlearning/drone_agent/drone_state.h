@@ -20,9 +20,7 @@ class DroneState : public State{
 public:
     explicit DroneState(double speed_x, double speed_y, std::pair<double, double> max_speed, std::vector<std::vector<int>> terrain,
                         std::vector<std::vector<int>> fire_status, std::vector<std::vector<int>> map, std::pair<double, double> map_dimensions,
-                        std::pair<int, int> position, double cell_size);
-    DroneState GetNewState(double speed_x, double speed_y, std::vector<std::vector<int>> terrain, std::vector<std::vector<int>> fire_status,
-                           std::vector<std::vector<int>> updated_map, std::pair<int, int> position);
+                        std::pair<double, double> position, double cell_size);
 //    void SetOrientation() { orientation_vector_.first = cos(velocity_.first); orientation_vector_.second = sin(velocity_.first); }
 //    std::pair<double, double> GetOrientation() { return orientation_vector_; }
 //    std::pair<double, double> GetNewOrientation(double angular) { return std::make_pair(cos(velocity_.first + angular), sin(velocity_.first + angular)); }
@@ -37,9 +35,8 @@ public:
     std::vector<std::vector<double>> GetFireStatusNorm();
     std::vector<std::vector<int>> GetMap() { return map_; }
     static std::vector<std::vector<double>> GetMapNorm();
-    std::pair<int, int> GetPosition() { return position_; }
     std::pair<double, double> GetPositionNorm() const;
-    int DroneSeesFire();
+
     // For python visibility
     std::pair<double, double> get_velocity() const { return velocity_; }
     std::vector<std::vector<int>> get_terrain() const { return terrain_; }
@@ -53,7 +50,7 @@ private:
     double max_angle_ = M_PI_2;
     std::pair<double, double> map_dimensions_;
     double cell_size_;
-    std::pair<int, int> position_; // x, y
+    std::pair<double, double> position_; // x, y
     std::vector<std::vector<int>> terrain_;
     std::vector<std::vector<int>> fire_status_;
     std::vector<std::vector<int>> map_;

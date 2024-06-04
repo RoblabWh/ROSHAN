@@ -108,18 +108,23 @@ public:
     const double min_A_ = 0.2;
     const double max_A_ = 0.5;
 
-    void ConvertRealToGridCoordinates(double x, double y, int &i, int &j) {
+    void ConvertRealToGridCoordinates(double x, double y, int &i, int &j) const {
         // round x and y to get the cell coordinates
-        i = int(trunc(x / GetCellSize()));
-        j = int(trunc(y / GetCellSize()));
+        i = int(trunc(x / this->GetCellSize()));
+        j = int(trunc(y / this->GetCellSize()));
     }
 
+    void ConvertGridToRealCoordinates(int x_grid, int y_grid, double &x_real, double &y_real) const {
+        x_real = x_grid * this->GetCellSize();
+        y_real = y_grid * this->GetCellSize();
+    }
+
+    // Deprecated (USE WITH CAUTON!)
     void ConvertRealToGridCoordinatesDrone(double x, double y, int &i, int &j) {
         // round x and y to get the cell coordinates
         i = int(round(x / GetCellSize()));
         j = int(round(y / GetCellSize()));
     }
-
 
     // Parameters for the agent
     int number_of_drones_ = 1;
@@ -131,6 +136,10 @@ public:
     int GetNumberOfDrones() const {return number_of_drones_;}
     void SetNumberOfDrones(int number) {number_of_drones_ = number;}
     double GetDroneSpeed(double speed) { return speed * GetDt(); }
+
+    //Parameters for ImGui
+    int RewardsBufferSize = 300;
+    int GetRewardsBufferSize() const {return RewardsBufferSize;}
 
 };
 

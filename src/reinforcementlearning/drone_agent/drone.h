@@ -9,7 +9,7 @@
 #include <SDL.h>
 #include <deque>
 #include <memory>
-#include "agents/drone_agent/rendering/DroneRenderer.h"
+#include "reinforcementlearning/drone_agent/rendering/DroneRenderer.h"
 #include "src/models/firespin/model_parameters.h"
 #include "src/models/firespin/firemodel_gridmap.h"
 #include "drone_state.h"
@@ -22,9 +22,8 @@ public:
     explicit DroneAgent(std::shared_ptr<SDL_Renderer> renderer, std::pair<int, int> point, FireModelParameters &parameters, int id);
     ~DroneAgent() = default;
     std::deque<DroneState> GetStates() { return drone_states_; }
-    void Update(double speed_x, double speed_y, std::vector<std::vector<int>> terrain, std::vector<std::vector<int>> fire_status, std::vector<std::vector<int>> updated_map);
-    void Move(double speed_x, double speed_y);
-    void MoveByAngle(double netout_speed, double netout_angle);
+    void UpdateStates(std::pair<double, double> velocity_vector, std::vector<std::vector<int>> terrain, std::vector<std::vector<int>> fire_status, std::vector<std::vector<int>> updated_map);
+    std::pair<double, double> Step(double netout_x, double netout_y);
     bool DispenseWater(GridMap &grid_map);
     std::pair<int, int> GetGridPosition();
     std::pair<double, double> GetGridPositionDouble();
@@ -37,14 +36,15 @@ public:
     int GetId() const { return id_; }
     int GetViewRange() const { return view_range_; }
     void Render(std::pair<int, int> position, int size);
-    void Initialize(std::vector<std::vector<int>> terrain, std::vector<std::vector<int>> fire_status, std::pair<int, int> size, double cell_size);
+    void Initialize(std::vector<std::vector<int>> terrain, std::vector<std::vector<int>> fire_status, std::pair<int, int> size);
     double FindNearestFireDistance();
 private:
-    std::pair<double, double> GetRealPositionFromGrid(int x, int y);
-    void UpdateStates(double speed_x, double speed_y, std::vector<std::vector<int>> terrain, std::vector<std::vector<int>> fire_status, std::vector<std::vector<int>> updated_map);
+    std::pair<double, double> MoveByXYVel(double speed_x, double speed_y);
+    std::pair<double, double> MoveByAngle(double netout_speed, double netout_angle);
     int id_;
     FireModelParameters &parameters_;
     std::deque<DroneState> drone_states_;
+    std::pair<int, int> map_dimensions_;
     std::pair<double, double> position_; // x, y in (m)
     int view_range_;
     int out_of_area_counter_;

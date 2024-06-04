@@ -60,7 +60,7 @@ public:
     bool ShouldIgnite();
     void Flood();
     void Extinguish();
-    void ShowInfo();
+    void ShowInfo(int rows, int cols);
 private:
     FireModelParameters &parameters_;
 

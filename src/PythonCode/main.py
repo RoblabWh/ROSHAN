@@ -106,7 +106,8 @@ if __name__ == '__main__':
     agent = Agent('ppo', logger)
     train = False
     if not train:
-        train = not agent.algorithm.load_model('best.pth')
+        weights = os.path.join(config['module_directory'], 'best.pth')
+        train = not agent.algorithm.load_model(weights)
     logger.set_logging(True)
     if memory.max_size <= batch_size:
         warnings.warn("Memory size is smaller than horizon. Setting horizon to memory size.")

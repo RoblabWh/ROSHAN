@@ -7,48 +7,51 @@
 
 DroneAgent::DroneAgent(std::shared_ptr<SDL_Renderer> renderer, std::pair<int, int> point, FireModelParameters &parameters, int id) : id_(id), parameters_(parameters) {
     renderer_ = DroneRenderer(renderer);
-    int x = point.first; // position in grid
-    int y = point.second; // position in grid
+    double x = (point.first + 0.5); // position in grid + offset to center
+    double y = (point.second + 0.5); // position in grid + offset to center
     position_ = std::make_pair(x * parameters_.GetCellSize(), y * parameters_.GetCellSize());
     view_range_ = 20;
     out_of_area_counter_ = 0;
+}
+
+void DroneAgent::Initialize(std::vector<std::vector<int>> terrain, std::vector<std::vector<int>> fire_status, std::pair<int, int> size) {
+    map_dimensions_ = size;
+    for(int i = 0; i < 4; ++i) {
+        std::vector<std::vector<int>> map(size.second, std::vector<int>(size.first, -1));
+        //std::pair<double, double> size_ = std::make_pair(size.first * parameters_.GetCellSize(), size.second * parameters_.GetCellSize());
+        DroneState new_state = DroneState(0, 0, parameters_.GetMaxVelocity(), terrain, fire_status, map, map_dimensions_, position_, parameters_.GetCellSize());
+        drone_states_.push_front(new_state);
+    }
 }
 
 void DroneAgent::Render(std::pair<int, int> position, int size) {
     renderer_.Render(position, size, view_range_, 0);
 }
 
-void DroneAgent::MoveByAngle(double netout_speed, double netout_angle){
+std::pair<double, double> DroneAgent::MoveByAngle(double netout_speed, double netout_angle){
     // If you use this function you currently need to manually set the correct boundarys at the velocity max_vector in parameters_
     std::pair<double, double> velocity_vector = drone_states_[0].GetNewVelocity(netout_speed, netout_angle);
     double vel = velocity_vector.first * parameters_.GetDt();
     double angle = velocity_vector.second;
     position_.first += vel * cos(angle);
     position_.second += vel * sin(angle);
+    return velocity_vector;
 }
 
-void DroneAgent::Move(double netout_speed_x, double netout_speed_y) {
+std::pair<double, double> DroneAgent::MoveByXYVel(double netout_speed_x, double netout_speed_y) {
     std::pair<double, double> velocity_vector = drone_states_[0].GetNewVelocity(netout_speed_x, netout_speed_y);
     position_.first += velocity_vector.first * parameters_.GetDt();
     position_.second += velocity_vector.second * parameters_.GetDt();
+    return velocity_vector;
 }
 
-void DroneAgent::Update(double netout_speed_x, double netout_speed_y, std::vector<std::vector<int>> terrain, std::vector<std::vector<int>> fire_status, std::vector<std::vector<int>> updated_map) {
-    UpdateStates(netout_speed_x, netout_speed_y, terrain, fire_status, updated_map);
+std::pair<double, double> DroneAgent::Step(double netout_x, double netout_y) {
+    return this->MoveByXYVel(netout_x, netout_y);
 }
 
-void DroneAgent::Initialize(std::vector<std::vector<int>> terrain, std::vector<std::vector<int>> fire_status, std::pair<int, int> size, double cell_size) {
-    for(int i = 0; i < 4; ++i) {
-        std::vector<std::vector<int>> map(size.first, std::vector<int>(size.second, -1));
-        //std::pair<double, double> size_ = std::make_pair(size.first * parameters_.GetCellSize(), size.second * parameters_.GetCellSize());
-        DroneState new_state = DroneState(0, 0, parameters_.GetMaxVelocity(), terrain, fire_status, map, size, position_, cell_size);
-        drone_states_.push_front(new_state);
-    }
-}
-
-void DroneAgent::UpdateStates(double netout_speed_x, double netout_speed_y, std::vector<std::vector<int>> terrain, std::vector<std::vector<int>> fire_status, std::vector<std::vector<int>> updated_map) {
+void DroneAgent::UpdateStates(std::pair<double, double> velocity_vector, std::vector<std::vector<int>> terrain, std::vector<std::vector<int>> fire_status, std::vector<std::vector<int>> updated_map) {
     // Update the states, last state get's kicked out
-    DroneState new_state = drone_states_[0].GetNewState(netout_speed_x, netout_speed_y, terrain, fire_status, updated_map, position_);
+    DroneState new_state = DroneState(velocity_vector.first, velocity_vector.second, parameters_.GetMaxVelocity(), std::move(terrain), std::move(fire_status), std::move(updated_map), map_dimensions_, position_, parameters_.GetCellSize());
     drone_states_.push_front(new_state);
 
     // Maximum number of states i.e. memory
@@ -65,20 +68,20 @@ bool DroneAgent::DispenseWater(GridMap &grid_map) {
 
 }
 
-std::pair<double, double> DroneAgent::GetGridPositionDouble() {
-    double x, y;
-    x = position_.first / parameters_.GetCellSize();
-    y = position_.second / parameters_.GetCellSize();
-    return std::make_pair(x, y);
-}
-
 std::pair<double, double> DroneAgent::GetRealPosition() {
     return position_;
 }
 
 std::pair<int, int> DroneAgent::GetGridPosition() {
     int x, y;
-    parameters_.ConvertRealToGridCoordinatesDrone(position_.first, position_.second, x, y);
+    parameters_.ConvertRealToGridCoordinates(position_.first, position_.second, x, y);
+    return std::make_pair(x, y);
+}
+
+std::pair<double, double> DroneAgent::GetGridPositionDouble() {
+    double x, y;
+    x = position_.first / parameters_.GetCellSize();
+    y = position_.second / parameters_.GetCellSize();
     return std::make_pair(x, y);
 }
 
@@ -93,14 +96,7 @@ int DroneAgent::DroneSeesFire() {
     return count;
 }
 
-std::pair<double, double> DroneAgent::GetRealPositionFromGrid(int x, int y) {
-    double real_x = x * parameters_.GetCellSize();
-    double real_y = y * parameters_.GetCellSize();
-    return std::make_pair(real_x, real_y);
-}
-
 double DroneAgent::FindNearestFireDistance() {
-    std::pair<double, double> drone_real_position = GetRealPosition();
     std::pair<int, int> drone_grid_position = GetGridPosition();
     double min_distance = std::numeric_limits<double>::max();
     std::vector<std::vector<int>> fire_status = GetLastState().GetFireStatus();
@@ -113,10 +109,11 @@ double DroneAgent::FindNearestFireDistance() {
                          drone_grid_position.second + x - (view_range_ / 2)
                 );
 
-                std::pair<double, double> fire_real_position = GetRealPositionFromGrid(fire_grid_position.first, fire_grid_position.second);
+                double real_x, real_y;
+                parameters_.ConvertGridToRealCoordinates(fire_grid_position.first, fire_grid_position.second, real_x, real_y);
                 double distance = sqrt(
-                        pow(fire_real_position.first - drone_real_position.first, 2) +
-                        pow(fire_real_position.second - drone_real_position.second, 2)
+                        pow(real_x - position_.first, 2) +
+                        pow(real_y - position_.second, 2)
                 );
 
                 if (distance < min_distance) {
@@ -128,8 +125,3 @@ double DroneAgent::FindNearestFireDistance() {
 
     return min_distance;
 }
-
-//DroneAgent::~DroneAgent() {
-//    drone_states_.clear();
-//
-//}

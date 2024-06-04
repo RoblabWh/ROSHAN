@@ -5,7 +5,7 @@
 #include "drone_state.h"
 
 DroneState::DroneState(double speed_x, double speed_y, std::pair<double, double> max_speed, std::vector<std::vector<int>> terrain, std::vector<std::vector<int>> fire_status,
-                       std::vector<std::vector<int>> map, std::pair<double, double> map_dimensions, std::pair<int, int> position, double cell_size) {
+                       std::vector<std::vector<int>> map, std::pair<double, double> map_dimensions, std::pair<double, double> position, double cell_size) {
     velocity_.first = speed_x;
     velocity_.second = speed_y;
     terrain_ = std::move(terrain);
@@ -15,13 +15,6 @@ DroneState::DroneState(double speed_x, double speed_y, std::pair<double, double>
     position_ = position;
     map_dimensions_ = map_dimensions;
     cell_size_ = cell_size;
-}
-
-DroneState DroneState::GetNewState(double speed_x, double speed_y, std::vector<std::vector<int>> terrain, std::vector<std::vector<int>> fire_status,
-                                   std::vector<std::vector<int>> updated_map, std::pair<int, int> position) {
-    std::pair<double, double> new_speed = GetNewVelocity(speed_x, speed_y);
-
-    return DroneState(new_speed.first, new_speed.second, max_speed_, std::move(terrain), std::move(fire_status), std::move(updated_map),map_dimensions_, position, cell_size_);
 }
 
 std::pair<double, double> DroneState::GetNewVelocity(double netout_speed_x, double netout_speed_y) {
@@ -72,8 +65,8 @@ std::vector<std::vector<double>> DroneState::GetMapNorm() {
 }
 
 std::pair<double, double> DroneState::GetPositionNorm() const {
-    double x = (static_cast<double>(position_.first) + 0.5 * cell_size_) / (map_dimensions_.first * cell_size_);
-    double y = (static_cast<double>(position_.second) + 0.5 * cell_size_) / (map_dimensions_.second * cell_size_);
+    double x = position_.first / (map_dimensions_.first * cell_size_);
+    double y = position_.second / (map_dimensions_.second * cell_size_);
     return std::make_pair(x, y);
 }
 

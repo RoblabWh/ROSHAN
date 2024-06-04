@@ -185,8 +185,6 @@ void ImguiHandler::PyConfig(std::vector<float> rewards, int rewards_pos,std::vec
 
             // Display drone information
             ImGui::Text("Drone %d", selected_drone->GetId());
-            std::pair<double, double> pos = selected_drone->GetLastState().GetPositionNorm();
-            ImGui::Text("Grid Position: (%f, %f)", pos.first, pos.second);
             ImGui::Text("Out of Area Counter: %d", selected_drone->GetOutOfAreaCounter());
             ImGui::Text("Real Position: (%.2f, %.2f)", selected_drone->GetRealPosition().first,
                         selected_drone->GetRealPosition().second);
@@ -194,7 +192,7 @@ void ImguiHandler::PyConfig(std::vector<float> rewards, int rewards_pos,std::vec
 
             // Display network input information
             ImGui::Text("Network Input:");
-            ImGui::BulletText("Relative Position: %.2f, %.2f",
+            ImGui::BulletText("Relative Position: (%.2f, %.2f)",
                               selected_drone->GetLastState().GetPositionNorm().first,
                               selected_drone->GetLastState().GetPositionNorm().second);
             ImGui::BulletText("Velocity (x,y) m/s: %.2f, %.2f",

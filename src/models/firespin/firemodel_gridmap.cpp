@@ -8,6 +8,7 @@ GridMap::GridMap(std::shared_ptr<Wind> wind, FireModelParameters &parameters,
                  std::vector<std::vector<int>>* rasterData) : parameters_(parameters) {
     cols_ = rasterData->size(); //x
     rows_ = (rasterData->empty()) ? 0 : (*rasterData)[0].size(); //y
+    // Cols and Rows are swapped in Renderer to match GEO representation
     wind_ = wind;
 
     // Generate a normally-distributed random number for phi_r

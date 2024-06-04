@@ -257,9 +257,15 @@ void FireCell::SetCellState(CellState cell_state) {
     cell_ = GetCell();
 }
 
-void FireCell::ShowInfo() {
+void FireCell::ShowInfo(int rows, int cols) {
     ImGui::Text("Current Cell State");
     ImVec4 color = cell_->GetImVecColor();
+    double cellsize = parameters_.GetCellSize();
+    double total_width = cols * cellsize;
+    double total_height = rows * cellsize;
+    double relative_x = (x_ + 0.5) / total_width; // +0.5 to get the center of the cell
+    double relative_y = (y_ + 0.5) / total_height;
+    ImGui::Text("Relative Position(Center): %f, %f", relative_x, relative_y);
     ImGui::ColorButton("MyColor##3", {color.x / 255, color.y / 255, color.z / 255, color.w / 255}, ImGuiColorEditFlags_NoTooltip | ImGuiColorEditFlags_NoPicker);
     ImGui::SameLine();
     ImGui::TextUnformatted(CellStateToString(cell_state_).c_str());

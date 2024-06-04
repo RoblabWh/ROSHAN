@@ -68,11 +68,13 @@ set(CORE_SOURCES
 )
 
 set(AGENT_SOURCES
-        src/agents/drone_agent/drone.cpp src/agents/drone_agent/drone.h
-        src/agents/drone_agent/rendering/DroneRenderer.cpp src/agents/drone_agent/rendering/DroneRenderer.h
-        src/agents/drone_agent/drone_state.cpp src/agents/drone_agent/drone_state.h
-        src/agents/drone_agent/drone_action.h
+        src/reinforcementlearning/drone_agent/drone.cpp src/reinforcementlearning/drone_agent/drone.h
+        src/reinforcementlearning/drone_agent/rendering/DroneRenderer.cpp src/reinforcementlearning/drone_agent/rendering/DroneRenderer.h
+        src/reinforcementlearning/drone_agent/drone_state.cpp src/reinforcementlearning/drone_agent/drone_state.h
+        src/reinforcementlearning/drone_agent/drone_action.h
         src/agent.h
+        src/reinforcementlearning/reinforcementlearning_handler.cpp
+        src/reinforcementlearning/reinforcementlearning_handler.h
 )
 
 set(FIREMODEL_SOURCES
