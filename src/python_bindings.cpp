@@ -39,7 +39,7 @@ PYBIND11_MODULE(firesim, m) {
     py::class_<EngineCore>(m, "EngineCore")
             .def_static("GetInstance", &EngineCore::GetInstance)
             .def(py::init<>())
-            .def("Init", &EngineCore::Init)
+            .def("Init", &EngineCore::Init, py::arg("mode"), py::arg("map_path") = "")
             .def("Clean", &EngineCore::Clean)
             .def("Render", &EngineCore::Render)
             .def("Update", &EngineCore::Update)

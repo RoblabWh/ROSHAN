@@ -4,8 +4,8 @@
 
 #include "firemodel_imgui.h"
 
-ImguiHandler::ImguiHandler(bool python_code, FireModelParameters &parameters) : parameters_(parameters) {
-    python_code_ = python_code;
+ImguiHandler::ImguiHandler(Mode mode, FireModelParameters &parameters) : parameters_(parameters) {
+    mode_ = mode;
 }
 
 void ImguiHandler::ShowControls(std::function<void(bool &, bool &, int &)> controls, bool &update_simulation, bool &render_simulation, int &delay) {
@@ -66,7 +66,7 @@ void ImguiHandler::ImGuiModelMenu(std::shared_ptr<FireModelRenderer> model_rende
                     model_renderer->SetFullRedraw();
                 ImGui::EndMenu();
             }
-            if (python_code_) {
+            if (mode_ == Mode::GUI_RL) {
                 if (ImGui::BeginMenu("RL Controls")) {
                     ImGui::MenuItem("Show RL Controls", NULL, &show_rl_controls_);
                     ImGui::MenuItem("Show Drone Analysis", NULL, &show_drone_analysis_);
@@ -119,7 +119,7 @@ void ImguiHandler::PyConfig(std::vector<float> rewards, int rewards_pos,std::vec
                             bool &agent_is_running, std::string &user_input, std::string &model_output,
                             std::shared_ptr<std::vector<std::shared_ptr<DroneAgent>>> drones,
                             std::shared_ptr<FireModelRenderer> model_renderer) {
-    if (show_rl_controls_ && python_code_) {
+    if (show_rl_controls_ && mode_ == Mode::GUI_RL) {
         static char input_text[512] = "";
         ImGui::Begin("RL Controls", NULL, ImGuiWindowFlags_AlwaysVerticalScrollbar);
         bool button_color = false;
@@ -154,7 +154,7 @@ void ImguiHandler::PyConfig(std::vector<float> rewards, int rewards_pos,std::vec
         ImGui::End();
     }
 
-    if (show_drone_analysis_ && python_code_) {
+    if (show_drone_analysis_ && mode_ == Mode::GUI_RL) {
         ImGuiWindowFlags window_flags =
                 ImGuiWindowFlags_HorizontalScrollbar | ImGuiWindowFlags_AlwaysVerticalScrollbar;
         ImGui::Begin("Drone Analysis", &show_drone_analysis_, window_flags);

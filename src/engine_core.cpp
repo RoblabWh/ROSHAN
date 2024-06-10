@@ -7,86 +7,46 @@
 std::shared_ptr<EngineCore> EngineCore::instance_ = nullptr;
 
 
-bool EngineCore::Init(int mode){
-    // Setup SDL
-    if (SDL_Init(SDL_INIT_VIDEO | SDL_INIT_TIMER | SDL_INIT_GAMECONTROLLER) != 0)
-    {
-        SDL_Log("Failed to initialize SDL: %s\n", SDL_GetError());
-        return false;
+bool EngineCore::Init(int mode, const std::string& map_path){
+    mode_ = static_cast<Mode>(mode);
+    // Switch case for every mode and print the mode
+    switch (mode_) {
+        case Mode::GUI:
+            std::cout << "Mode: GUI" << std::endl;
+            break;
+        case Mode::NoGUI:
+            std::cout << "Mode: NoGUI" << std::endl;
+            break;
+        case Mode::GUI_RL:
+            std::cout << "Mode: GUI_RL" << std::endl;
+            break;
+        case Mode::NoGUI_RL:
+            std::cout << "Mode: NoGUI_RL" << std::endl;
+            break;
+        default:
+            std::cerr << "Invalid mode: " << mode_ << std::endl;
+            return false;
     }
 
-    // From 2.0.18: Enable native IME.
-#ifdef SDL_HINT_IME_SHOW_UI
-    SDL_SetHint(SDL_HINT_IME_SHOW_UI, "1");
-#endif
+    bool init = true;
+    if (mode_ == Mode::GUI || mode_ == Mode::GUI_RL) {
+        init = this->SDLInit() && this->ImGuiInit();
+    } else if (mode_ == Mode::NoGUI || mode_ == Mode::NoGUI_RL) {
+        std::cout << "Loading Firemodel without GUI\n";
+        model_ = FireModel::GetInstance(mode_, map_path);
+        update_simulation_ = true;
+        std::cout << "Firemodel loaded\n";
 
-    // Create window with SDL_Renderer graphics context
-    window_flags_ = (SDL_WindowFlags)(SDL_WINDOW_RESIZABLE | SDL_WINDOW_ALLOW_HIGHDPI | SDL_WINDOW_OPENGL);
-    SDL_Window* window = SDL_CreateWindow("ROSHAN", SDL_WINDOWPOS_CENTERED, SDL_WINDOWPOS_CENTERED, width_, height_, window_flags_);
-    if (window == nullptr)
-    {
-        SDL_Log("Error creating SDL_Window: %s\n", SDL_GetError());
-        return false;
     }
-    auto windowDeleter = [](SDL_Window* w) { SDL_DestroyWindow(w); };
-    window_ = std::shared_ptr<SDL_Window>(window, windowDeleter);
-
-    SDL_MaximizeWindow(window_.get());
-
-    SDL_Renderer* renderer = SDL_CreateRenderer(window_.get(), -1, SDL_RENDERER_ACCELERATED);
-    if (renderer == nullptr)
-    {
-        SDL_Log("Error creating SDL_Renderer: %s\n", SDL_GetError());
-        return false;
-    }
-    auto rendererDeleter = [](SDL_Renderer* r) { SDL_DestroyRenderer(r); };
-    renderer_ = std::shared_ptr<SDL_Renderer>(renderer, rendererDeleter);
-    SDL_GetRendererOutputSize(renderer_.get(), &width_, &height_);
-
-    // Setup Dear ImGui context
-    IMGUI_CHECKVERSION();
-    ImGui::CreateContext();
-    ImGuiIO* io = &ImGui::GetIO();
-    if (io == nullptr) {
-        SDL_Log("Error getting ImGuiIO: %s\n", SDL_GetError());
-        return false;
-    }
-    auto ioDeleter = [](ImGuiIO* i) { ImGui::DestroyContext(); };
-    io_ = std::shared_ptr<ImGuiIO>(io, ioDeleter);
-    io_->ConfigFlags |= ImGuiConfigFlags_NavEnableKeyboard;     // Enable Keyboard Controls
-    io_->ConfigFlags |= ImGuiConfigFlags_NavEnableGamepad;      // Enable Gamepad Controls
-
-    // Setup Dear ImGui style
-    ImGui::StyleColorsDark();
-    ImGuiStyle& style = ImGui::GetStyle();
-    style.FrameBorderSize = 1.0f; // Set border size to 1.0f
-    style.FrameRounding = 6.0f; // Set rounding to 5.0f
-
-    this->StyleColorsEnemyMouse(&style);
-
-    // Setup Platform/Renderer backends
-    if (!ImGui_ImplSDL2_InitForSDLRenderer(window_.get(), renderer_.get())){
-        SDL_Log("Error initializing ImGui_ImplSDL2_InitForSDLRenderer: %s\n", SDL_GetError());
-        return false;
-    }
-    if (!ImGui_ImplSDLRenderer2_Init(renderer_.get())){
-        SDL_Log("Error initializing ImGui_ImplSDLRenderer2_Init: %s\n", SDL_GetError());
-        return false;
-    }
-
     StartServer();
-    mode_ = mode;
-    model_ = nullptr;
-    return is_running_ = true;
+    return is_running_ = init;
 }
 
 void EngineCore::Update() {
     if (update_simulation_) {
-        SDL_GetRendererOutputSize(renderer_.get(), &width_, &height_);
-        model_->SetWidthHeight(width_, height_);
         model_->Update();
-
-        SDL_Delay(delay_);
+        std::this_thread::sleep_for(std::chrono::milliseconds(delay_));
+        //SDL_Delay(delay_);
     }
 }
 
@@ -106,7 +66,8 @@ bool EngineCore::ImGuiModelSelection(){
         ImGui::PushStyleColor(ImGuiCol_ButtonActive, ImVec4(0.45f, 0.5f, 0.75f, 1.0f));
 
         if (ImGui::Button("FireSPIN", ImVec2(-1, 0))) {
-            model_ = FireModel::GetInstance(renderer_, mode_);
+            model_ = FireModel::GetInstance(mode_);
+            model_->SetRenderer(renderer_);
         }
 
         ImGui::PopStyleColor(3);
@@ -161,30 +122,32 @@ void EngineCore::ImGuiSimulationControls(bool &update_simulation, bool &render_s
 }
 
 void EngineCore::Render() {
-    // Start the Dear ImGui frame
-    ImGui_ImplSDLRenderer2_NewFrame();
-    ImGui_ImplSDL2_NewFrame();
-    ImGui::NewFrame();
+    if (mode_ == Mode::GUI || mode_ == Mode::GUI_RL) {
+        // Start the Dear ImGui frame
+        ImGui_ImplSDLRenderer2_NewFrame();
+        ImGui_ImplSDL2_NewFrame();
+        ImGui::NewFrame();
 
-    if(!ImGuiModelSelection()) {
-        std::function<void(bool&, bool&, int&)> controls =
-                std::bind(&EngineCore::ImGuiSimulationControls, this, std::placeholders::_1, std::placeholders::_2, std::placeholders::_3);
-        model_->ImGuiRendering(controls, update_simulation_, render_simulation_, delay_);
-    }
+        if(!ImGuiModelSelection()) {
+            std::function<void(bool&, bool&, int&)> controls =
+                    std::bind(&EngineCore::ImGuiSimulationControls, this, std::placeholders::_1, std::placeholders::_2, std::placeholders::_3);
+            model_->ImGuiRendering(controls, update_simulation_, render_simulation_, delay_);
+        }
 
-    // Rendering
-    ImGui::Render();
-    SDL_RenderSetScale(renderer_.get(), io_->DisplayFramebufferScale.x, io_->DisplayFramebufferScale.y);
-    if (model_ != nullptr && render_simulation_) {
-        model_->Render();
+        // Rendering
+        ImGui::Render();
+        SDL_RenderSetScale(renderer_.get(), io_->DisplayFramebufferScale.x, io_->DisplayFramebufferScale.y);
+        if (model_ != nullptr && render_simulation_) {
+            model_->Render();
+        }
+        else {
+            SDL_Color color = {41, 49, 51, 255};
+            SDL_SetRenderDrawColor(renderer_.get(), color.r, color.g, color.b, color.a);
+            SDL_RenderClear(renderer_.get());
+        }
+        ImGui_ImplSDLRenderer2_RenderDrawData(ImGui::GetDrawData());
+        SDL_RenderPresent(renderer_.get());
     }
-    else {
-        SDL_Color color = {41, 49, 51, 255};
-        SDL_SetRenderDrawColor(renderer_.get(), color.r, color.g, color.b, color.a);
-        SDL_RenderClear(renderer_.get());
-    }
-    ImGui_ImplSDLRenderer2_RenderDrawData(ImGui::GetDrawData());
-    SDL_RenderPresent(renderer_.get());
 }
 
 void EngineCore::HandleEvents() {
@@ -193,30 +156,29 @@ void EngineCore::HandleEvents() {
     // - When io.WantCaptureMouse is true, do not dispatch mouse input data to your main application, or clear/overwrite your copy of the mouse data.
     // - When io.WantCaptureKeyboard is true, do not dispatch keyboard input data to your main application, or clear/overwrite your copy of the keyboard data.
     // Generally you may always pass all inputs to dear imgui, and hide them from your application based on those two flags.
-    SDL_Event event;
-    while (SDL_PollEvent(&event))
-    {
-        ImGui_ImplSDL2_ProcessEvent(&event);
-        if (event.type == SDL_QUIT)
-            is_running_ = false;
-        if (event.type == SDL_WINDOWEVENT && event.window.event == SDL_WINDOWEVENT_CLOSE && event.window.windowID == SDL_GetWindowID(window_.get()))
-            is_running_ = false;
-        if (model_ != nullptr)
-            model_->HandleEvents(event, io_.get());
+    if (mode_ == Mode::GUI || mode_ == Mode::GUI_RL) {
+        SDL_Event event;
+        while (SDL_PollEvent(&event))
+        {
+            ImGui_ImplSDL2_ProcessEvent(&event);
+            if (event.type == SDL_QUIT)
+                is_running_ = false;
+            if (event.type == SDL_WINDOWEVENT && event.window.event == SDL_WINDOWEVENT_CLOSE && event.window.windowID == SDL_GetWindowID(window_.get()))
+                is_running_ = false;
+            if (model_ != nullptr)
+                model_->HandleEvents(event, io_.get());
+        }
     }
 }
 
 void EngineCore::Clean() {
     StopServer();
-    // Cleanup
-    ImGui_ImplSDLRenderer2_Shutdown();
-    ImGui_ImplSDL2_Shutdown();
-
-    // Is already handled by the smart pointer
-//    ImGui::DestroyContext();
-//    SDL_DestroyRenderer(renderer_.get());
-//    SDL_DestroyWindow(window_.get());
-    SDL_Quit();
+    // Cleanup GUI stuff
+    if (mode_ == Mode::GUI || mode_ == Mode::GUI_RL) {
+        ImGui_ImplSDLRenderer2_Shutdown();
+        ImGui_ImplSDL2_Shutdown();
+        SDL_Quit();
+    }
 }
 
 void EngineCore::StartServer() {
@@ -350,5 +312,78 @@ void EngineCore::StyleColorsEnemyMouse(ImGuiStyle* dst) {
     colors[ImGuiCol_PlotHistogram] = ImVec4(0.00f, 1.00f, 1.00f, 1.00f);
     colors[ImGuiCol_PlotHistogramHovered] = ImVec4(0.00f, 1.00f, 1.00f, 1.00f);
     colors[ImGuiCol_TextSelectedBg] = ImVec4(0.00f, 1.00f, 1.00f, 0.22f);
+}
+
+bool EngineCore::SDLInit() {
+// Setup SDL
+    if (SDL_Init(SDL_INIT_VIDEO | SDL_INIT_TIMER | SDL_INIT_GAMECONTROLLER) != 0)
+    {
+        SDL_Log("Failed to initialize SDL: %s\n", SDL_GetError());
+        return false;
+    }
+
+    // From 2.0.18: Enable native IME.
+#ifdef SDL_HINT_IME_SHOW_UI
+    SDL_SetHint(SDL_HINT_IME_SHOW_UI, "1");
+#endif
+
+    // Create window with SDL_Renderer graphics context
+    window_flags_ = (SDL_WindowFlags)(SDL_WINDOW_RESIZABLE | SDL_WINDOW_ALLOW_HIGHDPI | SDL_WINDOW_OPENGL);
+    SDL_Window* window = SDL_CreateWindow("ROSHAN", SDL_WINDOWPOS_CENTERED, SDL_WINDOWPOS_CENTERED, width_, height_, window_flags_);
+    if (window == nullptr)
+    {
+        SDL_Log("Error creating SDL_Window: %s\n", SDL_GetError());
+        return false;
+    }
+    auto windowDeleter = [](SDL_Window* w) { SDL_DestroyWindow(w); };
+    window_ = std::shared_ptr<SDL_Window>(window, windowDeleter);
+
+    SDL_MaximizeWindow(window_.get());
+
+    SDL_Renderer* renderer = SDL_CreateRenderer(window_.get(), -1, SDL_RENDERER_ACCELERATED);
+    if (renderer == nullptr)
+    {
+        SDL_Log("Error creating SDL_Renderer: %s\n", SDL_GetError());
+        return false;
+    }
+    auto rendererDeleter = [](SDL_Renderer* r) { SDL_DestroyRenderer(r); };
+    renderer_ = std::shared_ptr<SDL_Renderer>(renderer, rendererDeleter);
+    SDL_GetRendererOutputSize(renderer_.get(), &width_, &height_);
+
+    return true;
+}
+
+bool EngineCore::ImGuiInit() {
+    // Setup Dear ImGui context
+    IMGUI_CHECKVERSION();
+    ImGui::CreateContext();
+    ImGuiIO* io = &ImGui::GetIO();
+    if (io == nullptr) {
+        SDL_Log("Error getting ImGuiIO: %s\n", SDL_GetError());
+        return false;
+    }
+    auto ioDeleter = [](ImGuiIO* i) { ImGui::DestroyContext(); };
+    io_ = std::shared_ptr<ImGuiIO>(io, ioDeleter);
+    io_->ConfigFlags |= ImGuiConfigFlags_NavEnableKeyboard;     // Enable Keyboard Controls
+    io_->ConfigFlags |= ImGuiConfigFlags_NavEnableGamepad;      // Enable Gamepad Controls
+
+    // Setup Dear ImGui style
+    ImGui::StyleColorsDark();
+    ImGuiStyle& style = ImGui::GetStyle();
+    style.FrameBorderSize = 1.0f; // Set border size to 1.0f
+    style.FrameRounding = 6.0f; // Set rounding to 5.0f
+
+    this->StyleColorsEnemyMouse(&style);
+
+    // Setup Platform/Renderer backends
+    if (!ImGui_ImplSDL2_InitForSDLRenderer(window_.get(), renderer_.get())){
+        SDL_Log("Error initializing ImGui_ImplSDL2_InitForSDLRenderer: %s\n", SDL_GetError());
+        return false;
+    }
+    if (!ImGui_ImplSDLRenderer2_Init(renderer_.get())){
+        SDL_Log("Error initializing ImGui_ImplSDLRenderer2_Init: %s\n", SDL_GetError());
+        return false;
+    }
+    return true;
 }
 

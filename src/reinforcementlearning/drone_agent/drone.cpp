@@ -5,8 +5,7 @@
 #include <iostream>
 #include "drone.h"
 
-DroneAgent::DroneAgent(std::shared_ptr<SDL_Renderer> renderer, std::pair<int, int> point, FireModelParameters &parameters, int id) : id_(id), parameters_(parameters) {
-    renderer_ = DroneRenderer(renderer);
+DroneAgent::DroneAgent(std::pair<int, int> point, FireModelParameters &parameters, int id) : id_(id), parameters_(parameters) {
     double x = (point.first + 0.5); // position in grid + offset to center
     double y = (point.second + 0.5); // position in grid + offset to center
     position_ = std::make_pair(x * parameters_.GetCellSize(), y * parameters_.GetCellSize());

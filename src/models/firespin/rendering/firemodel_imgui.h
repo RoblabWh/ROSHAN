@@ -14,10 +14,11 @@
 #include "models/firespin/rendering/firemodel_renderer.h"
 #include "src/corine/dataset_handler.h"
 #include "externals/ImGuiFileDialog/ImGuiFileDialog.h"
+#include "src/utils.h"
 
 class ImguiHandler {
 public:
-    ImguiHandler(bool python_code, FireModelParameters &parameters);
+    ImguiHandler(Mode mode, FireModelParameters &parameters);
     void Config(std::shared_ptr<GridMap> gridmap, std::shared_ptr<FireModelRenderer> model_renderer,
                 std::vector<std::vector<int>> &current_raster_data, double running_time,
                 std::shared_ptr<Wind> wind);
@@ -57,8 +58,8 @@ private:
     bool save_map_to_disk_ = false;
     bool init_gridmap_ = false;
     bool browser_selection_flag_ = false;  // If set to true, will load a new GridMap from a file.
-    // RL Flags
-    bool python_code_;
+    // Flags
+    Mode mode_;
     bool show_rl_controls_ = true;
 
     //For the Popup of Cells

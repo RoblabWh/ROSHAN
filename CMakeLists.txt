@@ -65,6 +65,7 @@ set(CORE_SOURCES
         src/model_interface.h
         src/point.h
         src/point_hash.h
+        src/utils.h
 )
 
 set(AGENT_SOURCES

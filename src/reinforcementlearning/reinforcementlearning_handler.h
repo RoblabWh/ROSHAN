@@ -13,6 +13,7 @@
 #include "src/reinforcementlearning/drone_agent/drone.h"
 #include "src/reinforcementlearning/drone_agent/drone_state.h"
 #include "src/reinforcementlearning/drone_agent/drone_action.h"
+#include "src/utils.h"
 
 class ReinforcementLearningHandler {
 
@@ -29,7 +30,7 @@ public:
     ~ReinforcementLearningHandler() = default;
     std::vector<std::deque<std::shared_ptr<State>>> GetObservations();
     bool StepDrone(int drone_idx, double speed_x, double speed_y, int water_dispense);
-    void ResetDrones();
+    void ResetDrones(Mode mode);
     void InitFires();
     std::tuple<std::vector<std::deque<std::shared_ptr<State>>>, std::vector<double>, std::vector<bool>, std::pair<bool, bool>> Step(std::vector<std::shared_ptr<Action>> actions);
 

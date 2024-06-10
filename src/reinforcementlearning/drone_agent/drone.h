@@ -19,9 +19,10 @@ class GridMap;
 
 class DroneAgent {
 public:
-    explicit DroneAgent(std::shared_ptr<SDL_Renderer> renderer, std::pair<int, int> point, FireModelParameters &parameters, int id);
+    explicit DroneAgent(std::pair<int, int> point, FireModelParameters &parameters, int id);
     ~DroneAgent() = default;
     std::deque<DroneState> GetStates() { return drone_states_; }
+    void SetRenderer(std::shared_ptr<SDL_Renderer> renderer) { renderer_ = DroneRenderer(std::move(renderer)); }
     void UpdateStates(std::pair<double, double> velocity_vector, std::vector<std::vector<int>> terrain, std::vector<std::vector<int>> fire_status, std::vector<std::vector<int>> updated_map);
     std::pair<double, double> Step(double netout_x, double netout_y);
     bool DispenseWater(GridMap &grid_map);

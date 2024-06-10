@@ -10,19 +10,22 @@
 #include <fstream>
 #include <chrono>
 #include <unistd.h>
-#include <limits.h>
+#include <climits>
 #include <filesystem>
 #include "imgui.h"
 #include "imgui_impl_sdl2.h"
 #include "imgui_impl_sdlrenderer2.h"
-#include <stdio.h>
+#include <cstdio>
+#include <memory>
 #include <SDL.h>
 #include <iostream>
+#include <thread>
 #include "model_interface.h"
 #include "models/firespin/firemodel.h"
 #include "corine/dataset_handler.h"
 #include "agent.h"
 #include "action.h"
+#include "src/utils.h"
 
 #if !SDL_VERSION_ATLEAST(2,0,17)
 #error This backend requires SDL 2.0.17+ because of SDL_RenderGeometry() function
@@ -33,14 +36,14 @@ class EngineCore {
 public:
     static std::shared_ptr<EngineCore> GetInstance() {
         if (instance_ == nullptr) {
-            instance_ = std::shared_ptr<EngineCore>(new EngineCore());
+            instance_ = std::make_shared<EngineCore>();
         }
         return instance_;
     }
     EngineCore(){}
     ~EngineCore(){}
 
-    bool Init(int mode);
+    bool Init(int mode, const std::string& map_path = "");
     void Clean();
 
     void Update();
@@ -69,10 +72,10 @@ private:
 
     std::shared_ptr<ImGuiIO> io_;
 
-    // Our model
-    std::shared_ptr<IModel> model_;
+    // Model
+    std::shared_ptr<IModel> model_ = nullptr;
 
-    // Our Simulation State
+    // Simulation State
     bool update_simulation_ = false;
     bool render_simulation_ = true;
     int delay_ = 0;
@@ -87,12 +90,15 @@ private:
 
     static std::shared_ptr<EngineCore> instance_;
 
+    // GUI Stuff
+    bool SDLInit();
+    bool ImGuiInit();
+
     // ImGui Stuff
     bool ImGuiModelSelection();
 
-    // AI Stuff
-    int mode_;
-    std::shared_ptr<Agent> agent_;
+    // Flags
+    Mode mode_;
 
     void StyleColorsEnemyMouse(ImGuiStyle *dst);
 };

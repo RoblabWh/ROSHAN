@@ -31,10 +31,13 @@ std::vector<std::deque<std::shared_ptr<State>>> ReinforcementLearningHandler::Ge
     return {};
 }
 
-void ReinforcementLearningHandler::ResetDrones() {
+void ReinforcementLearningHandler::ResetDrones(Mode mode) {
     drones_->clear();
     for (int i = 0; i < parameters_.GetNumberOfDrones(); ++i) {
-        auto newDrone = std::make_shared<DroneAgent>(model_renderer_->GetRenderer(), gridmap_->GetRandomPointInGrid(), parameters_, i);
+        auto newDrone = std::make_shared<DroneAgent>(gridmap_->GetRandomPointInGrid(), parameters_, i);
+        if (mode == Mode::GUI_RL) {
+            newDrone->SetRenderer(model_renderer_->GetRenderer());
+        }
         auto drone_view = gridmap_->GetDroneView(newDrone);
         newDrone->Initialize(drone_view.first, drone_view.second, std::make_pair(gridmap_->GetCols(), gridmap_->GetRows()));
         drones_->push_back(newDrone);
@@ -202,7 +205,6 @@ std::tuple<std::vector<std::deque<std::shared_ptr<State>>>, std::vector<double>,
                 last_distance_to_fire_ = distance_to_fire;
                 last_near_fires_ = near_fires;
             } else {
-                std::cout << "Drone " << i << " terminated" << std::endl;
                 auto buffer = rewards_.getBuffer();
                 float sum = std::accumulate(buffer.begin(), buffer.end(), 0.0f);
                 all_rewards_.push_back(sum / buffer.size());

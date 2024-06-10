@@ -90,11 +90,20 @@ if __name__ == '__main__':
     batch_size = 2048
     mini_batch_size = 64
     t = -1
+    # 0: GUI_RL, 2: NoGUI_RL
+    mode = 2
+
+    # If the LLM support is enabled or not
+    llm_support = True
+
+    # If the agent should be trained or not, if not the agent will act with the best policy if it can be loaded
+    train = False
+
+    # This map is used in NoGUI setup, if left empty("") the default map will be used. Has no impact on GUI Setup
+    map = "/home/nex/Dokumente/Code/ROSHAN/maps/Small2.tif"
 
     # Stats to log
     stats = {'died': [0], 'reached': [0], 'time': [0], 'reward': [0], 'episode': [0]}
-
-    llm_support = True
 
     if llm_support:
         from llmsupport import LLMPredictorAPI
@@ -104,15 +113,16 @@ if __name__ == '__main__':
     memory = Memory()
     logger = Logger(log_dir='./logs', log_interval=1)
     agent = Agent('ppo', logger)
-    train = False
     if not train:
         weights = os.path.join(config['module_directory'], 'best.pth')
         train = not agent.algorithm.load_model(weights)
+
     logger.set_logging(True)
     if memory.max_size <= batch_size:
         warnings.warn("Memory size is smaller than horizon. Setting horizon to memory size.")
         horizon = memory.max_size - 1
-    engine.Init(0)
+
+    engine.Init(mode, map)
 
     while engine.IsRunning():
         engine.HandleEvents()

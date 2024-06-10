@@ -10,7 +10,8 @@
 
 int main(int argc, char** argv)
 {
-    EngineCore::GetInstance()->Init(1);
+    Mode mode = Mode::NoGUI;
+    EngineCore::GetInstance()->Init(static_cast<int>(mode));
 
     while(EngineCore::GetInstance()->IsRunning()) {
         EngineCore::GetInstance()->HandleEvents();

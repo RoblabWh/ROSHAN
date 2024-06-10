@@ -255,7 +255,7 @@ std::vector<std::vector<int>> GridMap::GetUpdatedMap(std::shared_ptr<DroneAgent>
             int new_i = j - drone_position.second + drone_view_radius_2;
             int new_j = i - drone_position.first + drone_view_radius_2;
             if (IsPointInGrid(i, j)) {
-                // Here, update your map_ based on fire_status.
+                // Update your map_ based on fire_status.
                 map[j][i] = fire_status[new_i][new_j];
             }
         }

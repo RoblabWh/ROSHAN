@@ -10,6 +10,7 @@
 #include <gdal_priv.h>
 #include "json.hpp"
 #include <fstream>
+#include "src/models/firespin/utils.h"
 
 using json = nlohmann::json;
 
@@ -26,7 +27,7 @@ struct GeoRectangle {
 
 class DatasetHandler {
 public:
-    DatasetHandler(std::string path);
+    DatasetHandler();
     ~DatasetHandler();
 
     bool NewDataPointExists();
