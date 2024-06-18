@@ -25,6 +25,7 @@ public:
     // Minimum and maximum values for the ImGui Sliders for the simulation parameters
     double min_dt_ = 0.0001; // in seconds (s)
     double max_dt_ = 1.0; // in seconds (s)
+    int fire_percentage_ = 1; // in percent (%)
 
 
     // Parameters for the virtual particles

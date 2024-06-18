@@ -45,7 +45,6 @@ PYBIND11_MODULE(firesim, m) {
             .def("Update", &EngineCore::Update)
             .def("HandleEvents", &EngineCore::HandleEvents)
             .def("IsRunning", &EngineCore::IsRunning)
-            .def("ImGuiSimulationControls", &EngineCore::ImGuiSimulationControls)
             .def("GetObservations", &EngineCore::GetObservations)
             .def("GetUserInput", &EngineCore::GetUserInput)
             .def("SendDataToModel", &EngineCore::SendDataToModel)

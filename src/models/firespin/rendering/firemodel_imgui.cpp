@@ -8,9 +8,62 @@ ImguiHandler::ImguiHandler(Mode mode, FireModelParameters &parameters) : paramet
     mode_ = mode;
 }
 
-void ImguiHandler::ShowControls(std::function<void(bool &, bool &, int &)> controls, bool &update_simulation, bool &render_simulation, int &delay) {
-    if (show_controls_)
-        controls(update_simulation, render_simulation, delay);
+void ImguiHandler::ImGuiSimulationControls(bool &update_simulation, bool &render_simulation, int &delay, float framerate) {
+    if (show_controls_) {
+        ImGui::Begin("Simulation Controls", nullptr);
+        bool button_color = false;
+        if (update_simulation) {
+            ImGui::PushStyleColor(ImGuiCol_Button, ImVec4(0.35f, 0.6f, 0.85f, 1.0f));
+            ImGui::PushStyleColor(ImGuiCol_ButtonHovered, ImVec4(0.45f, 0.7f, 0.95f, 1.0f));
+            ImGui::PushStyleColor(ImGuiCol_ButtonActive, ImVec4(0.25f, 0.5f, 0.75f, 1.0f));
+            button_color = true;
+        }
+        if (ImGui::Button(update_simulation ? "Stop Simulation" : "Start Simulation")) {
+            update_simulation = !update_simulation;
+        }
+        if (ImGui::IsItemHovered())
+            ImGui::SetTooltip("Click to %s the simulation.", update_simulation ? "stop" : "start");
+        if (button_color) {
+            ImGui::PopStyleColor(3);
+        }
+        ImGui::SameLine();
+
+        button_color = false;
+        if (render_simulation) {
+            ImGui::PushStyleColor(ImGuiCol_Button, ImVec4(0.35f, 0.6f, 0.85f, 1.0f));
+            ImGui::PushStyleColor(ImGuiCol_ButtonHovered, ImVec4(0.45f, 0.7f, 0.95f, 1.0f));
+            ImGui::PushStyleColor(ImGuiCol_ButtonActive, ImVec4(0.25f, 0.5f, 0.75f, 1.0f));
+            button_color = true;
+        }
+        if (ImGui::Button(render_simulation ? "Stop Rendering" : "Start Rendering")) {
+            render_simulation = !render_simulation;
+        }
+        if (ImGui::IsItemHovered())
+            ImGui::SetTooltip("Click to %s rendering the simulation.", render_simulation ? "stop" : "start");
+        if (button_color) {
+            ImGui::PopStyleColor(3);
+        }
+        ImGui::SameLine();
+
+        ImGui::Spacing();
+        ImGui::Text("Simulation Delay");
+        ImGui::SliderInt("Delay (ms)", &delay, 0, 500);
+        ImGui::Spacing();
+        ImGui::Text("Simulation Speed");
+        ImGui::SliderScalar("dt", ImGuiDataType_Double, &parameters_.dt_, &parameters_.min_dt_, &parameters_.max_dt_, "%.8f", 1.0f);
+        ImGui::Spacing();
+        ImGui::Text("Simulation Speed");
+        ImGui::SameLine();
+        ImGui::SliderInt("%", &parameters_.fire_percentage_, 0, 100);
+        if (ImGui::Button("Start some fires")) {
+            this->startFires(parameters_.fire_percentage_);
+        }
+        if (ImGui::IsItemHovered())
+            ImGui::SetTooltip("Click to start some fires");
+        ImGui::Spacing();
+        ImGui::Text("Application average %.3f ms/frame (%.1f FPS)", 1000.0f / framerate, framerate);
+        ImGui::End();
+    }
 }
 
 void ImguiHandler::ImGuiSimulationSpeed(){
@@ -284,6 +337,10 @@ void ImguiHandler::FileHandling(std::shared_ptr<DatasetHandler> dataset_handler,
                     parameters_.map_is_uniform_ = false;
                     load_map_from_disk_ = false;
                     init_gridmap_ = true;
+                    if (!model_startup_){
+                        show_controls_ = true;
+                        model_startup_ = true;
+                    }
                 }
                 else if (save_map_to_disk_) {
                     dataset_handler->SaveRaster(filePathName);
@@ -324,8 +381,6 @@ bool ImguiHandler::ImGuiOnStartup(std::shared_ptr<FireModelRenderer> model_rende
         }
         ImGui::Separator();
         if (ImGui::Button("Load from File", ImVec2(-1, 0))) {
-            model_startup_ = true;
-            show_controls_ = true;
             show_model_parameter_config_ = true;
             open_file_dialog_ = true;
             load_map_from_disk_ = true;

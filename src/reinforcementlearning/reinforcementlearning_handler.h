@@ -40,6 +40,8 @@ public:
     std::shared_ptr<std::vector<std::shared_ptr<DroneAgent>>> GetDrones() { return drones_; }
     CircularBuffer<float> GetRewards() { return rewards_; }
     std::vector<float> GetAllRewards() { return all_rewards_; }
+
+    std::function<void(int)> startFires;
 private:
     static std::shared_ptr<ReinforcementLearningHandler> instance_;
 
@@ -50,7 +52,7 @@ private:
     FireModelParameters& parameters_;
     std::shared_ptr<std::vector<std::shared_ptr<DroneAgent>>> drones_;
 
-    double CalculateReward(bool drone_in_grid, bool fire_extinguished, bool drone_terminal, int water_dispensed, int near_fires, double max_distance, double distance_to_fire);
+    double CalculateReward(bool drone_in_grid, bool fire_extinguished, bool drone_terminal, int water_dispensed, int near_fires, double max_distance, double distance_to_fire) const;
 
     //Dirty Variables CHANGE TO AGENT STATE OR SOMETHING
     double last_distance_to_fire_{};

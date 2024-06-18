@@ -5,6 +5,8 @@
 #ifndef ROSHAN_FIREMODEL_H
 #define ROSHAN_FIREMODEL_H
 
+#define SPEEDTEST
+
 #include <cstdlib>
 #include <iostream>
 #include <set>
@@ -44,7 +46,7 @@ public:
     bool AgentIsRunning() override;
     void HandleEvents(SDL_Event event, ImGuiIO* io) override;
     void ImGuiSimulationSpeed() override;
-    void ImGuiRendering(std::function<void(bool&, bool&, int&)> controls, bool &update_simulation, bool &render_simulation, int &delay) override;
+    void ImGuiRendering(bool &update_simulation, bool &render_simulation, int &delay, float framerate) override;
     std::string GetUserInput() override;
     void GetData(std::string data) override;
     void LoadMap(std::string path);
@@ -78,12 +80,19 @@ private:
     std::string user_input_;
     std::string model_output_;
 
+    //Measurement
+    Timer timer_;
+
     //ImGui Stuff
     std::shared_ptr<ImguiHandler> imgui_handler_;
     void setupImGui();
 
     void SetUniformRasterData();
     void FillRasterWithEnum();
+    void TestBurndownHeadless();
+    void StartFires(int percentage);
+
+    void setupRLHandler();
 };
 
 

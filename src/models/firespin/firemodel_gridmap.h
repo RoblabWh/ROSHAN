@@ -36,6 +36,13 @@ public:
     void UpdateParticles();
     void UpdateCells();
     double PercentageBurned() const;
+    double PercentageBurning() const;
+    double PercentageUnburnable() const;
+    int GetNumOfCells() const { return num_cells_; }
+    int GetNumBurningCells() const { return burning_cells_.size(); }
+    int GetNumBurnedCells() const { return num_burned_cells_; }
+    int GetNumUnburnable() const { return num_unburnable_; }
+    bool CanStartFires(int num_fires) const;
     bool IsBurning() const;
     int GetNumParticles() { return virtual_particles_.size() + radiation_particles_.size();}
     bool CellCanIgnite(int x, int y) const { return cells_[x][y]->CanIgnite(); }
@@ -87,7 +94,9 @@ private:
     //For calculation of percentage burned
     int num_cells_ = 0;
     int num_burned_cells_ = 0;
+    int num_unburnable_ = 0;
 
+    int GetNumUnburnableCells() const;
 };
 
 

@@ -22,6 +22,7 @@ GridMap::GridMap(std::shared_ptr<Wind> wind, FireModelParameters &parameters,
     }
     num_cells_ = cols_ * rows_;
     num_burned_cells_ = 0;
+    num_unburnable_ = this->GetNumUnburnableCells();
     virtual_particles_.reserve(100000);
     radiation_particles_.reserve(100000);
     ticking_cells_.reserve(100000);
@@ -263,6 +264,22 @@ std::vector<std::vector<int>> GridMap::GetUpdatedMap(std::shared_ptr<DroneAgent>
 
     return map;
 }
+// Calculates the number of unburnable cells
+int GridMap::GetNumUnburnableCells() const {
+    int num_unburnable_cells = 0;
+    for (int x = 0; x < cols_; ++x) {
+        for (int y = 0; y < rows_; ++y) {
+            if (!cells_[x][y]->CanIgnite()) {
+                num_unburnable_cells++;
+            }
+        }
+    }
+    return num_unburnable_cells;
+}
+
+double GridMap::PercentageUnburnable() const {
+    return (double)num_unburnable_ / (double)num_cells_;
+}
 
 // Calculates the percentage of burned cells
 double GridMap::PercentageBurned() const {
@@ -272,4 +289,13 @@ double GridMap::PercentageBurned() const {
 //Returns whether there are still burning fires on the map
 bool GridMap::IsBurning() const {
     return !(burning_cells_.empty() && virtual_particles_.empty() && radiation_particles_.empty());
+}
+
+// Calculates the percentage of burning cells
+double GridMap::PercentageBurning() const {
+    return (double)(burning_cells_.size()) / (double)num_cells_;
+}
+
+bool GridMap::CanStartFires(int num_fires) const {
+    return (num_cells_ - (num_unburnable_ + burning_cells_.size() + num_burned_cells_)) >= num_fires;
 }

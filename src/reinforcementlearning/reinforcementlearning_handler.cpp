@@ -60,22 +60,17 @@ bool ReinforcementLearningHandler::StepDrone(int drone_idx, double speed_x, doub
 
 void ReinforcementLearningHandler::InitFires() {
         last_distance_to_fire_ = std::numeric_limits<double>::max();
-        int cells = gridmap_->GetNumCells();
-        int fires = static_cast<int>(cells * 0.01);
-        std::pair<int, int> drone_position = drones_->at(0)->GetGridPosition();
-        if(gridmap_->CellCanIgnite(drone_position.first, drone_position.second))
-            gridmap_->IgniteCell(drone_position.first, drone_position.second);
-        for(int i = 0; i < fires;) {
-            std::pair<int, int> point = gridmap_->GetRandomPointInGrid();
-            if(gridmap_->CellCanIgnite(point.first, point.second)){
-                gridmap_->IgniteCell(point.first, point.second);
-                i++;
-            }
+
+        this->startFires(parameters_.fire_percentage_);
+        for(auto &drone : *drones_) {
+            std::pair<std::vector<std::vector<int>>, std::vector<std::vector<int>>> drone_view = gridmap_->GetDroneView(drone);
+            // Calculate the number of fires in the drone's view
+            int fires = drone->DroneSeesFire();
+            last_near_fires_ = fires;
         }
-        last_near_fires_ = fires + 1;
 }
 
-double ReinforcementLearningHandler::CalculateReward(bool drone_in_grid, bool fire_extinguished, bool drone_terminal, int water_dispensed, int near_fires, double max_distance, double distance_to_fire) {
+double ReinforcementLearningHandler::CalculateReward(bool drone_in_grid, bool fire_extinguished, bool drone_terminal, int water_dispensed, int near_fires, double max_distance, double distance_to_fire) const {
     double reward = 0;
 
     // check the boundaries of the network

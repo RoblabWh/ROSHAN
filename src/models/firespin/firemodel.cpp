@@ -10,29 +10,36 @@ FireModel::FireModel(Mode mode, const std::string& map_path) : mode_(mode)
 {
 
     running_time_ = 0;
+    timer_.Start();
 
     dataset_handler_ = std::make_shared<DatasetHandler>();
     model_renderer_ = nullptr;
     wind_ = std::make_shared<Wind>(parameters_);
     gridmap_ = nullptr;
-    rl_handler_ = ReinforcementLearningHandler::GetInstance(parameters_);
+    rl_handler_ = nullptr;
 
     user_input_ = "";
     model_output_ = "Hey, let's talk.";
     agent_is_running_ = false;
+
+    this->setupRLHandler();
+
     if(mode_ == Mode::GUI || mode_ == Mode::GUI_RL){
         this->setupImGui();
     }
     if (mode_ == Mode::GUI || mode_ == Mode::NoGUI){
         parameters_.SetNumberOfDrones(0);
     }
-    if ((mode_ == Mode::NoGUI_RL || mode_ == Mode::NoGUI) && !map_path.empty()){
-        std::cout << "Loading map from: " << map_path << std::endl;
-        this->LoadMap(map_path);
-    } else if ((mode_ == Mode::NoGUI_RL || mode_ == Mode::NoGUI) && map_path.empty()){
-        std::cout << "No map path provided, using default map." << std::endl;
-        this->SetUniformRasterData();
-        ResetGridMap(&current_raster_data_);
+    if ((mode_ == Mode::NoGUI_RL || mode_ == Mode::NoGUI)){
+        if (!map_path.empty()){
+            std::cout << "Loading map from: " << map_path << std::endl;
+            this->LoadMap(map_path);
+        } else {
+            std::cout << "No map path provided, using default map." << std::endl;
+            this->SetUniformRasterData();
+            ResetGridMap(&current_raster_data_);
+        }
+        this->StartFires(1);
     }
     if (mode_ == Mode::NoGUI_RL) {
         parameters_.SetNumberOfDrones(1);
@@ -55,8 +62,10 @@ void FireModel::ResetGridMap(std::vector<std::vector<int>>* rasterData) {
         rl_handler_->SetGridMap(gridmap_);
         // Init drones
         rl_handler_->ResetDrones(mode_);
+#ifndef SPEEDTEST
         // Starting Conditions for Fires
         rl_handler_->InitFires();
+#endif
     }
 
 
@@ -104,6 +113,10 @@ void FireModel::Update() {
     // Update the fire particles and the cell states
     gridmap_->UpdateParticles();
     gridmap_->UpdateCells();
+#ifdef SPEEDTEST
+    TestBurndownHeadless();
+#endif
+    //this->Test();
 }
 
 std::vector<std::deque<std::shared_ptr<State>>> FireModel::GetObservations() {
@@ -112,10 +125,19 @@ std::vector<std::deque<std::shared_ptr<State>>> FireModel::GetObservations() {
 
 std::tuple<std::vector<std::deque<std::shared_ptr<State>>>, std::vector<double>, std::vector<bool>, std::pair<bool, bool>> FireModel::Step(std::vector<std::shared_ptr<Action>> actions){
     std::tuple<std::vector<std::deque<std::shared_ptr<State>>>, std::vector<double>, std::vector<bool>, std::pair<bool, bool>>  result;
+#ifdef SPEEDTEST
+    // Construct a new action for each drone with 0, 0
+    std::vector<std::shared_ptr<Action>> actions2;
+    for (int i = 0; i < parameters_.GetNumberOfDrones(); ++i) {
+        actions2.push_back(std::make_shared<DroneAction>(0, 0, 0));
+    }
+    actions = actions2;
+#endif
     result = rl_handler_->Step(actions);
     std::vector<bool> terminals = std::get<2>(result);
     bool resetEnv = true;
     // Check if all elements in terminals are true, if so all agents reached a terminal state
+#ifndef SPEEDTEST
     for (bool terminal : terminals) {
         if (!terminal) {
             resetEnv = false;
@@ -125,7 +147,8 @@ std::tuple<std::vector<std::deque<std::shared_ptr<State>>>, std::vector<double>,
     if (resetEnv) {
         ResetGridMap(&current_raster_data_);
     }
-    return rl_handler_->Step(actions);
+#endif
+    return result;
 }
 
 bool FireModel::AgentIsRunning() {
@@ -155,6 +178,11 @@ void FireModel::LoadMap(std::string path) {
     ResetGridMap(&current_raster_data_);
 }
 
+void FireModel::setupRLHandler() {
+    rl_handler_ = ReinforcementLearningHandler::GetInstance(parameters_);
+    rl_handler_->startFires = [this](int percentage) {StartFires(percentage);};
+}
+
 void FireModel::setupImGui() {
     imgui_handler_ = std::make_shared<ImguiHandler>(mode_, parameters_);
     imgui_handler_->onResetDrones = [this]() {rl_handler_->ResetDrones(mode_);};
@@ -163,11 +191,11 @@ void FireModel::setupImGui() {
     imgui_handler_->onSetUniformRasterData = [this]() {SetUniformRasterData();};
     imgui_handler_->onMoveDrone = [this](int drone_idx, double speed_x, double speed_y, int water_dispense) {return rl_handler_->StepDrone(
             drone_idx, speed_x, speed_y, water_dispense);};
+    imgui_handler_->startFires = [this](int percentage) {StartFires(percentage);};
 }
 
-void FireModel::ImGuiRendering(std::function<void(bool &, bool &, int &)> controls, bool &update_simulation,
-                             bool &render_simulation, int &delay) {
-    imgui_handler_->ShowControls(controls, update_simulation, render_simulation, delay);
+void FireModel::ImGuiRendering(bool &update_simulation, bool &render_simulation, int &delay, float framerate) {
+    imgui_handler_->ImGuiSimulationControls(update_simulation, render_simulation, delay, framerate);
     imgui_handler_->ImGuiModelMenu(model_renderer_, current_raster_data_);
     imgui_handler_->Config(gridmap_, model_renderer_,
                            current_raster_data_, running_time_, wind_);
@@ -192,5 +220,48 @@ std::string FireModel::GetUserInput() {
 
 void FireModel::GetData(std::string data) {
     model_output_ = data;
+}
+
+void FireModel::TestBurndownHeadless() {
+
+    if (!gridmap_->IsBurning()){
+        std::cout << "All fires are extinguished or burned down. ";
+        // End the simulation and close the program
+        timer_.Stop();
+        double duration = timer_.GetDurationInMilliseconds();
+        std::cout << "Simulation duration(ms): " << duration << std::endl;
+        timer_.AppendDuration(duration);
+        // Reset the simulation
+        ResetGridMap(&current_raster_data_);
+        StartFires(1);
+        timer_.Start();
+    }
+    if (timer_.GetTimeSteps() == 0){
+        std::vector<double> durations = timer_.GetDurations();
+        std::cout << "Simulation ended." << std::endl;
+        std::cout << "Simulation duration(ms): ";
+        for (auto duration : durations)
+            std::cout<< duration << ", ";
+        std::cout << std::endl;
+        exit(0);
+    }
+}
+
+void FireModel::StartFires(int percentage) {
+    int cells = gridmap_->GetNumCells();
+    double perc = percentage * 0.01;
+    int fires = static_cast<int>(cells * perc);
+    if (!gridmap_->CanStartFires(fires)){
+        std::cout << "Map is incapable of burning that much. Please choose a lower percentage." << std::endl;
+        return;
+    }
+    for(int i = 0; i < fires;) {
+        std::pair<int, int> point = gridmap_->GetRandomPointInGrid();
+        if (gridmap_->CellCanIgnite(point.first, point.second)) {
+            gridmap_->IgniteCell(point.first, point.second);
+            i++;
+        }
+    }
+    std::cout << "Fires started: " << fires << std::endl;
 }
 

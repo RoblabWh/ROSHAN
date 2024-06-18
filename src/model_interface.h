@@ -27,7 +27,7 @@ public:
     virtual void ImGuiSimulationSpeed() = 0;
     virtual void GetData(std::string data) = 0;
     virtual void SetRenderer(std::shared_ptr<SDL_Renderer> renderer) = 0;
-    virtual void ImGuiRendering(std::function<void(bool&, bool&, int&)> controls, bool &update_simulation, bool &render_simulation, int &delay) = 0;
+    virtual void ImGuiRendering(bool &update_simulation, bool &render_simulation, int &delay, float framerate) = 0;
     virtual std::string GetUserInput() = 0;
 };
 

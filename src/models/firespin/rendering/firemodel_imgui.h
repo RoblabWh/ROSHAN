@@ -19,6 +19,7 @@
 class ImguiHandler {
 public:
     ImguiHandler(Mode mode, FireModelParameters &parameters);
+    void ImGuiSimulationControls(bool &update_simulation, bool &render_simulation, int &delay, float framerate);
     void Config(std::shared_ptr<GridMap> gridmap, std::shared_ptr<FireModelRenderer> model_renderer,
                 std::vector<std::vector<int>> &current_raster_data, double running_time,
                 std::shared_ptr<Wind> wind);
@@ -27,7 +28,6 @@ public:
                   bool &agent_is_running, std::string &user_input, std::string &model_output,
                   std::shared_ptr<std::vector<std::shared_ptr<DroneAgent>>> drones,
                   std::shared_ptr<FireModelRenderer> model_renderer);
-    void ShowControls(std::function<void(bool&, bool&, int&)> controls, bool &update_simulation, bool &render_simulation, int &delay);
     void ImGuiModelMenu(std::shared_ptr<FireModelRenderer> model_renderer, std::vector<std::vector<int>> &current_raster_data);
     void ImGuiSimulationSpeed();
     void ShowPopups(std::shared_ptr<GridMap> gridmap, std::vector<std::vector<int>> &current_raster_data);
@@ -43,6 +43,7 @@ public:
     std::function<void(std::vector<std::vector<int>>*)> onResetGridMap;
     std::function<void()> onFillRasterWithEnum;
     std::function<bool(int,double,double,int)> onMoveDrone;
+    std::function<void(int)> startFires;
 
 private:
     FireModelParameters &parameters_;
@@ -70,6 +71,7 @@ private:
     void DrawGrid(const std::vector<std::vector<int>>& grid, std::shared_ptr<FireModelRenderer> renderer, float cell_size, bool is_fire_status = false);
 
     void DrawBuffer(std::vector<float> buffer, int buffer_pos);
+
 };
 
 #endif //ROSHAN_FIREMODEL_IMGUI_H

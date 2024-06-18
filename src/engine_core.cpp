@@ -77,50 +77,6 @@ bool EngineCore::ImGuiModelSelection(){
     return false;
 }
 
-void EngineCore::ImGuiSimulationControls(bool &update_simulation, bool &render_simulation, int &delay) {
-    ImGui::Begin("Simulation Controls", nullptr);
-    bool button_color = false;
-    if (update_simulation) {
-        ImGui::PushStyleColor(ImGuiCol_Button, ImVec4(0.35f, 0.6f, 0.85f, 1.0f));
-        ImGui::PushStyleColor(ImGuiCol_ButtonHovered, ImVec4(0.45f, 0.7f, 0.95f, 1.0f));
-        ImGui::PushStyleColor(ImGuiCol_ButtonActive, ImVec4(0.25f, 0.5f, 0.75f, 1.0f));
-        button_color = true;
-    }
-    if (ImGui::Button(update_simulation ? "Stop Simulation" : "Start Simulation")) {
-        update_simulation = !update_simulation;
-    }
-    if (ImGui::IsItemHovered())
-        ImGui::SetTooltip("Click to %s the simulation.", update_simulation ? "stop" : "start");
-    if (button_color) {
-        ImGui::PopStyleColor(3);
-    }
-    ImGui::SameLine();
-
-    button_color = false;
-    if (render_simulation) {
-        ImGui::PushStyleColor(ImGuiCol_Button, ImVec4(0.35f, 0.6f, 0.85f, 1.0f));
-        ImGui::PushStyleColor(ImGuiCol_ButtonHovered, ImVec4(0.45f, 0.7f, 0.95f, 1.0f));
-        ImGui::PushStyleColor(ImGuiCol_ButtonActive, ImVec4(0.25f, 0.5f, 0.75f, 1.0f));
-        button_color = true;
-    }
-    if (ImGui::Button(render_simulation ? "Stop Rendering" : "Start Rendering")) {
-        render_simulation = !render_simulation;
-    }
-    if (ImGui::IsItemHovered())
-        ImGui::SetTooltip("Click to %s rendering the simulation.", render_simulation ? "stop" : "start");
-    if (button_color) {
-        ImGui::PopStyleColor(3);
-    }
-    ImGui::SameLine();
-
-    ImGui::Text("Simulation Delay");
-    ImGui::SliderInt("Delay (ms)", &delay, 0, 500);
-    ImGui::Spacing();
-    model_->ImGuiSimulationSpeed();
-    ImGui::Text("Application average %.3f ms/frame (%.1f FPS)", 1000.0f / io_->Framerate, io_->Framerate);
-    ImGui::End();
-}
-
 void EngineCore::Render() {
     if (mode_ == Mode::GUI || mode_ == Mode::GUI_RL) {
         // Start the Dear ImGui frame
@@ -129,9 +85,7 @@ void EngineCore::Render() {
         ImGui::NewFrame();
 
         if(!ImGuiModelSelection()) {
-            std::function<void(bool&, bool&, int&)> controls =
-                    std::bind(&EngineCore::ImGuiSimulationControls, this, std::placeholders::_1, std::placeholders::_2, std::placeholders::_3);
-            model_->ImGuiRendering(controls, update_simulation_, render_simulation_, delay_);
+            model_->ImGuiRendering(update_simulation_, render_simulation_, delay_, io_->Framerate);
         }
 
         // Rendering
