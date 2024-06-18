@@ -6,7 +6,8 @@
 #include "firemodel_firecell.h"
 
 
-FireCell::FireCell(int x, int y, std::mt19937 gen, FireModelParameters &parameters, int raster_value) : parameters_(parameters) {
+FireCell::FireCell(int x, int y, std::mt19937& gen, FireModelParameters &parameters, int raster_value)
+: parameters_(parameters), gen_(gen) {
     surface_ = SDL_CreateRGBSurfaceWithFormat(0, 1, 1, 32, SDL_PIXELFORMAT_ARGB8888);
 
     //Cell State
@@ -48,7 +49,6 @@ FireCell::FireCell(int x, int y, std::mt19937 gen, FireModelParameters &paramete
     // TODO Auslagern der Zufallszahlen in eine eigene Klasse?
     // Initialize random number generator
     std::random_device rd;
-    gen_ = gen;
     gen_.seed(rd());
     real_dis_ = std::uniform_real_distribution<>(0.0, 1.0);
     std::uniform_real_distribution<> dis(0.1, 0.2);

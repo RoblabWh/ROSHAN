@@ -93,6 +93,7 @@ void GridMap::IgniteCell(int x, int y) {
     cells_[x][y]->Ignite();
     burning_cells_.insert(Point(x, y));
     changed_cells_.emplace_back(x, y);
+    ticking_cells_.erase(Point(x, y));
 }
 
 void GridMap::UpdateCells() {

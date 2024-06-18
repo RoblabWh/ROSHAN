@@ -48,8 +48,8 @@ public:
     bool CellCanIgnite(int x, int y) const { return cells_[x][y]->CanIgnite(); }
     void ShowCellInfo(int x, int y) { cells_[x][y]->ShowInfo(this->GetRows(), this->GetCols()); }
     int GetNumCells() const { return rows_ * cols_; }
-    std::vector<VirtualParticle> GetVirtualParticles() const { return virtual_particles_; }
-    std::vector<RadiationParticle> GetRadiationParticles() const { return radiation_particles_; }
+    const std::vector<VirtualParticle>& GetVirtualParticles() const { return virtual_particles_; }
+    const std::vector<RadiationParticle>& GetRadiationParticles() const { return radiation_particles_; }
     std::vector<Point> GetChangedCells() const { return changed_cells_; }
     void ResetChangedCells() { changed_cells_.clear(); }
     std::pair<std::vector<std::vector<int>>, std::vector<std::vector<int>>> GetDroneView(std::shared_ptr<DroneAgent> drone);

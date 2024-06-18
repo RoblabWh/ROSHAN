@@ -175,12 +175,13 @@ void FireModelRenderer::DrawParticles() {
     int circle_radius = static_cast<int>(camera_.GetCellSize() / 6);
 
     if (circle_radius > 0) {
-        const std::vector<RadiationParticle> particles = gridmap_->GetRadiationParticles();
+        const std::vector<RadiationParticle>& particles = gridmap_->GetRadiationParticles();
 
         if (!particles.empty()) {
             for (const auto& particle : particles) {
                 double x, y;
                 particle.GetPosition(x, y);
+
                 x = x / parameters_.GetCellSize();
                 y = y / parameters_.GetCellSize();
                 auto [posx, posy] = camera_.GridToScreenPosition(x, y);
@@ -189,7 +190,7 @@ void FireModelRenderer::DrawParticles() {
             }
         }
 
-        const std::vector<VirtualParticle> virtual_particles = gridmap_->GetVirtualParticles();
+        const std::vector<VirtualParticle>& virtual_particles = gridmap_->GetVirtualParticles();
 
         if (!virtual_particles.empty()) {
             for (const auto& particle : virtual_particles) {

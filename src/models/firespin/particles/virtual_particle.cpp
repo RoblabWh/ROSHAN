@@ -5,7 +5,8 @@
 #include "virtual_particle.h"
 
 VirtualParticle::VirtualParticle(int x, int y, double tau_mem, double Y_st,
-                                 double Y_lim, double Fl, double C0, double Lt, std::mt19937 gen){
+                                 double Y_lim, double Fl, double C0, double Lt, std::mt19937& gen)
+                                 : gen_(gen), normal_dist_(0.0, 1.0) {
     for (double & i : U_) {
         i = 0.0;
     }
@@ -21,9 +22,8 @@ VirtualParticle::VirtualParticle(int x, int y, double tau_mem, double Y_st,
     Lt_ = Lt;
 
 //    std::random_device rd;
-    gen_ = gen;
 //    gen_.seed(rd());
-    normal_dist_ = std::normal_distribution<>(0,1);
+
 }
 
 void VirtualParticle::UpdateState(Wind wind, double dt) {

@@ -373,6 +373,8 @@ bool ImguiHandler::ImGuiOnStartup(std::shared_ptr<FireModelRenderer> model_rende
         bool still_no_init = true;
         if (ImGui::Button("Uniform Vegetation", ImVec2(-1, 0))) {
             onSetUniformRasterData();
+            // TODO I don't really know why this works, but it does. If I don't call this function, everything works fine
+            //  until I reset the GridMap again, which works fine as well. But if I then try to zoom in it crashes.
             onResetGridMap(&current_raster_data);
             still_no_init = false;
             model_startup_ = true;

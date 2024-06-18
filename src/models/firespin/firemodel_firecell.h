@@ -38,7 +38,7 @@
 class FireCell {
 
 public:
-    FireCell(int x, int y, std::mt19937 gen, FireModelParameters &parameters, int raster_value = 0);
+    FireCell(int x, int y, std::mt19937& gen, FireModelParameters &parameters, int raster_value = 0);
     ~FireCell();
 
     CellState GetIgnitionState();

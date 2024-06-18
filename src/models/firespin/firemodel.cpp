@@ -37,7 +37,6 @@ FireModel::FireModel(Mode mode, const std::string& map_path) : mode_(mode)
         } else {
             std::cout << "No map path provided, using default map." << std::endl;
             this->SetUniformRasterData();
-            ResetGridMap(&current_raster_data_);
         }
         this->StartFires(1);
     }
@@ -81,6 +80,7 @@ void FireModel::SetUniformRasterData() {
     current_raster_data_.clear();
     current_raster_data_ = std::vector<std::vector<int>>(parameters_.GetGridNx(), std::vector<int>(parameters_.GetGridNy(), GENERIC_UNBURNED));
     parameters_.map_is_uniform_ = true;
+    ResetGridMap(&current_raster_data_);
 }
 
 void FireModel::FillRasterWithEnum() {
@@ -243,6 +243,7 @@ void FireModel::TestBurndownHeadless() {
         for (auto duration : durations)
             std::cout<< duration << ", ";
         std::cout << std::endl;
+        std::cout << "Average: " << timer_.GetAverageDuration() << std::endl;
         exit(0);
     }
 }

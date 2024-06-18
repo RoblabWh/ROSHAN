@@ -38,6 +38,13 @@ public:
     std::vector<double> GetDurations() const {
         return durations_;
     }
+    double GetAverageDuration() const {
+        double sum = 0;
+        for (double duration : durations_) {
+            sum += duration;
+        }
+        return sum / durations_.size();
+    }
 
 private:
     int time_steps_ = 10;
