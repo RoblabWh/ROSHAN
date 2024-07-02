@@ -46,6 +46,20 @@ FireModelRenderer::FireModelRenderer(std::shared_ptr<SDL_Renderer> renderer, Fir
     }
 }
 
+std::vector<std::vector<int>> ScaleNoiseMap(const std::vector<std::vector<int>>& noise_map, int new_size) {
+    int original_size = noise_map.size();
+    std::vector<std::vector<int>> scaled_noise_map(new_size, std::vector<int>(new_size));
+
+    for (int y = 0; y < new_size; ++y) {
+        for (int x = 0; x < new_size; ++x) {
+            int orig_x = x * original_size / new_size;
+            int orig_y = y * original_size / new_size;
+            scaled_noise_map[y][x] = noise_map[orig_y][orig_x];
+        }
+    }
+    return scaled_noise_map;
+}
+
 void FireModelRenderer::CheckCamera() {
     camera_.Update(width_, height_, gridmap_->GetRows(), gridmap_->GetCols());
 }
@@ -131,6 +145,19 @@ void FireModelRenderer::DrawChangesCells() {
     gridmap_->ResetChangedCells();
 }
 
+Uint32 ModifyColorWithGradient(Uint32 base_color, int x, int y) {
+    Uint8 r = (base_color >> 24) & 0xFF;
+    Uint8 g = (base_color >> 16) & 0xFF;
+    Uint8 b = (base_color >> 8) & 0xFF;
+    Uint8 a = base_color & 0xFF;
+
+    r = std::min(255, r + (x % 32));
+    g = std::min(255, g + (y % 32));
+    b = std::min(255, b + ((x + y) % 32));
+
+    return (r << 24) | (g << 16) | (b << 8) | a;
+}
+
 SDL_Rect FireModelRenderer::DrawCell(int x, int y) {
     auto [screen_x, screen_y] = camera_.GridToScreenPosition(floor(x), floor(y));
     const SDL_Rect cell_rect = {
@@ -139,13 +166,18 @@ SDL_Rect FireModelRenderer::DrawCell(int x, int y) {
             static_cast<int>(camera_.GetCellSize()),
             static_cast<int>(camera_.GetCellSize())
     };
-    Uint32 color = gridmap_->At(x, y).GetMappedColor();
-    if (!parameters_.render_grid_) {
-        pixel_buffer_->Draw(cell_rect, color);
-    } else if (camera_.GetCellSize() >= 3.0) {
-        pixel_buffer_->DrawGrid(cell_rect, color);
+    Uint32 base_color = gridmap_->At(x, y).GetMappedColor();
+    int grid_offset = !parameters_.render_grid_ ? 0 : (camera_.GetCellSize() >= 3.0 ? -1 : 0);
+    if (gridmap_->At(x,y).HasNoise()) {
+        std::vector<std::vector<int>>& noise_map = gridmap_->At(x, y).GetNoiseMap();
+        std::vector<std::vector<int>> scaled_noise_map = ScaleNoiseMap(noise_map, camera_.GetCellSize());
+        CellState state = gridmap_->At(x, y).GetCellState();
+        Uint32 gradient = base_color;
+        if (state == CellState::GENERIC_BURNING || state == CellState::WATER)
+            gradient = ModifyColorWithGradient(base_color, x, y);
+        pixel_buffer_->Draw(cell_rect, gradient, scaled_noise_map, grid_offset);
     } else {
-        pixel_buffer_->Draw(cell_rect, color);
+        pixel_buffer_->Draw(cell_rect, base_color, grid_offset);
     }
 
     return cell_rect;

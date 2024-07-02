@@ -5,7 +5,9 @@
 #include "firemodel_gridmap.h"
 
 GridMap::GridMap(std::shared_ptr<Wind> wind, FireModelParameters &parameters,
-                 std::vector<std::vector<int>>* rasterData) : parameters_(parameters) {
+                 std::vector<std::vector<int>>* rasterData) :
+                 parameters_(parameters),
+                 buffer_( rasterData->size() * ((rasterData->empty()) ? 0 : (*rasterData)[0].size()) * 30){
     cols_ = rasterData->size(); //x
     rows_ = (rasterData->empty()) ? 0 : (*rasterData)[0].size(); //y
     // Cols and Rows are swapped in Renderer to match GEO representation
@@ -15,11 +17,13 @@ GridMap::GridMap(std::shared_ptr<Wind> wind, FireModelParameters &parameters,
     gen_ = std::mt19937(rd_());
 
     cells_ = std::vector<std::vector<std::shared_ptr<FireCell>>>(cols_, std::vector<std::shared_ptr<FireCell>>(rows_));
+//#pragma omp parallel for
     for (int x = 0; x < cols_; ++x) {
         for (int y = 0; y < rows_; ++y) {
             cells_[x][y] = std::make_shared<FireCell>(x, y, gen_, parameters_, (*rasterData)[x][y]);
         }
     }
+
     num_cells_ = cols_ * rows_;
     num_burned_cells_ = 0;
     num_unburnable_ = this->GetNumUnburnableCells();
@@ -32,43 +36,88 @@ GridMap::GridMap(std::shared_ptr<Wind> wind, FireModelParameters &parameters,
 }
 
 // Templated function to avoid repeating common code
+//template <typename ParticleType>
+//void GridMap::UpdateVirtualParticles(std::vector<ParticleType> &particles, std::vector<std::vector<bool>> &visited_cells) {
+//
+//    for (auto it = particles.begin(); it != particles.end();) {
+//
+//        if constexpr (std::is_same<ParticleType, VirtualParticle>::value) {
+//            it->UpdateState(*wind_, parameters_.GetDt(), buffer_);
+//        } else {
+//            it->UpdateState(parameters_.GetDt(), buffer_);
+//        }
+//
+//        double x, y;
+//        it->GetPosition(x, y);
+//        int i, j;
+//        parameters_.ConvertRealToGridCoordinates(x, y, i, j);
+//
+//        // check if particle is still in the grid
+//        if (!IsPointInGrid(i, j) || !it->IsCapableOfIgnition()) {
+//            // Particle is outside the grid, so it is no longer visited
+//            // OR it is not capable of ignition
+//            std::iter_swap(it, --particles.end());
+//            particles.pop_back();
+//
+//            continue;
+//        }
+//
+//        Point p = Point(i, j);
+//
+//        // Add particle to visited cells, if not allready visited
+//        visited_cells[p.x_][p.y_] = true;
+//
+//        // If cell can ignite, add particle to cell, if not allready in
+//        if (CellCanIgnite(p.x_, p.y_)) {
+//            ticking_cells_.insert(p);
+//        }
+//
+//        ++it;
+//    }
+//}
+
 template <typename ParticleType>
-void GridMap::UpdateVirtualParticles(std::vector<ParticleType> &particles, std::vector<std::vector<bool>> &visited_cells) {
-    for (auto it = particles.begin(); it != particles.end();) {
+void GridMap::UpdateVirtualParticles(std::vector<ParticleType>& particles, std::vector<std::vector<bool>>& visited_cells) {
+    std::vector<ParticleType*> particles_to_remove;
+
+    for (size_t part = 0; part < particles.size(); ++part) {
+        auto& particle = particles[part];
 
         if constexpr (std::is_same<ParticleType, VirtualParticle>::value) {
-            it->UpdateState(*wind_, parameters_.GetDt());
+            particle.UpdateState(*wind_, parameters_.GetDt(), buffer_);
         } else {
-            it->UpdateState(parameters_.GetDt());
+            particle.UpdateState(parameters_.GetDt(), buffer_);
         }
 
         double x, y;
-        it->GetPosition(x, y);
+        particle.GetPosition(x, y);
         int i, j;
         parameters_.ConvertRealToGridCoordinates(x, y, i, j);
 
-        // check if particle is still in the grid
-        if (!IsPointInGrid(i, j) || !it->IsCapableOfIgnition()) {
-            // Particle is outside the grid, so it is no longer visited
-            // OR it is not capable of ignition
-            std::iter_swap(it, --particles.end());
-            particles.pop_back();
-
+        if (!IsPointInGrid(i, j) || !particle.IsCapableOfIgnition()) {
+            {
+                particles_to_remove.push_back(&particle);
+            }
             continue;
         }
 
         Point p = Point(i, j);
 
-        // Add particle to visited cells, if not allready visited
-        visited_cells[p.x_][p.y_] = true;
-
-        // If cell can ignite, add particle to cell, if not allready in
-        if (CellCanIgnite(p.x_, p.y_)) {
-            ticking_cells_.insert(p);
+        {
+            visited_cells[p.x_][p.y_] = true;
+            if (CellCanIgnite(p.x_, p.y_)) {
+                ticking_cells_.insert(p);
+            }
         }
-
-        ++it;
     }
+
+    particles.erase(
+            std::remove_if(particles.begin(), particles.end(),
+                           [&](ParticleType& p) {
+                               return std::find(particles_to_remove.begin(), particles_to_remove.end(), &p) != particles_to_remove.end();
+                           }),
+            particles.end()
+    );
 }
 
 void GridMap::UpdateParticles() {
@@ -299,4 +348,86 @@ double GridMap::PercentageBurning() const {
 
 bool GridMap::CanStartFires(int num_fires) const {
     return (num_cells_ - (num_unburnable_ + burning_cells_.size() + num_burned_cells_)) >= num_fires;
+}
+
+void GridMap::SetCellNoise(CellState state, int noise_level, int noise_size) {
+    switch (state) {
+        case GENERIC_UNBURNED:
+            CellGenericUnburned::SetDefaultNoiseLevel(noise_level);
+            CellGenericUnburned::SetDefaultNoiseSize(noise_size);
+            break;
+        case GENERIC_BURNING:
+            CellGenericBurning::SetDefaultNoiseLevel(noise_level);
+            CellGenericBurning::SetDefaultNoiseSize(noise_size);
+            break;
+        case GENERIC_BURNED:
+            CellGenericBurned::SetDefaultNoiseLevel(noise_level);
+            CellGenericBurned::SetDefaultNoiseSize(noise_size);
+            break;
+        case LICHENS_AND_MOSSES:
+            CellLichensAndMosses::SetDefaultNoiseLevel(noise_level);
+            CellLichensAndMosses::SetDefaultNoiseSize(noise_size);
+            break;
+        case LOW_GROWING_WOODY_PLANTS:
+            CellLowGrowingWoodyPlants::SetDefaultNoiseLevel(noise_level);
+            CellLowGrowingWoodyPlants::SetDefaultNoiseSize(noise_size);
+            break;
+        case NON_AND_SPARSLEY_VEGETATED:
+            CellNonAndSparsleyVegetated::SetDefaultNoiseLevel(noise_level);
+            CellNonAndSparsleyVegetated::SetDefaultNoiseSize(noise_size);
+            break;
+        case OUTSIDE_AREA:
+            CellOutsideArea::SetDefaultNoiseLevel(noise_level);
+            CellOutsideArea::SetDefaultNoiseSize(noise_size);
+            break;
+        case PERIODICALLY_HERBACEOUS:
+            CellPeriodicallyHerbaceous::SetDefaultNoiseLevel(noise_level);
+            CellPeriodicallyHerbaceous::SetDefaultNoiseSize(noise_size);
+            break;
+        case PERMANENT_HERBACEOUS:
+            CellPermanentHerbaceous::SetDefaultNoiseLevel(noise_level);
+            CellPermanentHerbaceous::SetDefaultNoiseSize(noise_size);
+            break;
+        case SEALED:
+            CellSealed::SetDefaultNoiseLevel(noise_level);
+            CellSealed::SetDefaultNoiseSize(noise_size);
+            break;
+        case SNOW_AND_ICE:
+            CellSnowAndIce::SetDefaultNoiseLevel(noise_level);
+            CellSnowAndIce::SetDefaultNoiseSize(noise_size);
+            break;
+        case WATER:
+            CellWater::SetDefaultNoiseLevel(noise_level);
+            CellWater::SetDefaultNoiseSize(noise_size);
+            break;
+        case WOODY_BROADLEAVED_DECIDUOUS_TREES:
+            CellWoodyBroadleavedDeciduousTrees::SetDefaultNoiseLevel(noise_level);
+            CellWoodyBroadleavedDeciduousTrees::SetDefaultNoiseSize(noise_size);
+            break;
+        case WOODY_BROADLEAVED_EVERGREEN_TREES:
+            CellWoodyBroadleavedEvergreenTrees::SetDefaultNoiseLevel(noise_level);
+            CellWoodyBroadleavedEvergreenTrees::SetDefaultNoiseSize(noise_size);
+            break;
+        case WOODY_NEEDLE_LEAVED_TREES:
+            CellWoodyNeedleLeavedTrees::SetDefaultNoiseLevel(noise_level);
+            CellWoodyNeedleLeavedTrees::SetDefaultNoiseSize(noise_size);
+            break;
+        case GENERIC_FLOODED:
+            CellGenericFlooded::SetDefaultNoiseLevel(noise_level);
+            CellGenericFlooded::SetDefaultNoiseSize(noise_size);
+            break;
+        default:
+            throw std::runtime_error("FireCell::GetCell() called on a celltype that is not defined");
+    }
+}
+
+void GridMap::GenerateNoiseMap() {
+#pragma omp parallel for
+    for(auto cell_row : cells_) {
+        for(auto cell : cell_row) {
+            if(cell->HasNoise()){
+                cell->GenerateNoiseMap();
+            }
+        }
+    }
 }

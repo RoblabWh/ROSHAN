@@ -14,6 +14,8 @@
 #include "wind.h"
 #include <random>
 #include <iostream>
+#include <mutex>
+#include <omp.h>
 #include <memory>
 #include "src/reinforcementlearning/drone_agent/drone.h"
 
@@ -69,6 +71,10 @@ public:
         return *cells_[i][j];
     }
 
+    // For Rendering Only
+    void GenerateNoiseMap();
+    void SetCellNoise(CellState state, int noise_level, int noise_size);
+
 private:
     FireModelParameters &parameters_;
     std::shared_ptr<Wind> wind_;
@@ -95,6 +101,9 @@ private:
     int num_cells_ = 0;
     int num_burned_cells_ = 0;
     int num_unburnable_ = 0;
+
+    //Optimization
+    RandomBuffer buffer_;
 
     int GetNumUnburnableCells() const;
 };

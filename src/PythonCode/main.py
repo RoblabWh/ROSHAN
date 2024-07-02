@@ -97,7 +97,7 @@ if __name__ == '__main__':
     llm_support = True
 
     # If the agent should be trained or not, if not the agent will act with the best policy if it can be loaded
-    train = True
+    train = False
 
     # This map is used in NoGUI setup, if left empty("") the default map will be used. Has no impact on GUI Setup
     map = "/home/nex/Dokumente/Code/ROSHAN/maps/Small2.tif"
@@ -108,8 +108,8 @@ if __name__ == '__main__':
 
     if llm_support:
         from llmsupport import LLMPredictorAPI
-        #llm = LLMPredictorAPI("mistralai/Mistral-7B-Instruct-v0.3")
-        llm = LLMPredictorAPI("Qwen/Qwen2-1.5B")
+        llm = LLMPredictorAPI("mistralai/Mistral-7B-Instruct-v0.3")
+        #llm = LLMPredictorAPI("Qwen/Qwen2-1.5B")
     engine = firesim.EngineCore()
     memory = Memory()
     logger = Logger(log_dir='./logs', log_interval=1)

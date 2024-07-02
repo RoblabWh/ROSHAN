@@ -183,7 +183,7 @@ void EngineCore::StopServer() {
 
     std::string kill_command = "kill " + std::to_string(pid);
     std::cout << kill_command << std::endl;
-    std::system(kill_command.c_str());
+    int ret = std::system(kill_command.c_str());
 }
 
 

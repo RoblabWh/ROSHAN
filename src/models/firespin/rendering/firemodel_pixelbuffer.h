@@ -7,6 +7,7 @@
 
 #include <SDL.h>
 #include <vector>
+#include <algorithm>
 #include "imgui.h"
 
 class PixelBuffer {
@@ -14,7 +15,8 @@ public:
     PixelBuffer(int width, int height, SDL_Color background_color, SDL_PixelFormat* format);
     ~PixelBuffer() {}
 
-    void Draw(const SDL_Rect rect, Uint32 color);
+    void Draw(const SDL_Rect rect, Uint32 base_color, int grid_offset = 0);
+    void Draw(const SDL_Rect rect, Uint32 base_color, const std::vector<std::vector<int>>& noise_map, int grid_offset = 0);
     void DrawGrid(const SDL_Rect rect, Uint32 color);
     void Reset();
     void Resize(int width, int height);

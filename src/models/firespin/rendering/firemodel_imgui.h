@@ -43,6 +43,7 @@ public:
     std::function<void(std::vector<std::vector<int>>*)> onResetGridMap;
     std::function<void()> onFillRasterWithEnum;
     std::function<bool(int,double,double,int)> onMoveDrone;
+    std::function<void(CellState, int, int)> onSetNoise;
     std::function<void(int)> startFires;
 
 private:
@@ -53,6 +54,8 @@ private:
     bool show_model_analysis_ = false;
     bool show_drone_analysis_ = false;
     bool show_model_parameter_config_ = false;
+    bool show_noise_config_ = false;
+    bool show_noise_ = true;
     bool model_startup_ = false;
     bool open_file_dialog_ = false;
     bool load_map_from_disk_ = false;
@@ -69,9 +72,7 @@ private:
 
     //Helper
     void DrawGrid(const std::vector<std::vector<int>>& grid, std::shared_ptr<FireModelRenderer> renderer, float cell_size, bool is_fire_status = false);
-
     void DrawBuffer(std::vector<float> buffer, int buffer_pos);
-
 };
 
 #endif //ROSHAN_FIREMODEL_IMGUI_H

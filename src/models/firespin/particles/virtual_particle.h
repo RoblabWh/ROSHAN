@@ -10,14 +10,15 @@
 #include <random>
 #include "src/models/firespin/wind.h"
 #include "src/models/firespin/model_parameters.h"
+#include "src/models/firespin/utils.h"
 
 class VirtualParticle {
 
 public:
 
     VirtualParticle(int x, int y, double tau_mem, double Y_st,
-                    double Y_lim, double Fl, double C0, double Lt, std::mt19937& gen);
-    void UpdateState(Wind wind, double dt);
+                    double Y_lim, double Fl, double C0, double Lt);
+    void UpdateState(Wind& wind, double dt, RandomBuffer& buffer);
     void GetPosition(double& x1, double& x2) const { x1 = X_[0]; x2 = X_[1];}
     double GetIntensity() const { return Y_st_; }
     bool IsCapableOfIgnition() const { return Y_st_ >= Y_lim_; }
@@ -27,8 +28,7 @@ public:
     VirtualParticle& operator=(const VirtualParticle&) = delete;
 
     // Define move constructor
-    VirtualParticle(VirtualParticle&& other) noexcept
-            : gen_(other.gen_), normal_dist_(std::move(other.normal_dist_)) {
+    VirtualParticle(VirtualParticle&& other) noexcept {
         *this = std::move(other);
     }
 
@@ -68,9 +68,6 @@ private:
     double N_i_{};
     double fac1{};
     double fac2{};
-
-    std::mt19937 gen_;
-    std::normal_distribution<> normal_dist_;
 };
 
 

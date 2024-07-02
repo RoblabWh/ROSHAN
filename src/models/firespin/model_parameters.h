@@ -15,6 +15,9 @@ public:
 
     //Render parameters
     bool render_grid_ = false;
+    bool has_noise_ = true;
+    int noise_level_ = 20;
+    int noise_size_ = 2;
     SDL_Color background_color_ = {41, 49, 51, 255};
     bool map_is_uniform_;
 

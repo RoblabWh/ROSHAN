@@ -17,22 +17,22 @@
 #include <random>
 #include <chrono>
 
-#include "src/models/firespin/cell_classes/cell_generic_burned.cpp"
-#include "src/models/firespin/cell_classes/cell_generic_unburned.cpp"
-#include "src/models/firespin/cell_classes/cell_generic_burning.cpp"
-#include "src/models/firespin/cell_classes/cell_lichens_and_mosses.cpp"
-#include "src/models/firespin/cell_classes/cell_low_growing_woody_plants.cpp"
-#include "src/models/firespin/cell_classes/cell_non_and_sparsley_vegetated.cpp"
-#include "src/models/firespin/cell_classes/cell_outside_area.cpp"
-#include "src/models/firespin/cell_classes/cell_periodically_herbaceous.cpp"
-#include "src/models/firespin/cell_classes/cell_permanent_herbaceous.cpp"
-#include "src/models/firespin/cell_classes/cell_sealed.cpp"
-#include "src/models/firespin/cell_classes/cell_snow_and_ice.cpp"
-#include "src/models/firespin/cell_classes/cell_water.cpp"
-#include "src/models/firespin/cell_classes/cell_woody_breadleaved_deciduous_trees.cpp"
-#include "src/models/firespin/cell_classes/cell_woody_broadleaved_evergreen_trees.cpp"
-#include "src/models/firespin/cell_classes/cell_woody_needle_leaved_trees.cpp"
-#include "src/models/firespin/cell_classes/cell_generic_flooded.cpp"
+#include "src/models/firespin/cell_classes/cell_generic_burned.h"
+#include "src/models/firespin/cell_classes/cell_generic_unburned.h"
+#include "src/models/firespin/cell_classes/cell_generic_burning.h"
+#include "src/models/firespin/cell_classes/cell_lichens_and_mosses.h"
+#include "src/models/firespin/cell_classes/cell_low_growing_woody_plants.h"
+#include "src/models/firespin/cell_classes/cell_non_and_sparsley_vegetated.h"
+#include "src/models/firespin/cell_classes/cell_outside_area.h"
+#include "src/models/firespin/cell_classes/cell_periodically_herbaceous.h"
+#include "src/models/firespin/cell_classes/cell_permanent_herbaceous.h"
+#include "src/models/firespin/cell_classes/cell_sealed.h"
+#include "src/models/firespin/cell_classes/cell_snow_and_ice.h"
+#include "src/models/firespin/cell_classes/cell_water.h"
+#include "src/models/firespin/cell_classes/cell_woody_breadleaved_deciduous_trees.h"
+#include "src/models/firespin/cell_classes/cell_woody_broadleaved_evergreen_trees.h"
+#include "src/models/firespin/cell_classes/cell_woody_needle_leaved_trees.h"
+#include "src/models/firespin/cell_classes/cell_generic_flooded.h"
 
 
 class FireCell {
@@ -54,6 +54,7 @@ public:
     VirtualParticle EmitConvectionParticle();
     RadiationParticle EmitRadiationParticle();
     Uint32 GetMappedColor();
+    std::vector<std::vector<int>>& GetNoiseMap();
 
     void Tick();
     void burn();
@@ -61,6 +62,14 @@ public:
     void Flood();
     void Extinguish();
     void ShowInfo(int rows, int cols);
+
+    //Used for Rendering Only
+    void GenerateNoiseMap();
+    bool HasNoise();
+    int GetNoiseLevel();
+    int GetNoiseSize();
+    void SetDefaultNoise(int noise_level, int noise_size);
+
 private:
     FireModelParameters &parameters_;
 
@@ -85,6 +94,9 @@ private:
     ICell* mother_cell_;
     CellState cell_state_;
     CellState cell_initial_state_;
+
+    //Texture Test
+    std::vector<std::vector<int>> noise_map_;
 
     // Random Generator for the particles
     std::mt19937 gen_;

@@ -51,6 +51,7 @@ void FireModel::ResetGridMap(std::vector<std::vector<int>>* rasterData) {
 
     if (mode_ == Mode::GUI || mode_ == Mode::GUI_RL) {
         model_renderer_->SetGridMap(gridmap_);
+        gridmap_->GenerateNoiseMap();
     }
 
     if (mode_ == Mode::GUI_RL) {
@@ -192,6 +193,7 @@ void FireModel::setupImGui() {
     imgui_handler_->onMoveDrone = [this](int drone_idx, double speed_x, double speed_y, int water_dispense) {return rl_handler_->StepDrone(
             drone_idx, speed_x, speed_y, water_dispense);};
     imgui_handler_->startFires = [this](int percentage) {StartFires(percentage);};
+    imgui_handler_->onSetNoise = [this](CellState state, int noise_level, int noise_size) {gridmap_->SetCellNoise(state, noise_level, noise_size);};
 }
 
 void FireModel::ImGuiRendering(bool &update_simulation, bool &render_simulation, int &delay, float framerate) {

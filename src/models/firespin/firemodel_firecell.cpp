@@ -135,7 +135,7 @@ VirtualParticle FireCell::EmitConvectionParticle() {
     double y_pos = y_ + (cell_size * y_pos_rnd);
     VirtualParticle particle(x_pos, y_pos, parameters_.GetTauMemVirt(), parameters_.GetYStVirt(),
                              parameters_.GetYLimVirt(), parameters_.GetFlVirt(), parameters_.GetC0Virt(),
-                             parameters_.GetLt(), gen_);
+                             parameters_.GetLt());
 
     return particle;
 }
@@ -278,6 +278,8 @@ void FireCell::ShowInfo(int rows, int cols) {
     ImGui::Text("Burning duration: %.2f", burning_duration_);
     ImGui::Text("Ticking duration: %.2f", ticking_duration_);
     ImGui::Text("Tau ign: %.2f", tau_ign_);
+    ImGui::Text("Noise Level: %d", GetNoiseLevel());
+    ImGui::Text("Noise Size: %d", GetNoiseSize());
 }
 
 Uint32 FireCell::GetMappedColor() {
@@ -310,6 +312,33 @@ Uint32 FireCell::GetMappedColor() {
         return blended_mapped_color;
     }
     return cell_->GetMappedColor();
+}
+
+bool FireCell::HasNoise() {
+    return cell_->HasNoise() && parameters_.has_noise_;
+}
+
+int FireCell::GetNoiseLevel() {
+    return cell_->GetNoiseLevel();
+}
+
+int FireCell::GetNoiseSize() {
+    return cell_->GetNoiseSize();
+}
+
+void FireCell::GenerateNoiseMap() {
+    int noise_level = cell_->GetNoiseLevel();
+    int size = cell_->GetNoiseSize();
+    noise_map_.resize(size, std::vector<int>(size));
+    for (int y = 0; y < size; ++y) {
+        for (int x = 0; x < size; ++x) {
+            noise_map_[y][x] = std::rand() % (2 * noise_level) - noise_level;
+        }
+    }
+}
+
+std::vector<std::vector<int>>& FireCell::GetNoiseMap() {
+    return noise_map_;
 }
 
 FireCell::~FireCell() {

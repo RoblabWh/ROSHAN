@@ -12,7 +12,11 @@
 #include <stdexcept>
 #include <algorithm>
 #include <iostream>
-
+#include <random>
+#include <cmath>
+#include <limits>
+#include "pcg_random.hpp"
+#include "pcg_extras.hpp"
 
 std::string formatTime(int seconds);
 
@@ -127,4 +131,47 @@ private:
     const size_t max_size;
     bool full;
 };
+
+class RandomBuffer {
+public:
+    RandomBuffer(size_t size) : index_(0) {
+        buffer_.resize(size);
+
+        fillBuffer();
+    }
+
+    void fillBuffer(){
+        // TODO PCG is faster, but not by very much
+        //std::minstd_rand rng(std::random_device{}());
+        std::mt19937 rng(std::random_device{}());
+//        pcg32 rng;
+//        pcg_extras::seed_seq_from<std::random_device> seed_source;
+//        rng.seed(seed_source);
+        std::normal_distribution<double> dist(0.0, 1.0);
+        for (auto &num : buffer_) {
+            num = dist(rng);
+        }
+    }
+
+    // Check if there are enough numbers from the current index to the end of the buffer
+    bool hasEnough(size_t n) {
+        return buffer_.size() - index_ > n;
+    }
+
+    double getNext() {
+        // Shuffle buffer if end is reached
+//        if (index_ >= buffer_.size()) {
+//            std::shuffle(buffer_.begin(), buffer_.end(), std::mt19937(std::random_device()()));
+//            index_ = 0;
+//        }
+//        // Wrap around if buffer end is reached
+        if (index_ >= buffer_.size()) index_ = 0;
+        return buffer_[index_++];
+    }
+
+private:
+    std::vector<double> buffer_;
+    size_t index_;
+};
+
 #endif //ROSHAN_UTILS_H

@@ -5,7 +5,7 @@
 #ifndef ROSHAN_FIREMODEL_H
 #define ROSHAN_FIREMODEL_H
 
-#define SPEEDTEST
+#define NOSPEEDTEST
 
 #include <cstdlib>
 #include <iostream>
