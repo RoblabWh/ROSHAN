@@ -61,6 +61,7 @@ public:
 
     // Drawing Related
     void SetFullRedraw() { needs_full_redraw_ = true; }
+    void SetInitCellNoise() { gridmap_->GenerateNoiseMap(); }
     void ResizeEvent();
     void DrawArrow(double angle);
 
@@ -88,6 +89,7 @@ private:
     static std::shared_ptr<FireModelRenderer> instance_;
 
     bool needs_full_redraw_;
+    bool needs_init_cell_noise_;
     void DrawAllCells(int grid_left, int grid_right, int grid_top, int grid_bottom);
     void DrawChangesCells();
     SDL_Rect DrawCell(int x, int y);

@@ -234,6 +234,7 @@ void FireCell::Flood() {
             ticking_duration_ = 0;
         }
         SetCellState(GENERIC_FLOODED);
+        was_flooded_ = true;
     }
     flood_timer_ = 0;
 }
@@ -315,7 +316,7 @@ Uint32 FireCell::GetMappedColor() {
 }
 
 bool FireCell::HasNoise() {
-    return cell_->HasNoise() && parameters_.has_noise_;
+    return cell_->HasNoise();
 }
 
 int FireCell::GetNoiseLevel() {

@@ -52,6 +52,7 @@ void FireModel::ResetGridMap(std::vector<std::vector<int>>* rasterData) {
     if (mode_ == Mode::GUI || mode_ == Mode::GUI_RL) {
         model_renderer_->SetGridMap(gridmap_);
         gridmap_->GenerateNoiseMap();
+        gridmap_->SetNoiseGenerated(parameters_.has_noise_);
     }
 
     if (mode_ == Mode::GUI_RL) {

@@ -115,10 +115,14 @@ void ImguiHandler::ImGuiModelMenu(std::shared_ptr<FireModelRenderer> model_rende
                 ImGui::MenuItem("Show Controls", NULL, &show_controls_);
                 ImGui::MenuItem("Show Simulation Analysis", NULL, &show_model_analysis_);
                 ImGui::MenuItem("Show Parameter Config", NULL, &show_model_parameter_config_);
-                if(ImGui::MenuItem("Render Noise", NULL, &parameters_.has_noise_))
+                if(ImGui::MenuItem("Render Noise", NULL, &parameters_.has_noise_)){
+                    model_renderer->SetInitCellNoise();
                     model_renderer->SetFullRedraw();
+                }
                 if(parameters_.has_noise_)
                     ImGui::MenuItem("Show Noise Config", NULL, &show_noise_config_);
+                if(ImGui::MenuItem("Lingering", NULL, &parameters_.lingering_))
+                    model_renderer->SetFullRedraw();
                 if(ImGui::MenuItem("Render Grid", NULL, &parameters_.render_grid_))
                     model_renderer->SetFullRedraw();
                 ImGui::EndMenu();

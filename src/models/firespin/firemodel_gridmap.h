@@ -74,6 +74,8 @@ public:
     // For Rendering Only
     void GenerateNoiseMap();
     void SetCellNoise(CellState state, int noise_level, int noise_size);
+    void SetNoiseGenerated(bool noise_generated) { noise_generated_ = noise_generated; }
+    bool HasNoiseGenerated() const { return noise_generated_; }
 
 private:
     FireModelParameters &parameters_;
@@ -101,6 +103,9 @@ private:
     int num_cells_ = 0;
     int num_burned_cells_ = 0;
     int num_unburnable_ = 0;
+
+    //Noise handling
+    bool noise_generated_;
 
     //Optimization
     RandomBuffer buffer_;

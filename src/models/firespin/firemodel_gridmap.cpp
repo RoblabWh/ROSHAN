@@ -33,6 +33,8 @@ GridMap::GridMap(std::shared_ptr<Wind> wind, FireModelParameters &parameters,
     burning_cells_.reserve(100000);
     changed_cells_.reserve(100000);
     flooded_cells_.reserve(1000);
+
+    noise_generated_ = false;
 }
 
 // Templated function to avoid repeating common code
@@ -422,12 +424,14 @@ void GridMap::SetCellNoise(CellState state, int noise_level, int noise_size) {
 }
 
 void GridMap::GenerateNoiseMap() {
-#pragma omp parallel for
-    for(auto cell_row : cells_) {
-        for(auto cell : cell_row) {
-            if(cell->HasNoise()){
-                cell->GenerateNoiseMap();
+    if (!this->noise_generated_ && parameters_.has_noise_){
+        for(auto cell_row : cells_) {
+            for(auto cell : cell_row) {
+                if(cell->HasNoise()){
+                    cell->GenerateNoiseMap();
+                }
             }
         }
+        this->noise_generated_ = true;
     }
 }

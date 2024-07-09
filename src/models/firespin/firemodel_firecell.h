@@ -60,6 +60,7 @@ public:
     void burn();
     bool ShouldIgnite();
     void Flood();
+    bool WasFlooded() { return was_flooded_; };
     void Extinguish();
     void ShowInfo(int rows, int cols);
 
@@ -104,6 +105,7 @@ private:
 
     ICell *GetCell();
 
+    bool was_flooded_ = false;
     void SetCellState(CellState cell_state);
     void ResetFloodedCell();
 };
