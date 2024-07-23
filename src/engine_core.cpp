@@ -199,7 +199,7 @@ bool EngineCore::AgentIsRunning() {
     }
 }
 
-std::tuple<std::vector<std::deque<std::shared_ptr<State>>>, std::vector<double>, std::vector<bool>, std::pair<bool, bool>>
+std::tuple<std::vector<std::deque<std::shared_ptr<State>>>, std::vector<double>, std::vector<bool>, std::pair<bool, bool>, double>
 EngineCore::Step(std::vector<std::shared_ptr<Action>> actions) {
     return model_->Step(actions);
 }

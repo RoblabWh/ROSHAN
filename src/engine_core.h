@@ -56,7 +56,7 @@ public:
     bool AgentIsRunning();
     std::string GetUserInput();
     std::vector<std::deque<std::shared_ptr<State>>> GetObservations();
-    std::tuple<std::vector<std::deque<std::shared_ptr<State>>>, std::vector<double>, std::vector<bool>, std::pair<bool, bool>>
+    std::tuple<std::vector<std::deque<std::shared_ptr<State>>>, std::vector<double>, std::vector<bool>, std::pair<bool, bool>, double>
     Step(std::vector<std::shared_ptr<Action>> actions);
 
     inline bool IsRunning() { return is_running_; }

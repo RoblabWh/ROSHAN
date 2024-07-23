@@ -125,8 +125,8 @@ std::vector<std::deque<std::shared_ptr<State>>> FireModel::GetObservations() {
     return rl_handler_->GetObservations();
 }
 
-std::tuple<std::vector<std::deque<std::shared_ptr<State>>>, std::vector<double>, std::vector<bool>, std::pair<bool, bool>> FireModel::Step(std::vector<std::shared_ptr<Action>> actions){
-    std::tuple<std::vector<std::deque<std::shared_ptr<State>>>, std::vector<double>, std::vector<bool>, std::pair<bool, bool>>  result;
+std::tuple<std::vector<std::deque<std::shared_ptr<State>>>, std::vector<double>, std::vector<bool>, std::pair<bool, bool>, double> FireModel::Step(std::vector<std::shared_ptr<Action>> actions){
+    std::tuple<std::vector<std::deque<std::shared_ptr<State>>>, std::vector<double>, std::vector<bool>, std::pair<bool, bool>, double>  result;
 #ifdef SPEEDTEST
     // Construct a new action for each drone with 0, 0
     std::vector<std::shared_ptr<Action>> actions2;
@@ -266,6 +266,6 @@ void FireModel::StartFires(int percentage) {
             i++;
         }
     }
-    std::cout << "Fires started: " << fires << std::endl;
+    //std::cout << "Fires started: " << fires << std::endl;
 }
 

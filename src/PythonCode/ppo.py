@@ -78,9 +78,7 @@ class PPO:
 
     def saveCurrentWeights(self, logger):
         print("Saving best weights with reward {}".format(logger.reward_best))
-        torch.save(self.policy.state_dict(), 'best.pth')
-        print('Saving current weights to ' + ckpt_folder + '/' + env_name + '_current.pth')
-        torch.save(self.policy.state_dict(), ckpt_folder + '/PPO_continuous_{}_current.pth'.format(env_name))
+        torch.save(self.policy.state_dict(), f'current_{logger.reward_best}_reward.pth')
 
     def calculate_returns(self, rewards, normalize=False):
 
@@ -123,7 +121,7 @@ class PPO:
         norm_adv = (advantages - advantages.mean()) / (advantages.std() + 1e-10)
 
         returns = torch.FloatTensor(returns).to(device)
-        # norm_returns = (returns - returns.mean()) / (returns.std() + 1e-10)
+        #norm_returns = (returns - returns.mean()) / (returns.std() + 1e-10)
 
         return norm_adv, returns
 
@@ -159,23 +157,26 @@ class PPO:
         logger.add_reward([np.array(rewards.detach().cpu()).mean()])
 
         # Normalize rewards by running reward
-        # self.running_reward_std.update(np.array(rewards))
-        # rewards = np.clip(np.array(rewards) / self.running_reward_std.get_std(), -10, 10)
-        # rewards = torch.tensor(rewards).type(torch.float32)
+        self.running_reward_std.update(np.array(rewards.detach().cpu()))
+        rewards = np.clip(np.array(rewards.detach().cpu()) / self.running_reward_std.get_std(), -10, 10)
+        rewards = torch.tensor(rewards).type(torch.float32)
 
         # Save current weights if the mean reward is higher than the best reward so far
         if logger.better_reward():
             print("Saving best weights with reward {}".format(logger.reward_best))
             torch.save(self.policy.state_dict(), 'best.pth')
 
-        rewards = (rewards - rewards.mean()) / (rewards.std() + 1e-10)
+        # TODO Shifting causes Agent to suicide??
+        #rewards = (rewards - rewards.mean()) / (rewards.std() + 1e-10)
 
         # Advantages
         with torch.no_grad():
             _, values_, _ = self.policy.evaluate(states, actions)
             if masks[-1] == 1:
+                # last_state = (states[0][-1].unsqueeze(0), states[1][-1].unsqueeze(0), states[2][-1].unsqueeze(0),
+                #               states[3][-1].unsqueeze(0), states[4][-1].unsqueeze(0))
                 last_state = (states[0][-1].unsqueeze(0), states[1][-1].unsqueeze(0), states[2][-1].unsqueeze(0),
-                              states[3][-1].unsqueeze(0), states[4][-1].unsqueeze(0))
+                              states[3][-1].unsqueeze(0))
                 bootstrapped_value = self.policy.critic(last_state).detach()
                 values_ = torch.cat((values_, bootstrapped_value[0]), dim=0)
             advantages, returns = self.get_advantages(values_.detach(), masks, rewards)
@@ -185,8 +186,9 @@ class PPO:
             # Random sampling and no repetition. 'False' indicates that training will continue even if the number of samples in the last time is less than mini_batch_size
             for index in BatchSampler(SubsetRandomSampler(range(batch_size)), mini_batch_size, False):
                 # Evaluate old actions and values using current policy
-                batch_states = (
-                    states[0][index], states[1][index], states[2][index], states[3][index], states[4][index])
+                # batch_states = (
+                #     states[0][index], states[1][index], states[2][index], states[3][index], states[4][index])
+                batch_states = (states[0][index], states[1][index], states[2][index], states[3][index])
                 batch_actions = actions[index]
                 logprobs, values, dist_entropy = self.policy.evaluate(batch_states, batch_actions)
                 log_values.append(values.detach().mean().item())

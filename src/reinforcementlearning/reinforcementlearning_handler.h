@@ -32,7 +32,7 @@ public:
     bool StepDrone(int drone_idx, double speed_x, double speed_y, int water_dispense);
     void ResetDrones(Mode mode);
     void InitFires();
-    std::tuple<std::vector<std::deque<std::shared_ptr<State>>>, std::vector<double>, std::vector<bool>, std::pair<bool, bool>> Step(std::vector<std::shared_ptr<Action>> actions);
+    std::tuple<std::vector<std::deque<std::shared_ptr<State>>>, std::vector<double>, std::vector<bool>, std::pair<bool, bool>, double> Step(std::vector<std::shared_ptr<Action>> actions);
 
     void SetModelRenderer(std::shared_ptr<FireModelRenderer> model_renderer) { model_renderer_ = model_renderer; }
     void SetGridMap(std::shared_ptr<GridMap> gridmap) { gridmap_ = gridmap; }
@@ -52,7 +52,7 @@ private:
     FireModelParameters& parameters_;
     std::shared_ptr<std::vector<std::shared_ptr<DroneAgent>>> drones_;
 
-    double CalculateReward(bool drone_in_grid, bool fire_extinguished, bool drone_terminal, int water_dispensed, int near_fires, double max_distance, double distance_to_fire) const;
+    double CalculateReward(bool drone_in_grid, bool fire_extinguished, bool drone_terminal, int out_of_area_counter, int near_fires, double max_distance, double distance_to_fire) const;
 
     //Dirty Variables CHANGE TO AGENT STATE OR SOMETHING
     double last_distance_to_fire_{};

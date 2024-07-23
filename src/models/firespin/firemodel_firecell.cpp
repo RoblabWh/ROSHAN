@@ -264,8 +264,8 @@ void FireCell::ShowInfo(int rows, int cols) {
     double cellsize = parameters_.GetCellSize();
     double total_width = cols * cellsize;
     double total_height = rows * cellsize;
-    double relative_x = (x_ + 0.5) / total_width; // +0.5 to get the center of the cell
-    double relative_y = (y_ + 0.5) / total_height;
+    double relative_x = (2.0 * (x_ + 0.5) / total_width) - 1; // +0.5 to get the center of the cell
+    double relative_y = (2.0 * (y_ + 0.5) / total_height) - 1;
     ImGui::Text("Relative Position(Center): %f, %f", relative_x, relative_y);
     ImGui::ColorButton("MyColor##3", {color.x / 255, color.y / 255, color.z / 255, color.w / 255}, ImGuiColorEditFlags_NoTooltip | ImGuiColorEditFlags_NoPicker);
     ImGui::SameLine();

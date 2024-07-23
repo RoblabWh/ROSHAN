@@ -19,7 +19,7 @@ public:
     virtual ~IModel() = default;
 
     virtual void Update() = 0;
-    virtual std::tuple<std::vector<std::deque<std::shared_ptr<State>>>, std::vector<double>, std::vector<bool>, std::pair<bool, bool>> Step(std::vector<std::shared_ptr<Action>> actions) = 0;
+    virtual std::tuple<std::vector<std::deque<std::shared_ptr<State>>>, std::vector<double>, std::vector<bool>, std::pair<bool, bool>, double> Step(std::vector<std::shared_ptr<Action>> actions) = 0;
     virtual std::vector<std::deque<std::shared_ptr<State>>> GetObservations() = 0;
     virtual void Render() = 0;
     virtual bool AgentIsRunning() = 0;

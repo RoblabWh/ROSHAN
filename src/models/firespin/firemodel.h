@@ -39,7 +39,7 @@ public:
     ~FireModel() override;
 
     void Update() override;
-    std::tuple<std::vector<std::deque<std::shared_ptr<State>>>, std::vector<double>, std::vector<bool>, std::pair<bool, bool>> Step(std::vector<std::shared_ptr<Action>> actions) override;
+    std::tuple<std::vector<std::deque<std::shared_ptr<State>>>, std::vector<double>, std::vector<bool>, std::pair<bool, bool>, double> Step(std::vector<std::shared_ptr<Action>> actions) override;
     std::vector<std::deque<std::shared_ptr<State>>> GetObservations() override;
     void Render() override;
     void SetRenderer(std::shared_ptr<SDL_Renderer> renderer) override;

@@ -56,6 +56,18 @@ std::vector<std::vector<double>> DroneState::GetTerrainNorm() {
     return terrain_norm;
 }
 
+int DroneState::CountOutsideArea() {
+    int outside_area = 0;
+    for (size_t i = 0; i < terrain_.size(); ++i) {
+        for (size_t j = 0; j < terrain_[i].size(); ++j) {
+            if (terrain_[i][j] == OUTSIDE_GRID) {
+                outside_area++;
+            }
+        }
+    }
+    return outside_area;
+}
+
 std::vector<std::vector<double>> DroneState::GetFireStatusNorm() {
     return std::vector<std::vector<double>>();
 }
@@ -65,8 +77,8 @@ std::vector<std::vector<double>> DroneState::GetMapNorm() {
 }
 
 std::pair<double, double> DroneState::GetPositionNorm() const {
-    double x = position_.first / (map_dimensions_.first * cell_size_);
-    double y = position_.second / (map_dimensions_.second * cell_size_);
+    double x = (2.0 * position_.first / (map_dimensions_.first * cell_size_)) - 1;
+    double y = (2.0 * position_.second / (map_dimensions_.second * cell_size_)) - 1;
     return std::make_pair(x, y);
 }
 

@@ -70,35 +70,40 @@ void ReinforcementLearningHandler::InitFires() {
         }
 }
 
-double ReinforcementLearningHandler::CalculateReward(bool drone_in_grid, bool fire_extinguished, bool drone_terminal, int water_dispensed, int near_fires, double max_distance, double distance_to_fire) const {
+double ReinforcementLearningHandler::CalculateReward(bool drone_in_grid, bool fire_extinguished, bool drone_terminal, int out_of_area_counter, int near_fires, double max_distance, double distance_to_fire) const {
     double reward = 0;
 
-    // check the boundaries of the network
+    // Check the boundaries of the network
+    double ooa_factor = -0.005 * out_of_area_counter;
+    reward += ooa_factor;
     if (!drone_in_grid) {
-        reward += -50 * max_distance;
+        reward += ooa_factor;
+        reward += -2 * max_distance;
         if(drone_terminal) {
-            reward -= 10;
+            reward += -15;
             return reward;
         }
+    } else {
+        reward += 0.1;
     }
-
     // Fire was discovered
     if (last_near_fires_ == 0 && near_fires > 0) {
-        reward += 2;
+        reward += 1;
     }
 
     if (fire_extinguished) {
+        // all fires on the map were extinguished
         if (drone_terminal) {
-            reward += 10;
+            reward += 50;
             return reward;
         }
-            // all fires in sight were extinguished
+        // all fires in sight were extinguished
         else if (near_fires == 0) {
-            reward += 5;
+            reward += 10;
         }
-            // a fire was extinguished
+        // a fire was extinguished
         else {
-            reward += 1;
+            reward += 5;
         }
     } else {
         // if last_distance or last_distance_to_fire_ is very large, dismiss the reward
@@ -112,15 +117,23 @@ double ReinforcementLearningHandler::CalculateReward(bool drone_in_grid, bool fi
 //                std::cout << "Current distance: " << distance_to_fire << std::endl;
 //                std::cout << "" << std::endl;
 //            }
-            reward += 0.05 * delta_distance;
+            if(delta_distance > 0) {
+                reward += 0.125 * delta_distance;
+            } else {
+                reward += 0.1 * delta_distance;
+            }
         }
         // if (water_dispensed)
         //     reward += -0.1;
     }
+    if(drone_terminal){
+        reward += -10;
+    }
+
     return reward;
 }
 
-std::tuple<std::vector<std::deque<std::shared_ptr<State>>>, std::vector<double>, std::vector<bool>, std::pair<bool, bool>> ReinforcementLearningHandler::Step(std::vector<std::shared_ptr<Action>> actions) {
+std::tuple<std::vector<std::deque<std::shared_ptr<State>>>, std::vector<double>, std::vector<bool>, std::pair<bool, bool>, double> ReinforcementLearningHandler::Step(std::vector<std::shared_ptr<Action>> actions) {
 
     if (gridmap_ != nullptr) {
         std::vector<std::deque<std::shared_ptr<State>>> next_observations;
@@ -159,6 +172,7 @@ std::tuple<std::vector<std::deque<std::shared_ptr<State>>>, std::vector<double>,
             } else {
                 drones_->at(i)->ResetOutOfAreaCounter();
             }
+            int out_of_area_counter = drones_->at(i)->GetLastState().CountOutsideArea();
             std::deque<DroneState> drone_states = drones_->at(i)->GetStates();
             std::deque<std::shared_ptr<State>> shared_states;
             for (auto &state : drone_states) {
@@ -170,7 +184,7 @@ std::tuple<std::vector<std::deque<std::shared_ptr<State>>>, std::vector<double>,
             terminals.push_back(false);
 
             // Check if drone is out of area for too long, if so, reset it
-            if (drones_->at(i)->GetOutOfAreaCounter() > 15) {
+            if (drones_->at(i)->GetOutOfAreaCounter() > 5) {
                 terminals[i] = true;
                 drone_died = true;
                 // Delete Drone and create new one
@@ -192,7 +206,7 @@ std::tuple<std::vector<std::deque<std::shared_ptr<State>>>, std::vector<double>,
                 all_fires_ext = true;
             }
             double reward = CalculateReward(drone_in_grid, drone_dispensed_water, terminals[i],
-                                            water_dispense, near_fires, max_distance, distance_to_fire);
+                                            out_of_area_counter, near_fires, max_distance, distance_to_fire);
             rewards.push_back(reward);
             rewards_.put(static_cast<float>(reward));
 
@@ -203,11 +217,14 @@ std::tuple<std::vector<std::deque<std::shared_ptr<State>>>, std::vector<double>,
                 auto buffer = rewards_.getBuffer();
                 float sum = std::accumulate(buffer.begin(), buffer.end(), 0.0f);
                 all_rewards_.push_back(sum / buffer.size());
+                last_distance_to_fire_ = std::numeric_limits<double>::max();
+                last_near_fires_ = 0;
                 rewards_.reset();
             }
         }
+        double percentage_burned = gridmap_->PercentageBurned();
 
-        return {next_observations, rewards, terminals, std::make_pair(drone_died, all_fires_ext)};
+        return {next_observations, rewards, terminals, std::make_pair(drone_died, all_fires_ext), percentage_burned};
 
     }
     std::cout << "Taking a step into nothingness..." << std::endl;

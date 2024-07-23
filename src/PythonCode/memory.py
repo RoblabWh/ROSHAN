@@ -94,6 +94,9 @@ class Memory(object):
 
         self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
+    def __len__(self):
+        return self.size
+
     def add(self, state, action, action_logprobs, reward, next_state, done):
         for i in range(len(done)):
             self.state[self.ptr] = tuple(s[i] for s in state)

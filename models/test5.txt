@@ -1,0 +1,13 @@
+-----------------------------------
+Episode: 1000
+Reward: 48.19157784410602
+Time: 44
+Percentage burned: 0.0
+Died: 0
+Reached: 1
+Total average time: 171.784
+Total average percentage burned: 0.0008476190476190476
+Total average reward: -55.55822751157418
+Total died: 266
+Total reached: 734
+-----------------------------------

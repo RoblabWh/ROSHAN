@@ -277,7 +277,7 @@ void GridMap::ExtinguishCell(int x, int y) {
 std::pair<std::vector<std::vector<int>>, std::vector<std::vector<int>>> GridMap::GetDroneView(std::shared_ptr<DroneAgent> drone) {
     int drone_view_radius = drone->GetViewRange();
     std::pair<int, int> drone_position = drone->GetGridPosition();
-    std::vector<std::vector<int>> cell_status(drone_view_radius + 1, std::vector<int>(drone_view_radius + 1, 0));
+    std::vector<std::vector<int>> cell_status(drone_view_radius + 1, std::vector<int>(drone_view_radius + 1, CellState::OUTSIDE_GRID));
     std::vector<std::vector<int>> fire_status(drone_view_radius + 1, std::vector<int>(drone_view_radius + 1, -1));
     int drone_view_radius_2 = drone_view_radius / 2;
     for (int j = drone_position.second - drone_view_radius_2; j <= drone_position.second + drone_view_radius_2; ++j) {
@@ -288,8 +288,6 @@ std::pair<std::vector<std::vector<int>>, std::vector<std::vector<int>>> GridMap:
                 cell_status[new_i][new_j] = cells_[i][j]->GetCellState();
                 if (cells_[i][j]->IsBurning())
                     fire_status[new_i][new_j] = 1;
-            } else {
-                cell_status[new_i][new_j] = CellState::OUTSIDE_GRID;
             }
         }
     }

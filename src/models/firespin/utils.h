@@ -20,7 +20,7 @@
 
 std::string formatTime(int seconds);
 
-enum CellState { GENERIC_UNBURNED = 0,
+enum CellState { OUTSIDE_GRID = 0,
                  SEALED = 1,
                  WOODY_NEEDLE_LEAVED_TREES = 2,
                  WOODY_BROADLEAVED_DECIDUOUS_TREES = 3,
@@ -36,7 +36,7 @@ enum CellState { GENERIC_UNBURNED = 0,
                  GENERIC_BURNED = 13,
                  GENERIC_FLOODED = 14,
                  OUTSIDE_AREA = 15,
-                 OUTSIDE_GRID = 16,
+                 GENERIC_UNBURNED = 16,
                  CELL_STATE_COUNT};
 
 std::string CellStateToString(CellState cell_state);

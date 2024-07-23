@@ -29,7 +29,7 @@ public:
         radiation_length_min_ = 0;
         radiation_length_max_ = 0;
         num_radiation_particles_ = 0;
-        has_noise_ = true;
+        has_noise_ = false;
         noise_level_ = default_noise_level_;
         noise_size_ = default_noise_size_;
     }

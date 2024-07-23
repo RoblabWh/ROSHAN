@@ -33,6 +33,7 @@ public:
     std::vector<std::vector<double>> GetTerrainNorm();
     std::vector<std::vector<int>> GetFireStatus() { return fire_status_; }
     std::vector<std::vector<double>> GetFireStatusNorm();
+    int CountOutsideArea();
     std::vector<std::vector<int>> GetMap() { return map_; }
     static std::vector<std::vector<double>> GetMapNorm();
     std::pair<double, double> GetPositionNorm() const;
