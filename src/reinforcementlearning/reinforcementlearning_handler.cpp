@@ -72,84 +72,85 @@ void ReinforcementLearningHandler::InitFires() {
 
 double ReinforcementLearningHandler::CalculateReward(bool drone_in_grid, bool fire_extinguished, bool drone_terminal, int out_of_area_counter, int near_fires, double max_distance, double distance_to_fire) const {
     double reward = 0;
-
-    // Check the boundaries of the network
-    double ooa_factor = -0.005 * out_of_area_counter;
-    reward += ooa_factor;
-    if (!drone_in_grid) {
-        reward += ooa_factor;
-        reward += -2 * max_distance;
-        if(drone_terminal) {
-            reward += -15;
-            return reward;
-        }
-    } else {
-        reward += 0.1;
-    }
-    // Fire was discovered
-    if (last_near_fires_ == 0 && near_fires > 0) {
-        reward += 1;
-    }
-
     if (fire_extinguished) {
-        // all fires on the map were extinguished
-        if (drone_terminal) {
-            reward += 50;
-            return reward;
+        if (near_fires == 0) {
+            // all fires in sight were extinguished
+            reward += 1;
+        } else {
+            // a fire was extinguished
+            reward += 0.5;
         }
-        // all fires in sight were extinguished
-        else if (near_fires == 0) {
-            reward += 10;
-        }
-        // a fire was extinguished
-        else {
+        if(drone_terminal)
             reward += 5;
-        }
-    } else {
-        // if last_distance or last_distance_to_fire_ is very large, dismiss the reward
-        if (!(last_distance_to_fire_ > 1000000 || distance_to_fire > 1000000))
-        {
-            double delta_distance = last_distance_to_fire_ - distance_to_fire;
-            //These high values occure when fire spreads and gets extinguished
-//            if (delta_distance < -10 || delta_distance > 10) {
-//                std::cout << "Delta distance: " << delta_distance << std::endl;
-//                std::cout << "Last distance: " << last_distance_to_fire_ << std::endl;
-//                std::cout << "Current distance: " << distance_to_fire << std::endl;
-//                std::cout << "" << std::endl;
-//            }
-            if(delta_distance > 0) {
-                reward += 0.125 * delta_distance;
-            } else {
-                reward += 0.1 * delta_distance;
-            }
-        }
-        // if (water_dispensed)
-        //     reward += -0.1;
-    }
-    if(drone_terminal){
-        reward += -10;
     }
 
+    // Boundary Penalty
+    double ooa_factor = -0.0005 * out_of_area_counter;
+    reward += ooa_factor;
+    // Check the boundaries of the network
+    if (!drone_in_grid) {
+        reward += (-0.02 + ooa_factor) * max_distance;
+        if(drone_terminal) {
+            reward += -0.1;
+        }
+    }
+
+    // Staying Alive Reward
+    reward += pow(0.1, (0.000000000000000000001+gridmap_->PercentageBurned()/0.05));
+
+    // Fire Proximity Reward
+    if (last_near_fires_ == 0 && near_fires > 0) {
+        reward += 0.2; // TODO we need to check for firespread here
+    }
+    if (near_fires > 0) {
+        reward += 0.005 * near_fires;
+    }
+    if ((near_fires < last_near_fires_) && !fire_extinguished){
+        reward += -0.01;
+    }
+    if (near_fires > last_near_fires_){
+        reward += 0.2;
+    }
+
+    // Reward for moving towards the fire
+    // If last_distance or last_distance_to_fire_ is very large, dismiss the reward
+    // These high values occure when fire spreads and gets extinguished
+    if (!(last_distance_to_fire_ > 1000000 || distance_to_fire > 1000000))
+    {
+        double delta_distance = last_distance_to_fire_ - distance_to_fire;
+
+        if(delta_distance > 0) {
+            reward += 0.0125 * delta_distance;
+        }
+    }
+    
+    // if (water_dispensed)
+    //     reward += -0.1;
+
+    // The environment reached terminal state, this means the map is burned too much
+    if(drone_terminal && !fire_extinguished && drone_in_grid){
+        reward += -0.1;
+    }
     return reward;
 }
 
 std::tuple<std::vector<std::deque<std::shared_ptr<State>>>, std::vector<double>, std::vector<bool>, std::pair<bool, bool>, double> ReinforcementLearningHandler::Step(std::vector<std::shared_ptr<Action>> actions) {
 
     if (gridmap_ != nullptr) {
-        std::vector<std::deque<std::shared_ptr<State>>> next_observations;
         std::vector<bool> terminals;
         std::vector<double> rewards;
         // TODO this is dirty
         bool drone_died = false;
         bool all_fires_ext = false;
+
         // Move the drones and get the next_observation
         for (int i = 0; i < (*drones_).size(); ++i) {
+            // Get the speed and water dispense from the action
             double speed_x = std::dynamic_pointer_cast<DroneAction>(actions[i])->GetSpeedX(); // change this to "real" speed
             double speed_y = std::dynamic_pointer_cast<DroneAction>(actions[i])->GetSpeedY();
-//            std::cout << "Drone " << i << " is moving with speed: " << speed_x << ", " << speed_y << std::endl;
             int water_dispense = std::dynamic_pointer_cast<DroneAction>(actions[i])->GetWaterDispense();
+
             bool drone_dispensed_water = StepDrone(i, speed_x, speed_y, water_dispense);
-            // bool drone_dispensed_water = MoveDroneByAngle(i, speed_x, speed_y, water_dispense);
 
             std::pair<int, int> drone_position = drones_->at(i)->GetGridPosition();
             bool drone_in_grid = gridmap_->IsPointInGrid(drone_position.first, drone_position.second);
@@ -173,30 +174,15 @@ std::tuple<std::vector<std::deque<std::shared_ptr<State>>>, std::vector<double>,
                 drones_->at(i)->ResetOutOfAreaCounter();
             }
             int out_of_area_counter = drones_->at(i)->GetLastState().CountOutsideArea();
-            std::deque<DroneState> drone_states = drones_->at(i)->GetStates();
-            std::deque<std::shared_ptr<State>> shared_states;
-            for (auto &state : drone_states) {
-                shared_states.push_back(std::make_shared<DroneState>(state));
-            }
-            next_observations.push_back(shared_states);
 
             int near_fires = drones_->at(i)->DroneSeesFire();
             terminals.push_back(false);
 
-            // Check if drone is out of area for too long, if so, reset it
+            // Check if drone is out of area for too long
             if (drones_->at(i)->GetOutOfAreaCounter() > 5) {
                 terminals[i] = true;
                 drone_died = true;
-                // Delete Drone and create new one
-                // drones_->erase(drones_->begin() + i);
-                // auto newDrone = std::make_shared<DroneAgent>(model_renderer_->GetRenderer(),gridmap_->GetRandomPointInGrid(), parameters_, i);
-                // std::pair<std::vector<std::vector<int>>, std::vector<std::vector<int>>> drone_view = gridmap_->GetDroneView(newDrone);
-                // newDrone->Initialize(drone_view.first, drone_view.second, std::make_pair(gridmap_->GetCols(), gridmap_->GetRows()), parameters_.GetCellSize());
-                // // Insert new drone at the same position
-                // drones_->insert(drones_->begin() + i, newDrone);
-            }
-
-            if(gridmap_->PercentageBurned() > 0.30) {
+            } else if(gridmap_->PercentageBurned() > 0.30) {
 //                std::cout << "Percentage burned: " << gridmap_->PercentageBurned() << " resetting GridMap" << std::endl;
                 terminals[i] = true;
                 drone_died = true;
@@ -205,9 +191,12 @@ std::tuple<std::vector<std::deque<std::shared_ptr<State>>>, std::vector<double>,
                 terminals[i] = true;
                 all_fires_ext = true;
             }
+
             double reward = CalculateReward(drone_in_grid, drone_dispensed_water, terminals[i],
                                             out_of_area_counter, near_fires, max_distance, distance_to_fire);
+
             rewards.push_back(reward);
+            // For displaying the rewards in the GUI
             rewards_.put(static_cast<float>(reward));
 
             if (!terminals[i]) {
@@ -222,8 +211,10 @@ std::tuple<std::vector<std::deque<std::shared_ptr<State>>>, std::vector<double>,
                 rewards_.reset();
             }
         }
-        double percentage_burned = gridmap_->PercentageBurned();
+        // Reset the Environment if all drones are in a terminal state
 
+        double percentage_burned = gridmap_->PercentageBurned();
+        std::vector<std::deque<std::shared_ptr<State>>> next_observations = this->GetObservations();
         return {next_observations, rewards, terminals, std::make_pair(drone_died, all_fires_ext), percentage_burned};
 
     }

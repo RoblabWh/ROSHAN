@@ -28,8 +28,7 @@ class PPO:
     :param ckpt: The checkpoint to restore from.
     """
 
-    def __init__(self, vision_range, lr, betas, gamma, _lambda, K_epochs, eps_clip, restore=False, ckpt=None,
-                 model_path="../models/"):
+    def __init__(self, vision_range, time_steps, lr, betas, gamma, _lambda, K_epochs, eps_clip, model_path, model_name):
 
         # Algorithm parameters
         self.lr = lr
@@ -38,31 +37,28 @@ class PPO:
         self._lambda = _lambda
         self.eps_clip = eps_clip
         self.K_epochs = K_epochs
+        self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
-        # Folder the models are stored in
-        if os.path.isfile(model_path):
-            raise ValueError("Model path must be a directory, not a file")
-        if not os.path.exists(model_path):
-            print(f"Creating model directory under {os.path.abspath(model_path)}")
-            os.makedirs(model_path)
-        self.model_path = model_path
+        self.model_path = os.path.abspath(model_path)
+        self.model_name = os.path.join(model_path, model_name)
 
         # Current Policy
-        self.policy = ActorCritic(vision_range=vision_range)
-        if restore:
-            self.load_model(ckpt)
+        self.policy = ActorCritic(vision_range=vision_range, time_steps=time_steps)
 
         self.optimizer_a = torch.optim.Adam(self.policy.actor.parameters(), lr=lr, betas=betas, eps=1e-5)
         self.optimizer_c = torch.optim.Adam(self.policy.critic.parameters(), lr=lr, betas=betas, eps=1e-5)
 
         self.MSE_loss = nn.MSELoss()
         self.running_reward_std = RunningMeanStd()
+        self.set_train()
 
     def set_eval(self):
         self.policy.eval()
 
-    def load_model(self, path):
-        path = os.path.join(self.model_path, path)
+    def set_train(self):
+        self.policy.train()
+
+    def load(self, path):
         try:
             self.policy.load_state_dict(torch.load(path, map_location=lambda storage, loc: storage))
             return True
@@ -76,25 +72,10 @@ class PPO:
     def select_action_certain(self, observations):
         return self.policy.act_certain(observations)
 
-    def saveCurrentWeights(self, logger):
-        print("Saving best weights with reward {}".format(logger.reward_best))
-        torch.save(self.policy.state_dict(), f'current_{logger.reward_best}_reward.pth')
-
-    def calculate_returns(self, rewards, normalize=False):
-
-        returns = []
-        return_ = 0
-
-        for r in reversed(rewards):
-            return_ = r + return_ * self.gamma
-            returns.insert(0, return_)
-
-        returns = torch.tensor(returns, dtype=torch.float32)
-
-        if normalize:
-            returns = (returns - returns.mean()) / (returns.std() + 1e-8)
-
-        return returns.detach().to(device)
+    def save(self, logger):
+        console = f"Saving best with reward {logger.reward_best:.2f} and mean burned {logger.get_objective():.2f}%\n"
+        torch.save(self.policy.state_dict(), f'{self.model_name}')
+        return console
 
     def get_advantages(self, values, masks, rewards):
         """
@@ -125,7 +106,7 @@ class PPO:
 
         return norm_adv, returns
 
-    def update(self, memory, batch_size, mini_batch_size, logger):
+    def update(self, memory, batch_size, mini_batch_size, next_obs, next_terminals, logger):
         """
         This function implements the update step of the Proximal Policy Optimization (PPO) algorithm for a swarm of
         robots. It takes in the memory buffer containing the experiences of the swarm, as well as the number of batches
@@ -149,22 +130,16 @@ class PPO:
         # if batch_size == 1:
         #     raise ValueError("Batch size must be greater than 1.")
 
-        memory.build_masks()
-        states, actions, old_logprobs, rewards, next_states, masks = memory.to_tensor()
+        states, actions, old_logprobs, rewards, masks = memory.to_tensor()
 
         # Logger
         log_values = []
-        logger.add_reward([np.array(rewards.detach().cpu()).mean()])
+        logger.add_reward(rewards.detach().cpu().numpy())
 
         # Normalize rewards by running reward
         self.running_reward_std.update(np.array(rewards.detach().cpu()))
         rewards = np.clip(np.array(rewards.detach().cpu()) / self.running_reward_std.get_std(), -10, 10)
         rewards = torch.tensor(rewards).type(torch.float32)
-
-        # Save current weights if the mean reward is higher than the best reward so far
-        if logger.better_reward():
-            print("Saving best weights with reward {}".format(logger.reward_best))
-            torch.save(self.policy.state_dict(), 'best.pth')
 
         # TODO Shifting causes Agent to suicide??
         #rewards = (rewards - rewards.mean()) / (rewards.std() + 1e-10)
@@ -173,10 +148,7 @@ class PPO:
         with torch.no_grad():
             _, values_, _ = self.policy.evaluate(states, actions)
             if masks[-1] == 1:
-                # last_state = (states[0][-1].unsqueeze(0), states[1][-1].unsqueeze(0), states[2][-1].unsqueeze(0),
-                #               states[3][-1].unsqueeze(0), states[4][-1].unsqueeze(0))
-                last_state = (states[0][-1].unsqueeze(0), states[1][-1].unsqueeze(0), states[2][-1].unsqueeze(0),
-                              states[3][-1].unsqueeze(0))
+                last_state = tuple(torch.FloatTensor(np.array(state)).to(self.device) for state in next_obs)
                 bootstrapped_value = self.policy.critic(last_state).detach()
                 values_ = torch.cat((values_, bootstrapped_value[0]), dim=0)
             advantages, returns = self.get_advantages(values_.detach(), masks, rewards)
@@ -191,14 +163,14 @@ class PPO:
                 batch_states = (states[0][index], states[1][index], states[2][index], states[3][index])
                 batch_actions = actions[index]
                 logprobs, values, dist_entropy = self.policy.evaluate(batch_states, batch_actions)
-                log_values.append(values.detach().mean().item())
+                log_values.append(values.detach().cpu().numpy())
                 # Importance ratio: p/q
                 ratios = torch.exp(logprobs - old_logprobs[index].detach())
 
                 # Actor loss using Surrogate loss
                 surr1 = ratios * advantages[index]
                 surr2 = torch.clamp(ratios, 1 - self.eps_clip, 1 + self.eps_clip) * advantages[index]
-                entropy = 0.001 * dist_entropy
+                entropy = 0.01 * dist_entropy
                 actor_loss = ((-torch.min(surr1, surr2).type(torch.float32)) - entropy).mean()
 
                 # TODO CLIP VALUE LOSS ? Probably not necessary as according to:
@@ -232,7 +204,14 @@ class PPO:
                 # # Global gradient norm clipping https://vitalab.github.io/article/2020/01/14/Implementation_Matters.html
                 # torch.nn.utils.clip_grad_norm_(self.policy.ac.parameters(), max_norm=0.5)
 
-        logger.add_value([np.array(log_values).mean()])
 
+        # Save current weights if the mean reward is higher than the best reward so far
+        logger.add_value(np.array(log_values))
+        if logger.better_reward():
+            console = self.save(logger)
+        else:
+            console = ""
         # Clear memory
         memory.clear_memory()
+
+        return console

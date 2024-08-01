@@ -9,13 +9,14 @@ DroneAgent::DroneAgent(std::pair<int, int> point, FireModelParameters &parameter
     double x = (point.first + 0.5); // position in grid + offset to center
     double y = (point.second + 0.5); // position in grid + offset to center
     position_ = std::make_pair(x * parameters_.GetCellSize(), y * parameters_.GetCellSize());
-    view_range_ = 20;
+    view_range_ = parameters_.GetViewRange();
+    time_steps_ = parameters_.GetTimeSteps();
     out_of_area_counter_ = 0;
 }
 
 void DroneAgent::Initialize(std::vector<std::vector<int>> terrain, std::vector<std::vector<int>> fire_status, std::pair<int, int> size) {
     map_dimensions_ = size;
-    for(int i = 0; i < 4; ++i) {
+    for(int i = 0; i < time_steps_; ++i) {
         std::vector<std::vector<int>> map(size.second, std::vector<int>(size.first, -1));
         //std::pair<double, double> size_ = std::make_pair(size.first * parameters_.GetCellSize(), size.second * parameters_.GetCellSize());
         DroneState new_state = DroneState(0, 0, parameters_.GetMaxVelocity(), terrain, fire_status, map, map_dimensions_, position_, parameters_.GetCellSize());
@@ -54,7 +55,7 @@ void DroneAgent::UpdateStates(std::pair<double, double> velocity_vector, std::ve
     drone_states_.push_front(new_state);
 
     // Maximum number of states i.e. memory
-    if (drone_states_.size() > 4) {
+    if (drone_states_.size() > time_steps_) {
         drone_states_.pop_back();
     }
 }

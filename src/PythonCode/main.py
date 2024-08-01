@@ -96,24 +96,34 @@ if __name__ == '__main__':
 
     # Lists alls the functions in the EngineCore class
     # print(dir(EngineCore))
-    # batch_size = 500
-    # mini_batch_size = 100
-    batch_size = 25000
-    mini_batch_size = 500
+
+    horizon = 250
+    mini_batch_size = 50
+
+    # Ugly globals
     t = -1
+    train_step = 0
+    eval_step = 0
+
     # 0: GUI_RL, 2: NoGUI_RL
     mode = 0
 
     # If the LLM support is enabled or not
-    llm_support = False
+    llm_support = True
+    model_directory = config['models_directory']
+    model_name = "best.pth"
+    console = ""
+    # Folder the models are stored in
+    if os.path.isfile(os.path.abspath(model_directory)):
+        raise ValueError("Model path must be a directory, not a file")
+    if not os.path.exists(os.path.abspath(model_directory)):
+        console += f"Creating model directory under {os.path.abspath(model_directory)}"
+        os.makedirs(os.path.abspath(model_directory))
 
     # If the agent should be trained or not, if not the agent will act with the best policy if it can be loaded
     train = True
-    train_step = 0
-    max_train = 10
-
-    eval_step = 0
-    max_eval = 1000
+    max_train = 200 # Number of Updates to perform before stopping training
+    max_eval = 1000 # Number of Environments to run before stopping evaluation
 
     # This map is used in NoGUI setup, if left empty("") the default map will be used. Has no impact on GUI Setup
     map = "/home/nex/Dokumente/Code/ROSHAN/maps/Small2.tif"
@@ -122,47 +132,67 @@ if __name__ == '__main__':
     # Stats to log
     stats = {'died': [0], 'reached': [0], 'time': [0], 'reward': [0], 'episode': [0], 'perc_burn': [0]}
 
+    # RL_Status, sending to C++
+    status = {"train": train, "model_path": model_directory, "model_name": model_name, "console": console}
+
     if llm_support:
         from llmsupport import LLMPredictorAPI
         llm = LLMPredictorAPI("mistralai/Mistral-7B-Instruct-v0.3")
         #llm = LLMPredictorAPI("Qwen/Qwen2-1.5B")
     engine = firesim.EngineCore()
-    memory = Memory()
-    logger = Logger(log_dir='./logs', log_interval=1)
-    agent = Agent('ppo', logger)
+    memory = Memory(max_size=horizon+1)
+    logger = Logger(log_dir='./logs', horizon=horizon)
+
+    logger.set_logging(True)
+
+    engine.Init(mode, map)
+
+    # Wait for the model to be initialized
+    while not engine.ModelInitialized():
+        engine.HandleEvents()
+        engine.Update()
+        engine.Render()
+
+    # Now get the view range and time steps
+    view_range = engine.GetViewRange() + 1
+    time_steps = engine.GetTimeSteps()
+
+    agent = Agent('ppo', logger, vision_range=view_range, time_steps=time_steps, model_path=model_directory, model_name=model_name)
     if not train:
         weights = os.path.join(config['module_directory'], 'best.pth')
         train = not agent.algorithm.load_model(weights)
 
-    logger.set_logging(True)
-    if memory.max_size <= batch_size:
-        warnings.warn("Memory size is smaller than horizon. Setting horizon to memory size.")
-        horizon = memory.max_size - 1
-
-    engine.Init(mode, map)
+    engine.SendRLStatusToModel(status)
 
     while engine.IsRunning():
         engine.HandleEvents()
         engine.Update()
         engine.Render()
         if engine.AgentIsRunning():
-            t += 1  # TODO use simulation time instead of timesteps
-            observations = engine.GetObservations()
-            obs = restructure_data(observations)
+            t += 1
+            if t == 0:
+                next_obs = restructure_data(engine.GetObservations())
+                agent_cnt = next_obs[0].shape[0]
+                next_terminals = [False] * agent_cnt
+
+            obs = next_obs
+            terminals = next_terminals
 
             if train:
-                actions, action_logprobs = agent.act(obs, t)
-                drone_actions = []
-                for activation in actions:
-                    drone_actions.append(
-                        firesim.DroneAction(activation[0], activation[1], int(np.round(activation[2]))))
-                next_observations, rewards, terminals, _, _ = engine.Step(drone_actions)
+                actions, action_logprobs = agent.act(obs)
+                drone_actions = agent.get_action(actions)
+                next_observations, rewards, next_terminals, _, percent_burned = engine.Step(drone_actions)
                 next_obs = restructure_data(next_observations)
-                memory.add(obs, actions, action_logprobs, rewards, next_obs, terminals)
-                # if t % (batch_size / 10) == 0:
-                #     print(f"Memory size: {memory.size - 1}")
-                if agent.should_train(memory, batch_size, t) and np.all(terminals):
-                    agent.update(memory, batch_size, mini_batch_size)
+                memory.add(obs, actions, action_logprobs, rewards, terminals)
+
+                # Logging and sending data
+                logger.episode_log(next_obs, next_terminals[0], percent_burned)
+                obs_collected = f'{len(memory)}/{horizon}'
+                status["ObsCollected"] = obs_collected
+                status["Train Step"] = train_step
+
+                if agent.should_train(memory, horizon, t):
+                    console += agent.update(memory, horizon, mini_batch_size, next_obs, next_terminals)
                     logger.log()
                     train_step += 1
                     if train_step >= max_train:
@@ -170,15 +200,15 @@ if __name__ == '__main__':
                         break
             else:
                 actions = agent.act_certain(obs)
-                drone_actions = []
-                for activation in actions:
-                    drone_actions.append(
-                        firesim.DroneAction(activation[0], activation[1], int(np.round(activation[2]))))
+                drone_actions = agent.get_action(actions)
                 next_observations, rewards, terminals, dones, percent_burned = engine.Step(drone_actions)
+                next_obs = restructure_data(next_observations)
                 if log_outcome(rewards, terminals, dones, percent_burned, stats):
                     eval_step += 1
                     if eval_step >= max_eval:
                         break
+            status["console"] = console
+            engine.SendRLStatusToModel(status)
         else:
             obs, rewards = None, None
 

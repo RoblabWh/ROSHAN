@@ -26,6 +26,7 @@
 #include "agent.h"
 #include "action.h"
 #include "src/utils.h"
+#include "externals/pybind11/include/pybind11/pybind11.h"
 
 #if !SDL_VERSION_ATLEAST(2,0,17)
 #error This backend requires SDL 2.0.17+ because of SDL_RenderGeometry() function
@@ -50,6 +51,7 @@ public:
     void Render();
     void HandleEvents();
     void SendDataToModel(std::string data);
+    void SendRLStatusToModel(pybind11::dict status);
 
     // RL-Related
     // Observe the current state of the environment
@@ -60,7 +62,9 @@ public:
     Step(std::vector<std::shared_ptr<Action>> actions);
 
     inline bool IsRunning() { return is_running_; }
-    void ImGuiSimulationControls(bool &update_simulation, bool &render_simulation, int &delay);
+    bool ModelInitialized();
+    int GetViewRange();
+    int GetTimeSteps();
 
 private:
 

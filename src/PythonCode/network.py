@@ -3,7 +3,6 @@ import torch.nn as nn
 import torch.nn.functional as F
 from torch.distributions import MultivariateNormal, Bernoulli
 import torch
-import pdb
 
 torch.autograd.set_detect_anomaly(True)
 
@@ -14,7 +13,7 @@ device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
 
 class Inputspace(nn.Module):
 
-    def __init__(self, vision_range):
+    def __init__(self, vision_range, time_steps):
         """
         A PyTorch Module that represents the input space of a neural network.
         """
@@ -25,8 +24,8 @@ class Inputspace(nn.Module):
         # self.fire_adaptive_pool = nn.AdaptiveAvgPool2d((1, 1))
         dim_x = 100
         dim_y = 100
-        d_in = 4
-        self.map_adaptive_pool = nn.AdaptiveAvgPool3d((dim_y, dim_x, 1))
+        d_in = time_steps
+        #self.map_adaptive_pool = nn.AdaptiveAvgPool3d((dim_y, dim_x, 1))
 
         # layers_dict = [
         #     {'padding': (1, 1, 1), 'dilation': (1, 1, 1), 'kernel_size': (3, 3, 3), 'stride': (1, 1, 1)},
@@ -174,7 +173,7 @@ class Inputspace(nn.Module):
 
         # self.input_dense1 = nn.Linear(in_features=input_features, out_features=64)
         # initialize_hidden_weights(self.input_dense1)
-        input_features = terrain_out_features + fire_out_features + (position_out_features + vel_out_features) * 4
+        input_features = terrain_out_features + fire_out_features + (position_out_features + vel_out_features) * time_steps
         self.input_dense1 = nn.Linear(in_features=input_features, out_features=128)
         initialize_hidden_weights(self.input_dense1)
         self.input_dense2 = nn.Linear(in_features=128, out_features=256)
@@ -288,9 +287,9 @@ class Actor(nn.Module):
     """
     A PyTorch Module that represents the actor network of a PPO agent.
     """
-    def __init__(self, vision_range):
+    def __init__(self, vision_range, time_steps):
         super(Actor, self).__init__()
-        self.Inputspace = Inputspace(vision_range)
+        self.Inputspace = Inputspace(vision_range, time_steps=time_steps)
 
         # Mu
         # self.pre_mu = nn.Linear(in_features=256, out_features=128)
@@ -322,9 +321,9 @@ class Critic(nn.Module):
     """
     A PyTorch Module that represents the critic network of a PPO agent.
     """
-    def __init__(self, vision_range):
+    def __init__(self, vision_range, time_steps):
         super(Critic, self).__init__()
-        self.Inputspace = self.Inputspace = Inputspace(vision_range)
+        self.Inputspace = self.Inputspace = Inputspace(vision_range, time_steps=time_steps)
         # Value
         # self.pre_value = nn.Linear(in_features=256, out_features=128)
         self.value = nn.Linear(in_features=256, out_features=1)
@@ -342,13 +341,13 @@ class ActorCritic(nn.Module):
     """
     A PyTorch Module that represents the actor-critic network of a PPO agent.
     """
-    def __init__(self, vision_range):
+    def __init__(self, vision_range, time_steps):
         super(ActorCritic, self).__init__()
         self.actor_cnt = 0
         self.critic_cnt = 0
         self.device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
-        self.actor = Actor(vision_range).to(device)
-        self.critic = Critic(vision_range).to(device)
+        self.actor = Actor(vision_range, time_steps).to(device)
+        self.critic = Critic(vision_range,time_steps).to(device)
 
         # TODO statische var testen
         #self.logstds_param = nn.Parameter(torch.full((n_actions,), 0.1))

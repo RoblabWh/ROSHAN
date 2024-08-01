@@ -126,7 +126,6 @@ std::vector<std::deque<std::shared_ptr<State>>> FireModel::GetObservations() {
 }
 
 std::tuple<std::vector<std::deque<std::shared_ptr<State>>>, std::vector<double>, std::vector<bool>, std::pair<bool, bool>, double> FireModel::Step(std::vector<std::shared_ptr<Action>> actions){
-    std::tuple<std::vector<std::deque<std::shared_ptr<State>>>, std::vector<double>, std::vector<bool>, std::pair<bool, bool>, double>  result;
 #ifdef SPEEDTEST
     // Construct a new action for each drone with 0, 0
     std::vector<std::shared_ptr<Action>> actions2;
@@ -135,20 +134,15 @@ std::tuple<std::vector<std::deque<std::shared_ptr<State>>>, std::vector<double>,
     }
     actions = actions2;
 #endif
+    std::tuple<std::vector<std::deque<std::shared_ptr<State>>>, std::vector<double>, std::vector<bool>, std::pair<bool, bool>, double>  result;
     result = rl_handler_->Step(actions);
-    std::vector<bool> terminals = std::get<2>(result);
-    bool resetEnv = true;
-    // Check if all elements in terminals are true, if so all agents reached a terminal state
 #ifndef SPEEDTEST
-    for (bool terminal : terminals) {
-        if (!terminal) {
-            resetEnv = false;
-            break;
-        }
-    }
-    if (resetEnv) {
+    // Check if all elements in terminals are true, if so all agents reached a terminal state
+    std::vector<bool> terminals = std::get<2>(result);
+    bool resetEnv = std::all_of(terminals.begin(), terminals.end(),
+                                [](bool terminal) {return terminal;});
+    if (resetEnv)
         ResetGridMap(&current_raster_data_);
-    }
 #endif
     return result;
 }
@@ -198,10 +192,9 @@ void FireModel::setupImGui() {
 }
 
 void FireModel::ImGuiRendering(bool &update_simulation, bool &render_simulation, int &delay, float framerate) {
-    imgui_handler_->ImGuiSimulationControls(update_simulation, render_simulation, delay, framerate);
+    imgui_handler_->ImGuiSimulationControls(gridmap_, model_renderer_, update_simulation, render_simulation, delay, framerate, running_time_);
     imgui_handler_->ImGuiModelMenu(model_renderer_, current_raster_data_);
-    imgui_handler_->Config(gridmap_, model_renderer_,
-                           current_raster_data_, running_time_, wind_);
+    imgui_handler_->Config(model_renderer_, current_raster_data_, wind_);
     imgui_handler_->PyConfig(rl_handler_->GetRewards().getBuffer(), rl_handler_->GetRewards().getHead(), rl_handler_->GetAllRewards(), agent_is_running_, user_input_, model_output_, rl_handler_->GetDrones(), model_renderer_);
     imgui_handler_->FileHandling(dataset_handler_, current_raster_data_);
     imgui_handler_->ShowPopups(gridmap_, current_raster_data_);
@@ -209,10 +202,6 @@ void FireModel::ImGuiRendering(bool &update_simulation, bool &render_simulation,
 
 void FireModel::HandleEvents(SDL_Event event, ImGuiIO *io) {
     imgui_handler_->HandleEvents(event, io, gridmap_, model_renderer_, dataset_handler_, current_raster_data_, agent_is_running_);
-}
-
-void FireModel::ImGuiSimulationSpeed() {
-    imgui_handler_->ImGuiSimulationSpeed();
 }
 
 std::string FireModel::GetUserInput() {
@@ -223,6 +212,10 @@ std::string FireModel::GetUserInput() {
 
 void FireModel::GetData(std::string data) {
     model_output_ = data;
+}
+
+void FireModel::GetRLStatus(pybind11::dict status) {
+    imgui_handler_->GetRLStatus(status);
 }
 
 void FireModel::TestBurndownHeadless() {
@@ -269,3 +262,10 @@ void FireModel::StartFires(int percentage) {
     //std::cout << "Fires started: " << fires << std::endl;
 }
 
+int FireModel::GetViewRange() {
+    return parameters_.GetViewRange();
+}
+
+int FireModel::GetTimeSteps() {
+    return parameters_.GetTimeSteps();
+}

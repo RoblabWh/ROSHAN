@@ -13,6 +13,7 @@
 #include "state.h"
 #include "action.h"
 #include <memory>
+#include "externals/pybind11/include/pybind11/pybind11.h"
 
 class IModel {
 public:
@@ -24,11 +25,13 @@ public:
     virtual void Render() = 0;
     virtual bool AgentIsRunning() = 0;
     virtual void HandleEvents(SDL_Event event, ImGuiIO* io) = 0;
-    virtual void ImGuiSimulationSpeed() = 0;
     virtual void GetData(std::string data) = 0;
+    virtual void GetRLStatus(pybind11::dict status) = 0;
     virtual void SetRenderer(std::shared_ptr<SDL_Renderer> renderer) = 0;
     virtual void ImGuiRendering(bool &update_simulation, bool &render_simulation, int &delay, float framerate) = 0;
     virtual std::string GetUserInput() = 0;
+    virtual int GetViewRange() = 0;
+    virtual int GetTimeSteps() = 0;
 };
 
 

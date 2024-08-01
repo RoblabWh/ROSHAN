@@ -8,6 +8,13 @@ set(CMAKE_CXX_STANDARD_REQUIRED True)
 # Set the build path
 set(MY_CPP_BUILD_PATH "${CMAKE_BINARY_DIR}")
 
+# Set the models path
+get_filename_component(PARENT_DIR "${MY_CPP_BUILD_PATH}" DIRECTORY)
+set(MODELS_PATH "${PARENT_DIR}/models")
+
+# Set CMAKE Module Path for FindSDL2_image.cmake
+set(CMAKE_MODULE_PATH ${CMAKE_MODULE_PATH} "${CMAKE_SOURCE_DIR}/cmake/")
+
 # Enable optimizations
 #set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -O3 -march=native -flto -funroll-loops -ffast-math")
 # Enable faster-build optimizations
@@ -16,21 +23,42 @@ set(MY_CPP_BUILD_PATH "${CMAKE_BINARY_DIR}")
 #set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -O2")
 set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -g -O0")
 
+# Set the path to SDL2 and SDL2_image
+find_package(SDL2 REQUIRED)
+find_package(SDL2_image REQUIRED)
+
+if (SDL2_FOUND AND SDL2_IMAGE_FOUND)
+    message(STATUS "SDL2 Include Directories: ${SDL2_INCLUDE_DIRS}")
+    message(STATUS "SDL2 Image Include Directories: ${SDL2_IMAGE_INCLUDE_DIR}")
+    message(STATUS "SDL2 Libraries: ${SDL2_LIBRARIES}")
+    message(STATUS "SDL2 Image Libraries: ${SDL2_IMAGE_LIBRARY}")
+    include_directories(${SDL2_INCLUDE_DIRS} ${SDL2_IMAGE_INCLUDE_DIR})
+    link_libraries(${SDL2_LIBRARIES} ${SDL2_IMAGE_LIBRARY})
+else()
+    message(FATAL_ERROR "SDL2 or SDL2_image not found")
+endif()
 
 # Generate a JSON configuration file
-file(WRITE "config.json" "{\n\"module_directory\": \"${MY_CPP_BUILD_PATH}\"\n}\n")
+file(WRITE "config.json" "{
+\"module_directory\": \"${MY_CPP_BUILD_PATH}\",
+\"models_directory\": \"${MODELS_PATH}\"
+}\n")
 
-# Include directories
+# Include directories Externals and SRC
 include_directories(${CMAKE_SOURCE_DIR}/src)
-include_directories(${CMAKE_SOURCE_DIR}/externals/pcg-cpp-0.98/include)
 include_directories(${CMAKE_SOURCE_DIR}/externals/imgui)
 include_directories(${CMAKE_SOURCE_DIR}/externals/imgui/backends)
 include_directories(${CMAKE_SOURCE_DIR}/externals/nlohmann)
-include_directories(/usr/local/include/SDL2)
-include_directories(/usr/include/python3.9)
 
-# Set CMake module path
-set(CMAKE_MODULE_PATH ${CMAKE_MODULE_PATH} "${CMAKE_SOURCE_DIR}/cmake/")
+# Find Python
+find_package(Python3 COMPONENTS Interpreter Development)
+
+if (Python3_FOUND)
+    message(STATUS "Found Python: ${Python3_EXECUTABLE} (found version ${Python3_VERSION})")
+    include_directories(${Python3_INCLUDE_DIRS})
+else()
+    message(FATAL_ERROR "Python3 not found")
+endif()
 
 # Add subdirectory for pybind11
 add_subdirectory(externals/pybind11)
@@ -49,14 +77,12 @@ add_library(imgui_external ${IMGUI_SOURCES}
         externals/imgui/backends/imgui_impl_sdlrenderer2.cpp)
 target_include_directories(imgui_external PUBLIC ${CMAKE_SOURCE_DIR}/externals/imgui ${CMAKE_SOURCE_DIR}/externals/imgui/backends/)
 
+# Find CURL (required by GDAL)
+find_package(CURL REQUIRED)
+
 # GDAL
 find_package(GDAL REQUIRED)
 include_directories(${GDAL_INCLUDE_DIRS})
-
-# SDL2 libraries
-list(APPEND CMAKE_PREFIX_PATH "/usr/local")
-set(SDL2_LIBRARIES /usr/local/lib/libSDL2.so)
-set(SDL2_IMAGE_LIBRARIES "/usr/local/lib/libSDL2_image.so")
 
 # Core sources
 set(CORE_SOURCES
@@ -120,18 +146,49 @@ pybind11_add_module(firesim src/python_bindings.cpp
         ${CORE_SOURCES}
         ${AGENT_SOURCES}
         ${FIREMODEL_SOURCES}
-        ${IMGUI_SOURCES})
-target_link_libraries(firesim PRIVATE ${SDL2_LIBRARIES} ${GDAL_LIBRARIES} ${SDL2_IMAGE_LIBRARIES} ${X11_LIBRARIES} OpenGL::GL imgui_external)
-target_include_directories(firesim PRIVATE ${CMAKE_SOURCE_DIR} ${CMAKE_SOURCE_DIR}/externals/imgui ${CMAKE_SOURCE_DIR}/externals/imgui/backends/ /usr/local/include/SDL2 ${GDAL_INCLUDE_DIRS})
+        ${IMGUI_SOURCES}
+)
+
+target_include_directories(firesim PRIVATE
+        ${CMAKE_SOURCE_DIR}
+        ${CMAKE_SOURCE_DIR}/externals/imgui
+        ${CMAKE_SOURCE_DIR}/externals/imgui/backends/
+        /usr/local/include/SDL2
+        ${GDAL_INCLUDE_DIRS}
+)
+
+target_link_libraries(firesim PRIVATE
+        ${SDL2_LIBRARIES}
+        ${SDL2_IMAGE_LIBRARY}
+        ${CURL_LIBRARIES}
+        ${GDAL_LIBRARIES}
+        ${X11_LIBRARIES}
+        OpenGL::GL
+        imgui_external
+)
 
 # Main executable
 add_executable(ROSHAN
         ${CORE_SOURCES}
         ${AGENT_SOURCES}
-        ${FIREMODEL_SOURCES})
+        ${FIREMODEL_SOURCES}
+)
 
-target_include_directories(ROSHAN PRIVATE ${CMAKE_SOURCE_DIR}/externals/nlohmann)
-target_include_directories(ROSHAN PRIVATE ${CMAKE_SOURCE_DIR})
+target_include_directories(ROSHAN PRIVATE
+        ${CMAKE_SOURCE_DIR}
+        ${CMAKE_SOURCE_DIR}/externals/nlohmann
+)
 
 # Link against libraries
-target_link_libraries(ROSHAN ${SDL2_LIBRARIES} ${SDL2_IMAGE_LIBRARIES} ${X11_LIBRARIES} OpenGL::GL imgui_external ${GDAL_LIBRARIES} -ldl -lpython3.9)
+target_link_libraries(ROSHAN PRIVATE
+        ${SDL2_LIBRARIES}
+        ${SDL2_IMAGE_LIBRARY}
+        ${X11_LIBRARIES}
+        ${Python3_LIBRARIES}
+        OpenGL::GL
+        imgui_external
+        ${CURL_LIBRARIES}
+        ${GDAL_LIBRARIES}
+        dl
+        tiff
+)

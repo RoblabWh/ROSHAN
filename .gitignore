@@ -37,12 +37,9 @@ cmake-build-debug
 .idea
 .vscode
 build
-
+models
 
 # Dependencies
-externals/imgui
-externals/ImGuiFileDialog
-externals/*
 nodejs
 
 # Server Junk
@@ -54,3 +51,4 @@ openstreetmap/server.pid
 
 # Large Files
 CLMS_CLCplus_RASTER_2018_010m_eu_03035_V1_1.tif
+CLMS_CLCplus_*

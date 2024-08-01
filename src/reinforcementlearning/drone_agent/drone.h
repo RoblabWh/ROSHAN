@@ -48,6 +48,7 @@ private:
     std::pair<int, int> map_dimensions_;
     std::pair<double, double> position_; // x, y in (m)
     int view_range_;
+    int time_steps_;
     int out_of_area_counter_;
     std::pair<double, double> velocity_; // angular & linear
     DroneRenderer renderer_;

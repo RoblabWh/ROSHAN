@@ -80,15 +80,15 @@ class LLMPredictorAPI(object):
         radius = observations[0][0].shape[1]
 
         fire_status = observations[1]
-        number_of_fires = []
-        for fire_stat in fire_status[0]:
-            number_of_fires.append(np.count_nonzero(fire_stat > 0))
+        number_of_fires = np.count_nonzero(fire_status[0][0] >0)
+        # for fire_stat in fire_status[0]:
+        #     number_of_fires.append(np.count_nonzero(fire_stat > 0))
         fire_status_str = f"Fire Status: {number_of_fires}, this represents the number of cells on fire in a {radius}x{radius} field with the agent in the center.\n"
 
-        positions = np.array2string(observations[4], precision=2, separator=",")
+        positions = np.array2string(observations[3][0][0], precision=2, separator=",")
         positions_str = f"Positions: {positions}, represent the relative positions of the drone on the map. NOT the absolute cells\n"
 
-        velocities = np.array2string(observations[2], precision=2, separator=",")
+        velocities = np.array2string(observations[2][0][0], precision=2, separator=",")
         velocities_str = f"Velocities: {velocities}, represent the relative velocities of the drone on the map. NOT the absolute velocities\n"
         return positions_str, velocities_str, fire_status_str
 

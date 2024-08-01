@@ -10,7 +10,7 @@ DatasetHandler::DatasetHandler() {
     auto project_root = find_project_root(start_path);
     std::filesystem::path  dataset_path;
     if (project_root) {
-        dataset_path = *project_root / "assets" / "dataset" / "CLMS_CLCplus_RASTER_2018_010m_eu_03035_V1_1.tif";
+        dataset_path = *project_root / "assets" / "dataset" / "CLMS_CLCplus_RASTER_2021_010m_eu_03035_V1_1.tif";
         std::cout << "Project root found: " << project_root->string() << std::endl;
         std::cout << "Dataset path: " << dataset_path << std::endl;
     } else {

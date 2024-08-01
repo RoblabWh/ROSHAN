@@ -210,12 +210,36 @@ void EngineCore::SendDataToModel(std::string data) {
     }
 }
 
+void EngineCore::SendRLStatusToModel(pybind11::dict status) {
+    if(model_ != nullptr){
+        model_->GetRLStatus(status);
+    }
+}
+
 std::string EngineCore::GetUserInput() {
     if(model_ != nullptr){
         return model_->GetUserInput();
     }
     // Return empty string if model is not initialized
     return "";
+}
+
+bool EngineCore::ModelInitialized() {
+    return model_ != nullptr;
+}
+
+int EngineCore::GetViewRange() {
+    if(model_ != nullptr){
+        return model_->GetViewRange();
+    }
+    return 0;
+}
+
+int EngineCore::GetTimeSteps() {
+    if(model_ != nullptr){
+        return model_->GetTimeSteps();
+    }
+    return 0;
 }
 
 void EngineCore::StyleColorsEnemyMouse(ImGuiStyle* dst) {

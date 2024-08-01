@@ -15,27 +15,29 @@
 #include "src/corine/dataset_handler.h"
 #include "externals/ImGuiFileDialog/ImGuiFileDialog.h"
 #include "src/utils.h"
+#include "externals/pybind11/include/pybind11/pybind11.h"
 
-class ImguiHandler {
+namespace py = pybind11;
+
+class __attribute__((visibility("default"))) ImguiHandler {
 public:
     ImguiHandler(Mode mode, FireModelParameters &parameters);
-    void ImGuiSimulationControls(bool &update_simulation, bool &render_simulation, int &delay, float framerate);
-    void Config(std::shared_ptr<GridMap> gridmap, std::shared_ptr<FireModelRenderer> model_renderer,
-                std::vector<std::vector<int>> &current_raster_data, double running_time,
-                std::shared_ptr<Wind> wind);
+    void ImGuiSimulationControls(std::shared_ptr<GridMap> gridmap, std::shared_ptr<FireModelRenderer> model_renderer,
+                                 bool &update_simulation, bool &render_simulation, int &delay, float framerate, double running_time);
+    void Config(std::shared_ptr<FireModelRenderer> model_renderer, std::vector<std::vector<int>> &current_raster_data, std::shared_ptr<Wind> wind);
     void FileHandling(std::shared_ptr<DatasetHandler> dataset_handler, std::vector<std::vector<int>> &current_raster_data);
     void PyConfig(std::vector<float> rewards, int rewards_pos,std::vector<float> all_rewards,
                   bool &agent_is_running, std::string &user_input, std::string &model_output,
                   std::shared_ptr<std::vector<std::shared_ptr<DroneAgent>>> drones,
                   std::shared_ptr<FireModelRenderer> model_renderer);
     void ImGuiModelMenu(std::shared_ptr<FireModelRenderer> model_renderer, std::vector<std::vector<int>> &current_raster_data);
-    void ImGuiSimulationSpeed();
     void ShowPopups(std::shared_ptr<GridMap> gridmap, std::vector<std::vector<int>> &current_raster_data);
     bool ImGuiOnStartup(std::shared_ptr<FireModelRenderer> model_renderer, std::vector<std::vector<int>> &current_raster_data);
     void ShowParameterConfig(std::shared_ptr<Wind> wind);
     void HandleEvents(SDL_Event event, ImGuiIO *io, std::shared_ptr<GridMap> gridmap, std::shared_ptr<FireModelRenderer> model_renderer,
                       std::shared_ptr<DatasetHandler> dataset_handler, std::vector<std::vector<int>> &current_raster_data, bool agent_is_running);
     void OpenBrowser(std::string url);
+    void GetRLStatus(pybind11::dict status);
 
     // Callbacks
     std::function<void()> onResetDrones;
@@ -51,11 +53,9 @@ private:
     //Flags
     bool show_demo_window_ = false;
     bool show_controls_ = false;
-    bool show_model_analysis_ = false;
-    bool show_drone_analysis_ = false;
+    bool show_rl_status_ = true;
     bool show_model_parameter_config_ = false;
     bool show_noise_config_ = false;
-    bool show_noise_ = true;
     bool model_startup_ = false;
     bool open_file_dialog_ = false;
     bool load_map_from_disk_ = false;
@@ -64,11 +64,15 @@ private:
     bool browser_selection_flag_ = false;  // If set to true, will load a new GridMap from a file.
     // Flags
     Mode mode_;
-    bool show_rl_controls_ = true;
+    bool show_input_images_ = false;
 
     //For the Popup of Cells
     std::set<std::pair<int, int>> popups_;
     std::map<std::pair<int, int>, bool> popup_has_been_opened_;
+
+    //Internal data
+    pybind11::dict rl_status_; // Status of the current episode
+    //std::string rl_status_;
 
     //Helper
     void DrawGrid(const std::vector<std::vector<int>>& grid, std::shared_ptr<FireModelRenderer> renderer, float cell_size, bool is_fire_status = false);

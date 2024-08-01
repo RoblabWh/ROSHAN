@@ -1,0 +1,9 @@
+[submodule "externals/imgui"]
+	path = externals/imgui
+	url = https://github.com/ocornut/imgui
+[submodule "externals/ImGuiFileDialog"]
+	path = externals/ImGuiFileDialog
+	url = https://github.com/aiekick/ImGuiFileDialog
+[submodule "externals/pybind11"]
+	path = externals/pybind11
+	url = https://github.com/pybind/pybind11

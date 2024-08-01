@@ -45,10 +45,12 @@ public:
     void SetRenderer(std::shared_ptr<SDL_Renderer> renderer) override;
     bool AgentIsRunning() override;
     void HandleEvents(SDL_Event event, ImGuiIO* io) override;
-    void ImGuiSimulationSpeed() override;
     void ImGuiRendering(bool &update_simulation, bool &render_simulation, int &delay, float framerate) override;
     std::string GetUserInput() override;
     void GetData(std::string data) override;
+    void GetRLStatus(pybind11::dict status) override;
+    int GetViewRange() override;
+    int GetTimeSteps() override;
     void LoadMap(std::string path);
 
 private:

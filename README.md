@@ -19,13 +19,14 @@ https://github.com/ocornut/imgui
 
 https://github.com/aiekick/ImGuiFileDialog
 
+###### Pybind11
+
+https://github.com/pybind/pybind11
+
 ###### JSON
 https://github.com/nlohmann/json
 
-###### Pybind11
-`sudo apt install libpython3.9-dev`
 
-https://github.com/pybind/pybind11
 
 
 #### NodeJS
@@ -52,8 +53,7 @@ Install GDAL and GDAL C++ headers
 
 Install SDL2 according to:
 
-https://github.com/libsdl-org/SDL/releases/tag/release-2.26.5
-https://github.com/libsdl-org/SDL_image/releases/tag/release-2.6.3
+`sudo apt-get install libsdl2-2.0-0 libsdl2-image-2.0-0`
 
 ##### Anaconda & PyTorch
 
