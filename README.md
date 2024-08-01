@@ -11,23 +11,9 @@ You can read everything about the development [here](paper.pdf).
 # Installation
 ## Dependencies
 
-These modules go under externals:
+Clone with submodules
 
-###### DearImgui 
-
-https://github.com/ocornut/imgui
-
-https://github.com/aiekick/ImGuiFileDialog
-
-###### Pybind11
-
-https://github.com/pybind/pybind11
-
-###### JSON
-https://github.com/nlohmann/json
-
-
-
+`git clone --recurse-submodules https://github.com/RoblabWh/ROSHAN.git`
 
 #### NodeJS
 

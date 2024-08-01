@@ -16,6 +16,7 @@
 #include "externals/ImGuiFileDialog/ImGuiFileDialog.h"
 #include "src/utils.h"
 #include "externals/pybind11/include/pybind11/pybind11.h"
+#include "externals/pybind11/include/pybind11/embed.h"
 
 namespace py = pybind11;
 

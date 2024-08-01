@@ -4,8 +4,8 @@
 
 #include "firemodel_imgui.h"
 
-ImguiHandler::ImguiHandler(Mode mode, FireModelParameters &parameters) : parameters_(parameters) {
-    mode_ = mode;
+ImguiHandler::ImguiHandler(Mode mode, FireModelParameters &parameters) : parameters_(parameters), mode_(mode) {
+
 }
 
 void ImguiHandler::ImGuiSimulationControls(std::shared_ptr<GridMap> gridmap, std::shared_ptr<FireModelRenderer> model_renderer, bool &update_simulation, bool &render_simulation, int &delay, float framerate, double running_time) {

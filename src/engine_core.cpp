@@ -28,6 +28,7 @@ bool EngineCore::Init(int mode, const std::string& map_path){
             return false;
     }
 
+
     bool init = true;
     if (mode_ == Mode::GUI || mode_ == Mode::GUI_RL) {
         init = this->SDLInit() && this->ImGuiInit();

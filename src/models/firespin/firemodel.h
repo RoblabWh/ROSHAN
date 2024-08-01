@@ -26,6 +26,8 @@
 #include "reinforcementlearning/reinforcementlearning_handler.h"
 #include "src/utils.h"
 
+namespace py = pybind11;
+
 class FireModel : public IModel{
 public:
     //only one instance of this class can be created

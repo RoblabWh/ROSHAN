@@ -32,6 +32,8 @@
 #error This backend requires SDL 2.0.17+ because of SDL_RenderGeometry() function
 #endif
 
+namespace py = pybind11;
+
 class EngineCore {
 
 public:
@@ -41,7 +43,7 @@ public:
         }
         return instance_;
     }
-    EngineCore(){}
+    EngineCore(){py::scoped_interpreter guard{};} // Start the interpreter and keep it alive
     ~EngineCore(){}
 
     bool Init(int mode, const std::string& map_path = "");
