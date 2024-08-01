@@ -1,6 +1,7 @@
 from ppo import PPO
 import firesim
 import numpy as np
+import os
 
 
 class Agent:
@@ -15,12 +16,30 @@ class Agent:
         if self.algorithm_name == 'ppo':
             return memory.size > horizon
 
-    def load_model(self, path, train=False):
+    def load_model(self, resume=False, train=False):
         # Load model, return True if successful and set model to evaluation mode
-        if self.algorithm.load(path) and not train:
-            self.algorithm.set_eval()
-            return True
-        return False
+        if not train:
+            if self.algorithm.load():
+                self.algorithm.set_eval()
+                return f"Load model from checkpoint {os.path.join(self.algorithm.model_path, self.algorithm.model_name)}\n" \
+                       f"Model set to evaluation mode\n"
+            else:
+                self.algorithm.set_train()
+                return "No checkpoint found to evaluate model, start training from scratch\n"
+        elif resume:
+            if self.algorithm.load():
+                self.algorithm.set_train()
+                return f"Load model from checkpoint {os.path.join(self.algorithm.model_path, self.algorithm.model_name)}\n" \
+                       f"Model set to training mode\n"
+            else:
+                self.algorithm.set_train()
+                return "No checkpoint found to resume training, start training from scratch\n"
+        else:
+            self.algorithm.set_train()
+            return "Training from scratch\n"
+
+    def set_paths(self, model_path, model_name):
+        self.algorithm.set_paths(model_path, model_name)
 
     def update(self, memory, batch_size, mini_batch_size, next_obs, next_terminals):
         return self.algorithm.update(memory, batch_size, mini_batch_size, next_obs, next_terminals, self.logger)

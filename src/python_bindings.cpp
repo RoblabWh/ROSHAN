@@ -49,6 +49,7 @@ PYBIND11_MODULE(firesim, m) {
             .def("GetUserInput", &EngineCore::GetUserInput)
             .def("SendDataToModel", &EngineCore::SendDataToModel)
             .def("SendRLStatusToModel", &EngineCore::SendRLStatusToModel)
+            .def("GetRLStatusFromModel", &EngineCore::GetRLStatusFromModel)
             .def("AgentIsRunning", &EngineCore::AgentIsRunning)
             .def("ModelInitialized", &EngineCore::ModelInitialized)
             .def("GetViewRange", &EngineCore::GetViewRange)

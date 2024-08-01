@@ -158,9 +158,7 @@ if __name__ == '__main__':
     time_steps = engine.GetTimeSteps()
 
     agent = Agent('ppo', logger, vision_range=view_range, time_steps=time_steps, model_path=model_directory, model_name=model_name)
-    if not train:
-        weights = os.path.join(config['module_directory'], 'best.pth')
-        train = not agent.algorithm.load_model(weights)
+    status["console"] = agent.load_model(train=train, resume=False)
 
     engine.SendRLStatusToModel(status)
 
@@ -168,6 +166,10 @@ if __name__ == '__main__':
         engine.HandleEvents()
         engine.Update()
         engine.Render()
+        status = engine.GetRLStatusFromModel()
+        agent.set_paths(status["model_path"], status["model_name"])
+
+        #print(status)
         if engine.AgentIsRunning():
             t += 1
             if t == 0:

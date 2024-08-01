@@ -8,7 +8,9 @@ ImguiHandler::ImguiHandler(Mode mode, FireModelParameters &parameters) : paramet
 
 }
 
-void ImguiHandler::ImGuiSimulationControls(std::shared_ptr<GridMap> gridmap, std::shared_ptr<FireModelRenderer> model_renderer, bool &update_simulation, bool &render_simulation, int &delay, float framerate, double running_time) {
+void ImguiHandler::ImGuiSimulationControls(std::shared_ptr<GridMap> gridmap, std::vector<std::vector<int>> &current_raster_data,
+                                           std::shared_ptr<FireModelRenderer> model_renderer, bool &update_simulation,
+                                           bool &render_simulation, int &delay, float framerate, double running_time) {
     if (show_controls_) {
         ImGuiWindowFlags window_flags =
                 ImGuiWindowFlags_HorizontalScrollbar | ImGuiWindowFlags_AlwaysVerticalScrollbar;
@@ -45,6 +47,11 @@ void ImguiHandler::ImGuiSimulationControls(std::shared_ptr<GridMap> gridmap, std
         if (button_color) {
             ImGui::PopStyleColor(3);
         }
+        ImGui::SameLine();
+        if(ImGui::Button("Reset GridMap"))
+            onResetGridMap(&current_raster_data);
+        if (ImGui::IsItemHovered())
+            ImGui::SetTooltip("Resets the GridMap to the initial state of the currently loaded map.");
         if (ImGui::BeginTabBar("SimStatus")){
             if(ImGui::BeginTabItem("Simulation Info")){
                 ImGui::Text("Simulation Analysis");
@@ -88,7 +95,7 @@ void ImguiHandler::ImGuiSimulationControls(std::shared_ptr<GridMap> gridmap, std
     }
 }
 
-void ImguiHandler::ImGuiModelMenu(std::shared_ptr<FireModelRenderer> model_renderer, std::vector<std::vector<int>> &current_raster_data) {
+void ImguiHandler::ImGuiModelMenu(std::vector<std::vector<int>> &current_raster_data) {
     if (model_startup_) {
         if (ImGui::BeginMainMenuBar()) {
             if (ImGui::BeginMenu("File")) {
@@ -163,7 +170,7 @@ void ImguiHandler::Config(std::shared_ptr<FireModelRenderer> model_renderer,
 void ImguiHandler::PyConfig(std::vector<float> rewards, int rewards_pos,std::vector<float> all_rewards,
                             bool &agent_is_running, std::string &user_input, std::string &model_output,
                             std::shared_ptr<std::vector<std::shared_ptr<DroneAgent>>> drones,
-                            std::shared_ptr<FireModelRenderer> model_renderer) {
+                            const std::shared_ptr<FireModelRenderer>& model_renderer) {
     if (show_rl_status_ && mode_ == Mode::GUI_RL) {
         ImGuiWindowFlags window_flags =
                 ImGuiWindowFlags_HorizontalScrollbar | ImGuiWindowFlags_AlwaysVerticalScrollbar;
@@ -192,9 +199,13 @@ void ImguiHandler::PyConfig(std::vector<float> rewards, int rewards_pos,std::vec
         }
 
         std::string console;
-        for (auto item : rl_status_) {
-            std::string key = item.first.cast<std::string>();
-            py::object value = py::reinterpret_borrow<py::object>(item.second);
+        bool show_file_dialog = false;
+        std::string selected_key;
+        py::dict rl_status = onGetRLStatus();
+
+        for (auto item : rl_status) {
+            auto key = item.first.cast<std::string>();
+            auto value = py::reinterpret_borrow<py::object>(item.second);
 
             if (py::isinstance<py::bool_>(value)) {
                 bool value_bool = value.cast<bool>();
@@ -202,8 +213,17 @@ void ImguiHandler::PyConfig(std::vector<float> rewards, int rewards_pos,std::vec
             } else if(py::isinstance<py::str>(value)) {
                 if (key == "console"){
                     console = value.cast<std::string>();
+                } else if (key == "model_path" || key == "model_name"){
+                    auto value_str = value.cast<std::string>();
+                    if (ImGui::Selectable(key.c_str())) {
+                        open_file_dialog_ = true;
+                        model_path_selection_ = true;
+                        path_key_ = key;
+                    }
+                    ImGui::SameLine();
+                    ImGui::Text("%s", value_str.c_str());
                 } else {
-                    std::string value_str = value.cast<std::string>();
+                    auto value_str = value.cast<std::string>();
                     ImGui::Text("%s: %s", key.c_str(), value_str.c_str());
                 }
             } else if (py::isinstance<py::int_>(value)) {
@@ -211,7 +231,6 @@ void ImguiHandler::PyConfig(std::vector<float> rewards, int rewards_pos,std::vec
                 ImGui::Text("%s: %d", key.c_str(), value_int);
             }
         }
-
         if (ImGui::BeginTabBar("RLStatus")){
             if (ImGui::BeginTabItem("Info")) {
                 ImGui::BeginChild("scrolling", ImVec2(0, ImGui::GetTextLineHeightWithSpacing() * 10), true, ImGuiWindowFlags_HorizontalScrollbar);
@@ -358,18 +377,43 @@ void ImguiHandler::FileHandling(std::shared_ptr<DatasetHandler> dataset_handler,
 
     // Show the file dialog for loading and saving maps
     if (open_file_dialog_) {
-        std::string filePathName;
         // open Dialog Simple
         IGFD::FileDialogConfig config;
-        config.path = "../maps";
-        ImGuiFileDialog::Instance()->OpenDialog("ChooseFileDlgKey", "Choose File", ".tif", config);
+        std::optional<std::string> vFilters;
+        std::string vTitle;
+        std::string vKey;
+        if (model_path_selection_){
+            config.path = "../models";
+            if (path_key_ == "model_path"){
+                vTitle = "Choose Model Path";
+                vFilters.reset();
+                vKey = "ChooseFolderDlgKey";
+            }
+            else if (path_key_ == "model_name"){
+                vTitle = "Choose Model Name";
+                vKey = "ChooseFileDlgKey";
+                vFilters = ".pth";
+            }
+        } else {
+            vTitle = "Choose File or Filename";
+            config.path = "../maps";
+            vFilters = ".tif";
+            vKey = "ChooseFileDlgKey";
+        }
+
+        if (vFilters) {
+            ImGuiFileDialog::Instance()->OpenDialog(vKey, vTitle, vFilters->c_str(), config);
+        } else {
+            ImGuiFileDialog::Instance()->OpenDialog(vKey, vTitle, nullptr, config);
+        }
 
         // display
-        if (ImGuiFileDialog::Instance()->Display("ChooseFileDlgKey")) {
+        if (ImGuiFileDialog::Instance()->Display(vKey)) {
             // action if OK
             if (ImGuiFileDialog::Instance()->IsOk()) {
-                filePathName = ImGuiFileDialog::Instance()->GetFilePathName();
+                std::string filePathName = ImGuiFileDialog::Instance()->GetFilePathName();
                 std::string filePath = ImGuiFileDialog::Instance()->GetCurrentPath();
+                std::string fileName = ImGuiFileDialog::Instance()->GetCurrentFileName();
                 if (load_map_from_disk_){
                     dataset_handler->LoadMap(filePathName);
                     std::vector<std::vector<int>> rasterData;
@@ -387,6 +431,15 @@ void ImguiHandler::FileHandling(std::shared_ptr<DatasetHandler> dataset_handler,
                 else if (save_map_to_disk_) {
                     dataset_handler->SaveRaster(filePathName);
                     save_map_to_disk_ = false;
+                }
+                else if (model_path_selection_) {
+                    py::dict rl_status = onGetRLStatus();
+                    if(path_key_ == "model_path")
+                        rl_status[py::str(path_key_)] = py::str(filePath);
+                    else if(path_key_ == "model_name")
+                        rl_status[py::str(path_key_)] = py::str(fileName);
+                    onSetRLStatus(rl_status);
+                    model_path_selection_ = false;
                 }
             }
             // close
@@ -701,8 +754,4 @@ void ImguiHandler::OpenBrowser(std::string url) {
     if(system((command + url).c_str()) == -1) {
         std::cerr << "Error opening URL: " << url << std::endl;
     }
-}
-
-void ImguiHandler::GetRLStatus(pybind11::dict status) {
-    rl_status_ = status;
 }

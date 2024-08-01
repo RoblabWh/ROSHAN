@@ -8,6 +8,7 @@
 #include <shared_mutex>
 #include <deque>
 #include <vector>
+#include "externals/pybind11/include/pybind11/embed.h"
 #include "state.h"
 #include "src/models/firespin/rendering/firemodel_renderer.h"
 #include "src/reinforcementlearning/drone_agent/drone.h"
@@ -15,7 +16,9 @@
 #include "src/reinforcementlearning/drone_agent/drone_action.h"
 #include "src/utils.h"
 
-class ReinforcementLearningHandler {
+namespace py = pybind11;
+
+class __attribute__((visibility("default"))) ReinforcementLearningHandler {
 
 public:
     //only one instance of this class can be created
@@ -36,6 +39,8 @@ public:
 
     void SetModelRenderer(std::shared_ptr<FireModelRenderer> model_renderer) { model_renderer_ = model_renderer; }
     void SetGridMap(std::shared_ptr<GridMap> gridmap) { gridmap_ = gridmap; }
+    void SetRLStatus(py::dict status) { rl_status_ = status; }
+    py::dict GetRLStatus() { return rl_status_; }
 
     std::shared_ptr<std::vector<std::shared_ptr<DroneAgent>>> GetDrones() { return drones_; }
     CircularBuffer<float> GetRewards() { return rewards_; }
@@ -61,6 +66,8 @@ private:
     // Rewards Collection for Debugging!
     CircularBuffer<float> rewards_;
     std::vector<float> all_rewards_;
+
+    pybind11::dict rl_status_; // Status of the current episode
 };
 
 

@@ -43,7 +43,7 @@ public:
         }
         return instance_;
     }
-    EngineCore(){py::scoped_interpreter guard{};} // Start the interpreter and keep it alive
+    EngineCore(){} // Start the interpreter and keep it alive
     ~EngineCore(){}
 
     bool Init(int mode, const std::string& map_path = "");
@@ -54,6 +54,7 @@ public:
     void HandleEvents();
     void SendDataToModel(std::string data);
     void SendRLStatusToModel(pybind11::dict status);
+    pybind11::dict GetRLStatusFromModel();
 
     // RL-Related
     // Observe the current state of the environment

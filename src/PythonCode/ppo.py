@@ -52,14 +52,19 @@ class PPO:
         self.running_reward_std = RunningMeanStd()
         self.set_train()
 
+    def set_paths(self, model_path, model_name):
+        self.model_path = os.path.abspath(model_path)
+        self.model_name = os.path.join(model_path, model_name)
+
     def set_eval(self):
         self.policy.eval()
 
     def set_train(self):
         self.policy.train()
 
-    def load(self, path):
+    def load(self):
         try:
+            path = os.path.join(self.model_path, self.model_name)
             self.policy.load_state_dict(torch.load(path, map_location=lambda storage, loc: storage))
             return True
         except FileNotFoundError:

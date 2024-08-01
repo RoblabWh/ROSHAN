@@ -189,11 +189,15 @@ void FireModel::setupImGui() {
             drone_idx, speed_x, speed_y, water_dispense);};
     imgui_handler_->startFires = [this](int percentage) {StartFires(percentage);};
     imgui_handler_->onSetNoise = [this](CellState state, int noise_level, int noise_size) {gridmap_->SetCellNoise(state, noise_level, noise_size);};
+    imgui_handler_->onGetRLStatus = [this]() {return rl_handler_->GetRLStatus();};
+    imgui_handler_->onSetRLStatus = [this](py::dict status) {rl_handler_->SetRLStatus(status);};
 }
 
 void FireModel::ImGuiRendering(bool &update_simulation, bool &render_simulation, int &delay, float framerate) {
-    imgui_handler_->ImGuiSimulationControls(gridmap_, model_renderer_, update_simulation, render_simulation, delay, framerate, running_time_);
-    imgui_handler_->ImGuiModelMenu(model_renderer_, current_raster_data_);
+    imgui_handler_->ImGuiSimulationControls(gridmap_, current_raster_data_, model_renderer_,
+                                            update_simulation, render_simulation, delay, framerate,
+                                            running_time_);
+    imgui_handler_->ImGuiModelMenu(current_raster_data_);
     imgui_handler_->Config(model_renderer_, current_raster_data_, wind_);
     imgui_handler_->PyConfig(rl_handler_->GetRewards().getBuffer(), rl_handler_->GetRewards().getHead(), rl_handler_->GetAllRewards(), agent_is_running_, user_input_, model_output_, rl_handler_->GetDrones(), model_renderer_);
     imgui_handler_->FileHandling(dataset_handler_, current_raster_data_);
@@ -214,8 +218,12 @@ void FireModel::GetData(std::string data) {
     model_output_ = data;
 }
 
-void FireModel::GetRLStatus(pybind11::dict status) {
-    imgui_handler_->GetRLStatus(status);
+void FireModel::SetRLStatus(pybind11::dict status) {
+    rl_handler_->SetRLStatus(status);
+}
+
+pybind11::dict FireModel::GetRLStatus() {
+    return rl_handler_->GetRLStatus();
 }
 
 void FireModel::TestBurndownHeadless() {

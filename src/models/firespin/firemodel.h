@@ -50,7 +50,8 @@ public:
     void ImGuiRendering(bool &update_simulation, bool &render_simulation, int &delay, float framerate) override;
     std::string GetUserInput() override;
     void GetData(std::string data) override;
-    void GetRLStatus(pybind11::dict status) override;
+    void SetRLStatus(pybind11::dict status) override;
+    pybind11::dict GetRLStatus() override;
     int GetViewRange() override;
     int GetTimeSteps() override;
     void LoadMap(std::string path);
