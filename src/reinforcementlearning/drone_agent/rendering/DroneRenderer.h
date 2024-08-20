@@ -7,6 +7,7 @@
 
 #include <SDL.h>
 #include <memory>
+#include <stdexcept>
 
 class DroneRenderer {
 public:

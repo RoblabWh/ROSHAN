@@ -39,10 +39,20 @@ else()
 endif()
 
 # Generate a JSON configuration file
-file(WRITE "config.json" "{
-\"module_directory\": \"${MY_CPP_BUILD_PATH}\",
-\"models_directory\": \"${MODELS_PATH}\"
-}\n")
+set(CONFIG_FILE "${PARENT_DIR}/config.json")
+
+if(NOT EXISTS ${CONFIG_FILE})
+    set(MODULE_DIRECTORY "${MY_CPP_BUILD_PATH}")
+    set(MODELS_DIRECTORY "${MODELS_PATH}")
+    set(OSM_DATA "${PARENT_DIR}/openstreetmap/data.json")
+    set(DATASET_PATH "${CMAKE_SOURCE_DIR}/assets/dataset/CLMS_CLCplus_RASTER_2021_010m_eu_03035_V1_1.tif")  # Default path for dataset_directory
+
+    configure_file(
+            "${CMAKE_SOURCE_DIR}/config.json.in"
+            "${CONFIG_FILE}"
+            @ONLY
+    )
+endif()
 
 # Include directories Externals and SRC
 include_directories(${CMAKE_SOURCE_DIR}/src)

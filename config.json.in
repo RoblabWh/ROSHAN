@@ -1,0 +1,6 @@
+{
+  "module_directory": "@MODULE_DIRECTORY@",
+  "models_directory": "@MODELS_DIRECTORY@",
+  "osm_data": "@OSM_DATA@",
+  "dataset_path": "@DATASET_PATH@"
+}

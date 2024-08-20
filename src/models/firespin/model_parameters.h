@@ -22,6 +22,9 @@ public:
     SDL_Color background_color_ = {41, 49, 51, 255};
     bool map_is_uniform_;
 
+    bool corine_loaded_ = false;
+    void SetCorineLoaded(bool loaded) {corine_loaded_ = loaded;}
+    bool GetCorineLoaded() {return corine_loaded_;}
 
     // Simulation parameters
     double dt_ = 1; // in seconds (s)

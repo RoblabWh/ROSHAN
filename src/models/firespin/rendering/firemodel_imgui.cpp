@@ -99,9 +99,13 @@ void ImguiHandler::ImGuiModelMenu(std::vector<std::vector<int>> &current_raster_
     if (model_startup_) {
         if (ImGui::BeginMainMenuBar()) {
             if (ImGui::BeginMenu("File")) {
-                if (ImGui::MenuItem("Open Browser")) {
-                    std::string url = "http://localhost:3000/map.html";
-                    OpenBrowser(url);
+                if (parameters_.GetCorineLoaded()) {
+                    if (ImGui::MenuItem("Open Browser")) {
+                        std::string url = "http://localhost:3000/map.html";
+                        OpenBrowser(url);
+                    }
+                    if (ImGui::MenuItem("Load Map from Browser Selection"))
+                        browser_selection_flag_ = true;
                 }
                 if (ImGui::MenuItem("Load Map from Disk")) {
                     // Open File Dialog
@@ -109,8 +113,6 @@ void ImguiHandler::ImGuiModelMenu(std::vector<std::vector<int>> &current_raster_
                     // Load Map
                     load_map_from_disk_ = true;
                 }
-                if (ImGui::MenuItem("Load Map from Browser Selection"))
-                    browser_selection_flag_ = true;
                 if (ImGui::MenuItem("Load Uniform Map")) {
                     onSetUniformRasterData();
                     onResetGridMap(&current_raster_data);

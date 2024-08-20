@@ -4,14 +4,11 @@ ROSHAN (Rescue Oriented Simulation: Handling and Navigating Fires), is a wildfir
 
 You can read everything about the development [here](paper.pdf).
 
-<div align="center">
-  <video src="agent.mp4" width="400" />
-</div>
+![Agent Demo](agent.gif)
 
 # Installation
-## Dependencies
 
-Clone with submodules
+Clone the repositories with submodules
 
 `git clone --recurse-submodules https://github.com/RoblabWh/ROSHAN.git`
 
@@ -25,13 +22,18 @@ Clone with submodules
 
 #### CORINE CLC+ 
 
-Download Corine CLC+ Backbone - 10 meter (Year 2018)
+ROSHAN offers the possibility to generate custom Maps from realworld data using the CORINE Landcover Database. **If you wish NOT to use custom maps you can use the small sample maps provided by this repository, you don't need to download the database in this case!**
 
-https://land.copernicus.eu/pan-european/clc-plus/clc-backbone/clc-backbone?tab=download
+To load custom maps from all over Europe you need to register to **EU Login**, the European Commission's user authentication service and download the
+CLC+ Backbone Database:
 
-Move *CLMS_CLCplus_RASTER_2018_010m_eu_03035_V1_1.tif to `/CORINE/dataset/`
+[Download Corine CLC+ Backbone - 10 meter (Year 2018 or 2021)](https://land.copernicus.eu/pan-european/clc-plus/clc-backbone/clc-backbone?tab=download)
 
-Install GDAL and GDAL C++ headers
+Once compiled you can set the dataset_path in the **config.json**, the standard path is **/ROSHAN/assets/dataset/CLMS_CLCplus_RASTER_2021_010m_eu_03035_V1_1.tif**.
+
+## Dependencies
+
+#### GDAL and GDAL C++ headers
 
 `sudo apt install libgdal-dev gdal-bin libsdl2-image-dev`
 
@@ -67,14 +69,16 @@ Install SDL2 according to:
 
 # Usage
 
-## Just the ROSHAN Simulation
+Start ROSHAN either as pure C++ Simulation or with Reinforcement Learning Support:
 
-`cd build`
+### ROSHAN Sim
+
+`cd to/your/build/directory`
 
 `./ROSHAN`
 
-## ROSHAN + Reinforcement Learning
+### ROSHAN Sim + Reinforcement Learning
 
-`cd drone_agent/FireSimAgent`
+`cd ROSHAN/src/pysim/`
 
 `python main.py`

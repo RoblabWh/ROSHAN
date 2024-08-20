@@ -13,6 +13,7 @@ FireModel::FireModel(Mode mode, const std::string& map_path) : mode_(mode)
     timer_.Start();
 
     dataset_handler_ = std::make_shared<DatasetHandler>();
+    parameters_.SetCorineLoaded(dataset_handler_->HasCorineLoaded());
     model_renderer_ = nullptr;
     wind_ = std::make_shared<Wind>(parameters_);
     gridmap_ = nullptr;

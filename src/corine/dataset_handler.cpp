@@ -8,29 +8,58 @@ DatasetHandler::DatasetHandler() {
     // Find the project root directory
     auto start_path = std::filesystem::current_path();
     auto project_root = find_project_root(start_path);
-    std::filesystem::path  dataset_path;
-    if (project_root) {
-        dataset_path = *project_root / "assets" / "dataset" / "CLMS_CLCplus_RASTER_2021_010m_eu_03035_V1_1.tif";
-        std::cout << "Project root found: " << project_root->string() << std::endl;
-        std::cout << "Dataset path: " << dataset_path << std::endl;
-    } else {
-        std::cerr << "Project root not found starting from: " << start_path << std::endl;
-    }
+    std::filesystem::path dataset_path;
+    bool dataset_path_found = false;
 
-    GDALAllRegister();
-    dataset_ = (GDALDataset *) GDALOpen(dataset_path.c_str(), GA_ReadOnly);
-    if (dataset_ == nullptr) {
-        std::cout << "DatasetHandler: Could not open file: " << dataset_path << std::endl;
+    if (project_root) {
+        std::filesystem::path config_path = *project_root / "config.json";
+
+        // Check if config.json exists
+        if (std::filesystem::exists(config_path)) {
+            // Read and parse the JSON config
+            std::ifstream config_file(config_path);
+            json config;
+            config_file >> config;
+
+            // Check if "dataset_directory" is present in the config
+            if (config.contains("dataset_path")) {
+                dataset_path = std::filesystem::path(config["dataset_path"]);
+                std::string extension = dataset_path.extension().string();
+                std::transform(extension.begin(), extension.end(), extension.begin(), ::tolower);
+                if (extension == ".tif" || extension == ".tiff") {
+                    dataset_path_found = true;
+                    std::cout << "Using dataset path from config.json: " << dataset_path << std::endl;
+                } else {
+                    std::cerr << "DatasetHandler: Invalid dataset file extension" << std::endl;
+                }
+            }
+            GDALAllRegister();
+            small_dataset_ = nullptr;
+            dataset_ = nullptr;
+            // Create an array of pointers to your GeoCoordinates
+            coords_[0] = &(rectangle_.lower_left);
+            coords_[1] = &(rectangle_.upper_left);
+            coords_[2] = &(rectangle_.upper_right);
+            coords_[3] = &(rectangle_.lower_right);
+
+            if (dataset_path_found) {
+                dataset_ = (GDALDataset *) GDALOpen(dataset_path.c_str(), GA_ReadOnly);
+                if (dataset_ == nullptr) {
+                    std::cout << "DatasetHandler: Could not open file: " << dataset_path << std::endl;
+                    exit(1);
+                }
+                datafilepath_ = config["osm_data"];
+            } else {
+                std::cerr << "Dataset not loaded. Proceeding without dataset." << std::endl;
+            }
+        } else {
+            std::cerr << "config.json not found at: " << config_path << std::endl;
+        }
+    } else {
+        std::cerr << "Project root not found. OOPSI! This should generally not happen." << std::endl;
         exit(1);
     }
-    small_dataset_ = nullptr;
-    datafilepath_ = "../openstreetmap/data.json";
 
-    // Create an array of pointers to your GeoCoordinates
-    coords_[0] = &(rectangle_.lower_left);
-    coords_[1] = &(rectangle_.upper_left);
-    coords_[2] = &(rectangle_.upper_right);
-    coords_[3] = &(rectangle_.lower_right);
 }
 
 void DatasetHandler::TransformCoordinates(double lng, double lat, double &lng_transformed, double &lat_transformed) {
@@ -249,7 +278,7 @@ void DatasetHandler::LoadRasterDataFromJSON(std::vector<std::vector<int>> &raste
 void DatasetHandler::LoadMap(std::string filePath) {
     delete small_dataset_;
     small_dataset_ = (GDALDataset *) GDALOpen(filePath.c_str(), GA_ReadOnly);
-    if (dataset_ == nullptr) {
+    if (small_dataset_ == nullptr) {
         std::cout << "DatasetHandler: Could not open file: " << filePath << std::endl;
         exit(1);
     }

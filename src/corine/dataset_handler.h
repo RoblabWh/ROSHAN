@@ -31,6 +31,7 @@ public:
     ~DatasetHandler();
 
     bool NewDataPointExists();
+    bool HasCorineLoaded() { return dataset_ != nullptr; }
     void LoadRasterDataFromJSON(std::vector<std::vector<int>> &rasterData);
     void LoadMapDataset(std::vector<std::vector<int>> &rasterData);
     void LoadMap(std::string filePath);
