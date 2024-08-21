@@ -5,6 +5,7 @@ import numpy as np
 class Memory(object):
     def __init__(self, action_dim=3, max_size=int(1e5)):
         self.max_size = max_size
+        self.action_dim = action_dim
         self.ptr = 0
         self.batch_ptr = 0
         self.size = 0
@@ -37,6 +38,15 @@ class Memory(object):
                torch.FloatTensor(self.logprobs[:self.size]).to(self.device), \
                torch.FloatTensor(self.reward[:self.size]).to(self.device), \
                torch.FloatTensor(self.not_done[:self.size]).to(self.device)
+
+    def change_horizon(self, new_horizon):
+        self.max_size = new_horizon
+        self.state = [0 for _ in range(self.max_size)]
+        self.action = np.zeros((self.max_size, self.action_dim))
+        self.logprobs = np.zeros((self.max_size,))
+        self.reward = np.zeros((self.max_size,))
+        self.not_done = np.zeros((self.max_size,))
+        self.clear_memory()
 
     def clear_memory(self):
         self.ptr = 0

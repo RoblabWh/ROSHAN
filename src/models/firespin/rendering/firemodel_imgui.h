@@ -75,6 +75,9 @@ private:
     std::set<std::pair<int, int>> popups_;
     std::map<std::pair<int, int>, bool> popup_has_been_opened_;
 
+    bool train_popup_ = false;
+    const char* train_popup_text_ = "";
+
     //Helper
     void DrawGrid(const std::vector<std::vector<int>>& grid, std::shared_ptr<FireModelRenderer> renderer, float cell_size, bool is_fire_status = false);
     void DrawBuffer(std::vector<float> buffer, int buffer_pos);

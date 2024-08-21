@@ -111,7 +111,7 @@ class PPO:
 
         return norm_adv, returns
 
-    def update(self, memory, batch_size, mini_batch_size, next_obs, next_terminals, logger):
+    def update(self, memory, horizon, mini_batch_size, next_obs, next_terminals, logger):
         """
         This function implements the update step of the Proximal Policy Optimization (PPO) algorithm for a swarm of
         robots. It takes in the memory buffer containing the experiences of the swarm, as well as the number of batches
@@ -124,7 +124,7 @@ class PPO:
         Finally, the function copies the updated weights to the old policy for future use in the next update step.
 
         :param memory: The memory to update the network with.
-        :param batch_size: The size of batches.
+        :param horizon: The size of all data gathered before training
         """
 
         # TODO REIMPLEMENT
@@ -161,7 +161,7 @@ class PPO:
         # Train policy for K epochs: sampling and updating
         for _ in range(self.K_epochs):
             # Random sampling and no repetition. 'False' indicates that training will continue even if the number of samples in the last time is less than mini_batch_size
-            for index in BatchSampler(SubsetRandomSampler(range(batch_size)), mini_batch_size, False):
+            for index in BatchSampler(SubsetRandomSampler(range(horizon)), mini_batch_size, True):
                 # Evaluate old actions and values using current policy
                 # batch_states = (
                 #     states[0][index], states[1][index], states[2][index], states[3][index], states[4][index])

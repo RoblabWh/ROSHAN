@@ -97,7 +97,6 @@ if __name__ == '__main__':
     # Lists alls the functions in the EngineCore class
     # print(dir(EngineCore))
 
-    horizon = 250
     mini_batch_size = 50
 
     # Ugly globals
@@ -107,6 +106,10 @@ if __name__ == '__main__':
 
     # 0: GUI_RL, 2: NoGUI_RL
     mode = 0
+
+    # This map is used in NoGUI setup, if left empty("") the default map will be used. Has no impact on GUI Setup
+    map = "/home/nex/Dokumente/Code/ROSHAN/maps/Small2.tif"
+    #map = ""
 
     # If the LLM support is enabled or not
     llm_support = True
@@ -120,28 +123,26 @@ if __name__ == '__main__':
         console += f"Creating model directory under {os.path.abspath(model_directory)}"
         os.makedirs(os.path.abspath(model_directory))
 
-    # If the agent should be trained or not, if not the agent will act with the best policy if it can be loaded
-    train = True
-    max_train = 200 # Number of Updates to perform before stopping training
-    max_eval = 1000 # Number of Environments to run before stopping evaluation
-
-    # This map is used in NoGUI setup, if left empty("") the default map will be used. Has no impact on GUI Setup
-    map = "/home/nex/Dokumente/Code/ROSHAN/maps/Small2.tif"
-    map = ""
-
-    # Stats to log
-    stats = {'died': [0], 'reached': [0], 'time': [0], 'reward': [0], 'episode': [0], 'perc_burn': [0]}
-
-    # RL_Status, sending to C++
-    status = {"train": train, "model_path": model_directory, "model_name": model_name, "console": console}
+    # RL_Status Dictionary, sending back and forth to C++
+    status = {"rl_mode": "train", # "train" or "eval"
+              "model_path": model_directory,
+              "model_name": model_name,
+              "console": console,
+              "agent_online": True,
+              "obs_collected": 0,
+              "horizon": 250,
+              "train_step": 0,
+              "max_eval": 1000, # Number of Environments to run before stopping evaluation
+              "max_train": 200 # Number of Updates to perform before stopping training
+              }
 
     if llm_support:
         from llmsupport import LLMPredictorAPI
         llm = LLMPredictorAPI("mistralai/Mistral-7B-Instruct-v0.3")
         #llm = LLMPredictorAPI("Qwen/Qwen2-1.5B")
     engine = firesim.EngineCore()
-    memory = Memory(max_size=horizon+1)
-    logger = Logger(log_dir='./logs', horizon=horizon)
+    memory = Memory(max_size=status["horizon"])
+    logger = Logger(log_dir='./logs', horizon=status["horizon"])
 
     logger.set_logging(True)
 
@@ -157,8 +158,11 @@ if __name__ == '__main__':
     view_range = engine.GetViewRange() + 1
     time_steps = engine.GetTimeSteps()
 
-    agent = Agent('ppo', logger, vision_range=view_range, time_steps=time_steps, model_path=model_directory, model_name=model_name)
-    status["console"] = agent.load_model(train=train, resume=False)
+    # Create the agent/s
+    agent = Agent(status=status, algorithm='ppo', logger=logger, vision_range=view_range,
+                  time_steps=time_steps, model_path=model_directory, model_name=model_name)
+
+    status["console"] = agent.load_model(resume=False, train_=status["rl_mode"])
 
     engine.SendRLStatusToModel(status)
 
@@ -166,11 +170,12 @@ if __name__ == '__main__':
         engine.HandleEvents()
         engine.Update()
         engine.Render()
-        status = engine.GetRLStatusFromModel()
-        agent.set_paths(status["model_path"], status["model_name"])
 
-        #print(status)
-        if engine.AgentIsRunning():
+        # C++ Python Interface
+        status = engine.GetRLStatusFromModel()
+        memory = agent.update_status(status, memory)
+
+        if engine.AgentIsRunning() and status["agent_online"]:
             t += 1
             if t == 0:
                 next_obs = restructure_data(engine.GetObservations())
@@ -180,7 +185,7 @@ if __name__ == '__main__':
             obs = next_obs
             terminals = next_terminals
 
-            if train:
+            if status["rl_mode"] == "train":
                 actions, action_logprobs = agent.act(obs)
                 drone_actions = agent.get_action(actions)
                 next_observations, rewards, next_terminals, _, percent_burned = engine.Step(drone_actions)
@@ -189,27 +194,17 @@ if __name__ == '__main__':
 
                 # Logging and sending data
                 logger.episode_log(next_obs, next_terminals[0], percent_burned)
-                obs_collected = f'{len(memory)}/{horizon}'
-                status["ObsCollected"] = obs_collected
-                status["Train Step"] = train_step
+                status["obs_collected"] = len(memory)
 
-                if agent.should_train(memory, horizon, t):
-                    console += agent.update(memory, horizon, mini_batch_size, next_obs, next_terminals)
+                if agent.should_train(memory):
+                    agent.update(status, memory, mini_batch_size=mini_batch_size, next_obs=next_obs, next_terminals=next_terminals)
                     logger.log()
-                    train_step += 1
-                    if train_step >= max_train:
-                        print("Training finished, after {} training steps".format(train_step))
-                        break
             else:
                 actions = agent.act_certain(obs)
                 drone_actions = agent.get_action(actions)
                 next_observations, rewards, terminals, dones, percent_burned = engine.Step(drone_actions)
                 next_obs = restructure_data(next_observations)
-                if log_outcome(rewards, terminals, dones, percent_burned, stats):
-                    eval_step += 1
-                    if eval_step >= max_eval:
-                        break
-            status["console"] = console
+                agent.log_episode(status, rewards, terminals, dones, percent_burned)
             engine.SendRLStatusToModel(status)
         else:
             obs, rewards = None, None

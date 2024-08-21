@@ -200,22 +200,48 @@ void ImguiHandler::PyConfig(std::vector<float> rewards, int rewards_pos,std::vec
             onResetDrones();
         }
 
-        std::string console;
-        bool show_file_dialog = false;
-        std::string selected_key;
         py::dict rl_status = onGetRLStatus();
+        auto console = rl_status["console"].cast<std::string>();
 
         for (auto item : rl_status) {
             auto key = item.first.cast<std::string>();
             auto value = py::reinterpret_borrow<py::object>(item.second);
 
-            if (py::isinstance<py::bool_>(value)) {
-                bool value_bool = value.cast<bool>();
-                ImGui::Text("%s: %s", key.c_str(), value_bool ? "true" : "false");
-            } else if(py::isinstance<py::str>(value)) {
-                if (key == "console"){
-                    console = value.cast<std::string>();
-                } else if (key == "model_path" || key == "model_name"){
+            if(py::isinstance<py::str>(value)) {
+                if (key == "rl_mode") {
+                    auto value_str = value.cast<std::string>();
+                    if (ImGui::Selectable(key.c_str())) {
+                        ImGui::OpenPopup("Warning RL Mode");
+                    }
+                    if (ImGui::BeginPopupModal("Warning RL Mode", NULL, ImGuiWindowFlags_AlwaysAutoResize)) {
+                        ImGui::Text("You are about to switch to %s mode.", value_str == "train" ? "eval" : "train");
+                        ImGui::Separator();
+
+                        if (ImGui::Button("OK", ImVec2(120, 0))) {
+                            auto new_value_str = value_str == "train" ? "eval" : "train";
+                            rl_status[py::str(key)] = new_value_str;
+                            value_str = new_value_str;
+                            console += "Switched to " + static_cast<std::string>(new_value_str) + " mode.\n";
+                            rl_status[py::str("console")] = console;
+                            onSetRLStatus(rl_status);
+                            ImGui::CloseCurrentPopup();
+                        }
+
+                        ImGui::SameLine();
+
+                        if (ImGui::Button("Cancel", ImVec2(120, 0))) {
+                            ImGui::CloseCurrentPopup();
+                        }
+
+                        ImGui::EndPopup();
+                    }
+                    ImGui::SameLine();
+                    ImGui::Text(": %s", value_str.c_str());
+                }
+                else if (key == "console"){
+                    // Do nothing
+                }
+                else if (key == "model_path" || key == "model_name"){
                     auto value_str = value.cast<std::string>();
                     if (ImGui::Selectable(key.c_str())) {
                         open_file_dialog_ = true;
@@ -223,22 +249,72 @@ void ImguiHandler::PyConfig(std::vector<float> rewards, int rewards_pos,std::vec
                         path_key_ = key;
                     }
                     ImGui::SameLine();
-                    ImGui::Text("%s", value_str.c_str());
-                } else {
+                    ImGui::Text(": %s", value_str.c_str());
+                }
+                else {
                     auto value_str = value.cast<std::string>();
                     ImGui::Text("%s: %s", key.c_str(), value_str.c_str());
                 }
-            } else if (py::isinstance<py::int_>(value)) {
-                int value_int = value.cast<int>();
-                ImGui::Text("%s: %d", key.c_str(), value_int);
+            }
+            else if (py::isinstance<py::bool_>(value)) {
+                bool value_bool = value.cast<bool>();
+                ImGui::Text("%s: %s", key.c_str(), value_bool ? "true" : "false");
+            }
+            else if (py::isinstance<py::int_>(value)) {
+                if (key == "horizon") {
+                    // Do nothing
+                }
+                else if (key == "obs_collected") {
+                    static int new_horizon = rl_status["horizon"].cast<int>();
+                    if (ImGui::Selectable(key.c_str())) {
+                        ImGui::OpenPopup("Set Horizon");
+                    }
+                    if (ImGui::BeginPopupModal("Set Horizon", NULL, ImGuiWindowFlags_AlwaysAutoResize)) {
+                        ImGui::Text("Do you want to change the horizon?");
+                        ImGui::TextColored(ImVec4(1.0f, 0.0f, 0.0f, 1.0f), "WARNING: Changing the Horizon during Training is not recommended.");
+                        ImGui::TextColored(ImVec4(1.0f, 0.0f, 0.0f, 1.0f), "It will reset the collected observations and the logs.");
+                        ImGui::TextColored(ImVec4(1.0f, 0.0f, 0.0f, 1.0f), "If you choose a Horizon Size not completly dividable by the");
+                        ImGui::TextColored(ImVec4(1.0f, 0.0f, 0.0f, 1.0f), "batch size, the last batch will be dropped to avoid issues..");
+                        ImGui::Separator();
+                        ImGui::InputInt("Horizon", &new_horizon, 1, 10, ImGuiInputTextFlags_CharsDecimal);
+
+                        if (ImGui::Button("OK", ImVec2(120, 0))) {
+                            rl_status[py::str("horizon")] = new_horizon;
+                            console += "Horizon switched to Horizon of Size: " + std::to_string(new_horizon) + ".\n";
+                            rl_status[py::str("console")] = console;
+                            onSetRLStatus(rl_status);
+                            ImGui::CloseCurrentPopup();
+                        }
+
+                        ImGui::SameLine();
+
+                        if (ImGui::Button("Cancel", ImVec2(120, 0))) {
+                            ImGui::CloseCurrentPopup();
+                        }
+
+                        ImGui::EndPopup();
+                    }
+                    int value_int = value.cast<int>();
+                    int horizon = rl_status["horizon"].cast<int>();
+                    ImGui::SameLine();
+                    ImGui::Text(" : %d/%d", value_int, horizon);
+                } else {
+                    int value_int = value.cast<int>();
+                    ImGui::Text("%s: %d", key.c_str(), value_int);
+                }
             }
         }
+
         if (ImGui::BeginTabBar("RLStatus")){
-            if (ImGui::BeginTabItem("Info")) {
-                ImGui::BeginChild("scrolling", ImVec2(0, ImGui::GetTextLineHeightWithSpacing() * 10), true, ImGuiWindowFlags_HorizontalScrollbar);
+            if (ImGui::BeginTabItem("Console")) {
+                ImGui::BeginChild("scrolling", ImVec2(0, ImGui::GetTextLineHeightWithSpacing() * 20), true, ImGuiWindowFlags_HorizontalScrollbar);
                 ImGui::TextUnformatted(console.c_str());
                 ImGui::EndChild();
                 ImGui::EndTabItem();
+                if (ImGui::Button("Clear Console")){
+                    rl_status[py::str("console")] = "";
+                    onSetRLStatus(rl_status);
+                }
             }
             if (ImGui::BeginTabItem("ROSHAN-AI")) {
                 static char input_text[512] = "";
@@ -387,7 +463,7 @@ void ImguiHandler::FileHandling(std::shared_ptr<DatasetHandler> dataset_handler,
         if (model_path_selection_){
             config.path = "../models";
             if (path_key_ == "model_path"){
-                vTitle = "Choose Model Path";
+                vTitle = "Change Model Path Folder";
                 vFilters.reset();
                 vKey = "ChooseFolderDlgKey";
             }
@@ -436,10 +512,13 @@ void ImguiHandler::FileHandling(std::shared_ptr<DatasetHandler> dataset_handler,
                 }
                 else if (model_path_selection_) {
                     py::dict rl_status = onGetRLStatus();
-                    if(path_key_ == "model_path")
+                    if(path_key_ == "model_path"){
                         rl_status[py::str(path_key_)] = py::str(filePath);
-                    else if(path_key_ == "model_name")
+                    }
+                    else if(path_key_ == "model_name"){
+                        rl_status[py::str("model_path")] = py::str(filePath);
                         rl_status[py::str(path_key_)] = py::str(fileName);
+                    }
                     onSetRLStatus(rl_status);
                     model_path_selection_ = false;
                 }

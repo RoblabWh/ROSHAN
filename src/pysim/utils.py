@@ -227,6 +227,10 @@ class Logger(object):
         self.total_steps += self.horizon
         self.clear_summary()
 
+    def reset_horizon(self):
+        self.total_steps = 0
+
+
     def clear_summary(self):
         if self.episode_finished:
             self.objective = []
