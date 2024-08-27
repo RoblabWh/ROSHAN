@@ -32,7 +32,10 @@ public:
     // Minimum and maximum values for the ImGui Sliders for the simulation parameters
     double min_dt_ = 0.0001; // in seconds (s)
     double max_dt_ = 1.0; // in seconds (s)
-    int fire_percentage_ = 1; // in percent (%)
+    bool ignite_single_cells_ = false;
+    float fire_percentage_ = 0.5; // in percent (%)
+    float fire_spread_prob_ = 0.5; // in percent (%)
+    float fire_noise_ = 0.1;
 
 
     // Parameters for the virtual particles
@@ -68,7 +71,7 @@ public:
     bool emit_radiation_ = true;
     double radiationparticle_y_st_ = 1.0;
     double GetYStRad() const {return radiationparticle_y_st_;}
-    double radiationparticle_y_lim_ = 0.155;
+    double radiationparticle_y_lim_ = 0.165;
     double GetYLimRad() const {return radiationparticle_y_lim_;}
 
     // Parameter for the Grid
@@ -108,7 +111,7 @@ public:
     // random number between 0 and 2pi
     double wind_angle_ = random() * 2 * M_PI / RAND_MAX;
     double GetAngle() const {return wind_angle_;}
-    double wind_a_ = 0.4; // The component of the wind speed in the 1st direction
+    double wind_a_ = 0.314; // The component of the wind speed in the 1st direction
     double GetA() const {return wind_a_;}
     // Minimum and maximum values for the ImGui Sliders for the wind
     const double min_Uw_ = 0.0;

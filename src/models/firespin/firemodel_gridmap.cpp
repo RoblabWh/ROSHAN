@@ -433,3 +433,20 @@ void GridMap::GenerateNoiseMap() {
         this->noise_generated_ = true;
     }
 }
+
+std::vector<std::pair<int, int>> GridMap::GetMooreNeighborhood(int x, int y) const {
+    std::vector<std::pair<int, int>> neighborhood;
+    for (int i = -1; i <= 1; ++i) {
+        for (int j = -1; j <= 1; ++j) {
+            if (i == 0 && j == 0) {
+                continue;
+            }
+            int new_x = x + i;
+            int new_y = y + j;
+            if (IsPointInGrid(new_x, new_y)) {
+                neighborhood.emplace_back(new_x, new_y);
+            }
+        }
+    }
+    return neighborhood;
+}

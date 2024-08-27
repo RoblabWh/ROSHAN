@@ -112,6 +112,7 @@ class Logger(object):
     def __init__(self, log_dir, horizon):
         self.writer = None
         self.log_dir = log_dir
+        self.tag = 'run1'
         self.logging = False
         self.total_steps = horizon
         self.horizon = horizon
@@ -178,36 +179,36 @@ class Logger(object):
 
     def summary_loss(self):
         if self.logging:
-            self.writer.add_scalars('loss', {'loss': np.mean(self.loss),
-                                            'entropy': np.mean(self.entropy),
-                                            'critic_loss': np.mean(self.critic_loss),
-                                            'actor loss': np.mean(self.actor_loss)}, self.total_steps)
+            self.writer.add_scalars(f'{self.tag}/loss', {'loss': np.mean(self.loss),
+                                            f'{self.tag}/entropy': np.mean(self.entropy),
+                                            f'{self.tag}/critic_loss': np.mean(self.critic_loss),
+                                            f'{self.tag}/actor loss': np.mean(self.actor_loss)}, self.total_steps)
 
     def summary_objective(self):
         if self.logging:
-            self.writer.add_scalar('Percentage Burned', np.mean(self.objective), self.total_steps, new_style=True)
+            self.writer.add_scalar(f'{self.tag}/Percentage Burned', np.mean(self.objective), self.total_steps, new_style=True)
 
     def summary_reward(self):
         if self.logging:
-            self.writer.add_scalar('Reward (AVG)', np.mean(self.reward), self.total_steps, new_style=True)
-            self.writer.add_histogram('Reward (HIST)', np.array(self.reward), self.total_steps)
+            self.writer.add_scalar(f'{self.tag}/Reward (AVG)', np.mean(self.reward), self.total_steps, new_style=True)
+            self.writer.add_histogram(f'{self.tag}/Reward (HIST)', np.array(self.reward), self.total_steps)
 
     def summary_value(self):
         if self.logging:
-            self.writer.add_scalar('Value (AVG)', np.mean(self.value), self.total_steps, new_style=True)
-            self.writer.add_histogram('Value (HIST)', np.array(self.value), self.total_steps)
+            self.writer.add_scalar(f'{self.tag}/Value (AVG)', np.mean(self.value), self.total_steps, new_style=True)
+            self.writer.add_histogram(f'{self.tag}/Value (HIST)', np.array(self.value), self.total_steps)
 
     def summary_steps_agents(self):
         if self.logging and self.episode_finished:
-            self.writer.add_histogram('Steps (HIST)', np.array(self.agent_steps), self.total_steps)
+            self.writer.add_histogram(f'{self.tag}/Steps (HIST)', np.array(self.agent_steps), self.total_steps)
 
     def summary_velocities(self):
         if self.logging:
-            self.writer.add_histogram('Velocities (HIST)', np.array(self.velocities), self.total_steps)
+            self.writer.add_histogram(f'{self.tag}/Velocities (HIST)', np.array(self.velocities), self.total_steps)
 
     def summary_positions(self):
         if self.logging:
-            self.writer.add_histogram('Positions (HIST)', np.array(self.positions), self.total_steps)
+            self.writer.add_histogram(f'{self.tag}/Positions (HIST)', np.array(self.positions), self.total_steps)
 
     def better_reward(self):
         if np.mean(self.reward) > self.reward_best:
@@ -216,7 +217,7 @@ class Logger(object):
         else:
             return False
 
-    def log(self):
+    def log(self, status):
         if self.episode_finished:
             self.summary_objective()
             self.summary_steps_agents()
@@ -226,6 +227,7 @@ class Logger(object):
         self.summary_value()
         self.total_steps += self.horizon
         self.clear_summary()
+        self.tag = "run" + str(status["train_episode"])
 
     def reset_horizon(self):
         self.total_steps = 0

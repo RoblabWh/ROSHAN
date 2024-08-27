@@ -13,6 +13,7 @@
 #include <map>
 #include <chrono>
 #include <thread>
+#include <queue>
 #include "src/models/firespin/utils.h"
 #include "model_interface.h"
 #include "firemodel_gridmap.h"
@@ -95,9 +96,11 @@ private:
     void SetUniformRasterData();
     void FillRasterWithEnum();
     void TestBurndownHeadless();
-    void StartFires(int percentage);
+    void StartFires(float percentage);
 
     void setupRLHandler();
+
+    void IgniteFireCluster(int fires);
 };
 
 

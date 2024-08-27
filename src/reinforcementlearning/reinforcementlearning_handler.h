@@ -46,7 +46,7 @@ public:
     CircularBuffer<float> GetRewards() { return rewards_; }
     std::vector<float> GetAllRewards() { return all_rewards_; }
 
-    std::function<void(int)> startFires;
+    std::function<void(float)> startFires;
 private:
     static std::shared_ptr<ReinforcementLearningHandler> instance_;
 

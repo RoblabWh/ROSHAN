@@ -18,9 +18,18 @@ class Agent:
             self.initialized = True
             print("PPO agent initialized")
 
-    def reset(self):
-        self.stats = {'died': [0], 'reached': [0], 'time': [0], 'reward': [0], 'episode': [0], 'perc_burn': [0]}
-        self.initialized = True
+    def reset(self, status):
+        status["train_episode"] += 1
+        if status["train_episode"] >= status["train_episodes"]:
+            status["agent_online"] = False
+            status["console"] += "Training finished, after {} training episodes\n".format(status["train_episode"])
+            status["console"] += "Agent is offline\n"
+        else:
+            status["console"] += "Resume with next training step {}/{}\n".format(status["train_episode"] + 1, status["train_episodes"])
+            status["train_step"] = 0
+            self.stats = {'died': [0], 'reached': [0], 'time': [0], 'reward': [0], 'episode': [0], 'perc_burn': [0]}
+            self.algorithm.reset()
+            self.initialized = True
 
     def should_train(self, memory):
         if self.algorithm_name == 'ppo':
@@ -70,9 +79,13 @@ class Agent:
         status["console"] += self.algorithm.update(memory, self.horizon, mini_batch_size, next_obs, next_terminals, self.logger)
         status["train_step"] += 1
         if status["train_step"] >= status["max_train"]:
-            status["console"] += "Training finished, after {} training steps".format(status["train_step"])
-            status["agent_online"] = False
-            status["console"] += "Agent is offline\n"
+            if not status["auto_train"]:
+                status["console"] += "Training finished, after {} training steps".format(status["train_step"])
+                status["agent_online"] = False
+                status["console"] += "Agent is offline\n"
+            else:
+                status["console"] += "Training finished, after {} training steps\n".format(status["train_step"])
+                self.reset(status)
 
     def act(self, observations):
         actions, action_logprobs = self.algorithm.select_action(observations)

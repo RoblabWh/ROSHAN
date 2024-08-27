@@ -37,13 +37,17 @@ class PPO:
         self._lambda = _lambda
         self.eps_clip = eps_clip
         self.K_epochs = K_epochs
+        self.vision_range = vision_range
+        self.time_steps = time_steps
         self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
         self.model_path = os.path.abspath(model_path)
-        self.model_name = os.path.join(model_path, model_name)
+        self.model_name = model_name
+        self.version = 1
+        self.model_version = model_name.split(".")[0] + "_v" + str(self.version) + "." + model_name.split(".")[1]
 
         # Current Policy
-        self.policy = ActorCritic(vision_range=vision_range, time_steps=time_steps)
+        self.policy = ActorCritic(vision_range=self.vision_range, time_steps=self.time_steps)
 
         self.optimizer_a = torch.optim.Adam(self.policy.actor.parameters(), lr=lr, betas=betas, eps=1e-5)
         self.optimizer_c = torch.optim.Adam(self.policy.critic.parameters(), lr=lr, betas=betas, eps=1e-5)
@@ -52,9 +56,20 @@ class PPO:
         self.running_reward_std = RunningMeanStd()
         self.set_train()
 
+    def reset(self):
+        self.version += 1
+        self.model_version = self.model_name.split(".")[0] + "_v" + str(self.version) + "." + self.model_name.split(".")[1]
+        self.policy = ActorCritic(vision_range=self.vision_range, time_steps=self.time_steps)
+        self.optimizer_a = torch.optim.Adam(self.policy.actor.parameters(), lr=self.lr, betas=self.betas, eps=1e-5)
+        self.optimizer_c = torch.optim.Adam(self.policy.critic.parameters(), lr=self.lr, betas=self.betas, eps=1e-5)
+        self.MSE_loss = nn.MSELoss()
+        self.running_reward_std = RunningMeanStd()
+        self.set_train()
+
     def set_paths(self, model_path, model_name):
         self.model_path = os.path.abspath(model_path)
-        self.model_name = os.path.join(model_path, model_name)
+        self.model_name = model_name
+        self.model_version = model_name.split(".")[0] + "_v" + str(self.version) + "." + model_name.split(".")[1]
 
     def set_eval(self):
         self.policy.eval()
@@ -79,7 +94,7 @@ class PPO:
 
     def save(self, logger):
         console = f"Saving best with reward {logger.reward_best:.2f} and mean burned {logger.get_objective():.2f}%\n"
-        torch.save(self.policy.state_dict(), f'{self.model_name}')
+        torch.save(self.policy.state_dict(), f'{os.path.join(self.model_path, self.model_version)}')
         return console
 
     def get_advantages(self, values, masks, rewards):

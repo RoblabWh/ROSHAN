@@ -130,10 +130,13 @@ if __name__ == '__main__':
               "console": console,
               "agent_online": True,
               "obs_collected": 0,
-              "horizon": 250,
+              "horizon": 500,
+              "auto_train": True, # If True, the agent will train several episodes and then evaluate
+              "train_episodes": 10, # Number of total trainings containing each max_train steps
+              "train_episode": 0, # Current training episode
               "train_step": 0,
               "max_eval": 1000, # Number of Environments to run before stopping evaluation
-              "max_train": 200 # Number of Updates to perform before stopping training
+              "max_train": 10 # Number of Updates to perform before stopping training
               }
 
     if llm_support:
@@ -143,7 +146,6 @@ if __name__ == '__main__':
     engine = firesim.EngineCore()
     memory = Memory(max_size=status["horizon"])
     logger = Logger(log_dir='./logs', horizon=status["horizon"])
-
     logger.set_logging(True)
 
     engine.Init(mode, map)
@@ -194,11 +196,11 @@ if __name__ == '__main__':
 
                 # Logging and sending data
                 logger.episode_log(next_obs, next_terminals[0], percent_burned)
-                status["obs_collected"] = len(memory)
+                status["obs_collected"] = len(memory) + 1
 
                 if agent.should_train(memory):
                     agent.update(status, memory, mini_batch_size=mini_batch_size, next_obs=next_obs, next_terminals=next_terminals)
-                    logger.log()
+                    logger.log(status)
             else:
                 actions = agent.act_certain(obs)
                 drone_actions = agent.get_action(actions)

@@ -20,3 +20,8 @@ void Wind::CalculateComponents() {
     Uw_i1_ = Uw_ * cos(angle_);
     Uw_i2_ = Uw_ * sin(angle_);
 }
+
+void Wind::SetRandomAngle() {
+    angle_ = random() * 2 * M_PI / RAND_MAX;
+    this->UpdateWind();
+}

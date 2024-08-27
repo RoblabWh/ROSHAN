@@ -71,6 +71,8 @@ public:
         return *cells_[i][j];
     }
 
+    std::vector<std::pair<int, int>> GetMooreNeighborhood(int x, int y) const;
+
     // For Rendering Only
     void GenerateNoiseMap();
     void SetCellNoise(CellState state, int noise_level, int noise_size);

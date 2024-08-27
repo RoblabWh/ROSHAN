@@ -20,6 +20,7 @@ public:
     double GetCurrentA() const {return A_;}
     double GetCurrentTurbulece() const {return u_prime_;}
     double GetCurrentAngle() const {return angle_;}
+    void SetRandomAngle();
 
     void UpdateWind();
 

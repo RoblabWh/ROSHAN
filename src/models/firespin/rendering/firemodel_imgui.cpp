@@ -436,12 +436,18 @@ void ImguiHandler::PyConfig(std::vector<float> rewards, int rewards_pos,std::vec
             }
             if (ImGui::BeginTabItem("Env Controls")){
                 ImGui::Text("Fire Percentage");
-                ImGui::SliderInt("%", &parameters_.fire_percentage_, 0, 100);
+                ImGui::SliderFloat("##fire_percentage_map", &parameters_.fire_percentage_, 0, 100);
+                ImGui::Text("Fire Spread Probability");
+                ImGui::SliderFloat("##fire_spread_prob", &parameters_.fire_spread_prob_, 0, 1);
+                ImGui::Text("Fire Noise");
+                ImGui::SliderFloat("##fire_noise", &parameters_.fire_noise_, -1, 1);
                 if (ImGui::Button("Start some fires")) {
                     this->startFires(parameters_.fire_percentage_);
                 }
                 if (ImGui::IsItemHovered())
                     ImGui::SetTooltip("Click to start some fires");
+                ImGui::Checkbox("Ignite Single Cells", &parameters_.ignite_single_cells_);
+                ImGui::SameLine();
                 ImGui::Spacing();
                 ImGui::EndTabItem();
             }

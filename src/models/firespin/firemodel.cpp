@@ -39,7 +39,7 @@ FireModel::FireModel(Mode mode, const std::string& map_path) : mode_(mode)
             std::cout << "No map path provided, using default map." << std::endl;
             this->SetUniformRasterData();
         }
-        this->StartFires(1);
+        this->StartFires(parameters_.fire_percentage_);
     }
     if (mode_ == Mode::NoGUI_RL) {
         parameters_.SetNumberOfDrones(1);
@@ -49,7 +49,8 @@ FireModel::FireModel(Mode mode, const std::string& map_path) : mode_(mode)
 
 void FireModel::ResetGridMap(std::vector<std::vector<int>>* rasterData) {
     gridmap_ = std::make_shared<GridMap>(wind_, parameters_, rasterData);
-
+    wind_->SetRandomAngle();
+    parameters_.wind_angle_ = wind_->GetCurrentAngle();
     if (mode_ == Mode::GUI || mode_ == Mode::GUI_RL) {
         model_renderer_->SetGridMap(gridmap_);
         gridmap_->GenerateNoiseMap();
@@ -177,7 +178,7 @@ void FireModel::LoadMap(std::string path) {
 
 void FireModel::setupRLHandler() {
     rl_handler_ = ReinforcementLearningHandler::GetInstance(parameters_);
-    rl_handler_->startFires = [this](int percentage) {StartFires(percentage);};
+    rl_handler_->startFires = [this](float percentage) {StartFires(percentage);};
 }
 
 void FireModel::setupImGui() {
@@ -188,7 +189,7 @@ void FireModel::setupImGui() {
     imgui_handler_->onSetUniformRasterData = [this]() {SetUniformRasterData();};
     imgui_handler_->onMoveDrone = [this](int drone_idx, double speed_x, double speed_y, int water_dispense) {return rl_handler_->StepDrone(
             drone_idx, speed_x, speed_y, water_dispense);};
-    imgui_handler_->startFires = [this](int percentage) {StartFires(percentage);};
+    imgui_handler_->startFires = [this](float percentage) {StartFires(percentage);};
     imgui_handler_->onSetNoise = [this](CellState state, int noise_level, int noise_size) {gridmap_->SetCellNoise(state, noise_level, noise_size);};
     imgui_handler_->onGetRLStatus = [this]() {return rl_handler_->GetRLStatus();};
     imgui_handler_->onSetRLStatus = [this](py::dict status) {rl_handler_->SetRLStatus(status);};
@@ -238,7 +239,7 @@ void FireModel::TestBurndownHeadless() {
         timer_.AppendDuration(duration);
         // Reset the simulation
         ResetGridMap(&current_raster_data_);
-        StartFires(1);
+        StartFires(parameters_.fire_percentage_);
         timer_.Start();
     }
     if (timer_.GetTimeSteps() == 0){
@@ -253,7 +254,7 @@ void FireModel::TestBurndownHeadless() {
     }
 }
 
-void FireModel::StartFires(int percentage) {
+void FireModel::StartFires(float percentage) {
     int cells = gridmap_->GetNumCells();
     double perc = percentage * 0.01;
     int fires = static_cast<int>(cells * perc);
@@ -261,14 +262,53 @@ void FireModel::StartFires(int percentage) {
         std::cout << "Map is incapable of burning that much. Please choose a lower percentage." << std::endl;
         return;
     }
-    for(int i = 0; i < fires;) {
-        std::pair<int, int> point = gridmap_->GetRandomPointInGrid();
-        if (gridmap_->CellCanIgnite(point.first, point.second)) {
-            gridmap_->IgniteCell(point.first, point.second);
-            i++;
+    if (!parameters_.ignite_single_cells_) {
+        this->IgniteFireCluster(fires);
+    } else {
+        for(int i = 0; i < fires;) {
+            std::pair<int, int> point = gridmap_->GetRandomPointInGrid();
+            if (gridmap_->CellCanIgnite(point.first, point.second)) {
+                gridmap_->IgniteCell(point.first, point.second);
+                i++;
+            }
         }
     }
     //std::cout << "Fires started: " << fires << std::endl;
+}
+
+void FireModel::IgniteFireCluster(int fires) {
+    // Starting point
+    std::pair<int, int> point = gridmap_->GetRandomPointInGrid();
+    std::set<std::pair<int, int>> visited;
+    std::queue<std::pair<int, int>> to_visit;
+
+    to_visit.push(point);
+    visited.insert(point);
+
+    int ignited = 0;
+
+    while (!to_visit.empty() && ignited < fires) {
+        std::pair<int, int> current = to_visit.front();
+        to_visit.pop();
+
+        if(gridmap_->CellCanIgnite(current.first, current.second)) {
+            gridmap_->IgniteCell(current.first, current.second);
+            ignited++;
+        }
+
+        // Get Moore Neighborhood
+        std::vector<std::pair<int, int>> neighbors = gridmap_->GetMooreNeighborhood(current.first, current.second);
+        for (auto neighbor : neighbors) {
+            if (visited.find(neighbor) == visited.end() && gridmap_->CellCanIgnite(neighbor.first, neighbor.second)) {
+                double randomValue = static_cast<double>(std::rand()) / RAND_MAX;
+                double fireProbability = parameters_.fire_spread_prob_ + (static_cast<double>(std::rand()) / RAND_MAX - 0.5) * parameters_.fire_noise_;
+                if (randomValue < fireProbability) {
+                    to_visit.push(neighbor);
+                    visited.insert(neighbor);
+                }
+            }
+        }
+    }
 }
 
 int FireModel::GetViewRange() {
