@@ -173,7 +173,7 @@ void ImguiHandler::PyConfig(std::vector<float> rewards, int rewards_pos,std::vec
                             bool &agent_is_running, std::string &user_input, std::string &model_output,
                             std::shared_ptr<std::vector<std::shared_ptr<DroneAgent>>> drones,
                             const std::shared_ptr<FireModelRenderer>& model_renderer) {
-    if (show_rl_status_ && mode_ == Mode::GUI_RL) {
+    if (show_rl_status_ && mode_ == Mode::GUI_RL && model_startup_) {
         ImGuiWindowFlags window_flags =
                 ImGuiWindowFlags_HorizontalScrollbar | ImGuiWindowFlags_AlwaysVerticalScrollbar;
         ImGui::Begin("Reinforcement Learning Status", &show_rl_status_, window_flags);
@@ -202,6 +202,7 @@ void ImguiHandler::PyConfig(std::vector<float> rewards, int rewards_pos,std::vec
 
         py::dict rl_status = onGetRLStatus();
         auto console = rl_status["console"].cast<std::string>();
+        auto auto_train = rl_status["auto_train"].cast<bool>();
 
         for (auto item : rl_status) {
             auto key = item.first.cast<std::string>();
@@ -258,7 +259,13 @@ void ImguiHandler::PyConfig(std::vector<float> rewards, int rewards_pos,std::vec
             }
             else if (py::isinstance<py::bool_>(value)) {
                 bool value_bool = value.cast<bool>();
-                ImGui::Text("%s: %s", key.c_str(), value_bool ? "true" : "false");
+                if (key == "auto_train") {
+                    if (value_bool)
+                        ImGui::Text("%s: %s", key.c_str(), value_bool ? "true" : "false");
+                } else {
+                    ImGui::Text("%s: %s", key.c_str(), value_bool ? "true" : "false");
+                }
+
             }
             else if (py::isinstance<py::int_>(value)) {
                 if (key == "horizon") {
@@ -298,6 +305,12 @@ void ImguiHandler::PyConfig(std::vector<float> rewards, int rewards_pos,std::vec
                     int horizon = rl_status["horizon"].cast<int>();
                     ImGui::SameLine();
                     ImGui::Text(" : %d/%d", value_int, horizon);
+                }
+                else if ((key == "train_episodes" || key == "max_eval" || key == "max_train" || key == "train_episode")) {
+                    if (auto_train) {
+                        int value_int = value.cast<int>();
+                        ImGui::Text("%s: %d", key.c_str(), value_int);
+                    }
                 } else {
                     int value_int = value.cast<int>();
                     ImGui::Text("%s: %d", key.c_str(), value_int);
@@ -478,7 +491,14 @@ void ImguiHandler::FileHandling(std::shared_ptr<DatasetHandler> dataset_handler,
                 vKey = "ChooseFileDlgKey";
                 vFilters = ".pth";
             }
-        } else {
+        }
+        else if (model_load_selection_) {
+            vTitle = "Choose Model to Load";
+            config.path = "../models";
+            vFilters = ".pth";
+            vKey = "ChooseFileDlgKey";
+        }
+        else {
             vTitle = "Choose File or Filename";
             config.path = "../maps";
             vFilters = ".tif";
@@ -528,6 +548,14 @@ void ImguiHandler::FileHandling(std::shared_ptr<DatasetHandler> dataset_handler,
                     onSetRLStatus(rl_status);
                     model_path_selection_ = false;
                 }
+                else if (model_load_selection_){
+                    // Load Model
+                    py::dict rl_status = onGetRLStatus();
+                    rl_status[py::str("model_path")] = py::str(filePath);
+                    rl_status[py::str("model_name")] = py::str(fileName);
+                    onSetRLStatus(rl_status);
+                    model_load_selection_ = false;
+                }
             }
             // close
             ImGuiFileDialog::Instance()->Close();
@@ -544,34 +572,114 @@ bool ImguiHandler::ImGuiOnStartup(std::shared_ptr<FireModelRenderer> model_rende
         ImGui::SetNextWindowSize(window_size);
         ImVec2 appWindowPos = ImVec2((width - window_size.x) * 0.5f, (height - window_size.y) * 0.5f);
         ImGui::SetNextWindowPos(appWindowPos);
-
-        ImGui::Begin("Startup Mode Selection", nullptr, ImGuiWindowFlags_NoResize | ImGuiWindowFlags_NoCollapse | ImGuiWindowFlags_NoMove);
-        ImGui::Spacing();
-
-        ImGui::PushStyleColor(ImGuiCol_Button, ImVec4(0.45f, 0.6f, 0.85f, 1.0f));
-        ImGui::PushStyleColor(ImGuiCol_ButtonHovered, ImVec4(0.45f, 0.7f, 0.95f, 1.0f));
-        ImGui::PushStyleColor(ImGuiCol_ButtonActive, ImVec4(0.45f, 0.5f, 0.75f, 1.0f));
-
-        bool still_no_init = true;
-        if (ImGui::Button("Uniform Vegetation", ImVec2(-1, 0))) {
-            onSetUniformRasterData();
-            // TODO I don't really know why this works, but it does. If I don't call this function, everything works fine
-            //  until I reset the GridMap again, which works fine as well. But if I then try to zoom in it crashes.
-            onResetGridMap(&current_raster_data);
-            still_no_init = false;
-            model_startup_ = true;
-            show_controls_ = true;
-            show_model_parameter_config_ = true;
+        if(!model_mode_selection_ && mode_ == Mode::GUI_RL){
+            ImGui::Begin("Select Mode", nullptr, ImGuiWindowFlags_NoResize | ImGuiWindowFlags_NoCollapse | ImGuiWindowFlags_NoMove);
+            ImGui::Spacing();
+            ImGui::PushStyleColor(ImGuiCol_Button, ImVec4(0.45f, 0.6f, 0.85f, 1.0f));
+            ImGui::PushStyleColor(ImGuiCol_ButtonHovered, ImVec4(0.45f, 0.7f, 0.95f, 1.0f));
+            ImGui::PushStyleColor(ImGuiCol_ButtonActive, ImVec4(0.45f, 0.5f, 0.75f, 1.0f));
+            if (ImGui::Button("Train Model", ImVec2(-1, 0))) {
+                py::dict rl_status = onGetRLStatus();
+                auto console = rl_status["console"].cast<std::string>();
+                console += "Initialized ROSHAN in Train mode.\n";
+                auto model_path = rl_status["model_path"].cast<std::string>();
+                auto model_name = rl_status["model_name"].cast<std::string>();
+                console += "Saving Model to: " + model_path + "/" + model_name + "\n";
+                rl_status[py::str("console")] = console;
+                rl_status[py::str("rl_mode")] = py::str("train");
+                onSetRLStatus(rl_status);
+                train_mode_selected_ = true;
+                model_mode_selection_ = true;
+            }
+            if (ImGui::Button("Load Model", ImVec2(-1, 0))) {
+                py::dict rl_status = onGetRLStatus();
+                auto console = rl_status["console"].cast<std::string>();
+                console += "Initialized ROSHAN in Eval mode.\n";
+                rl_status[py::str("console")] = console;
+                rl_status[py::str("rl_mode")] = py::str("eval");
+                onSetRLStatus(rl_status);
+                model_mode_selection_ = true;
+                model_load_selection_ = true;
+                open_file_dialog_ = true;
+            }
+            ImGui::PopStyleColor(3);
+            ImGui::End();
+            return true;
         }
-        ImGui::Separator();
-        if (ImGui::Button("Load from File", ImVec2(-1, 0))) {
-            show_model_parameter_config_ = true;
-            open_file_dialog_ = true;
-            load_map_from_disk_ = true;
+        else if (train_mode_selected_) {
+            ImVec2 window_size = ImVec2(400, 200);
+            ImGui::SetNextWindowSize(window_size);
+            ImGui::PushStyleColor(ImGuiCol_Button, ImVec4(0.45f, 0.6f, 0.85f, 1.0f));
+            ImGui::PushStyleColor(ImGuiCol_ButtonHovered, ImVec4(0.45f, 0.7f, 0.95f, 1.0f));
+            ImGui::PushStyleColor(ImGuiCol_ButtonActive, ImVec4(0.45f, 0.5f, 0.75f, 1.0f));
+            ImGui::Begin("Training Setup", nullptr, ImGuiWindowFlags_NoResize | ImGuiWindowFlags_NoCollapse | ImGuiWindowFlags_NoMove);
+            ImGui::Spacing();
+            ImGui::Text("Choose Initial Training Parameters");
+            py::dict rl_status = onGetRLStatus();
+            static int new_horizon = rl_status["horizon"].cast<int>();
+            auto auto_train = rl_status["auto_train"].cast<bool>();
+            auto train_episodes = rl_status["train_episodes"].cast<int>();
+            auto max_eval = rl_status["max_eval"].cast<int>();
+            auto max_train = rl_status["max_train"].cast<int>();
+            ImGui::InputInt("Horizon", &new_horizon, 1, 10, ImGuiInputTextFlags_CharsDecimal);
+            if (auto_train) {
+                ImGui::InputInt("Train X Models", &train_episodes, 1, 10, ImGuiInputTextFlags_CharsDecimal);
+                if(ImGui::IsItemHovered())
+                    ImGui::SetTooltip("Train a number of consecutive models and auto evaluate them.");
+                ImGui::InputInt("Max Train Steps", &max_train, 1, 10, ImGuiInputTextFlags_CharsDecimal);
+                if(ImGui::IsItemHovered())
+                    ImGui::SetTooltip("Maximum Training Steps before continuing training the next model.");
+                ImGui::InputInt("Max Eval Steps", &max_eval, 1, 10, ImGuiInputTextFlags_CharsDecimal);
+                if(ImGui::IsItemHovered())
+                    ImGui::SetTooltip("Maximum Evaluation Steps for EACH trained Model!");
+                rl_status[py::str("max_train")] = max_train;
+                rl_status[py::str("train_episodes")] = train_episodes;
+                rl_status[py::str("max_eval")] = max_eval;
+            }
+            ImGui::Checkbox("Auto Train/Eval", &auto_train);
+            if(ImGui::IsItemHovered())
+                ImGui::SetTooltip("Automatically train and evaluate models.");
+            rl_status[py::str("horizon")] = new_horizon;
+            rl_status[py::str("auto_train")] = auto_train;
+            onSetRLStatus(rl_status);
+            if (ImGui::Button("Proceed to Map Selection", ImVec2(-1, 0))) {
+                train_mode_selected_ = false;
+            }
+            ImGui::PopStyleColor(3);
+            ImGui::End();
+            return true;
         }
-        ImGui::PopStyleColor(3);
-        ImGui::End();
-        return still_no_init;
+        else {
+            ImGui::Begin("Initial Map Selection", nullptr, ImGuiWindowFlags_NoResize | ImGuiWindowFlags_NoCollapse | ImGuiWindowFlags_NoMove);
+            ImGui::Spacing();
+
+            ImGui::PushStyleColor(ImGuiCol_Button, ImVec4(0.45f, 0.6f, 0.85f, 1.0f));
+            ImGui::PushStyleColor(ImGuiCol_ButtonHovered, ImVec4(0.45f, 0.7f, 0.95f, 1.0f));
+            ImGui::PushStyleColor(ImGuiCol_ButtonActive, ImVec4(0.45f, 0.5f, 0.75f, 1.0f));
+
+            bool still_no_init = true;
+            if (ImGui::Button("Uniform Vegetation", ImVec2(-1, 0))) {
+                onSetUniformRasterData();
+                // TODO I don't really know why this works, but it does. If I don't call this function, everything works fine
+                //  until I reset the GridMap again, which works fine as well. But if I then try to zoom in it crashes.
+                onResetGridMap(&current_raster_data);
+                still_no_init = false;
+                model_startup_ = true;
+                show_controls_ = true;
+                show_model_parameter_config_ = true;
+                parameters_.initial_mode_selection_done_ = true;
+            }
+            ImGui::Separator();
+            if (ImGui::Button("Load from File", ImVec2(-1, 0))) {
+                show_model_parameter_config_ = true;
+                open_file_dialog_ = true;
+                load_map_from_disk_ = true;
+                parameters_.initial_mode_selection_done_ = true;
+            }
+            ImGui::PopStyleColor(3);
+            ImGui::End();
+            return still_no_init;
+        }
     } else {
         return false;
     }

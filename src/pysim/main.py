@@ -19,7 +19,7 @@ os.chdir(config['module_directory'])
 
 import firesim
 from agent import Agent
-from memory import Memory
+from memory import SwarmMemory
 from utils import Logger
 
 
@@ -47,49 +47,6 @@ def restructure_data(observations_):
 
     # return np.array(all_terrains), np.array(all_fire_statuses), np.array(all_velocities), np.array(all_maps), np.array(
     #     all_positions)
-
-
-def log_outcome(rewards, terminals, dones, percent_burned, stats):
-    # Log stats
-    stats['reward'][-1] += rewards[0]
-    stats['time'][-1] += 1
-
-    if terminals[0]:
-        print("Episode: {} finished with terminal state".format(stats['episode'][-1] + 1))
-        if dones[0]:  # Drone died
-            print("Drone died.\n")
-            stats['died'][-1] += 1
-        else:  # Drone reached goal
-            print("Drone extinguished all fires.\n")
-            stats['reached'][-1] += 1
-
-        stats['perc_burn'][-1] = percent_burned
-        # Print stats
-        print("-----------------------------------")
-        print("Episode: {}".format(stats['episode'][-1] + 1))
-        print("Reward: {}".format(stats['reward'][-1]))
-        print("Time: {}".format(stats['time'][-1]))
-        print("Percentage burned: {}".format(stats['perc_burn'][-1]))
-        print("Died: {}".format(stats['died'][-1]))
-        print("Reached: {}".format(stats['reached'][-1]))
-        print("Total average time: {}".format(np.mean(stats['time'])))
-        print("Total average percentage burned: {}".format(np.mean(stats['perc_burn'])))
-        print("Total average reward: {}".format(np.mean(stats['reward'])))
-        print("Total died: {}".format(sum(stats['died'])))
-        print("Total reached: {}".format(sum(stats['reached'])))
-        print("-----------------------------------\n\n")
-
-        # Reset stats
-        stats['episode'].append(stats['episode'][-1] + 1)
-        stats['died'].append(0)
-        stats['perc_burn'].append(0)
-        stats['reached'].append(0)
-        stats['time'].append(0)
-        stats['reward'].append(0)
-
-        return True
-    return False
-
 
 # Press the green button in the gutter to run the script.
 if __name__ == '__main__':
@@ -124,19 +81,19 @@ if __name__ == '__main__':
         os.makedirs(os.path.abspath(model_directory))
 
     # RL_Status Dictionary, sending back and forth to C++
-    status = {"rl_mode": "train", # "train" or "eval"
+    status = {"rl_mode": "", # "train" or "eval"
               "model_path": model_directory,
               "model_name": model_name,
               "console": console,
               "agent_online": True,
               "obs_collected": 0,
-              "horizon": 500,
+              "horizon": 5000,
               "auto_train": True, # If True, the agent will train several episodes and then evaluate
               "train_episodes": 10, # Number of total trainings containing each max_train steps
               "train_episode": 0, # Current training episode
               "train_step": 0,
               "max_eval": 1000, # Number of Environments to run before stopping evaluation
-              "max_train": 10 # Number of Updates to perform before stopping training
+              "max_train": 100 # Number of Updates to perform before stopping training
               }
 
     if llm_support:
@@ -144,17 +101,22 @@ if __name__ == '__main__':
         llm = LLMPredictorAPI("mistralai/Mistral-7B-Instruct-v0.3")
         #llm = LLMPredictorAPI("Qwen/Qwen2-1.5B")
     engine = firesim.EngineCore()
-    memory = Memory(max_size=status["horizon"])
-    logger = Logger(log_dir='./logs', horizon=status["horizon"])
-    logger.set_logging(True)
 
     engine.Init(mode, map)
 
-    # Wait for the model to be initialized
-    while not engine.ModelInitialized():
+    engine.SendRLStatusToModel(status)
+
+    # Wait for the initial mode selection
+    while not engine.InitialModeSelectionDone():
         engine.HandleEvents()
         engine.Update()
         engine.Render()
+
+    status = engine.GetRLStatusFromModel()
+
+    memory = SwarmMemory(num_agents=2, max_size=status["horizon"])
+    logger = Logger(log_dir='./logs', horizon=status["horizon"])
+    logger.set_logging(True)
 
     # Now get the view range and time steps
     view_range = engine.GetViewRange() + 1

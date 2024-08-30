@@ -16,6 +16,7 @@ DroneAgent::DroneAgent(std::pair<int, int> point, FireModelParameters &parameter
 
 void DroneAgent::Initialize(std::vector<std::vector<int>> terrain, std::vector<std::vector<int>> fire_status, std::pair<int, int> size) {
     map_dimensions_ = size;
+    dispensed_water_ = false;
     for(int i = 0; i < time_steps_; ++i) {
         std::vector<std::vector<int>> map(size.second, std::vector<int>(size.first, -1));
         //std::pair<double, double> size_ = std::make_pair(size.first * parameters_.GetCellSize(), size.second * parameters_.GetCellSize());
@@ -49,7 +50,7 @@ std::pair<double, double> DroneAgent::Step(double netout_x, double netout_y) {
     return this->MoveByXYVel(netout_x, netout_y);
 }
 
-void DroneAgent::UpdateStates(std::pair<double, double> velocity_vector, std::vector<std::vector<int>> terrain, std::vector<std::vector<int>> fire_status, std::vector<std::vector<int>> updated_map) {
+void DroneAgent::UpdateStates(GridMap &grid_map, std::pair<double, double> velocity_vector, std::vector<std::vector<int>> terrain, std::vector<std::vector<int>> fire_status, std::vector<std::vector<int>> updated_map) {
     // Update the states, last state get's kicked out
     DroneState new_state = DroneState(velocity_vector.first, velocity_vector.second, parameters_.GetMaxVelocity(), std::move(terrain), std::move(fire_status), std::move(updated_map), map_dimensions_, position_, parameters_.GetCellSize());
     drone_states_.push_front(new_state);
@@ -58,14 +59,24 @@ void DroneAgent::UpdateStates(std::pair<double, double> velocity_vector, std::ve
     if (drone_states_.size() > time_steps_) {
         drone_states_.pop_back();
     }
+
+    std::pair<int, int> drone_position = GetGridPosition();
+    drone_in_grid_ = grid_map.IsPointInGrid(drone_position.first, drone_position.second);
+    // Calculates if the Drone is in the grid and if not how far it is away from the grid
+    CalcMaxDistanceFromMap();
 }
 
-bool DroneAgent::DispenseWater(GridMap &grid_map) {
-
-    std::pair<int, int> grid_position = GetGridPosition();
-    bool fire_extinguished = grid_map.WaterDispension(grid_position.first, grid_position.second);
-    return fire_extinguished;
-
+void DroneAgent::DispenseWater(GridMap &grid_map, int water_dispense) {
+    // Returns true if fire was extinguished
+    if (water_dispense == 1) {
+        dispensed_water_ = true;
+        std::pair<int, int> grid_position = GetGridPosition();
+        bool fire_extinguished = grid_map.WaterDispension(grid_position.first, grid_position.second);
+        extinguished_fire_ = fire_extinguished;
+    } else {
+        dispensed_water_ = false;
+        extinguished_fire_ = false;
+    }
 }
 
 std::pair<double, double> DroneAgent::GetRealPosition() {
@@ -124,4 +135,22 @@ double DroneAgent::FindNearestFireDistance() {
     }
 
     return min_distance;
+}
+
+void DroneAgent::CalcMaxDistanceFromMap() {
+    max_distance_from_map_ = 0;
+    if (!drone_in_grid_) {
+        IncrementOutOfAreaCounter();
+        std::pair<double, double> pos = GetLastState().GetPositionNorm();
+        double max_distance1 = 0;
+        double max_distance2 = 0;
+        if (pos.first < 0 || pos.second < 0) {
+            max_distance1 = abs(std::min(pos.first, pos.second));
+        } else if (pos.first > 1 || pos.second > 1) {
+            max_distance2 = std::max(pos.first, pos.second) - 1;
+        }
+        max_distance_from_map_ = std::max(max_distance1, max_distance2);
+    } else {
+        ResetOutOfAreaCounter();
+    }
 }

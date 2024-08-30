@@ -56,6 +56,7 @@ public:
     int GetViewRange() override;
     int GetTimeSteps() override;
     void LoadMap(std::string path);
+    bool InitialModeSelectionDone();
 
 private:
     explicit FireModel(Mode mode, const std::string& map_path);
@@ -80,7 +81,6 @@ private:
 
     // Flags
     Mode mode_;
-    bool agent_is_running_;
 
     // Dirty Variables
     std::string user_input_;

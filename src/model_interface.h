@@ -33,6 +33,7 @@ public:
     virtual std::string GetUserInput() = 0;
     virtual int GetViewRange() = 0;
     virtual int GetTimeSteps() = 0;
+    virtual bool InitialModeSelectionDone() = 0;
 };
 
 

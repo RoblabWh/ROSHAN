@@ -35,6 +35,17 @@ bool EngineCore::Init(int mode, const std::string& map_path){
     bool init = true;
     if (mode_ == Mode::GUI || mode_ == Mode::GUI_RL) {
         init = this->SDLInit() && this->ImGuiInit();
+        SDL_GetRendererOutputSize(renderer_.get(), &width_, &height_);
+        ImVec2 window_size = ImVec2(250, 55);
+        ImGui::SetNextWindowSize(window_size);
+        ImVec2 appWindowPos = ImVec2((width_ - window_size.x) * 0.5f, (height_ - window_size.y) * 0.5f);
+        ImGui::SetNextWindowPos(appWindowPos);
+        ImGui::PushStyleColor(ImGuiCol_Button, ImVec4(0.45f, 0.6f, 0.85f, 1.0f));
+        ImGui::PushStyleColor(ImGuiCol_ButtonHovered, ImVec4(0.45f, 0.7f, 0.95f, 1.0f));
+        ImGui::PushStyleColor(ImGuiCol_ButtonActive, ImVec4(0.45f, 0.5f, 0.75f, 1.0f));
+        model_ = FireModel::GetInstance(mode_);
+        model_->SetRenderer(renderer_);
+        ImGui::PopStyleColor(3);
     } else if (mode_ == Mode::NoGUI || mode_ == Mode::NoGUI_RL) {
         std::cout << "Loading Firemodel without GUI\n";
         model_ = FireModel::GetInstance(mode_, map_path);
@@ -54,33 +65,6 @@ void EngineCore::Update() {
     }
 }
 
-bool EngineCore::ImGuiModelSelection(){
-    if (model_ == nullptr) {
-        SDL_GetRendererOutputSize(renderer_.get(), &width_, &height_);
-        ImVec2 window_size = ImVec2(250, 55);
-        ImGui::SetNextWindowSize(window_size);
-        ImVec2 appWindowPos = ImVec2((width_ - window_size.x) * 0.5f, (height_ - window_size.y) * 0.5f);
-        ImGui::SetNextWindowPos(appWindowPos);
-
-        ImGui::Begin("Model Selection", nullptr, ImGuiWindowFlags_NoResize | ImGuiWindowFlags_NoCollapse | ImGuiWindowFlags_NoMove);
-        //ImGui::Spacing();
-
-        ImGui::PushStyleColor(ImGuiCol_Button, ImVec4(0.45f, 0.6f, 0.85f, 1.0f));
-        ImGui::PushStyleColor(ImGuiCol_ButtonHovered, ImVec4(0.45f, 0.7f, 0.95f, 1.0f));
-        ImGui::PushStyleColor(ImGuiCol_ButtonActive, ImVec4(0.45f, 0.5f, 0.75f, 1.0f));
-
-        if (ImGui::Button("FireSPIN", ImVec2(-1, 0))) {
-            model_ = FireModel::GetInstance(mode_);
-            model_->SetRenderer(renderer_);
-        }
-
-        ImGui::PopStyleColor(3);
-        ImGui::End();
-        return true;
-    }
-    return false;
-}
-
 void EngineCore::Render() {
     if (mode_ == Mode::GUI || mode_ == Mode::GUI_RL) {
         // Start the Dear ImGui frame
@@ -88,7 +72,7 @@ void EngineCore::Render() {
         ImGui_ImplSDL2_NewFrame();
         ImGui::NewFrame();
 
-        if(!ImGuiModelSelection()) {
+        if(model_ != nullptr) {
             model_->ImGuiRendering(update_simulation_, render_simulation_, delay_, io_->Framerate);
         }
 
@@ -235,8 +219,8 @@ std::string EngineCore::GetUserInput() {
     return "";
 }
 
-bool EngineCore::ModelInitialized() {
-    return model_ != nullptr;
+bool EngineCore::InitialModeSelectionDone() {
+    return model_->InitialModeSelectionDone();
 }
 
 int EngineCore::GetViewRange() {

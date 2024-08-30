@@ -51,7 +51,7 @@ PYBIND11_MODULE(firesim, m) {
             .def("SendRLStatusToModel", &EngineCore::SendRLStatusToModel)
             .def("GetRLStatusFromModel", &EngineCore::GetRLStatusFromModel)
             .def("AgentIsRunning", &EngineCore::AgentIsRunning)
-            .def("ModelInitialized", &EngineCore::ModelInitialized)
+            .def("InitialModeSelectionDone", &EngineCore::InitialModeSelectionDone)
             .def("GetViewRange", &EngineCore::GetViewRange)
             .def("GetTimeSteps", &EngineCore::GetTimeSteps)
             .def("Step", &EngineCore::Step);

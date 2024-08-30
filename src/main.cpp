@@ -15,8 +15,8 @@ int main(int argc, char** argv)
 
     while(EngineCore::GetInstance()->IsRunning()) {
         EngineCore::GetInstance()->HandleEvents();
-        EngineCore::GetInstance()->Render();
         EngineCore::GetInstance()->Update();
+        EngineCore::GetInstance()->Render();
     }
 
     EngineCore::GetInstance()->Clean();

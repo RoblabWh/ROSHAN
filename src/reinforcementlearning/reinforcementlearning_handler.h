@@ -5,6 +5,8 @@
 #ifndef ROSHAN_REINFORCEMENTLEARNING_HANDLER_H
 #define ROSHAN_REINFORCEMENTLEARNING_HANDLER_H
 
+#define DEBUG_REWARD_NO
+
 #include <shared_mutex>
 #include <deque>
 #include <vector>
@@ -32,7 +34,7 @@ public:
 
     ~ReinforcementLearningHandler() = default;
     std::vector<std::deque<std::shared_ptr<State>>> GetObservations();
-    bool StepDrone(int drone_idx, double speed_x, double speed_y, int water_dispense);
+    void StepDrone(int drone_idx, double speed_x, double speed_y, int water_dispense);
     void ResetDrones(Mode mode);
     void InitFires();
     std::tuple<std::vector<std::deque<std::shared_ptr<State>>>, std::vector<double>, std::vector<bool>, std::pair<bool, bool>, double> Step(std::vector<std::shared_ptr<Action>> actions);
@@ -41,6 +43,9 @@ public:
     void SetGridMap(std::shared_ptr<GridMap> gridmap) { gridmap_ = gridmap; }
     void SetRLStatus(py::dict status) { rl_status_ = status; }
     py::dict GetRLStatus() { return rl_status_; }
+
+    void SetAgentRunning(bool running) { agent_is_running_ = running; }
+    bool GetAgentRunning() { return agent_is_running_; }
 
     std::shared_ptr<std::vector<std::shared_ptr<DroneAgent>>> GetDrones() { return drones_; }
     CircularBuffer<float> GetRewards() { return rewards_; }
@@ -57,11 +62,10 @@ private:
     FireModelParameters& parameters_;
     std::shared_ptr<std::vector<std::shared_ptr<DroneAgent>>> drones_;
 
-    double CalculateReward(bool drone_in_grid, bool fire_extinguished, bool drone_terminal, int out_of_area_counter, int near_fires, double max_distance, double distance_to_fire) const;
+    double CalculateReward(std::shared_ptr<DroneAgent> drone, bool terminal_state) const;
 
-    //Dirty Variables CHANGE TO AGENT STATE OR SOMETHING
-    double last_distance_to_fire_{};
-    int last_near_fires_{};
+    //Flags
+    bool agent_is_running_;
 
     // Rewards Collection for Debugging!
     CircularBuffer<float> rewards_;

@@ -23,6 +23,8 @@ public:
     bool map_is_uniform_;
 
     bool corine_loaded_ = false;
+    bool initial_mode_selection_done_ = false;
+    bool InitialModeSelectionDone() {return initial_mode_selection_done_;}
     void SetCorineLoaded(bool loaded) {corine_loaded_ = loaded;}
     bool GetCorineLoaded() {return corine_loaded_;}
 
@@ -138,7 +140,10 @@ public:
     }
 
     // Parameters for the agent
-    int number_of_drones_ = 1;
+    bool agent_is_running_ = false;
+    void SetAgentIsRunning(bool running) {agent_is_running_ = running;}
+    bool GetAgentIsRunning() const {return agent_is_running_;}
+    int number_of_drones_ = 2;
     int view_range_ = 8;
     int GetViewRange() const {return view_range_;}
     int time_steps_ = 16;

@@ -45,7 +45,7 @@ public:
     std::function<void()> onSetUniformRasterData;
     std::function<void(std::vector<std::vector<int>>*)> onResetGridMap;
     std::function<void()> onFillRasterWithEnum;
-    std::function<bool(int,double,double,int)> onMoveDrone;
+    std::function<void(int,double,double,int)> onMoveDrone;
     std::function<void(CellState, int, int)> onSetNoise;
     std::function<void(float)> startFires;
     std::function<py::dict()> onGetRLStatus;
@@ -66,6 +66,9 @@ private:
     bool init_gridmap_ = false;
     bool browser_selection_flag_ = false;  // If set to true, will load a new GridMap from a file.
     bool model_path_selection_ = false;
+    bool model_mode_selection_ = false;
+    bool model_load_selection_ = false;
+    bool train_mode_selected_ = false;
     std::string path_key_;
     Mode mode_;
     bool show_input_images_ = false;
@@ -75,8 +78,6 @@ private:
     std::set<std::pair<int, int>> popups_;
     std::map<std::pair<int, int>, bool> popup_has_been_opened_;
 
-    bool train_popup_ = false;
-    const char* train_popup_text_ = "";
 
     //Helper
     void DrawGrid(const std::vector<std::vector<int>>& grid, std::shared_ptr<FireModelRenderer> renderer, float cell_size, bool is_fire_status = false);

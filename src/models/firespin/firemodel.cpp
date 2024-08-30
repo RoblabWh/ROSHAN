@@ -21,7 +21,6 @@ FireModel::FireModel(Mode mode, const std::string& map_path) : mode_(mode)
 
     user_input_ = "";
     model_output_ = "Hey, let's talk.";
-    agent_is_running_ = false;
 
     this->setupRLHandler();
 
@@ -43,7 +42,8 @@ FireModel::FireModel(Mode mode, const std::string& map_path) : mode_(mode)
     }
     if (mode_ == Mode::NoGUI_RL) {
         parameters_.SetNumberOfDrones(1);
-        agent_is_running_ = true;
+        parameters_.SetAgentIsRunning(true);
+        parameters_.initial_mode_selection_done_ = true;
     }
 }
 
@@ -63,12 +63,12 @@ void FireModel::ResetGridMap(std::vector<std::vector<int>>* rasterData) {
 
     if (mode_ == Mode::GUI_RL || mode_ == Mode::NoGUI_RL) {
         rl_handler_->SetGridMap(gridmap_);
-        // Init drones
-        rl_handler_->ResetDrones(mode_);
 #ifndef SPEEDTEST
         // Starting Conditions for Fires
         rl_handler_->InitFires();
 #endif
+        // Init drones
+        rl_handler_->ResetDrones(mode_);
     }
 
 
@@ -141,7 +141,7 @@ std::tuple<std::vector<std::deque<std::shared_ptr<State>>>, std::vector<double>,
 #ifndef SPEEDTEST
     // Check if all elements in terminals are true, if so all agents reached a terminal state
     std::vector<bool> terminals = std::get<2>(result);
-    bool resetEnv = std::all_of(terminals.begin(), terminals.end(),
+    bool resetEnv = std::any_of(terminals.begin(), terminals.end(),
                                 [](bool terminal) {return terminal;});
     if (resetEnv)
         ResetGridMap(&current_raster_data_);
@@ -150,7 +150,7 @@ std::tuple<std::vector<std::deque<std::shared_ptr<State>>>, std::vector<double>,
 }
 
 bool FireModel::AgentIsRunning() {
-    return agent_is_running_;
+    return parameters_.GetAgentIsRunning();
 }
 
 void FireModel::Render() {
@@ -201,13 +201,15 @@ void FireModel::ImGuiRendering(bool &update_simulation, bool &render_simulation,
                                             running_time_);
     imgui_handler_->ImGuiModelMenu(current_raster_data_);
     imgui_handler_->Config(model_renderer_, current_raster_data_, wind_);
-    imgui_handler_->PyConfig(rl_handler_->GetRewards().getBuffer(), rl_handler_->GetRewards().getHead(), rl_handler_->GetAllRewards(), agent_is_running_, user_input_, model_output_, rl_handler_->GetDrones(), model_renderer_);
+    imgui_handler_->PyConfig(rl_handler_->GetRewards().getBuffer(), rl_handler_->GetRewards().getHead(),
+                             rl_handler_->GetAllRewards(), parameters_.agent_is_running_, user_input_,
+                             model_output_, rl_handler_->GetDrones(), model_renderer_);
     imgui_handler_->FileHandling(dataset_handler_, current_raster_data_);
     imgui_handler_->ShowPopups(gridmap_, current_raster_data_);
 }
 
 void FireModel::HandleEvents(SDL_Event event, ImGuiIO *io) {
-    imgui_handler_->HandleEvents(event, io, gridmap_, model_renderer_, dataset_handler_, current_raster_data_, agent_is_running_);
+    imgui_handler_->HandleEvents(event, io, gridmap_, model_renderer_, dataset_handler_, current_raster_data_, parameters_.agent_is_running_);
 }
 
 std::string FireModel::GetUserInput() {
@@ -317,4 +319,8 @@ int FireModel::GetViewRange() {
 
 int FireModel::GetTimeSteps() {
     return parameters_.GetTimeSteps();
+}
+
+bool FireModel::InitialModeSelectionDone() {
+    return parameters_.InitialModeSelectionDone();
 }

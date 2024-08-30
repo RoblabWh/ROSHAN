@@ -65,7 +65,7 @@ public:
     Step(std::vector<std::shared_ptr<Action>> actions);
 
     inline bool IsRunning() { return is_running_; }
-    bool ModelInitialized();
+    bool InitialModeSelectionDone();
     int GetViewRange();
     int GetTimeSteps();
 

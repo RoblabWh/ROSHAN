@@ -378,11 +378,11 @@ class ActorCritic(nn.Module):
 
             action_velocity = dist_velocity.sample()
             action_velocity = torch.clip(action_velocity, -1, 1)
-            action_water = dist_water.sample().view(1, -1)
+            action_water = dist_water.sample()
 
             action_logprob_velocity = dist_velocity.log_prob(action_velocity)
             action_logprob_water = dist_water.log_prob(action_water)
-            action = torch.cat([action_velocity, action_water], dim=1)
+            action = torch.cat([action_velocity, action_water.unsqueeze(dim=1)], dim=1)
             combined_logprob = action_logprob_velocity + action_logprob_water
 
             return action.detach().numpy(), combined_logprob.detach().numpy()
@@ -423,7 +423,8 @@ class ActorCritic(nn.Module):
         dist_water = Bernoulli(action_mean_water_emit)
 
         action_logprob_velocity = dist_velocity.log_prob(action[:, :2])
-        action_logprob_water = dist_water.log_prob(action[:, 2].view(1, -1))
+        action_logprob_water = dist_water.log_prob(action[:, 2])
+        # action_logprob_water = dist_water.log_prob(action[:, 2].view(1, -1))
         combined_logprob = action_logprob_velocity + action_logprob_water
 
         dist_entropy_velocity = dist_velocity.entropy()

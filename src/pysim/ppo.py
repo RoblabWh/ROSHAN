@@ -3,7 +3,7 @@ import torch.nn as nn
 import os
 import warnings
 import numpy as np
-from copy import deepcopy
+from memory import SwarmMemory
 from network import ActorCritic
 from utils import RunningMeanStd
 from torch.utils.data.sampler import BatchSampler, SubsetRandomSampler
@@ -154,24 +154,39 @@ class PPO:
 
         # Logger
         log_values = []
-        logger.add_reward(rewards.detach().cpu().numpy())
+        logger.add_reward(torch.cat(rewards).detach().cpu().numpy())
 
         # Normalize rewards by running reward
-        self.running_reward_std.update(np.array(rewards.detach().cpu()))
-        rewards = np.clip(np.array(rewards.detach().cpu()) / self.running_reward_std.get_std(), -10, 10)
-        rewards = torch.tensor(rewards).type(torch.float32)
+        self.running_reward_std.update(np.array(torch.cat(rewards).detach().cpu()))
+        rewards = [np.clip(np.array(reward.detach().cpu()) / self.running_reward_std.get_std(), -10, 10) for reward in rewards]
+        #rewards = torch.tensor(rewards).type(torch.float32)
 
         # TODO Shifting causes Agent to suicide??
         #rewards = (rewards - rewards.mean()) / (rewards.std() + 1e-10)
 
         # Advantages
         with torch.no_grad():
-            _, values_, _ = self.policy.evaluate(states, actions)
-            if masks[-1] == 1:
-                last_state = tuple(torch.FloatTensor(np.array(state)).to(self.device) for state in next_obs)
-                bootstrapped_value = self.policy.critic(last_state).detach()
-                values_ = torch.cat((values_, bootstrapped_value[0]), dim=0)
-            advantages, returns = self.get_advantages(values_.detach(), masks, rewards)
+            advantages = []
+            returns = []
+            for i in range(memory.num_agents):
+                _, values_, _ = self.policy.evaluate(states[i], actions[i])
+                if masks[i][-1] == 1:
+                    last_state = tuple(torch.FloatTensor(np.array(state)).to(self.device) for state in memory.get_agent_state(next_obs, i))
+                    bootstrapped_value = self.policy.critic(last_state).detach()
+                    values_ = torch.cat((values_, bootstrapped_value[0]), dim=0)
+                adv, ret = self.get_advantages(values_.detach(), masks[i], rewards[i])
+                advantages.append(adv)
+                returns.append(ret)
+
+        # Merge all agent states, actions, rewards etc.
+        advantages = torch.cat(advantages)
+        returns = torch.cat(returns)
+        actions = torch.cat(actions)
+        old_logprobs = torch.cat(old_logprobs)
+        states_ = tuple()
+        for i in range(len(states[0])):
+            states_ += (torch.cat([states[k][i] for k in range(len(states))]),)
+        states = states_
 
         # Train policy for K epochs: sampling and updating
         for _ in range(self.K_epochs):
