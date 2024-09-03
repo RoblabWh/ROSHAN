@@ -489,13 +489,13 @@ void ImguiHandler::FileHandling(std::shared_ptr<DatasetHandler> dataset_handler,
             else if (path_key_ == "model_name"){
                 vTitle = "Choose Model Name";
                 vKey = "ChooseFileDlgKey";
-                vFilters = ".pth";
+                vFilters = ".pt";
             }
         }
         else if (model_load_selection_) {
             vTitle = "Choose Model to Load";
             config.path = "../models";
-            vFilters = ".pth";
+            vFilters = ".pt";
             vKey = "ChooseFileDlgKey";
         }
         else {
@@ -568,7 +568,7 @@ bool ImguiHandler::ImGuiOnStartup(std::shared_ptr<FireModelRenderer> model_rende
     if (!model_startup_) {
         int width, height;
         SDL_GetRendererOutputSize(model_renderer->GetRenderer().get(), &width, &height);
-        ImVec2 window_size = ImVec2(400, 100);
+        ImVec2 window_size = ImVec2(400, 110);
         ImGui::SetNextWindowSize(window_size);
         ImVec2 appWindowPos = ImVec2((width - window_size.x) * 0.5f, (height - window_size.y) * 0.5f);
         ImGui::SetNextWindowPos(appWindowPos);
@@ -578,6 +578,14 @@ bool ImguiHandler::ImGuiOnStartup(std::shared_ptr<FireModelRenderer> model_rende
             ImGui::PushStyleColor(ImGuiCol_Button, ImVec4(0.45f, 0.6f, 0.85f, 1.0f));
             ImGui::PushStyleColor(ImGuiCol_ButtonHovered, ImVec4(0.45f, 0.7f, 0.95f, 1.0f));
             ImGui::PushStyleColor(ImGuiCol_ButtonActive, ImVec4(0.45f, 0.5f, 0.75f, 1.0f));
+            auto rl_status = onGetRLStatus();
+            auto num_agents = rl_status["num_agents"].cast<int>();
+            ImGui::InputInt("Number of Agents", &num_agents, 1, 10, ImGuiInputTextFlags_CharsDecimal);
+            if(ImGui::IsItemHovered())
+                ImGui::SetTooltip("The Number of Agents is the number of drones present in the environment. Each drone collects observations and shares the same network.");
+            rl_status[py::str("num_agents")] = num_agents;
+            parameters_.SetNumberOfDrones(num_agents);
+            onSetRLStatus(rl_status);
             if (ImGui::Button("Train Model", ImVec2(-1, 0))) {
                 py::dict rl_status = onGetRLStatus();
                 auto console = rl_status["console"].cast<std::string>();
@@ -607,7 +615,7 @@ bool ImguiHandler::ImGuiOnStartup(std::shared_ptr<FireModelRenderer> model_rende
             return true;
         }
         else if (train_mode_selected_) {
-            ImVec2 window_size = ImVec2(400, 200);
+            ImVec2 window_size = ImVec2(400, 220);
             ImGui::SetNextWindowSize(window_size);
             ImGui::PushStyleColor(ImGuiCol_Button, ImVec4(0.45f, 0.6f, 0.85f, 1.0f));
             ImGui::PushStyleColor(ImGuiCol_ButtonHovered, ImVec4(0.45f, 0.7f, 0.95f, 1.0f));
@@ -621,7 +629,13 @@ bool ImguiHandler::ImGuiOnStartup(std::shared_ptr<FireModelRenderer> model_rende
             auto train_episodes = rl_status["train_episodes"].cast<int>();
             auto max_eval = rl_status["max_eval"].cast<int>();
             auto max_train = rl_status["max_train"].cast<int>();
+            auto batch_size = rl_status["batch_size"].cast<int>();
             ImGui::InputInt("Horizon", &new_horizon, 1, 10, ImGuiInputTextFlags_CharsDecimal);
+            if(ImGui::IsItemHovered())
+                ImGui::SetTooltip("The Horizon is the number of steps the agent will take before updating the model.");
+            ImGui::InputInt("Batch Size", &batch_size, 1, 10, ImGuiInputTextFlags_CharsDecimal);
+            if(ImGui::IsItemHovered())
+                ImGui::SetTooltip("The Batch Size is the number of observations collected from the horizon with which the model will be updated.");
             if (auto_train) {
                 ImGui::InputInt("Train X Models", &train_episodes, 1, 10, ImGuiInputTextFlags_CharsDecimal);
                 if(ImGui::IsItemHovered())
@@ -640,6 +654,7 @@ bool ImguiHandler::ImGuiOnStartup(std::shared_ptr<FireModelRenderer> model_rende
             if(ImGui::IsItemHovered())
                 ImGui::SetTooltip("Automatically train and evaluate models.");
             rl_status[py::str("horizon")] = new_horizon;
+            rl_status[py::str("batch_size")] = batch_size;
             rl_status[py::str("auto_train")] = auto_train;
             onSetRLStatus(rl_status);
             if (ImGui::Button("Proceed to Map Selection", ImVec2(-1, 0))) {

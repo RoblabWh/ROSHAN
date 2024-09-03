@@ -54,12 +54,11 @@ if __name__ == '__main__':
     # Lists alls the functions in the EngineCore class
     # print(dir(EngineCore))
 
-    mini_batch_size = 50
-
     # Ugly globals
     t = -1
     train_step = 0
     eval_step = 0
+    llm_support = True
 
     # 0: GUI_RL, 2: NoGUI_RL
     mode = 0
@@ -68,27 +67,25 @@ if __name__ == '__main__':
     map = "/home/nex/Dokumente/Code/ROSHAN/maps/Small2.tif"
     #map = ""
 
-    # If the LLM support is enabled or not
-    llm_support = True
-    model_directory = config['models_directory']
-    model_name = "best.pth"
     console = ""
     # Folder the models are stored in
-    if os.path.isfile(os.path.abspath(model_directory)):
+    if os.path.isfile(os.path.abspath(config['models_directory'])):
         raise ValueError("Model path must be a directory, not a file")
-    if not os.path.exists(os.path.abspath(model_directory)):
-        console += f"Creating model directory under {os.path.abspath(model_directory)}"
-        os.makedirs(os.path.abspath(model_directory))
+    if not os.path.exists(os.path.abspath(config['models_directory'])):
+        console += f"Creating model directory under {os.path.abspath(config['models_directory'])}"
+        os.makedirs(os.path.abspath(config['models_directory']))
 
     # RL_Status Dictionary, sending back and forth to C++
     status = {"rl_mode": "", # "train" or "eval"
-              "model_path": model_directory,
-              "model_name": model_name,
+              "model_path": config['models_directory'],
+              "model_name": "my_model.pt",
               "console": console,
               "agent_online": True,
               "obs_collected": 0,
+              "num_agents": 1,
               "horizon": 5000,
-              "auto_train": True, # If True, the agent will train several episodes and then evaluate
+              "batch_size": 50,
+              "auto_train": False, # If True, the agent will train several episodes and then evaluate
               "train_episodes": 10, # Number of total trainings containing each max_train steps
               "train_episode": 0, # Current training episode
               "train_step": 0,
@@ -100,33 +97,34 @@ if __name__ == '__main__':
         from llmsupport import LLMPredictorAPI
         llm = LLMPredictorAPI("mistralai/Mistral-7B-Instruct-v0.3")
         #llm = LLMPredictorAPI("Qwen/Qwen2-1.5B")
+
+    # Initialize the EngineCore and send the RL_Status
     engine = firesim.EngineCore()
-
     engine.Init(mode, map)
-
     engine.SendRLStatusToModel(status)
 
-    # Wait for the initial mode selection
+    # Wait for the initial mode selection from the user
     while not engine.InitialModeSelectionDone():
         engine.HandleEvents()
         engine.Update()
         engine.Render()
-
     status = engine.GetRLStatusFromModel()
 
-    memory = SwarmMemory(num_agents=2, max_size=status["horizon"])
+    # Memory and Logger Objects, setting logging will create a tensorboardX writer
+    memory = SwarmMemory(num_agents=status["num_agents"], max_size=status["horizon"])
     logger = Logger(log_dir='./logs', horizon=status["horizon"])
     logger.set_logging(True)
 
-    # Now get the view range and time steps
+    # Now get the view range and time steps from the engine, these parameters are currently set in the model_params
+    # TODO Keep this in the model_params as soft hidden param since it meddles with the model structure?
     view_range = engine.GetViewRange() + 1
     time_steps = engine.GetTimeSteps()
 
-    # Create the agent/s
-    agent = Agent(status=status, algorithm='ppo', logger=logger, vision_range=view_range,
-                  time_steps=time_steps, model_path=model_directory, model_name=model_name)
+    # Create the Agent Object, which might actually hold multiple agents...
+    agent = Agent(status=status, algorithm='ppo', logger=logger, vision_range=view_range, time_steps=time_steps)
 
-    status["console"] = agent.load_model(resume=False, train_=status["rl_mode"])
+    # agent.set_paths(status["model_path"], status["model_name"])
+    status["console"] = agent.load_model(status=status, resume=False, train_=status["rl_mode"])
 
     engine.SendRLStatusToModel(status)
 
@@ -161,7 +159,7 @@ if __name__ == '__main__':
                 status["obs_collected"] = len(memory) + 1
 
                 if agent.should_train(memory):
-                    agent.update(status, memory, mini_batch_size=mini_batch_size, next_obs=next_obs, next_terminals=next_terminals)
+                    agent.update(status, memory, mini_batch_size=status["batch_size"], next_obs=next_obs, next_terminals=next_terminals)
                     logger.log(status)
             else:
                 actions = agent.act_certain(obs)

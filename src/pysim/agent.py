@@ -5,16 +5,17 @@ import os
 
 
 class Agent:
-    def __init__(self, status, algorithm: str = 'ppo', logger=None, model_path="../models/", model_name="model_best.pth", vision_range=21, time_steps=4):
+    def __init__(self, status, algorithm: str = 'ppo', logger=None, vision_range=21, time_steps=4):
         self.algorithm_name = algorithm
         self.eval_steps = 0
         self.max_eval = status["max_eval"]
         self.horizon = status["horizon"]
         self.stats = {'died': [0], 'reached': [0], 'time': [0], 'reward': [0], 'episode': [0], 'perc_burn': [0]}
         self.logger = logger
+        self.mode = status["rl_mode"]
         self.initialized = False
         if algorithm == 'ppo':
-            self.algorithm = PPO(vision_range=vision_range, time_steps=time_steps, lr=0.00003, betas=(0.9, 0.999), gamma=0.99, _lambda=0.9, K_epochs=4, eps_clip=0.2, model_path=model_path, model_name=model_name)
+            self.algorithm = PPO(vision_range=vision_range, time_steps=time_steps, lr=0.00003, betas=(0.9, 0.999), gamma=0.99, _lambda=0.9, K_epochs=4, eps_clip=0.2, model_path=status["model_path"], model_name=status["model_name"])
             self.initialized = True
             print("PPO agent initialized")
 
@@ -35,27 +36,32 @@ class Agent:
         if self.algorithm_name == 'ppo':
             return len(memory) >= self.horizon
 
-    def load_model(self, resume=False, train_="train"):
+    def load_model(self, status, resume=False, train_="train"):
         train = True if train_ == "train" else False
         # Load model, return True if successful and set model to evaluation mode
         if not train:
             if self.algorithm.load():
                 self.algorithm.set_eval()
+                status["rl_mode"] = "eval"
                 return f"Load model from checkpoint {os.path.join(self.algorithm.model_path, self.algorithm.model_name)}\n" \
                        f"Model set to evaluation mode\n"
             else:
                 self.algorithm.set_train()
+                status["rl_mode"] = "train"
                 return "No checkpoint found to evaluate model, start training from scratch\n"
         elif resume:
             if self.algorithm.load():
                 self.algorithm.set_train()
+                status["rl_mode"] = "train"
                 return f"Load model from checkpoint {os.path.join(self.algorithm.model_path, self.algorithm.model_name)}\n" \
                        f"Model set to training mode\n"
             else:
                 self.algorithm.set_train()
+                status["rl_mode"] = "train"
                 return "No checkpoint found to resume training, start training from scratch\n"
         else:
             self.algorithm.set_train()
+            status["rl_mode"] = "train"
             return "Training from scratch\n"
 
     def set_paths(self, model_path, model_name):
@@ -73,6 +79,12 @@ class Agent:
     def update_status(self, status, memory):
         self.set_paths(status["model_path"], status["model_name"])
         memory = self.check_horizon(status["horizon"], memory)
+        if status["rl_mode"] != self.mode:
+            self.mode = status["rl_mode"]
+            if self.mode == "train":
+                self.algorithm.set_train()
+            else:
+                self.algorithm.set_eval()
         return memory
 
     def update(self, status, memory, mini_batch_size, next_obs, next_terminals):

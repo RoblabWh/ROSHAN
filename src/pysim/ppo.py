@@ -45,6 +45,7 @@ class PPO:
         self.model_name = model_name
         self.version = 1
         self.model_version = model_name.split(".")[0] + "_v" + str(self.version) + "." + model_name.split(".")[1]
+        self.model_latest = model_name.split(".")[0] + "_latest." + model_name.split(".")[1]
 
         # Current Policy
         self.policy = ActorCritic(vision_range=self.vision_range, time_steps=self.time_steps)
@@ -70,6 +71,7 @@ class PPO:
         self.model_path = os.path.abspath(model_path)
         self.model_name = model_name
         self.model_version = model_name.split(".")[0] + "_v" + str(self.version) + "." + model_name.split(".")[1]
+        self.model_latest = model_name.split(".")[0] + "_latest." + model_name.split(".")[1]
 
     def set_eval(self):
         self.policy.eval()
@@ -80,7 +82,9 @@ class PPO:
     def load(self):
         try:
             path = os.path.join(self.model_path, self.model_name)
-            self.policy.load_state_dict(torch.load(path, map_location=lambda storage, loc: storage))
+            # self.policy.load_state_dict(torch.load(path, map_location=lambda storage, loc: storage))
+            self.policy.load_state_dict(torch.load(path, map_location=self.device))
+            self.policy.to(self.device)
             return True
         except FileNotFoundError:
             warnings.warn(f"Could not load model from {path}. Falling back to train mode.")
@@ -93,8 +97,12 @@ class PPO:
         return self.policy.act_certain(observations)
 
     def save(self, logger):
-        console = f"Saving best with reward {logger.reward_best:.2f} and mean burned {logger.get_objective():.2f}%\n"
-        torch.save(self.policy.state_dict(), f'{os.path.join(self.model_path, self.model_version)}')
+        console = ""
+        if logger.better_reward():
+            console = f"Saving best with reward {logger.reward_best:.4f} and mean burned {logger.get_objective():.2f}%\n"
+            torch.save(self.policy.state_dict(), f'{os.path.join(self.model_path, self.model_version)}')
+        torch.save(self.policy.state_dict(), f'{os.path.join(self.model_path, self.model_latest)}')
+
         return console
 
     def get_advantages(self, values, masks, rewards):
@@ -242,10 +250,8 @@ class PPO:
 
         # Save current weights if the mean reward is higher than the best reward so far
         logger.add_value(np.array(log_values))
-        if logger.better_reward():
-            console = self.save(logger)
-        else:
-            console = ""
+        console = self.save(logger)
+
         # Clear memory
         memory.clear_memory()
 
