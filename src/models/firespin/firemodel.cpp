@@ -82,6 +82,7 @@ void FireModel::SetRenderer(std::shared_ptr<SDL_Renderer> renderer) {
 
 void FireModel::SetUniformRasterData() {
     current_raster_data_.clear();
+    parameters_.SetGridNxNyStd();
     current_raster_data_ = std::vector<std::vector<int>>(parameters_.GetGridNx(), std::vector<int>(parameters_.GetGridNy(), GENERIC_UNBURNED));
     parameters_.map_is_uniform_ = true;
     ResetGridMap(&current_raster_data_);
@@ -89,6 +90,7 @@ void FireModel::SetUniformRasterData() {
 
 void FireModel::FillRasterWithEnum() {
     current_raster_data_.clear();
+    parameters_.SetGridNxNyStd();
     current_raster_data_ = std::vector<std::vector<int>>(parameters_.GetGridNx(), std::vector<int>(parameters_.GetGridNy(), GENERIC_UNBURNED));
     int total_cells = parameters_.GetGridNx() * parameters_.GetGridNy();
     // int num_classes = CELL_STATE_COUNT - 1;
@@ -203,7 +205,7 @@ void FireModel::ImGuiRendering(bool &update_simulation, bool &render_simulation,
     imgui_handler_->Config(model_renderer_, current_raster_data_, wind_);
     imgui_handler_->PyConfig(rl_handler_->GetRewards().getBuffer(), rl_handler_->GetRewards().getHead(),
                              rl_handler_->GetAllRewards(), parameters_.agent_is_running_, user_input_,
-                             model_output_, rl_handler_->GetDrones(), model_renderer_);
+                             model_output_, gridmap_, rl_handler_->GetDrones(), model_renderer_);
     imgui_handler_->FileHandling(dataset_handler_, current_raster_data_);
     imgui_handler_->ShowPopups(gridmap_, current_raster_data_);
 }

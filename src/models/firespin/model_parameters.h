@@ -33,7 +33,7 @@ public:
     double GetDt() const {return dt_;}
     // Minimum and maximum values for the ImGui Sliders for the simulation parameters
     double min_dt_ = 0.0001; // in seconds (s)
-    double max_dt_ = 1.0; // in seconds (s)
+    double max_dt_ = 5.0; // in seconds (s)
     bool ignite_single_cells_ = false;
     float fire_percentage_ = 0.5; // in percent (%)
     float fire_spread_prob_ = 0.5; // in percent (%)
@@ -78,11 +78,20 @@ public:
 
     // Parameter for the Grid
     // Number of cells in the x direction (rows)
-    int grid_nx_ = 110;
+    const int std_grid_nx_ = 80;
+    int grid_nx_ = std_grid_nx_;
     int GetGridNx() const {return grid_nx_;}
     // Number of cells in the y direction (cols)
-    int grid_ny_ = 110;
+    const int std_grid_ny_ = 80;
+    int grid_ny_ = std_grid_ny_;
+    void SetGridNxNy(int nx, int ny) {grid_nx_ = nx; grid_ny_ = ny;}
+    void SetGridNxNyStd() {grid_nx_ = std_grid_nx_; grid_ny_ = std_grid_ny_;}
     int GetGridNy() const {return grid_ny_;}
+    int GetExplorationTime() const {return grid_nx_ * grid_ny_;}
+    int exploration_map_size_ = 30;
+    int exploration_map_show_size_ = exploration_map_size_;
+    int GetExplorationMapSize() const {return exploration_map_size_;}
+    int GetFireMapSize() const {return exploration_map_size_;}
 
 
     // Parameters for the Cells
@@ -143,14 +152,14 @@ public:
     bool agent_is_running_ = false;
     void SetAgentIsRunning(bool running) {agent_is_running_ = running;}
     bool GetAgentIsRunning() const {return agent_is_running_;}
-    int number_of_drones_ = 2;
+    int number_of_drones_ = 1;
     int view_range_ = 8;
     int GetViewRange() const {return view_range_;}
     int time_steps_ = 16;
     int GetTimeSteps() const {return time_steps_;}
     // std::pair<double, double> min_velocity_ = std::make_pair(-5.0, -5.0);
     // std::pair<double, double> GetMinVelocity() const {return min_velocity_;}
-    std::pair<double, double> max_velocity_ = std::make_pair(5.0, 5.0); // X and Y Speed
+    std::pair<double, double> max_velocity_ = std::make_pair(7.5, 7.5); // X and Y Speed
     // std::pair<double, double> max_velocity_ = std::make_pair(5.0, 2 * M_PI); // Max Speed and Angle
     std::pair<double, double> GetMaxVelocity() const {return max_velocity_;}
     int GetNumberOfDrones() const {return number_of_drones_;}

@@ -98,8 +98,8 @@ class PPO:
 
     def save(self, logger):
         console = ""
-        if logger.better_reward():
-            console = f"Saving best with reward {logger.reward_best:.4f} and mean burned {logger.get_objective():.2f}%\n"
+        if logger.is_better_reward():
+            console = f"Saving best with reward {logger.best_reward:.4f} and mean burned {logger.get_objective():.2f}%\n"
             torch.save(self.policy.state_dict(), f'{os.path.join(self.model_path, self.model_version)}')
         torch.save(self.policy.state_dict(), f'{os.path.join(self.model_path, self.model_latest)}')
 
@@ -134,7 +134,19 @@ class PPO:
 
         return norm_adv, returns
 
-    def update(self, memory, horizon, mini_batch_size, next_obs, next_terminals, logger):
+    def calculate_explained_variance(self, values, returns):
+        """
+        Calculates the explained variance of the prediction and target.
+
+        interpretation:
+        ev=0  =>  might as well have predicted zero
+        ev=1  =>  perfect prediction
+        ev<0  =>  worse than just predicting zero
+        """
+        var_returns = returns.var()
+        return 0 if var_returns == 0 else 1 - (returns - values).var() / var_returns
+
+    def update(self, memory, horizon, mini_batch_size, next_obs, logger):
         """
         This function implements the update step of the Proximal Policy Optimization (PPO) algorithm for a swarm of
         robots. It takes in the memory buffer containing the experiences of the swarm, as well as the number of batches
@@ -150,27 +162,22 @@ class PPO:
         :param horizon: The size of all data gathered before training
         """
 
-        # TODO REIMPLEMENT
-        # if batch_size > memory.size:
-        #     warnings.warn("Batch size is larger than memory capacity. Setting batch size to memory capacity.")
-        #     batch_size = memory.size
-        #
-        # if batch_size == 1:
-        #     raise ValueError("Batch size must be greater than 1.")
-
         states, actions, old_logprobs, rewards, masks = memory.to_tensor()
 
         # Logger
-        log_values = []
-        logger.add_reward(torch.cat(rewards).detach().cpu().numpy())
+        logging_values = []
+        console = ""
+        logger.add_rewards(torch.cat(rewards).detach().cpu().numpy())
 
-        # Normalize rewards by running reward
-        self.running_reward_std.update(np.array(torch.cat(rewards).detach().cpu()))
-        rewards = [np.clip(np.array(reward.detach().cpu()) / self.running_reward_std.get_std(), -10, 10) for reward in rewards]
-        #rewards = torch.tensor(rewards).type(torch.float32)
+        # Clipping most likely is unnecessary
+        # rewards = [np.clip(np.array(reward.detach().cpu()) / self.running_reward_std.get_std(), -10, 10) for reward in rewards]
+        # Reward normalization
+        self.running_reward_std.update(torch.cat(rewards).detach().cpu().numpy())
+        rewards = [reward / self.running_reward_std.get_std() for reward in rewards]
+        logger.add_rewards_scaled(torch.cat(rewards).detach().cpu().numpy())
 
-        # TODO Shifting causes Agent to suicide??
-        #rewards = (rewards - rewards.mean()) / (rewards.std() + 1e-10)
+        # Don't shift rewards like this, it will mess up your reward function. Only do scaling
+        # rewards = (rewards - rewards.mean()) / (rewards.std() + 1e-10)
 
         # Advantages
         with torch.no_grad():
@@ -182,13 +189,15 @@ class PPO:
                     last_state = tuple(torch.FloatTensor(np.array(state)).to(self.device) for state in memory.get_agent_state(next_obs, i))
                     bootstrapped_value = self.policy.critic(last_state).detach()
                     values_ = torch.cat((values_, bootstrapped_value[0]), dim=0)
-                adv, ret = self.get_advantages(values_.detach(), masks[i], rewards[i])
+                adv, ret = self.get_advantages(values_.detach(), masks[i], rewards[i].detach())
                 advantages.append(adv)
                 returns.append(ret)
 
         # Merge all agent states, actions, rewards etc.
         advantages = torch.cat(advantages)
         returns = torch.cat(returns)
+        # Log returns
+        logger.add_returns(returns.detach().cpu().numpy())
         actions = torch.cat(actions)
         old_logprobs = torch.cat(old_logprobs)
         states_ = tuple()
@@ -198,40 +207,51 @@ class PPO:
 
         # Train policy for K epochs: sampling and updating
         for _ in range(self.K_epochs):
+            epoch_values = []
+            epoch_returns = []
             # Random sampling and no repetition. 'False' indicates that training will continue even if the number of samples in the last time is less than mini_batch_size
             for index in BatchSampler(SubsetRandomSampler(range(horizon)), mini_batch_size, True):
                 # Evaluate old actions and values using current policy
                 # batch_states = (
                 #     states[0][index], states[1][index], states[2][index], states[3][index], states[4][index])
-                batch_states = (states[0][index], states[1][index], states[2][index], states[3][index])
+                # batch_states = (state[i][index] for state in states)
+                batch_states = (states[0][index], states[1][index], states[2][index], states[3][index], states[4][index])
                 batch_actions = actions[index]
                 logprobs, values, dist_entropy = self.policy.evaluate(batch_states, batch_actions)
-                log_values.append(values.detach().cpu().numpy())
+
                 # Importance ratio: p/q
                 ratios = torch.exp(logprobs - old_logprobs[index].detach())
+
+                # Approximate KL Divergence
+                # approxkl = 0.5 * torch.mean(torch.square(old_logprobs[index].detach() - logprobs))
+                # if approxkl > 0.02:
+                #     console += (f"Approximate Kulback-Leibler Divergence: {approxkl}. A value above 0.02 is considered bad since the policy changes too quickly.\n"
+                #                 f"This happend in epoch {_} and mini_batch {index}. Early stopping for this training peroid.\n")
+                #     break
 
                 # Actor loss using Surrogate loss
                 surr1 = ratios * advantages[index]
                 surr2 = torch.clamp(ratios, 1 - self.eps_clip, 1 + self.eps_clip) * advantages[index]
-                entropy = 0.01 * dist_entropy
+                entropy = 0.001 * dist_entropy
                 actor_loss = ((-torch.min(surr1, surr2).type(torch.float32)) - entropy).mean()
 
                 # TODO CLIP VALUE LOSS ? Probably not necessary as according to:
                 # https://iclr-blog-track.github.io/2022/03/25/ppo-implementation-details/
                 critic_loss = self.MSE_loss(returns[index].squeeze(), values)
-                # Total loss
-                # loss = actor_loss + critic_loss
-                # self.logger.add_loss(loss.detach().mean().item(), entropy=entropy.detach().mean().item(), critic_loss=critic_loss.detach().mean().item(), actor_loss=actor_loss.detach().mean().item())
+
+                # Log loss
+                logger.add_losses(critic_loss=critic_loss.detach().cpu().item(), actor_loss=actor_loss.detach().cpu().item(), entropy=entropy.detach().cpu().numpy())
+                logger.add_std(torch.exp(self.policy.actor.log_std).cpu().detach().numpy())
+                logging_values.append(values.detach().cpu().numpy())
+                epoch_values.append(values.detach().cpu().numpy())
+                epoch_returns.append(returns[index].detach().cpu().numpy())
 
                 # Sanity checks
-                if torch.isnan(critic_loss).any():
-                    print(entropy.mean())
-                    print(returns)
-                    print(values)
+                assert not torch.isnan(critic_loss).any(), f"Critic Loss is NaN, check returns, values or entroy"
                 assert not torch.isnan(actor_loss).any()
-
                 assert not torch.isinf(critic_loss).any()
                 assert not torch.isinf(actor_loss).any()
+
                 # Backward gradients
                 self.optimizer_a.zero_grad()
                 actor_loss.backward(retain_graph=True)
@@ -244,13 +264,20 @@ class PPO:
                 # Global gradient norm clipping https://vitalab.github.io/article/2020/01/14/Implementation_Matters.html
                 torch.nn.utils.clip_grad_norm_(self.policy.critic.parameters(), max_norm=0.5)
                 self.optimizer_c.step()
-                # # Global gradient norm clipping https://vitalab.github.io/article/2020/01/14/Implementation_Matters.html
-                # torch.nn.utils.clip_grad_norm_(self.policy.ac.parameters(), max_norm=0.5)
+
+            # Compute explained variance over the epoch
+            epoch_values = np.concatenate(epoch_values)
+            epoch_returns = np.concatenate(epoch_returns)
+            ev = self.calculate_explained_variance(epoch_values, epoch_returns)
+            if ev <= 0:
+                console += (f"Explained Variance for Epoch {_}: {ev}\n"
+                            f"This is bad. The Critic might aswell have predicted zero or is even doing worse than that.\n")
+            logger.add_explained_variance(ev)
 
 
         # Save current weights if the mean reward is higher than the best reward so far
-        logger.add_value(np.array(log_values))
-        console = self.save(logger)
+        logger.add_values(np.concatenate(logging_values))
+        console += self.save(logger)
 
         # Clear memory
         memory.clear_memory()

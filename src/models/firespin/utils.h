@@ -39,6 +39,8 @@ enum CellState { OUTSIDE_GRID = 0,
 
 std::string CellStateToString(CellState cell_state);
 std::optional<std::filesystem::path> find_project_root(const std::filesystem::path& start);
+std::vector<std::vector<int>> PoolingResize(const std::vector<std::vector<int>>& input_map, int new_width, int new_height);
+std::vector<std::vector<int>> InterpolationResize(const std::vector<std::vector<int>>& input_map, int new_width, int new_height);
 
 template <typename T>
 class CircularBuffer {

@@ -1,21 +1,22 @@
 from ppo import PPO
 import firesim
+from utils import Logger
 import numpy as np
 import os
 
 
-class Agent:
-    def __init__(self, status, algorithm: str = 'ppo', logger=None, vision_range=21, time_steps=4):
+class AgentHandler:
+    def __init__(self, status, algorithm: str = 'ppo', vision_range=21, time_steps=4, logdir='./logs'):
         self.algorithm_name = algorithm
         self.eval_steps = 0
         self.max_eval = status["max_eval"]
         self.horizon = status["horizon"]
         self.stats = {'died': [0], 'reached': [0], 'time': [0], 'reward': [0], 'episode': [0], 'perc_burn': [0]}
-        self.logger = logger
+        self.logger = Logger(log_dir=logdir, horizon=status["horizon"])
         self.mode = status["rl_mode"]
         self.initialized = False
         if algorithm == 'ppo':
-            self.algorithm = PPO(vision_range=vision_range, time_steps=time_steps, lr=0.00003, betas=(0.9, 0.999), gamma=0.99, _lambda=0.9, K_epochs=4, eps_clip=0.2, model_path=status["model_path"], model_name=status["model_name"])
+            self.algorithm = PPO(vision_range=vision_range, time_steps=time_steps, lr=0.0003, betas=(0.9, 0.999), gamma=0.99, _lambda=0.9, K_epochs=10, eps_clip=0.2, model_path=status["model_path"], model_name=status["model_name"])
             self.initialized = True
             print("PPO agent initialized")
 
@@ -87,8 +88,8 @@ class Agent:
                 self.algorithm.set_eval()
         return memory
 
-    def update(self, status, memory, mini_batch_size, next_obs, next_terminals):
-        status["console"] += self.algorithm.update(memory, self.horizon, mini_batch_size, next_obs, next_terminals, self.logger)
+    def update(self, status, memory, mini_batch_size, next_obs):
+        status["console"] += self.algorithm.update(memory, self.horizon, mini_batch_size, next_obs, self.logger)
         status["train_step"] += 1
         if status["train_step"] >= status["max_train"]:
             if not status["auto_train"]:
@@ -98,6 +99,7 @@ class Agent:
             else:
                 status["console"] += "Training finished, after {} training steps\n".format(status["train_step"])
                 self.reset(status)
+        self.logger.summarize_metrics(status)
 
     def act(self, observations):
         actions, action_logprobs = self.algorithm.select_action(observations)
@@ -110,11 +112,14 @@ class Agent:
                 firesim.DroneAction(activation[0], activation[1], int(np.round(activation[2]))))
         return drone_actions
 
+    def update_logging(self, observations, done, burned_percentage):
+        self.logger.log_episode(observations, done, burned_percentage)
+
     def act_certain(self, observations):
         return self.algorithm.select_action_certain(observations)
 
-    def log_episode(self, status, rewards, terminals, dones, percent_burned):
-        episode_over, log = self.episode_logging(rewards, terminals, dones, percent_burned)
+    def evaluate(self, status, rewards, terminals, dones, percent_burned):
+        episode_over, log = self.get_evaluation_string(rewards, terminals, dones, percent_burned)
         status["console"] += log
         if episode_over:
             self.eval_steps += 1
@@ -123,7 +128,7 @@ class Agent:
                 status["console"] += "Evaluation finished, agent is offline\n" \
                                      "If you wish to start anew, reset the agent\n"
 
-    def episode_logging(self, rewards, terminals, dones, percent_burned):
+    def get_evaluation_string(self, rewards, terminals, dones, percent_burned):
         # Log stats
         self.stats['reward'][-1] += rewards[0]
         self.stats['time'][-1] += 1
@@ -132,10 +137,10 @@ class Agent:
         if terminals[0]:
             console += "Episode: {} finished with terminal state\n".format(self.stats['episode'][-1] + 1)
             if dones[0]:  # Drone died
-                console += "Drone died.\n\n"
+                console += "One of the Drones died.\n\n"
                 self.stats['died'][-1] += 1
             else:  # Drone reached goal
-                console += "Drone extinguished all fires.\n\n"
+                console += "Drones extinguished all fires.\n\n"
                 self.stats['reached'][-1] += 1
 
             self.stats['perc_burn'][-1] = percent_burned
@@ -164,5 +169,30 @@ class Agent:
 
             return True, console
         return False, console
+
+    def restructure_data(self, observations_):
+        all_drone_views, all_velocities, all_maps, all_positions, all_water_dispense = [], [], [], [], []
+
+        for deque in observations_:
+            drone_states = np.array([state for state in deque if isinstance(state, firesim.DroneState)])
+            if len(drone_states) == 0:
+                continue
+
+            # drone_view = np.array([state.GetDroneViewNorm() for state in drone_states])
+            drone_view = np.array([state.GetFireStatus() for state in drone_states])
+            velocities = np.array([state.GetVelocityNorm() for state in drone_states])
+            maps = np.array([state.GetExplorationMap() for state in drone_states])
+            fire_map = np.array([state.GetFireMap() for state in drone_states])
+            positions = np.array([state.GetPositionNorm() for state in drone_states])
+            water_dispense = np.array([state.GetWaterDispense() for state in drone_states])
+
+            all_drone_views.append(drone_view)
+            all_velocities.append(velocities)
+            all_maps.append(maps)
+            all_positions.append(positions)
+            all_water_dispense.append(water_dispense)
+
+        return np.array(all_drone_views), np.array(all_maps), np.array(all_velocities), np.array(
+            all_positions), np.array(all_water_dispense)
 
 

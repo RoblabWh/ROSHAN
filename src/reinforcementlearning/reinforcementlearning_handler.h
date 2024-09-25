@@ -5,7 +5,7 @@
 #ifndef ROSHAN_REINFORCEMENTLEARNING_HANDLER_H
 #define ROSHAN_REINFORCEMENTLEARNING_HANDLER_H
 
-#define DEBUG_REWARD_NO
+#define DEBUG_REWARD_YES
 
 #include <shared_mutex>
 #include <deque>

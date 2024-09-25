@@ -80,3 +80,77 @@ std::optional<std::filesystem::path> find_project_root(const std::filesystem::pa
     }
     return std::nullopt;
 }
+
+std::vector<std::vector<int>> PoolingResize(const std::vector<std::vector<int>>& input_map, int new_width, int new_height) {
+    int old_width = input_map.size();
+    int old_height = input_map[0].size();
+
+    std::vector <std::vector<int>> resized_map(new_width, std::vector<int>(new_height, 0));
+
+    float x_ratio = static_cast<float>(old_width) / new_width;
+    float y_ratio = static_cast<float>(old_height) / new_height;
+
+    for (int y = 0; y < new_height; ++y) {
+        for (int x = 0; x < new_width; ++x) {
+            int x_start = static_cast<int>(x * x_ratio);
+            int x_end = static_cast<int>((x + 1) * x_ratio);
+            int y_start = static_cast<int>(y * y_ratio);
+            int y_end = static_cast<int>((y + 1) * y_ratio);
+
+            int sum = 0;
+            int count = 0;
+
+            for (int yy = y_start; yy < y_end; ++yy) {
+                for (int xx = x_start; xx < x_end; ++xx) {
+                    if (xx < old_width && yy < old_height) {
+                        sum += input_map[xx][yy];
+                        count++;
+                    }
+                }
+            }
+
+            resized_map[x][y] = (count > 0) ? (sum / count) : 0;
+        }
+    }
+
+    return resized_map;
+}
+
+std::vector<std::vector<int>> InterpolationResize(const std::vector<std::vector<int>>& input_map, int new_width, int new_height) {
+    int old_width = input_map.size();
+    int old_height = input_map[0].size();
+
+    std::vector<std::vector<int>> resized_map(new_width, std::vector<int>(new_height, 0));
+
+    float x_ratio = static_cast<float>(old_width) / new_width;
+    float y_ratio = static_cast<float>(old_height) / new_height;
+
+    for (int y = 0; y < new_height; ++y) {
+        for (int x = 0; x < new_width; ++x) {
+            float gx = x * x_ratio;
+            float gy = y * y_ratio;
+            int gxi = static_cast<int>(gx);
+            int gyi = static_cast<int>(gy);
+            float x_diff = gx - gxi;
+            float y_diff = gy - gyi;
+
+            // Bounds checking
+            if (gxi >= old_width - 1 || gyi >= old_height - 1) {
+                resized_map[x][y] = input_map[gxi][gyi];
+                continue;
+            }
+
+            // Bilinear interpolation
+            float top_left = input_map[gxi][gyi];
+            float top_right = input_map[gxi + 1][gyi];
+            float bottom_left = input_map[gxi][gyi + 1];
+            float bottom_right = input_map[gxi + 1][gyi + 1];
+
+            float top = top_left + x_diff * (top_right - top_left);
+            float bottom = bottom_left + x_diff * (bottom_right - bottom_left);
+            resized_map[x][y] = static_cast<int>(top + y_diff * (bottom - top));
+        }
+    }
+
+    return resized_map;
+}

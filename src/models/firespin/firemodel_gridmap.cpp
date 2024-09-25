@@ -17,7 +17,9 @@ GridMap::GridMap(std::shared_ptr<Wind> wind, FireModelParameters &parameters,
     gen_ = std::mt19937(rd_());
 
     cells_ = std::vector<std::vector<std::shared_ptr<FireCell>>>(cols_, std::vector<std::shared_ptr<FireCell>>(rows_));
-//#pragma omp parallel for
+    explored_map_ = std::vector<std::vector<int>>(cols_, std::vector<int>(rows_, 0));
+    fire_map_ = std::vector<std::vector<int>>(cols_, std::vector<int>(rows_, 0));
+
     for (int x = 0; x < cols_; ++x) {
         for (int y = 0; y < rows_; ++y) {
             cells_[x][y] = std::make_shared<FireCell>(x, y, gen_, parameters_, (*rasterData)[x][y]);
@@ -25,6 +27,7 @@ GridMap::GridMap(std::shared_ptr<Wind> wind, FireModelParameters &parameters,
     }
 
     num_cells_ = cols_ * rows_;
+    parameters_.SetGridNxNy(cols_, rows_);
     num_burned_cells_ = 0;
     num_unburnable_ = this->GetNumUnburnableCells();
     virtual_particles_.reserve(100000);
@@ -36,47 +39,6 @@ GridMap::GridMap(std::shared_ptr<Wind> wind, FireModelParameters &parameters,
 
     noise_generated_ = false;
 }
-
-// Templated function to avoid repeating common code
-//template <typename ParticleType>
-//void GridMap::UpdateVirtualParticles(std::vector<ParticleType> &particles, std::vector<std::vector<bool>> &visited_cells) {
-//
-//    for (auto it = particles.begin(); it != particles.end();) {
-//
-//        if constexpr (std::is_same<ParticleType, VirtualParticle>::value) {
-//            it->UpdateState(*wind_, parameters_.GetDt(), buffer_);
-//        } else {
-//            it->UpdateState(parameters_.GetDt(), buffer_);
-//        }
-//
-//        double x, y;
-//        it->GetPosition(x, y);
-//        int i, j;
-//        parameters_.ConvertRealToGridCoordinates(x, y, i, j);
-//
-//        // check if particle is still in the grid
-//        if (!IsPointInGrid(i, j) || !it->IsCapableOfIgnition()) {
-//            // Particle is outside the grid, so it is no longer visited
-//            // OR it is not capable of ignition
-//            std::iter_swap(it, --particles.end());
-//            particles.pop_back();
-//
-//            continue;
-//        }
-//
-//        Point p = Point(i, j);
-//
-//        // Add particle to visited cells, if not allready visited
-//        visited_cells[p.x_][p.y_] = true;
-//
-//        // If cell can ignite, add particle to cell, if not allready in
-//        if (CellCanIgnite(p.x_, p.y_)) {
-//            ticking_cells_.insert(p);
-//        }
-//
-//        ++it;
-//    }
-//}
 
 template <typename ParticleType>
 void GridMap::UpdateVirtualParticles(std::vector<ParticleType>& particles, std::vector<std::vector<bool>>& visited_cells) {
@@ -270,50 +232,68 @@ void GridMap::ExtinguishCell(int x, int y) {
     changed_cells_.push_back(Point(x, y));
 }
 
-
-// * Returns a pair of vectors, the first one containing the cell status and the second one containing the fire status
-// * @param drone
-// * @return pair of vectors
-std::pair<std::vector<std::vector<int>>, std::vector<std::vector<int>>> GridMap::GetDroneView(std::shared_ptr<DroneAgent> drone) {
+std::vector<std::vector<std::vector<int>>> GridMap::GetDroneView(std::shared_ptr<DroneAgent> drone) {
     int drone_view_radius = drone->GetViewRange();
     std::pair<int, int> drone_position = drone->GetGridPosition();
-    std::vector<std::vector<int>> cell_status(drone_view_radius + 1, std::vector<int>(drone_view_radius + 1, CellState::OUTSIDE_GRID));
-    std::vector<std::vector<int>> fire_status(drone_view_radius + 1, std::vector<int>(drone_view_radius + 1, -1));
-    int drone_view_radius_2 = drone_view_radius / 2;
-    for (int j = drone_position.second - drone_view_radius_2; j <= drone_position.second + drone_view_radius_2; ++j) {
-        for (int i = drone_position.first - drone_view_radius_2; i <= drone_position.first + drone_view_radius_2; ++i) {
-            int new_i = j - drone_position.second + drone_view_radius_2;
-            int new_j = i - drone_position.first + drone_view_radius_2;
-            if (IsPointInGrid(i, j)) {
-                cell_status[new_i][new_j] = cells_[i][j]->GetCellState();
-                if (cells_[i][j]->IsBurning())
-                    fire_status[new_i][new_j] = 1;
-            }
-        }
-    }
-    return std::make_pair(cell_status, fire_status);
-}
+    int size = drone_view_radius + 1;
 
-std::vector<std::vector<int>> GridMap::GetUpdatedMap(std::shared_ptr<DroneAgent> drone, std::vector<std::vector<int>> fire_status) {
-    std::pair<int, int> drone_position = drone->GetGridPosition();
-    std::vector<std::vector<int>> map = drone->GetLastState().get_map();
-    int drone_view_radius = drone->GetViewRange();
-    int drone_view_radius_2 = drone_view_radius / 2;
+    // Initialisiere eine 3D-Matrix: [status_type][x][y]
+    std::vector<std::vector<std::vector<int>>> view(2, std::vector<std::vector<int>>(size, std::vector<int>(size, -1)));
 
-    // Loop through the grid to update map
-    for (int j = drone_position.second - drone_view_radius_2; j <= drone_position.second + drone_view_radius_2; ++j) {
-        for (int i = drone_position.first - drone_view_radius_2; i <= drone_position.first + drone_view_radius_2; ++i) {
-            int new_i = j - drone_position.second + drone_view_radius_2;
-            int new_j = i - drone_position.first + drone_view_radius_2;
-            if (IsPointInGrid(i, j)) {
-                // Update your map_ based on fire_status.
-                map[j][i] = fire_status[new_i][new_j];
+    int drone_view_radius_2 = drone_view_radius / 2;
+    for (int y = drone_position.second - drone_view_radius_2; y <= drone_position.second + drone_view_radius_2; ++y) {
+        for (int x = drone_position.first - drone_view_radius_2; x <= drone_position.first + drone_view_radius_2; ++x) {
+            int new_i = y - drone_position.second + drone_view_radius_2;
+            int new_j = x - drone_position.first + drone_view_radius_2;
+            if (IsPointInGrid(x, y)) {
+                // Setze Zellstatus (Status 0)
+                view[0][new_i][new_j] = cells_[x][y]->GetCellState();
+
+                // Setze Feuerstatus (Status 1)
+                if (cells_[x][y]->IsBurning())
+                    view[1][new_i][new_j] = 1;
+                else
+                    view[1][new_i][new_j] = 0; // oder ein anderer Wert, der "kein Feuer" darstellt
             }
         }
     }
 
-    return map;
+    return view;
 }
+
+int GridMap::UpdateLastSeenTime(int x, int y) {
+    int difference = parameters_.GetExplorationTime() - explored_map_[x][y];
+    explored_map_[x][y] = parameters_.GetExplorationTime();
+    return difference;
+}
+
+void GridMap::UpdateCellDiminishing() {
+    for (int x = 0; x < cols_; ++x) {
+        for (int y = 0; y < rows_; ++y) {
+            if (explored_map_[x][y] > 0) {
+                explored_map_[x][y]--;
+            }
+        }
+    }
+}
+
+void GridMap::UpdateExploredAreaFromDrone(std::shared_ptr<DroneAgent> drone) {
+    std::pair<int, int> drone_position = drone->GetGridPosition();
+    int drone_view_radius = drone->GetViewRange();
+    int drone_view_radius_2 = drone_view_radius / 2;
+    int combined_difference = 0;
+
+    for (int x = drone_position.first - drone_view_radius_2; x <= drone_position.first + drone_view_radius_2; ++x) {
+        for (int y = drone_position.second - drone_view_radius_2; y <= drone_position.second + drone_view_radius_2; ++y) {
+            if (IsPointInGrid(x, y)) {
+                combined_difference += UpdateLastSeenTime(x, y);
+                fire_map_[x][y] = cells_[x][y]->IsBurning() ? 1 : 0;
+            }
+        }
+    }
+    drone->SetExploreDifference(combined_difference);
+}
+
 // Calculates the number of unburnable cells
 int GridMap::GetNumUnburnableCells() const {
     int num_unburnable_cells = 0;
@@ -449,4 +429,18 @@ std::vector<std::pair<int, int>> GridMap::GetMooreNeighborhood(int x, int y) con
         }
     }
     return neighborhood;
+}
+
+std::vector<std::vector<int>> GridMap::GetExploredMap(int size) {
+    if(size == 0) {
+        size = parameters_.GetExplorationMapSize();
+    }
+    return InterpolationResize(explored_map_, size, size);
+}
+
+std::vector<std::vector<int>> GridMap::GetFireMap(int size) {
+    if(size == 0) {
+        size = parameters_.GetFireMapSize();
+    }
+    return PoolingResize(fire_map_, size, size);
 }

@@ -45,7 +45,8 @@ if(NOT EXISTS ${CONFIG_FILE})
     set(MODULE_DIRECTORY "${MY_CPP_BUILD_PATH}")
     set(MODELS_DIRECTORY "${MODELS_PATH}")
     set(OSM_DATA "${PARENT_DIR}/openstreetmap/data.json")
-    set(DATASET_PATH "${CMAKE_SOURCE_DIR}/assets/dataset/CLMS_CLCplus_RASTER_2021_010m_eu_03035_V1_1.tif")  # Default path for dataset_directory
+    set(DATASET_PATH "${CMAKE_SOURCE_DIR}/assets/dataset/CLMS_CLCplus_RASTER_2021_010m_eu_03035_V1_1.tif") # Default path for dataset_directory
+    set(LOG_DIRECTORY "./logs")
 
     configure_file(
             "${CMAKE_SOURCE_DIR}/config.json.in"
@@ -97,6 +98,7 @@ include_directories(${GDAL_INCLUDE_DIRS})
 # Core sources
 set(CORE_SOURCES
         src/main.cpp
+        src/utils.h
         src/engine_core.cpp src/engine_core.h
         src/corine/dataset_handler.cpp src/corine/dataset_handler.h
         externals/ImGuiFileDialog/ImGuiFileDialog.cpp externals/ImGuiFileDialog/ImGuiFileDialog.h
@@ -104,8 +106,7 @@ set(CORE_SOURCES
         src/action.h
         src/model_interface.h
         src/point.h
-        src/point_hash.h
-        src/utils.h)
+        src/point_hash.h)
 
 # Agent sources
 set(AGENT_SOURCES
@@ -127,7 +128,7 @@ set(FIREMODEL_SOURCES
         src/models/firespin/particles/virtual_particle.cpp src/models/firespin/particles/virtual_particle.h
         src/models/firespin/particles/radiation_particle.cpp src/models/firespin/particles/radiation_particle.h
         src/models/firespin/wind.cpp src/models/firespin/wind.h
-        src/models/firespin/utils.h
+        src/models/firespin/utils.h src/models/firespin/utils.cpp
         src/models/firespin/model_parameters.h
         src/models/firespin/firemodel_cell_interface.h
         src/models/firespin/cell_classes/cell_generic_flooded.cpp src/models/firespin/cell_classes/cell_generic_flooded.h
@@ -147,7 +148,6 @@ set(FIREMODEL_SOURCES
         src/models/firespin/cell_classes/cell_outside_area.cpp src/models/firespin/cell_classes/cell_outside_area.h
         src/models/firespin/cell_classes/cell_generic_burned.cpp src/models/firespin/cell_classes/cell_generic_burned.h
         src/models/firespin/rendering/firemodel_pixelbuffer.cpp src/models/firespin/rendering/firemodel_pixelbuffer.h
-        src/models/firespin/utils.cpp
         src/models/firespin/rendering/firemodel_imgui.cpp src/models/firespin/rendering/firemodel_imgui.h
 )
 

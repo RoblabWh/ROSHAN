@@ -7,6 +7,7 @@
 
 #include <vector>
 #include <unordered_set>
+#include "utils.h"
 #include "point.h"
 #include "point_hash.h"
 #include "firemodel_firecell.h"
@@ -38,6 +39,9 @@ public:
     void UpdateParticles();
     void UpdateCells();
     double PercentageBurned() const;
+    std::vector<std::vector<int>> GetExploredMap(int size=0);
+    std::vector<std::vector<int>> GetFireMap(int size=0);
+
     double PercentageBurning() const;
     double PercentageUnburnable() const;
     int GetNumOfCells() const { return num_cells_; }
@@ -54,7 +58,7 @@ public:
     const std::vector<RadiationParticle>& GetRadiationParticles() const { return radiation_particles_; }
     std::vector<Point> GetChangedCells() const { return changed_cells_; }
     void ResetChangedCells() { changed_cells_.clear(); }
-    std::pair<std::vector<std::vector<int>>, std::vector<std::vector<int>>> GetDroneView(std::shared_ptr<DroneAgent> drone);
+    std::vector<std::vector<std::vector<int>>> GetDroneView(std::shared_ptr<DroneAgent> drone);
     std::vector<std::vector<int>> GetUpdatedMap(std::shared_ptr<DroneAgent> drone, std::vector<std::vector<int>> fire_status);
 
     std::pair<int, int> GetRandomPointInGrid() {
@@ -63,15 +67,17 @@ public:
         return std::make_pair(dis_x(gen_), dis_y(gen_));
     }
 
-    bool IsPointInGrid(int i, int j) const {
-        return !(i < 0 || i >= cols_ || j < 0 || j >= rows_);
+    bool IsPointInGrid(int x, int y) const {
+        return !(x < 0 || x >= cols_ || y < 0 || y >= rows_);
     }
 
-    FireCell& At(int i, int j) {
-        return *cells_[i][j];
+    FireCell& At(int x, int y) {
+        return *cells_[x][y];
     }
 
     std::vector<std::pair<int, int>> GetMooreNeighborhood(int x, int y) const;
+    void UpdateExploredAreaFromDrone(std::shared_ptr<DroneAgent> drone);
+    void UpdateCellDiminishing();
 
     // For Rendering Only
     void GenerateNoiseMap();
@@ -85,6 +91,8 @@ private:
     int rows_; // Number of rows in the grid
     int cols_; // Number of columns in the grid
     std::vector<std::vector<std::shared_ptr<FireCell>>> cells_;
+    std::vector<std::vector<int>> explored_map_;
+    std::vector<std::vector<int>> fire_map_;
     std::unordered_set<Point> ticking_cells_;
     std::unordered_set<Point> burning_cells_;
     std::unordered_set<Point> flooded_cells_;
@@ -113,6 +121,9 @@ private:
     RandomBuffer buffer_;
 
     int GetNumUnburnableCells() const;
+
+    int UpdateLastSeenTime(int i, int j);
+
 };
 
 

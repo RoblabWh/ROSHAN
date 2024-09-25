@@ -28,8 +28,9 @@ public:
                                  bool &render_simulation, int &delay, float framerate, double running_time);
     void Config(std::shared_ptr<FireModelRenderer> model_renderer, std::vector<std::vector<int>> &current_raster_data, std::shared_ptr<Wind> wind);
     void FileHandling(std::shared_ptr<DatasetHandler> dataset_handler, std::vector<std::vector<int>> &current_raster_data);
-    void PyConfig(std::vector<float> rewards, int rewards_pos,std::vector<float> all_rewards,
+    void PyConfig(std::vector<float> rewards, int rewards_pos, std::vector<float> all_rewards,
                   bool &agent_is_running, std::string &user_input, std::string &model_output,
+                  std::shared_ptr<GridMap> gridmap,
                   std::shared_ptr<std::vector<std::shared_ptr<DroneAgent>>> drones,
                   const std::shared_ptr<FireModelRenderer>& model_renderer);
     void ImGuiModelMenu(std::vector<std::vector<int>> &current_raster_data);
@@ -80,7 +81,7 @@ private:
 
 
     //Helper
-    void DrawGrid(const std::vector<std::vector<int>>& grid, std::shared_ptr<FireModelRenderer> renderer, float cell_size, bool is_fire_status = false);
+    void DrawGrid(const std::vector<std::vector<int>>& grid, std::shared_ptr<FireModelRenderer> renderer, float cell_size, bool is_fire_status = false, bool is_exploration_map = false);
     void DrawBuffer(std::vector<float> buffer, int buffer_pos);
 };
 

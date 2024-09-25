@@ -103,149 +103,159 @@ class RunningMeanStd(object):
         return np.sqrt(self.var + self.epsilon)
 
 
-class Logger(object):
+class Logger:
     """
-    Logger class for logging training and evaluation metrics. It uses tensorboardX to log the metrics.
+    Logger class for logging training and evaluation metrics using TensorBoard.
 
-    :param log_dir: (string) directory where the logs will be saved
+    :param log_dir: Directory where the logs will be saved.
+    :param horizon: The number of steps per episode or training horizon.
     """
+
     def __init__(self, log_dir, horizon):
-        self.writer = None
+        self.writer = SummaryWriter(log_dir)
         self.log_dir = log_dir
-        self.tag = 'run1'
-        self.logging = False
-        self.total_steps = horizon
+        self.tag = 'run0'
+        self.total_steps = 0  # Total steps across all epochs
+        self.summarize_steps = 0
         self.horizon = horizon
 
+        # Initialize storage for metrics
+        self.reset_metrics()
+
+        # Best reward tracking
+        self.best_reward = float('-inf')
+
+        # Episodic metrics
+        self.objectives = []
+        self.agent_steps = []
+
+    def reset_metrics(self):
+        """Resets all metrics at the end of an epoch or training cycle."""
         # Agent Observations
         self.velocities = []
         self.positions = []
 
         # Algorithm metrics
-        self.loss = []
-        self.entropy = []
-        self.critic_loss = []
-        self.actor_loss = []
+        self.entropies = []
+        self.critic_losses = []
+        self.actor_losses = []
+        self.std_xs = []
+        self.std_ys = []
 
         # Agent metrics
-        self.reward = 0
-        self.value = 0
+        self.rewards = []
+        self.rewards_scaled = []
+        self.returns = []
+        self.values = []
 
-        # Episodic metrics and calculation
-        self.objective = []
-        self.current_steps = 0
-        self.agent_steps = []
+        # Explained variance
+        self.explained_variances = []
+
+        # Network Metrics
+        self.filters = []
 
         # Flags
-        self.reward_best = -99999
+        self.current_steps = 0
         self.episode_finished = False
 
-    def __del__(self):
-        if self.logging:
-            self.close()
-
-    def set_logging(self, logging):
-        if logging:
-            self.writer = SummaryWriter(self.log_dir)
-        self.logging = logging
-
-    def episode_log(self, observations, done, burned_percentage):
+    def log_episode(self, observations, done, burned_percentage):
+        """Logs metrics at each step and handles episode completion."""
         self.current_steps += 1
-        self.velocities.append(observations[2].squeeze()[0])
-        self.positions.append(observations[3].squeeze()[0])
+        self.velocities.append(observations[2].squeeze())
+        self.positions.append(observations[3].squeeze())
+
         if done:
-            self.add_objective(burned_percentage)
+            self.objectives.append(burned_percentage)
             self.agent_steps.append(self.current_steps)
             self.episode_finished = True
+            self.current_steps = 0  # Reset steps for next episode
 
-    def add_reward(self, rewards):
-        # TODO implement reward dict
-        self.reward = rewards
+    def add_filters(self, filters):
+        """Adds the number of filters in each layer."""
+        for idx in filters.shape[0]:
+            self.filters.append(filters[idx])
 
-    def add_loss(self, loss, entropy, critic_loss, actor_loss):
-        self.loss.append(loss)
-        self.entropy.append(entropy)
-        self.critic_loss.append(critic_loss)
-        self.actor_loss.append(actor_loss)
+    def add_std(self, std):
+        """Adds standard deviation metrics."""
+        self.std_xs.append(std[0])
+        self.std_ys.append(std[1])
 
-    def add_value(self, values):
-        self.value = values
+    def add_rewards(self, rewards):
+        """Adds rewards."""
+        self.rewards.extend(rewards)  # Assuming rewards is a list or array
 
-    def add_objective(self, percent_burned):
-        self.objective.append(percent_burned)
+    def add_rewards_scaled(self, rewards_scaled):
+        """Adds scaled rewards."""
+        self.rewards_scaled.extend(rewards_scaled)
+
+    def add_returns(self, returns):
+        """Adds returns."""
+        self.returns.extend(returns)
+
+    def add_values(self, values):
+        """Adds value function predictions."""
+        self.values.extend(values)  # Assuming values is a list or array
+
+    def add_losses(self, critic_loss, actor_loss, entropy):
+        """Adds loss metrics."""
+        self.entropies.extend(entropy)
+        self.critic_losses.append(critic_loss)
+        self.actor_losses.append(actor_loss)
+
+    def add_explained_variance(self, explained_variance):
+        """Adds explained variance metric."""
+        self.explained_variances.append(explained_variance)
+
+    def summarize_metrics(self, status):
+        """Logs all metrics to TensorBoard."""
+        t = self.summarize_steps
+        if self.episode_finished:
+            self.writer.add_scalar(f'{self.tag}/Percentage Burned', np.mean(self.objectives), t)
+            self.writer.add_histogram(f'{self.tag}/Agent Steps', np.array(self.agent_steps), t)
+            self.objectives.clear()
+            self.agent_steps.clear()
+
+        # Log scalar metrics
+        self.writer.add_scalar(f'{self.tag}/Critic Loss', np.mean(self.critic_losses), t)
+        self.writer.add_scalar(f'{self.tag}/Actor Loss', np.mean(self.actor_losses), t)
+        self.writer.add_scalar(f'{self.tag}/Entropy', np.mean(self.entropies), t)
+        self.writer.add_scalar(f'{self.tag}/Reward (Avg)', np.mean(self.rewards), t)
+        self.writer.add_scalar(f'{self.tag}/Reward Scaled (Avg)', np.mean(self.rewards_scaled), t)
+        self.writer.add_scalar(f'{self.tag}/Return (Avg)', np.mean(self.returns), t)
+        self.writer.add_scalar(f'{self.tag}/Value (Avg)', np.mean(self.values), t)
+        self.writer.add_scalar(f'{self.tag}/Std X (Avg)', np.mean(self.std_xs), t)
+        self.writer.add_scalar(f'{self.tag}/Std Y (Avg)', np.mean(self.std_ys), t)
+        self.writer.add_scalar(f'{self.tag}/Explained Variance (AVG)', np.mean(self.explained_variances), t)
+
+        # Log histogram metrics
+        self.writer.add_histogram(f'{self.tag}/Rewards', np.array(self.rewards), t)
+        self.writer.add_histogram(f'{self.tag}/Rewards Scaled', np.array(self.rewards_scaled), t)
+        self.writer.add_histogram(f'{self.tag}/Returns', np.array(self.returns), t)
+        self.writer.add_histogram(f'{self.tag}/Values', np.array(self.values), t)
+        self.writer.add_histogram(f'{self.tag}/Std X', np.array(self.std_xs), t)
+        self.writer.add_histogram(f'{self.tag}/Std Y', np.array(self.std_ys), t)
+        self.writer.add_histogram(f'{self.tag}/Velocities', np.array(self.velocities), t)
+        self.writer.add_histogram(f'{self.tag}/Positions', np.array(self.positions), t)
+        self.writer.add_histogram(f'{self.tag}/Explained Variances', np.array(self.explained_variances), t)
+
+        self.summarize_steps += 1
+        self.tag = "run" + str(status["train_episode"])
+
+        # Clear metrics after logging
+        self.reset_metrics()
 
     def get_objective(self):
-        return np.mean(self.objective) if len(self.objective) > 0 else 0
+        return np.mean(self.objectives) if len(self.objectives) > 0 else 0
 
-    def summary_loss(self):
-        if self.logging:
-            self.writer.add_scalars(f'{self.tag}/loss', {'loss': np.mean(self.loss),
-                                            f'{self.tag}/entropy': np.mean(self.entropy),
-                                            f'{self.tag}/critic_loss': np.mean(self.critic_loss),
-                                            f'{self.tag}/actor loss': np.mean(self.actor_loss)}, self.total_steps)
-
-    def summary_objective(self):
-        if self.logging:
-            self.writer.add_scalar(f'{self.tag}/Percentage Burned', np.mean(self.objective), self.total_steps, new_style=True)
-
-    def summary_reward(self):
-        if self.logging:
-            self.writer.add_scalar(f'{self.tag}/Reward (AVG)', np.mean(self.reward), self.total_steps, new_style=True)
-            self.writer.add_histogram(f'{self.tag}/Reward (HIST)', np.array(self.reward), self.total_steps)
-
-    def summary_value(self):
-        if self.logging:
-            self.writer.add_scalar(f'{self.tag}/Value (AVG)', np.mean(self.value), self.total_steps, new_style=True)
-            self.writer.add_histogram(f'{self.tag}/Value (HIST)', np.array(self.value), self.total_steps)
-
-    def summary_steps_agents(self):
-        if self.logging and self.episode_finished:
-            self.writer.add_histogram(f'{self.tag}/Steps (HIST)', np.array(self.agent_steps), self.total_steps)
-
-    def summary_velocities(self):
-        if self.logging:
-            self.writer.add_histogram(f'{self.tag}/Velocities (HIST)', np.array(self.velocities), self.total_steps)
-
-    def summary_positions(self):
-        if self.logging:
-            self.writer.add_histogram(f'{self.tag}/Positions (HIST)', np.array(self.positions), self.total_steps)
-
-    def better_reward(self):
-        if np.mean(self.reward) > self.reward_best:
-            self.reward_best = np.mean(self.reward)
+    def is_better_reward(self):
+        """Checks if the current reward is better than the best recorded reward."""
+        current_reward = np.mean(self.rewards)
+        if current_reward >= self.best_reward:
+            self.best_reward = current_reward
             return True
         else:
             return False
 
-    def log(self, status):
-        if self.episode_finished:
-            self.summary_objective()
-            self.summary_steps_agents()
-        self.summary_velocities()
-        self.summary_positions()
-        self.summary_reward()
-        self.summary_value()
-        self.total_steps += self.horizon
-        self.clear_summary()
-        self.tag = "run" + str(status["train_episode"])
-
-    def reset_horizon(self):
-        self.total_steps = 0
-
-
-    def clear_summary(self):
-        if self.episode_finished:
-            self.objective = []
-            self.current_steps = 0
-            self.agent_steps = []
-            self.episode_finished = False
-        self.velocities = []
-        self.positions = []
-        self.loss = []
-        self.critic_loss = []
-        self.actor_loss = []
-        self.reward = 0
-        self.value = 0
-
     def close(self):
+        """Closes the SummaryWriter."""
         self.writer.close()

@@ -169,8 +169,12 @@ void ImguiHandler::Config(std::shared_ptr<FireModelRenderer> model_renderer,
     }
 }
 
-void ImguiHandler::PyConfig(std::vector<float> rewards, int rewards_pos,std::vector<float> all_rewards,
-                            bool &agent_is_running, std::string &user_input, std::string &model_output,
+void ImguiHandler::PyConfig(std::vector<float> rewards,
+                            int rewards_pos, std::vector<float> all_rewards,
+                            bool &agent_is_running,
+                            std::string &user_input,
+                            std::string &model_output,
+                            std::shared_ptr<GridMap> gridmap,
                             std::shared_ptr<std::vector<std::shared_ptr<DroneAgent>>> drones,
                             const std::shared_ptr<FireModelRenderer>& model_renderer) {
     if (show_rl_status_ && mode_ == Mode::GUI_RL && model_startup_) {
@@ -376,6 +380,9 @@ void ImguiHandler::PyConfig(std::vector<float> rewards, int rewards_pos,std::vec
                     ImGui::Text("Out of Area Counter: %d", selected_drone->GetOutOfAreaCounter());
                     ImGui::Text("Real Position: (%.2f, %.2f)", selected_drone->GetRealPosition().first,
                                 selected_drone->GetRealPosition().second);
+                    ImGui::Text("Grid Position: (%d, %d)", selected_drone->GetGridPosition().first,
+                                selected_drone->GetGridPosition().second);
+                    ImGui::Text("Drone in Grid: %s", selected_drone->GetDroneInGrid() ? "true" : "false");
                     ImGui::Spacing();
 
                     // Display network input information
@@ -394,34 +401,26 @@ void ImguiHandler::PyConfig(std::vector<float> rewards, int rewards_pos,std::vec
                         ImVec2 title_origin = ImGui::GetCursorScreenPos();
                         ImGui::Text("Terrain");
                         ImVec2 map_origin = ImGui::GetCursorScreenPos();
-                        DrawGrid(selected_drone->GetLastState().get_terrain(), model_renderer, 5.0f);
+                        DrawGrid(selected_drone->GetLastState().GetTerrain(), model_renderer, 5.0f);
 
                         // Fire Status Title
                         ImVec2 firedet_title_origin = ImVec2(
-                                title_origin.x + selected_drone->GetLastState().get_terrain()[0].size() * 5.0f + 10,
+                                title_origin.x + selected_drone->GetLastState().GetTerrain()[0].size() * 5.0f + 10,
                                 title_origin.y);
                         ImGui::SetCursorScreenPos(firedet_title_origin);
                         ImGui::Text("Fire Status");
                         // Draw fire status map
                         ImVec2 firedet_map_origin = ImVec2(
-                                map_origin.x + selected_drone->GetLastState().get_terrain()[0].size() * 5.0f + 10,
+                                map_origin.x + selected_drone->GetLastState().GetTerrain()[0].size() * 5.0f + 10,
                                 map_origin.y);
                         ImGui::SetCursorScreenPos(firedet_map_origin);
-                        DrawGrid(selected_drone->GetLastState().get_fire_status(), model_renderer, 5.0f, true);
+                        DrawGrid(selected_drone->GetLastState().GetFireStatus(), model_renderer, 5.0f, true);
 
                         // Perception Map Title
                         ImVec2 perception_title_origin = ImVec2(
-                                firedet_title_origin.x + selected_drone->GetLastState().get_terrain().size() * 5.0f + 10,
+                                firedet_title_origin.x + selected_drone->GetLastState().GetTerrain().size() * 5.0f + 10,
                                 firedet_title_origin.y);
                         ImGui::SetCursorScreenPos(perception_title_origin);
-                        ImGui::Text("Perception Map");
-
-                        // Draw perception map
-                        ImVec2 perception_map_origin = ImVec2(
-                                firedet_map_origin.x + selected_drone->GetLastState().get_terrain().size() * 5.0f + 10,
-                                firedet_map_origin.y);
-                        ImGui::SetCursorScreenPos(perception_map_origin);
-                        DrawGrid(selected_drone->GetLastState().get_map(), model_renderer, 2.0f, true);
                     }
 
 
@@ -445,6 +444,19 @@ void ImguiHandler::PyConfig(std::vector<float> rewards, int rewards_pos,std::vec
                     ImGui::Text("No drones available.");
                 }
                 ImGui::EndChild();
+                ImGui::EndTabItem();
+            }
+            if (ImGui::BeginTabItem("Exploration Map")) {
+                static bool show_explored_map = true;
+                ImGui::SliderInt("##size_slider", &parameters_.exploration_map_show_size_, 5, 200);
+                if(ImGui::Button(show_explored_map ? "Show Fire Map" : "Show Explored Map")){
+                    show_explored_map = !show_explored_map;
+                }
+                if (show_explored_map)
+                    DrawGrid(gridmap->GetExploredMap(parameters_.exploration_map_show_size_), model_renderer, 5.0f, false, true);
+                else
+                    DrawGrid(gridmap->GetFireMap(parameters_.exploration_map_show_size_), model_renderer, 5.0f, true, true);
+
                 ImGui::EndTabItem();
             }
             if (ImGui::BeginTabItem("Env Controls")){
@@ -876,16 +888,16 @@ void ImguiHandler::HandleEvents(SDL_Event event, ImGuiIO *io, std::shared_ptr<Gr
         }
     } else if (event.type == SDL_KEYDOWN && parameters_.GetNumberOfDrones() == 1 && !agent_is_running && !io->WantTextInput) {
         if (event.key.keysym.sym == SDLK_w)
-            onMoveDrone(0, 0, parameters_.GetDroneSpeed(0.1), 0);
+            onMoveDrone(0, 0, -parameters_.GetDroneSpeed(1), 0);
         // MoveDroneByAngle(0, 0.25, 0, 0);
         if (event.key.keysym.sym == SDLK_s)
-            onMoveDrone(0, 0, -parameters_.GetDroneSpeed(0.1), 0);
+            onMoveDrone(0, 0, parameters_.GetDroneSpeed(1), 0);
         // MoveDroneByAngle(0, -0.25, 0, 0);
         if (event.key.keysym.sym == SDLK_a)
-            onMoveDrone(0, -parameters_.GetDroneSpeed(0.1), 0, 0);
+            onMoveDrone(0, -parameters_.GetDroneSpeed(1), 0, 0);
         // MoveDroneByAngle(0, 0, -0.25, 0);
         if (event.key.keysym.sym == SDLK_d)
-            onMoveDrone(0, parameters_.GetDroneSpeed(0.1), 0, 0);
+            onMoveDrone(0, parameters_.GetDroneSpeed(1), 0, 0);
         // MoveDroneByAngle(0, 0, 0.25, 0);
         if (event.key.keysym.sym == SDLK_SPACE)
             onMoveDrone(0, 0, 0, 1);
@@ -935,15 +947,40 @@ void ImguiHandler::DrawBuffer(std::vector<float> buffer, int buffer_pos) {
     }
 }
 
-void ImguiHandler::DrawGrid(const std::vector<std::vector<int>>& grid, std::shared_ptr<FireModelRenderer> renderer, float cell_size, bool is_fire_status) {
+void ImguiHandler::DrawGrid(const std::vector<std::vector<int>>& grid, std::shared_ptr<FireModelRenderer> renderer, float cell_size, bool is_fire_status, bool is_exploration_map) {
     ImVec2 cursor_pos = ImGui::GetCursorScreenPos();
+
+    // Function to map a value to a color
+    float max_exploration_time = parameters_.GetExplorationTime();
+    std::function<ImVec4(int)> value_to_color;
+    if (!is_fire_status) {
+        value_to_color = [&max_exploration_time](int value) -> ImVec4 {
+            float normalized_value = std::clamp(static_cast<float>(value) / max_exploration_time, 0.0f, 0.6f);
+            return ImVec4(0.6f - normalized_value, 0.6f - normalized_value, 0.3f, 1.0f); // white to black
+        };
+    } else {
+        value_to_color = [&max_exploration_time](int value) -> ImVec4 {
+            float normalized_value = std::clamp(static_cast<float>(value), 0.0f, 1.0f);
+            return ImVec4(0.0f + normalized_value, 1.0f - normalized_value, 0.0f, 1.0f); // white to black
+        };
+
+    }
+
     for (int y = 0; y < grid.size(); ++y) {
         for (int x = 0; x < grid[y].size(); ++x) {
-            ImVec4 color = is_fire_status
-                           ? (grid[y][x] == 1 ? ImVec4(1.0f, 0.0f, 0.0f, 1.0f) : ImVec4(0.0f, 1.0f, 0.0f, 1.0f))
-                           : renderer->GetMappedColor(grid[y][x]);
-            ImVec2 p_min = ImVec2(cursor_pos.x + x * cell_size, cursor_pos.y + y * cell_size);
-            ImVec2 p_max = ImVec2(cursor_pos.x + (x + 1) * cell_size, cursor_pos.y + (y + 1) * cell_size);
+            ImVec4 color;
+            ImVec2 p_min;
+            ImVec2 p_max;
+            if (!is_exploration_map) {
+                color = is_fire_status
+                               ? (grid[y][x] > 0 ? ImVec4(1.0f, 0.0f, 0.0f, 1.0f) : ImVec4(0.0f, 1.0f, 0.0f, 1.0f))
+                               : renderer->GetMappedColor(grid[y][x]);
+            } else {
+                color = value_to_color(grid[y][x]);
+            }
+            p_min = ImVec2(cursor_pos.x + x * cell_size, cursor_pos.y + y * cell_size);
+            p_max = ImVec2(cursor_pos.x + (x + 1) * cell_size, cursor_pos.y + (y + 1) * cell_size);
+
             ImGui::GetWindowDrawList()->AddRectFilled(p_min, p_max, IM_COL32(color.x * 255, color.y * 255, color.z * 255, color.w * 255));
         }
     }

@@ -4,33 +4,64 @@
 
 #include "drone_state.h"
 
-DroneState::DroneState(double speed_x, double speed_y, std::pair<double, double> max_speed, std::vector<std::vector<int>> terrain, std::vector<std::vector<int>> fire_status,
-                       std::vector<std::vector<int>> map, std::pair<double, double> map_dimensions, std::pair<double, double> position, double cell_size) {
-    velocity_.first = speed_x;
-    velocity_.second = speed_y;
-    terrain_ = std::move(terrain);
-    fire_status_ = std::move(fire_status);
+DroneState::DroneState(std::pair<double, double> velocity_vector,
+                       std::pair<double, double> max_speed,
+                       std::vector<std::vector<std::vector<int>>> drone_view,
+                       std::vector<std::vector<int>> exploration_map,
+                       std::vector<std::vector<int>> fire_map,
+                       std::pair<double, double> map_dimensions,
+                       std::pair<double, double> position,
+                       int water_dispense,
+                       double cell_size) {
+    velocity_ = velocity_vector;
+    drone_view_ = std::move(drone_view);
+    exploration_map_ = std::move(exploration_map);
+    fire_map_ = std::move(fire_map);
     max_speed_ = max_speed;
-    map_ = std::move(map);
     position_ = position;
+    water_dispense_ = water_dispense;
     map_dimensions_ = map_dimensions;
     cell_size_ = cell_size;
 }
 
+//double DroneState::DiscretizeOutput(double netout) {
+//    if (netout <= -0.75) return -1.0;
+//    if (netout <= -0.25) return -0.5;
+//    if (netout <= 0.25) return 0.0;
+//    if (netout <= 0.75) return 0.5;
+//    return 1.0;
+//}
+
+double DroneState::DiscretizeOutput(double netout) {
+    if (netout <= -0.9) return -1.0;
+    if (netout <= -0.7) return -0.8;
+    if (netout <= -0.5) return -0.6;
+    if (netout <= -0.3) return -0.4;
+    if (netout <= -0.1) return -0.2;
+    if (netout <= 0.1) return 0.0;
+    if (netout <= 0.3) return 0.2;
+    if (netout <= 0.5) return 0.4;
+    if (netout <= 0.7) return 0.6;
+    if (netout <= 0.9) return 0.8;
+    return 1.0;
+}
+
 std::pair<double, double> DroneState::GetNewVelocity(double netout_speed_x, double netout_speed_y) {
     // Netout determines the velocity CHANGE
-    double new_speed_x = velocity_.first + netout_speed_x * max_speed_.first;
-    double new_speed_y = velocity_.second + netout_speed_y * max_speed_.second;
+//    auto speed_x = std::round(netout_speed_x * 10.0) / 10.0;
+//    auto speed_y = std::round(netout_speed_y * 10.0) / 10.0;
+    auto speed_x = DiscretizeOutput(netout_speed_x);
+    auto speed_y = DiscretizeOutput(netout_speed_y);
+    double new_speed_x = velocity_.first + speed_x * max_speed_.first;
+    double new_speed_y = velocity_.second + speed_y * max_speed_.second;
 
-    // Netout determines the velocity DIRECTLY
-    // double new_speed_x = netout_speed_x * max_speed_.first;
-    // double new_speed_y = netout_speed_y * max_speed_.second;
+    // Netout determines the velocity DIRECTLY #TODO: Why does this perform worse??
+//     double new_speed_x = netout_speed_x * max_speed_.first;
+//     double new_speed_y = netout_speed_y * max_speed_.second;
 
-    new_speed_x = (new_speed_x < max_speed_.first) ? new_speed_x : max_speed_.first;
-    new_speed_x = (new_speed_x > -max_speed_.first) ? new_speed_x : -max_speed_.first;
-    // Not by Angle
-    new_speed_y = (new_speed_y < max_speed_.second) ? new_speed_y : max_speed_.second;
-    new_speed_y = (new_speed_y > -max_speed_.second) ? new_speed_y : -max_speed_.second;
+    // Clamp new_speed between -max_speed_.first and max_speed_.first
+    new_speed_x = std::clamp(new_speed_x, -max_speed_.first, max_speed_.first);
+    new_speed_y = std::clamp(new_speed_y, -max_speed_.second, max_speed_.second);
 
     // By Angle
     // double angle = fmod(new_speed_y, 2 * M_PI);
@@ -44,23 +75,25 @@ std::pair<double, double> DroneState::GetNewVelocity(double netout_speed_x, doub
     return std::make_pair(new_speed_x, new_speed_y);
 }
 
-std::vector<std::vector<double>> DroneState::GetTerrainNorm() {
-    std::vector<std::vector<double>> terrain_norm(terrain_.size(), std::vector<double>(terrain_[0].size()));
+std::vector<std::vector<std::vector<int>>> DroneState::GetDroneViewNorm() {
 
-    for (size_t i = 0; i < terrain_.size(); ++i) {
-        for (size_t j = 0; j < terrain_[i].size(); ++j) {
-            terrain_norm[i][j] = static_cast<double>(terrain_[i][j]) / int(static_cast<CellState>(CELL_STATE_COUNT - 1));
+    std::vector<std::vector<std::vector<int>>> drone_view_norm(2, std::vector<std::vector<int>>(drone_view_[0].size(), std::vector<int>(drone_view_[0][0].size())));
+
+    for (size_t i = 0; i < drone_view_[0].size(); ++i) {
+        for (size_t j = 0; j < drone_view_[0][i].size(); ++j) {
+            drone_view_norm[0][i][j] = static_cast<int>(drone_view_[0][i][j]) / int(static_cast<CellState>(CELL_STATE_COUNT - 1));
+            drone_view_norm[1][i][j] = drone_view_[1][i][j];
         }
     }
 
-    return terrain_norm;
+    return drone_view_norm;
 }
 
 int DroneState::CountOutsideArea() {
     int outside_area = 0;
-    for (size_t i = 0; i < terrain_.size(); ++i) {
-        for (size_t j = 0; j < terrain_[i].size(); ++j) {
-            if (terrain_[i][j] == OUTSIDE_GRID) {
+    for (size_t i = 0; i < drone_view_[0].size(); ++i) {
+        for (size_t j = 0; j < drone_view_[0][i].size(); ++j) {
+            if (drone_view_[0][i][j] == OUTSIDE_GRID) {
                 outside_area++;
             }
         }
@@ -68,18 +101,21 @@ int DroneState::CountOutsideArea() {
     return outside_area;
 }
 
-std::vector<std::vector<double>> DroneState::GetFireStatusNorm() {
-    return std::vector<std::vector<double>>();
-}
-
-std::vector<std::vector<double>> DroneState::GetMapNorm() {
-    return std::vector<std::vector<double>>();
-}
-
 std::pair<double, double> DroneState::GetPositionNorm() const {
     double x = (2.0 * position_.first / (map_dimensions_.first * cell_size_)) - 1;
     double y = (2.0 * position_.second / (map_dimensions_.second * cell_size_)) - 1;
     return std::make_pair(x, y);
+}
+
+std::vector<std::vector<double>> DroneState::GetExplorationMapNorm() const {
+    std::vector<std::vector<double>> exploration_map_norm(exploration_map_.size(), std::vector<double>(exploration_map_[0].size()));
+    int max_value = map_dimensions_.first * map_dimensions_.second;
+    for (size_t i = 0; i < exploration_map_.size(); ++i) {
+        for (size_t j = 0; j < exploration_map_[i].size(); ++j) {
+            exploration_map_norm[i][j] = static_cast<double>(exploration_map_[i][j]) / max_value;
+        }
+    }
+    return exploration_map_norm;
 }
 
 
