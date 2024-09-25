@@ -5,8 +5,8 @@
 #include "firemodel_camera.h"
 
 void FireModelCamera::Move(double dx, double dy) {
-    x_ -= dx * camera_speed_;
-    y_ -= dy * camera_speed_;
+    x_ -= dy * camera_speed_;
+    y_ -= dx * camera_speed_;
 }
 
 void FireModelCamera::Zoom(double factor) {
@@ -16,16 +16,16 @@ void FireModelCamera::Zoom(double factor) {
 std::pair<int, int> FireModelCamera::ScreenToGridPosition(int screenX, int screenY) const {
 
     // Convert screen coordinates to grid coordinates
-    int gridX = static_cast<int>(((screenX - offset_x_) / static_cast<int>(cell_size_)) - x_);
-    int gridY = static_cast<int>(((screenY - offset_y_) / static_cast<int>(cell_size_)) - y_);
+    int gridX = static_cast<int>(((screenY - offset_x_) / static_cast<int>(cell_size_)) - x_);
+    int gridY = static_cast<int>(((screenX - offset_y_) / static_cast<int>(cell_size_)) - y_);
 
     return std::make_pair(gridX, gridY);
 }
 
 std::pair<int, int> FireModelCamera::GridToScreenPosition(double worldX, double worldY) const {
 
-    int screenX = static_cast<int>(((worldX + x_) * static_cast<int>(cell_size_)) + offset_x_);
-    int screenY = static_cast<int>(((worldY + y_) * static_cast<int>(cell_size_)) + offset_y_);
+    int screenY = static_cast<int>(((worldX + x_) * static_cast<int>(cell_size_)) + offset_x_);
+    int screenX = static_cast<int>(((worldY + y_) * static_cast<int>(cell_size_)) + offset_y_);
 
     return std::make_pair(screenX, screenY);
 }
@@ -42,8 +42,8 @@ void FireModelCamera::SetCellSize(int rows, int cols) {
 }
 
 void FireModelCamera::SetOffset(int rows, int cols) {
-    offset_x_ = (GetViewportWidth() - cols * static_cast<int>(cell_size_)) / 2;
-    offset_y_ = (GetViewportHeight() - rows * static_cast<int>(cell_size_)) / 2;
+    offset_x_ = (GetViewportHeight() - rows * static_cast<int>(cell_size_)) / 2;
+    offset_y_ = (GetViewportWidth() - cols * static_cast<int>(cell_size_)) / 2;
 }
 
 void FireModelCamera::SetViewport(int screen_width, int screen_height) {

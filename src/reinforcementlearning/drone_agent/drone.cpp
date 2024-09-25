@@ -15,7 +15,7 @@ DroneAgent::DroneAgent(std::pair<int, int> point, FireModelParameters &parameter
 }
 
 void DroneAgent::Initialize(GridMap &grid_map) {
-    map_dimensions_ = std::make_pair(grid_map.GetCols(), grid_map.GetRows());
+    map_dimensions_ = std::make_pair(grid_map.GetRows(), grid_map.GetCols());
     auto drone_view = grid_map.GetDroneView(shared_from_this());
     auto explored_map = grid_map.GetExploredMap();
     auto fire_map = grid_map.GetFireMap();

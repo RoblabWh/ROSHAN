@@ -182,7 +182,7 @@ class AgentHandler:
             drone_view = np.array([state.GetFireStatus() for state in drone_states])
             velocities = np.array([state.GetVelocityNorm() for state in drone_states])
             maps = np.array([state.GetExplorationMap() for state in drone_states])
-            fire_map = np.array([state.GetFireMap() for state in drone_states])
+            #fire_map = np.array([state.GetFireMap() for state in drone_states])
             positions = np.array([state.GetPositionNorm() for state in drone_states])
             water_dispense = np.array([state.GetWaterDispense() for state in drone_states])
 

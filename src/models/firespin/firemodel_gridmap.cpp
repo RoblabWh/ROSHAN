@@ -8,24 +8,26 @@ GridMap::GridMap(std::shared_ptr<Wind> wind, FireModelParameters &parameters,
                  std::vector<std::vector<int>>* rasterData) :
                  parameters_(parameters),
                  buffer_( rasterData->size() * ((rasterData->empty()) ? 0 : (*rasterData)[0].size()) * 30){
-    cols_ = rasterData->size(); //x
-    rows_ = (rasterData->empty()) ? 0 : (*rasterData)[0].size(); //y
+    int cols = rasterData->size(); //x
+    int rows = (rasterData->empty()) ? 0 : (*rasterData)[0].size(); //y
     // Cols and Rows are swapped in Renderer to match GEO representation
     wind_ = wind;
 
     // Generate a normally-distributed random number for phi_r
     gen_ = std::mt19937(rd_());
 
-    cells_ = std::vector<std::vector<std::shared_ptr<FireCell>>>(cols_, std::vector<std::shared_ptr<FireCell>>(rows_));
-    explored_map_ = std::vector<std::vector<int>>(cols_, std::vector<int>(rows_, 0));
-    fire_map_ = std::vector<std::vector<int>>(cols_, std::vector<int>(rows_, 0));
+    //cells_ = std::vector<std::vector<std::shared_ptr<FireCell>>>(cols_, std::vector<std::shared_ptr<FireCell>>(rows_));
+    cells_ = std::vector<std::vector<std::shared_ptr<FireCell>>>(rows, std::vector<std::shared_ptr<FireCell>>(cols));
+    explored_map_ = std::vector<std::vector<int>>(rows, std::vector<int>(cols, 0));
+    fire_map_ = std::vector<std::vector<int>>(rows, std::vector<int>(cols, 0));
 
-    for (int x = 0; x < cols_; ++x) {
-        for (int y = 0; y < rows_; ++y) {
-            cells_[x][y] = std::make_shared<FireCell>(x, y, gen_, parameters_, (*rasterData)[x][y]);
+    for (int x = 0; x < rows; ++x) {
+        for (int y = 0; y < cols; ++y) {
+            cells_[x][y] = std::make_shared<FireCell>(x, y, gen_, parameters_, (*rasterData)[y][x]);
         }
     }
-
+    cols_ = cols;
+    rows_ = rows;
     num_cells_ = cols_ * rows_;
     parameters_.SetGridNxNy(cols_, rows_);
     num_burned_cells_ = 0;
@@ -85,7 +87,7 @@ void GridMap::UpdateVirtualParticles(std::vector<ParticleType>& particles, std::
 }
 
 void GridMap::UpdateParticles() {
-    std::vector<std::vector<bool>> visited_cells(cols_, std::vector<bool>(rows_, false));
+    std::vector<std::vector<bool>> visited_cells(rows_, std::vector<bool>(cols_, false));
     UpdateVirtualParticles(virtual_particles_, visited_cells);
     UpdateVirtualParticles(radiation_particles_, visited_cells);
 
@@ -268,8 +270,8 @@ int GridMap::UpdateLastSeenTime(int x, int y) {
 }
 
 void GridMap::UpdateCellDiminishing() {
-    for (int x = 0; x < cols_; ++x) {
-        for (int y = 0; y < rows_; ++y) {
+    for (int x = 0; x < rows_; ++x) {
+        for (int y = 0; y < cols_; ++y) {
             if (explored_map_[x][y] > 0) {
                 explored_map_[x][y]--;
             }
@@ -297,8 +299,8 @@ void GridMap::UpdateExploredAreaFromDrone(std::shared_ptr<DroneAgent> drone) {
 // Calculates the number of unburnable cells
 int GridMap::GetNumUnburnableCells() const {
     int num_unburnable_cells = 0;
-    for (int x = 0; x < cols_; ++x) {
-        for (int y = 0; y < rows_; ++y) {
+    for (int x = 0; x < rows_; ++x) {
+        for (int y = 0; y < cols_; ++y) {
             if (!cells_[x][y]->CanIgnite()) {
                 num_unburnable_cells++;
             }
@@ -431,16 +433,22 @@ std::vector<std::pair<int, int>> GridMap::GetMooreNeighborhood(int x, int y) con
     return neighborhood;
 }
 
-std::vector<std::vector<int>> GridMap::GetExploredMap(int size) {
+std::vector<std::vector<int>> GridMap::GetExploredMap(int size, bool interpolated) {
     if(size == 0) {
         size = parameters_.GetExplorationMapSize();
+    }
+    if (!interpolated) {
+        return explored_map_;
     }
     return InterpolationResize(explored_map_, size, size);
 }
 
-std::vector<std::vector<int>> GridMap::GetFireMap(int size) {
+std::vector<std::vector<int>> GridMap::GetFireMap(int size, bool interpolated) {
     if(size == 0) {
         size = parameters_.GetFireMapSize();
     }
-    return PoolingResize(fire_map_, size, size);
+    if (!interpolated) {
+        return fire_map_;
+    }
+    return InterpolationResize(fire_map_, size, size);
 }

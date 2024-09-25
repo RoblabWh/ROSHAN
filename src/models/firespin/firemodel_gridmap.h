@@ -39,8 +39,8 @@ public:
     void UpdateParticles();
     void UpdateCells();
     double PercentageBurned() const;
-    std::vector<std::vector<int>> GetExploredMap(int size=0);
-    std::vector<std::vector<int>> GetFireMap(int size=0);
+    std::vector<std::vector<int>> GetExploredMap(int size=0, bool interpolated=true);
+    std::vector<std::vector<int>> GetFireMap(int size=0, bool interpolated=true);
 
     double PercentageBurning() const;
     double PercentageUnburnable() const;
@@ -62,13 +62,13 @@ public:
     std::vector<std::vector<int>> GetUpdatedMap(std::shared_ptr<DroneAgent> drone, std::vector<std::vector<int>> fire_status);
 
     std::pair<int, int> GetRandomPointInGrid() {
-        std::uniform_int_distribution<> dis_x(0, cols_ - 1);
-        std::uniform_int_distribution<> dis_y(0, rows_ - 1);
+        std::uniform_int_distribution<> dis_x(0, rows_ - 1);
+        std::uniform_int_distribution<> dis_y(0, cols_ - 1);
         return std::make_pair(dis_x(gen_), dis_y(gen_));
     }
 
     bool IsPointInGrid(int x, int y) const {
-        return !(x < 0 || x >= cols_ || y < 0 || y >= rows_);
+        return !(x < 0 || x >= rows_ || y < 0 || y >= cols_);
     }
 
     FireCell& At(int x, int y) {

@@ -62,19 +62,20 @@ std::vector<std::vector<int>> ScaleNoiseMap(const std::vector<std::vector<int>>&
 }
 
 void FireModelRenderer::CheckCamera() {
-    camera_.Update(width_, height_, gridmap_->GetRows(), gridmap_->GetCols());
+    camera_.Update(width_, height_, gridmap_->GetCols(), gridmap_->GetRows());
 }
 
 void FireModelRenderer::Render(std::shared_ptr<std::vector<std::shared_ptr<DroneAgent>>> drones) {
     SDL_RenderClear(renderer_.get());
     if (gridmap_ != nullptr) {
-        camera_.Update(width_, height_, gridmap_->GetRows(), gridmap_->GetCols());
-//        std::cout << "Cellsize: " << camera_.GetCellSize() << std::endl;
+        camera_.Update(width_, height_, gridmap_->GetCols(), gridmap_->GetRows());
         if (this->needs_init_cell_noise_) {
             gridmap_->GenerateNoiseMap();
             this->needs_init_cell_noise_ = false;
         }
+//        std::cout << "Rendering" << std::endl;
         DrawCells();
+//        std::cout << "Finished rendering cells" << std::endl;
         DrawParticles();
         DrawDrones(drones);
     }
@@ -113,8 +114,8 @@ void FireModelRenderer::DrawCells() {
         // Ensure grid coordinates are within gridmap bounds
         gridLeft = std::max(gridLeft, 0);
         gridTop = std::max(gridTop, 0);
-        gridRight = std::min(gridRight, gridmap_->GetCols() - 1);
-        gridBottom = std::min(gridBottom, gridmap_->GetRows() - 1);
+        gridRight = std::min(gridRight, gridmap_->GetRows() - 1);
+        gridBottom = std::min(gridBottom, gridmap_->GetCols() - 1);
 
         pixel_buffer_->Reset();
         DrawAllCells(gridLeft, gridRight, gridTop, gridBottom);

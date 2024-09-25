@@ -39,11 +39,11 @@ void ReinforcementLearningHandler::ResetDrones(Mode mode) {
         if (mode == Mode::GUI_RL) {
             newDrone->SetRenderer(model_renderer_->GetRenderer());
         }
+        gridmap_->UpdateExploredAreaFromDrone(newDrone);
+        newDrone->SetExploreDifference(0);
         newDrone->Initialize(*gridmap_);
         newDrone->SetLastNearFires(newDrone->DroneSeesFire());
         newDrone->SetLastDistanceToFire(newDrone->FindNearestFireDistance());
-        gridmap_->UpdateExploredAreaFromDrone(newDrone);
-        newDrone->SetExploreDifference(0);
         drones_->push_back(newDrone);
     }
 }

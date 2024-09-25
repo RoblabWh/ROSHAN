@@ -448,14 +448,16 @@ void ImguiHandler::PyConfig(std::vector<float> rewards,
             }
             if (ImGui::BeginTabItem("Exploration Map")) {
                 static bool show_explored_map = true;
+                static bool interpolated = true;
                 ImGui::SliderInt("##size_slider", &parameters_.exploration_map_show_size_, 5, 200);
                 if(ImGui::Button(show_explored_map ? "Show Fire Map" : "Show Explored Map")){
                     show_explored_map = !show_explored_map;
                 }
+                ImGui::Checkbox("Interpolated", &interpolated);
                 if (show_explored_map)
-                    DrawGrid(gridmap->GetExploredMap(parameters_.exploration_map_show_size_), model_renderer, 5.0f, false, true);
+                    DrawGrid(gridmap->GetExploredMap(parameters_.exploration_map_show_size_, interpolated), model_renderer, 5.0f, false, true);
                 else
-                    DrawGrid(gridmap->GetFireMap(parameters_.exploration_map_show_size_), model_renderer, 5.0f, true, true);
+                    DrawGrid(gridmap->GetFireMap(parameters_.exploration_map_show_size_, interpolated), model_renderer, 5.0f, true, true);
 
                 ImGui::EndTabItem();
             }
@@ -852,7 +854,7 @@ void ImguiHandler::HandleEvents(SDL_Event event, ImGuiIO *io, std::shared_ptr<Gr
         std::pair<int, int> gridPos = model_renderer->ScreenToGridPosition(x, y);
         x = gridPos.first;
         y = gridPos.second;
-        if (x >= 0 && x < gridmap->GetCols() && y >= 0 && y < gridmap->GetRows()) {
+        if (x >= 0 && x < gridmap->GetRows() && y >= 0 && y < gridmap->GetCols()) {
             if(gridmap->At(x, y).CanIgnite())
                 gridmap->IgniteCell(x, y);
             else if(gridmap->GetCellState(x, y) == CellState::GENERIC_BURNING)
@@ -878,7 +880,7 @@ void ImguiHandler::HandleEvents(SDL_Event event, ImGuiIO *io, std::shared_ptr<Gr
         int x, y;
         SDL_GetMouseState(&x, &y);
         std::pair<int, int> cell_pos = model_renderer->ScreenToGridPosition(x, y);
-        if (cell_pos.first >= 0 && cell_pos.first < gridmap->GetCols() && cell_pos.second >= 0 && cell_pos.second < gridmap->GetRows()) {
+        if (cell_pos.first >= 0 && cell_pos.first < gridmap->GetRows() && cell_pos.second >= 0 && cell_pos.second < gridmap->GetCols()) {
             popups_.insert(cell_pos);
             popup_has_been_opened_.insert({cell_pos, false});
         }
@@ -888,16 +890,16 @@ void ImguiHandler::HandleEvents(SDL_Event event, ImGuiIO *io, std::shared_ptr<Gr
         }
     } else if (event.type == SDL_KEYDOWN && parameters_.GetNumberOfDrones() == 1 && !agent_is_running && !io->WantTextInput) {
         if (event.key.keysym.sym == SDLK_w)
-            onMoveDrone(0, 0, -parameters_.GetDroneSpeed(1), 0);
+            onMoveDrone(0, -parameters_.GetDroneSpeed(1), 0, 0);
         // MoveDroneByAngle(0, 0.25, 0, 0);
         if (event.key.keysym.sym == SDLK_s)
-            onMoveDrone(0, 0, parameters_.GetDroneSpeed(1), 0);
+            onMoveDrone(0, parameters_.GetDroneSpeed(1), 0, 0);
         // MoveDroneByAngle(0, -0.25, 0, 0);
         if (event.key.keysym.sym == SDLK_a)
-            onMoveDrone(0, -parameters_.GetDroneSpeed(1), 0, 0);
+            onMoveDrone(0, 0, -parameters_.GetDroneSpeed(1), 0);
         // MoveDroneByAngle(0, 0, -0.25, 0);
         if (event.key.keysym.sym == SDLK_d)
-            onMoveDrone(0, parameters_.GetDroneSpeed(1), 0, 0);
+            onMoveDrone(0, 0, parameters_.GetDroneSpeed(1), 0);
         // MoveDroneByAngle(0, 0, 0.25, 0);
         if (event.key.keysym.sym == SDLK_SPACE)
             onMoveDrone(0, 0, 0, 1);

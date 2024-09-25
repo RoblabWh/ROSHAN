@@ -157,7 +157,7 @@ bool FireModel::AgentIsRunning() {
 
 void FireModel::Render() {
     model_renderer_->Render(rl_handler_->GetDrones());
-    model_renderer_->DrawArrow(wind_->GetCurrentAngle() * 180 / M_PI + 45);
+    model_renderer_->DrawArrow(-wind_->GetCurrentAngle() * 180 / M_PI + 130);
 }
 
 //** ########################################################################
