@@ -171,7 +171,7 @@ class AgentHandler:
         return False, console
 
     def restructure_data(self, observations_):
-        all_drone_views, all_velocities, all_maps, all_positions, all_water_dispense = [], [], [], [], []
+        all_drone_views, all_velocities, all_maps, all_fires, all_positions, all_water_dispense = [], [], [], [], [], []
 
         for deque in observations_:
             drone_states = np.array([state for state in deque if isinstance(state, firesim.DroneState)])
@@ -181,18 +181,19 @@ class AgentHandler:
             # drone_view = np.array([state.GetDroneViewNorm() for state in drone_states])
             drone_view = np.array([state.GetFireStatus() for state in drone_states])
             velocities = np.array([state.GetVelocityNorm() for state in drone_states])
-            maps = np.array([state.GetExplorationMap() for state in drone_states])
-            #fire_map = np.array([state.GetFireMap() for state in drone_states])
+            maps = np.array([state.GetExplorationMapNorm() for state in drone_states])
+            fire_map = np.array([state.GetFireMap() for state in drone_states])
             positions = np.array([state.GetPositionNorm() for state in drone_states])
             water_dispense = np.array([state.GetWaterDispense() for state in drone_states])
 
             all_drone_views.append(drone_view)
             all_velocities.append(velocities)
             all_maps.append(maps)
+            all_fires.append(fire_map)
             all_positions.append(positions)
             all_water_dispense.append(water_dispense)
 
         return np.array(all_drone_views), np.array(all_maps), np.array(all_velocities), np.array(
-            all_positions), np.array(all_water_dispense)
+            all_positions), np.array(all_water_dispense), np.array(all_fires)
 
 

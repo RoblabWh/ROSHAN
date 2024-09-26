@@ -443,12 +443,18 @@ std::vector<std::vector<int>> GridMap::GetExploredMap(int size, bool interpolate
     return InterpolationResize(explored_map_, size, size);
 }
 
-std::vector<std::vector<int>> GridMap::GetFireMap(int size, bool interpolated) {
+std::vector<std::vector<double>> GridMap::GetFireMap(int size, bool interpolated) {
     if(size == 0) {
         size = parameters_.GetFireMapSize();
     }
     if (!interpolated) {
-        return fire_map_;
+        std::vector<std::vector<double>> doubleMatrix(fire_map_.size(), std::vector<double>(fire_map_[0].size()));
+        for (size_t i = 0; i < fire_map_.size(); ++i) {
+            for (size_t j = 0; j < fire_map_[0].size(); ++j) {
+                doubleMatrix[i][j] = static_cast<double>(fire_map_[i][j]);
+            }
+        }
+        return doubleMatrix;
     }
-    return InterpolationResize(fire_map_, size, size);
+    return BilinearInterpolation(fire_map_, size, size);
 }

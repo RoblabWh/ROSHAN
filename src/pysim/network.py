@@ -60,6 +60,22 @@ class Inputspace(nn.Module):
         explore_out_features = 8
 
         self.explore_flat1 = nn.Linear(in_features=features_explore, out_features=explore_out_features)
+
+        self.fire_conv1 = nn.Conv2d(in_channels=layers_dict[0]['in_channels'],
+                                       out_channels=layers_dict[0]['out_channels'],
+                                       kernel_size=layers_dict[0]['kernel_size'], stride=layers_dict[0]['stride'],
+                                       padding=layers_dict[0]['padding'])
+        self.fire_conv2 = nn.Conv2d(in_channels=layers_dict[1]['in_channels'],
+                                       out_channels=layers_dict[1]['out_channels'],
+                                       kernel_size=layers_dict[1]['kernel_size'], stride=layers_dict[1]['stride'],
+                                       padding=layers_dict[1]['padding'])
+
+        in_f = self.get_in_features_2d(h_in=30, w_in=30, layers_dict=layers_dict)
+        features_fire = in_f * layers_dict[1]['out_channels']
+        fire_out_features = 8
+
+        self.fire_flat1 = nn.Linear(in_features=features_fire, out_features=fire_out_features)
+
         # initialize_hidden_weights(self.explore_flat1)
 
         vel_out_features = 8
@@ -76,9 +92,9 @@ class Inputspace(nn.Module):
 
         self.flatten = nn.Flatten()
 
-        input_features = explore_out_features + view_out_features + (position_out_features + vel_out_features + water_out_features) * self.time_steps
-        position_features = explore_out_features + (position_out_features + vel_out_features) * self.time_steps
-        vicinity_features = view_out_features + water_out_features * self.time_steps
+        input_features = fire_out_features + explore_out_features + view_out_features + (position_out_features + vel_out_features + water_out_features) * self.time_steps
+        # position_features = explore_out_features + (position_out_features + vel_out_features) * self.time_steps
+        # vicinity_features = view_out_features + water_out_features * self.time_steps
         self.out_features = 16
         self.pos_dense1 = nn.Linear(in_features=input_features, out_features=16)
         self.pos_dense2 = nn.Linear(in_features=16, out_features=self.out_features)
@@ -111,7 +127,7 @@ class Inputspace(nn.Module):
         return d_in * h_in * w_in
 
     def prepare_tensor(self, states):
-        drone_view, exploration_map, velocity, position, water_dispense = states
+        drone_view, exploration_map, velocity, position, water_dispense, fire_map = states
 
         if len(drone_view.shape) == 5:
             x, a, b, y, z = drone_view.shape
@@ -126,6 +142,9 @@ class Inputspace(nn.Module):
         if isinstance(exploration_map, np.ndarray):
             exploration_map = torch.tensor(exploration_map, dtype=torch.float32).to(device)
 
+        if isinstance(fire_map, np.ndarray):
+            fire_map = torch.tensor(fire_map, dtype=torch.float32).to(device)
+
         if isinstance(velocity, np.ndarray):
             velocity = torch.tensor(velocity, dtype=torch.float32).to(device)
 
@@ -137,11 +156,11 @@ class Inputspace(nn.Module):
         else:
             water_dispense = water_dispense.unsqueeze(2).to(device)
 
-        return drone_view, exploration_map, velocity, position, water_dispense
+        return drone_view, exploration_map, velocity, position, water_dispense, fire_map
 
     def forward(self, states):
         #terrain, fire_status, velocity, maps, position = self.prepare_tensor(states)
-        drone_view, exploration_map, velocity, position, water_dispense = self.prepare_tensor(states)
+        drone_view, exploration_map, velocity, position, water_dispense, fire_map = self.prepare_tensor(states)
         view = F.relu(self.view_conv1(drone_view))
         view = F.relu(self.view_conv2(view))
         view = torch.flatten(view, start_dim=1)
@@ -152,6 +171,11 @@ class Inputspace(nn.Module):
         explore = torch.flatten(explore, start_dim=1)
         explore = F.relu(self.explore_flat1(explore))
 
+        fire = F.relu(self.fire_conv1(fire_map))
+        fire = F.relu(self.fire_conv2(fire))
+        fire = torch.flatten(fire, start_dim=1)
+        fire = F.relu(self.fire_flat1(fire))
+
         position = F.relu(self.position_dense1(position))
         position = torch.flatten(position, start_dim=1)
 
@@ -161,7 +185,7 @@ class Inputspace(nn.Module):
         water = F.relu(self.water_dense1(water_dispense))
         water = torch.flatten(water, start_dim=1)
 
-        concat_pos = torch.cat((explore, position, velocity, view, water), dim=1)
+        concat_pos = torch.cat((explore, fire, position, velocity, view, water), dim=1)
         # concat_vic = torch.cat((view, water), dim=1)
         pos_feature = F.relu(self.pos_dense1(concat_pos))
         output_vision = torch.flatten(F.relu(self.pos_dense2(pos_feature)), start_dim=1)

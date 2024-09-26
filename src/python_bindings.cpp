@@ -17,7 +17,7 @@ PYBIND11_MODULE(firesim, m) {
     py::class_<State, std::shared_ptr<State>>(m, "State");
 
     py::class_<DroneState, State, std::shared_ptr<DroneState>>(m, "DroneState")
-            .def(py::init<std::pair<double, double>, std::pair<double, double>, std::vector<std::vector<std::vector<int>>>, std::vector<std::vector<int>>, std::vector<std::vector<int>>, std::pair<int, int>, std::pair<int, int>, int, double >())
+            .def(py::init<std::pair<double, double>, std::pair<double, double>, std::vector<std::vector<std::vector<int>>>, std::vector<std::vector<int>>, std::vector<std::vector<double>>, std::pair<int, int>, std::pair<int, int>, int, double >())
             .def("SetVelocity", &DroneState::SetVelocity)
             .def("GetVelocity", &DroneState::GetVelocity)
             .def("GetDroneViewNorm", &DroneState::GetDroneViewNorm)

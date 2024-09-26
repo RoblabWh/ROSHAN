@@ -54,8 +54,8 @@ if __name__ == '__main__':
               "agent_online": True,
               "obs_collected": 0,
               "num_agents": 1,
-              "horizon": 20000,
-              "batch_size": 1000,
+              "horizon": 12800,
+              "batch_size": 64,
               "auto_train": False, # If True, the agent will train several episodes and then evaluate
               "train_episodes": 10, # Number of total trainings containing each max_train steps
               "train_episode": 0, # Current training episode

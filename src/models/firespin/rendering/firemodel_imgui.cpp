@@ -948,22 +948,21 @@ void ImguiHandler::DrawBuffer(std::vector<float> buffer, int buffer_pos) {
         draw_list->AddText(ImVec2(x + 10, graph_pos.y), IM_COL32(255, 255, 255, 255), label);
     }
 }
-
-void ImguiHandler::DrawGrid(const std::vector<std::vector<int>>& grid, std::shared_ptr<FireModelRenderer> renderer, float cell_size, bool is_fire_status, bool is_exploration_map) {
+template<typename T>
+void ImguiHandler::DrawGrid(const std::vector<std::vector<T>>& grid, std::shared_ptr<FireModelRenderer> renderer, float cell_size, bool is_fire_status, bool is_exploration_map) {
     ImVec2 cursor_pos = ImGui::GetCursorScreenPos();
 
     // Function to map a value to a color
     float max_exploration_time = parameters_.GetExplorationTime();
-    std::function<ImVec4(int)> value_to_color;
+    std::function<ImVec4(double)> value_to_color;
     if (!is_fire_status) {
-        value_to_color = [&max_exploration_time](int value) -> ImVec4 {
+        value_to_color = [&max_exploration_time](double value) -> ImVec4 {
             float normalized_value = std::clamp(static_cast<float>(value) / max_exploration_time, 0.0f, 0.6f);
-            return ImVec4(0.6f - normalized_value, 0.6f - normalized_value, 0.3f, 1.0f); // white to black
+            return {0.6f - normalized_value, 0.6f - normalized_value, 0.3f, 1.0f};
         };
     } else {
-        value_to_color = [&max_exploration_time](int value) -> ImVec4 {
-            float normalized_value = std::clamp(static_cast<float>(value), 0.0f, 1.0f);
-            return ImVec4(0.0f + normalized_value, 1.0f - normalized_value, 0.0f, 1.0f); // white to black
+        value_to_color = [](double value) -> ImVec4 {
+            return {0.0f + static_cast<float>(value), 1.0f - static_cast<float>(value), 0.0f, 1.0f};
         };
 
     }

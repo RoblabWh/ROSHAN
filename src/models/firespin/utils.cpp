@@ -154,3 +154,73 @@ std::vector<std::vector<int>> InterpolationResize(const std::vector<std::vector<
 
     return resized_map;
 }
+
+std::vector<std::vector<int>> ResizeFire(const std::vector<std::vector<int>>& input_map, int new_width, int new_height) {
+    int old_width = input_map.size();
+    int old_height = input_map[0].size();
+
+    std::vector<std::vector<int>> resized_map(new_width, std::vector<int>(new_height, 0));
+
+    float x_ratio = static_cast<float>(old_width) / new_width;
+    float y_ratio = static_cast<float>(old_height) / new_height;
+
+    for (int y = 0; y < new_height; ++y) {
+        for (int x = 0; x < new_width; ++x) {
+            int x_orig = static_cast<int>(x * x_ratio);
+            int y_orig = static_cast<int>(y * y_ratio);
+
+            // Ensure indices are within bounds
+            if (x_orig >= old_width) x_orig = old_width - 1;
+            if (y_orig >= old_height) y_orig = old_height - 1;
+
+            resized_map[x][y] = input_map[x_orig][y_orig];
+        }
+        }
+
+    return resized_map;
+}
+
+std::vector<std::vector<double>> BilinearInterpolation(const std::vector<std::vector<int>>& input_map, int new_width, int new_height) {
+    int inputRows = input_map.size();
+    int inputCols = input_map[0].size();
+
+    std::vector<std::vector<double>> output_map(new_width, std::vector<double>(new_height, 0.0));
+
+    double x_scale = (inputCols - 1) / static_cast<double>(new_height - 1);
+    double y_scale = (inputRows - 1) / static_cast<double>(new_width - 1);
+
+    // Perform bilinear interpolation
+    for (int i = 0; i < new_width; ++i) {
+        for (int j = 0; j < new_height; ++j) {
+            double y_in = i * y_scale;
+            double x_in = j * x_scale;
+
+            int x0 = static_cast<int>(std::floor(x_in));
+            int x1 = static_cast<int>(std::ceil(x_in));
+            int y0 = static_cast<int>(std::floor(y_in));
+            int y1 = static_cast<int>(std::ceil(y_in));
+
+            x0 = std::max(0, std::min(x0, inputCols - 1));
+            x1 = std::max(0, std::min(x1, inputCols - 1));
+            y0 = std::max(0, std::min(y0, inputRows - 1));
+            y1 = std::max(0, std::min(y1, inputRows - 1));
+
+            double dx = x_in - x0;
+            double dy = y_in - y0;
+
+            double val00 = input_map[y0][x0];
+            double val10 = input_map[y0][x1];
+            double val01 = input_map[y1][x0];
+            double val11 = input_map[y1][x1];
+
+            // Compute the interpolated value
+            double value = (1 - dx) * (1 - dy) * val00
+                           + dx * (1 - dy) * val10
+                           + (1 - dx) * dy * val01
+                           + dx * dy * val11;
+
+            output_map[i][j] = value;
+        }
+    }
+    return output_map;
+}

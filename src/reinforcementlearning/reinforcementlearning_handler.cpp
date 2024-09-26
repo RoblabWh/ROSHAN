@@ -73,17 +73,19 @@ double ReinforcementLearningHandler::CalculateReward(std::shared_ptr<DroneAgent>
     // Get the last near fires
     double last_near_fires_ = drone->GetLastNearFires();
     // Get the last outside area counter of the drone
-    int out_of_area_counter = drone->GetLastState().CountOutsideArea();
+    //int out_of_area_counter = drone->GetLastState().CountOutsideArea();
     // Get the max_distance from map
-    double max_distance = drone->GetMaxDistanceFromMap();
-    // Is the Drone in the Gridmap?
+    //double max_distance = drone->GetMaxDistanceFromMap();
     bool drone_in_grid = drone->GetDroneInGrid();
     // Did the drone dispense water?
     bool water_dispensed = drone->GetDispensedWater();
+    // Get a value for how much the Drone explored in the last time step
     int explore_difference = drone->GetExploreDifference() / parameters_.GetExplorationTime();
+    // How many cells are burned down
     int burned_cells = gridmap_->GetNumBurnedCells();
-    bool fire_extinguished_last = drone->GetExtinguishedLastFire();
+    // How many cells are burning, not used in reward but in checking terminal states
     bool fires = gridmap_->GetNumBurningCells() > 0;
+    std::vector<std::vector<double>> exploration_map = drone->GetLastState().GetExplorationMapNorm();
     std::string debug_str = "";
 
     double reward = 0;
@@ -121,13 +123,27 @@ double ReinforcementLearningHandler::CalculateReward(std::shared_ptr<DroneAgent>
     }
 
     // Burned Area Penalty
-    reward += -0.01 * burned_cells;
-    debug_str += "Burned Area Penalty: " + std::to_string(-0.01 * burned_cells) + "\n";
+//    reward += -0.01 * burned_cells;
+//    debug_str += "Burned Area Penalty: " + std::to_string(-0.01 * burned_cells) + "\n";
 
     // Exploration Reward
-    double exploration_reward = 0.005 * explore_difference;
+    double exploration_reward = 0.05 * explore_difference;
     debug_str += "Exploration Reward: " + std::to_string(exploration_reward) + "\n";
     reward += exploration_reward;
+
+    // Calculating the reward for the whole exploration map
+    double freshness = 0;
+    for (auto &row : exploration_map) {
+        for (double value : row) {
+            freshness += value;
+            if (value == 0.0) {
+                freshness -= 1.0;
+            }
+        }
+    }
+    freshness /= static_cast<int>(exploration_map.size() * exploration_map[0].size());
+    debug_str += "Freshness: " + std::to_string(freshness) + "\n";
+    reward += freshness;
 
     // Staying Alive Reward
 //    reward += pow(0.1, (0.000000000000000000001+gridmap_->PercentageBurned()/0.05));
@@ -207,7 +223,6 @@ std::tuple<std::vector<std::deque<std::shared_ptr<State>>>, std::vector<double>,
                     actions[i])->GetSpeedX(); // change this to "real" speed
             double speed_y = std::dynamic_pointer_cast<DroneAction>(actions[i])->GetSpeedY();
             int water_dispense = std::dynamic_pointer_cast<DroneAction>(actions[i])->GetWaterDispense();
-
             StepDrone(i, speed_x, speed_y, water_dispense);
         }
 

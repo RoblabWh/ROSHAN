@@ -215,7 +215,7 @@ class PPO:
                 # batch_states = (
                 #     states[0][index], states[1][index], states[2][index], states[3][index], states[4][index])
                 # batch_states = (state[i][index] for state in states)
-                batch_states = (states[0][index], states[1][index], states[2][index], states[3][index], states[4][index])
+                batch_states = (states[0][index], states[1][index], states[2][index], states[3][index], states[4][index], states[5][index])
                 batch_actions = actions[index]
                 logprobs, values, dist_entropy = self.policy.evaluate(batch_states, batch_actions)
 

@@ -40,7 +40,7 @@ public:
     void UpdateCells();
     double PercentageBurned() const;
     std::vector<std::vector<int>> GetExploredMap(int size=0, bool interpolated=true);
-    std::vector<std::vector<int>> GetFireMap(int size=0, bool interpolated=true);
+    std::vector<std::vector<double>> GetFireMap(int size=0, bool interpolated=true);
 
     double PercentageBurning() const;
     double PercentageUnburnable() const;

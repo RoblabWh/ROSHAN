@@ -22,7 +22,7 @@ public:
                         std::pair<double, double> max_speed,
                         std::vector<std::vector<std::vector<int>>> drone_view,
                         std::vector<std::vector<int>> exploration_map,
-                        std::vector<std::vector<int>> fire_map,
+                        std::vector<std::vector<double>> fire_map,
                         std::pair<double, double> map_dimensions,
                         std::pair<double, double> position,
                         int water_dispense,
@@ -39,7 +39,7 @@ public:
     std::vector<std::vector<int>> GetTerrain() { return drone_view_[0]; }
     std::vector<std::vector<int>> GetFireStatus() { return drone_view_[1]; }
     std::vector<std::vector<int>> GetExplorationMap() { return exploration_map_; }
-    std::vector<std::vector<int>> GetFireMap() { return fire_map_; }
+    std::vector<std::vector<double>> GetFireMap() { return fire_map_; }
     int GetWaterDispense() { return water_dispense_; }
     std::vector<std::vector<double>> GetExplorationMapNorm() const;
     static std::vector<std::vector<double>> GetMapNorm();
@@ -53,7 +53,7 @@ public:
     std::pair<double, double> get_velocity() const { return velocity_; }
     std::vector<std::vector<std::vector<int>>> get_drone_view() const { return drone_view_; }
     std::vector<std::vector<int>> get_map() const { return exploration_map_; }
-    std::vector<std::vector<int>> get_fire_map() const { return fire_map_; }
+    std::vector<std::vector<double>> get_fire_map() const { return fire_map_; }
     std::pair<int, int> get_position() const { return position_; }
     std::pair<double, double> get_orientation_vector() const { return orientation_vector_; }
 private:
@@ -66,7 +66,7 @@ private:
     std::pair<double, double> position_; // x, y
     std::vector<std::vector<std::vector<int>>> drone_view_; // terrain, fire_status split at the first dimension
     std::vector<std::vector<int>> exploration_map_;
-    std::vector<std::vector<int>> fire_map_;
+    std::vector<std::vector<double>> fire_map_;
     std::pair<double, double> orientation_vector_; // x, y
     double DiscretizeOutput(double netout);
 };
