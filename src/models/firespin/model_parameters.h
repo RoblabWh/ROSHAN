@@ -153,13 +153,15 @@ public:
     void SetAgentIsRunning(bool running) {agent_is_running_ = running;}
     bool GetAgentIsRunning() const {return agent_is_running_;}
     int number_of_drones_ = 1;
+    int total_env_steps_ = 200;
+    int GetTotalEnvSteps() const {return total_env_steps_;}
     int view_range_ = 8;
     int GetViewRange() const {return view_range_;}
     int time_steps_ = 4;
     int GetTimeSteps() const {return time_steps_;}
     // std::pair<double, double> min_velocity_ = std::make_pair(-5.0, -5.0);
     // std::pair<double, double> GetMinVelocity() const {return min_velocity_;}
-    std::pair<double, double> max_velocity_ = std::make_pair(7.5, 7.5); // X and Y Speed
+    std::pair<double, double> max_velocity_ = std::make_pair(10, 10); // X and Y Speed
     // std::pair<double, double> max_velocity_ = std::make_pair(5.0, 2 * M_PI); // Max Speed and Angle
     std::pair<double, double> GetMaxVelocity() const {return max_velocity_;}
     int GetNumberOfDrones() const {return number_of_drones_;}

@@ -20,6 +20,7 @@ GridMap::GridMap(std::shared_ptr<Wind> wind, FireModelParameters &parameters,
     cells_ = std::vector<std::vector<std::shared_ptr<FireCell>>>(rows, std::vector<std::shared_ptr<FireCell>>(cols));
     explored_map_ = std::vector<std::vector<int>>(rows, std::vector<int>(cols, 0));
     fire_map_ = std::vector<std::vector<int>>(rows, std::vector<int>(cols, 0));
+//    std::cout << "GridMap: " << rows << " " << cols << std::endl;
 
     for (int x = 0; x < rows; ++x) {
         for (int y = 0; y < cols; ++y) {
@@ -102,6 +103,23 @@ void GridMap::UpdateParticles() {
 }
 
 GridMap::~GridMap() {
+}
+
+std::pair<double, double> GridMap::GetNextFire(std::shared_ptr<DroneAgent> drone) {
+    auto drone_position = drone->GetGridPosition();
+    double min_distance = std::numeric_limits<double>::max();
+    std::pair<double, double> next_fire = std::make_pair(-1, -1);
+    for (auto cell : burning_cells_) {
+        double distance = sqrt(
+                pow(cell.x_ - drone_position.first, 2) +
+                pow(cell.y_ - drone_position.second, 2)
+        );
+        if (distance < min_distance) {
+            min_distance = distance;
+            next_fire = std::make_pair(cell.x_, cell.y_);
+        }
+    }
+    return next_fire;
 }
 
 void GridMap::IgniteCell(int x, int y) {
@@ -243,19 +261,19 @@ std::vector<std::vector<std::vector<int>>> GridMap::GetDroneView(std::shared_ptr
     std::vector<std::vector<std::vector<int>>> view(2, std::vector<std::vector<int>>(size, std::vector<int>(size, -1)));
 
     int drone_view_radius_2 = drone_view_radius / 2;
-    for (int y = drone_position.second - drone_view_radius_2; y <= drone_position.second + drone_view_radius_2; ++y) {
-        for (int x = drone_position.first - drone_view_radius_2; x <= drone_position.first + drone_view_radius_2; ++x) {
-            int new_i = y - drone_position.second + drone_view_radius_2;
-            int new_j = x - drone_position.first + drone_view_radius_2;
+    for (int x = drone_position.first - drone_view_radius_2; x <= drone_position.first + drone_view_radius_2; ++x) {
+        for (int y = drone_position.second - drone_view_radius_2; y <= drone_position.second + drone_view_radius_2; ++y) {
+            int new_x = x - drone_position.first + drone_view_radius_2;
+            int new_y = y - drone_position.second + drone_view_radius_2;
             if (IsPointInGrid(x, y)) {
                 // Setze Zellstatus (Status 0)
-                view[0][new_i][new_j] = cells_[x][y]->GetCellState();
+                view[0][new_x][new_y] = cells_[x][y]->GetCellState();
 
                 // Setze Feuerstatus (Status 1)
                 if (cells_[x][y]->IsBurning())
-                    view[1][new_i][new_j] = 1;
+                    view[1][new_x][new_y] = 1;
                 else
-                    view[1][new_i][new_j] = 0; // oder ein anderer Wert, der "kein Feuer" darstellt
+                    view[1][new_x][new_y] = 0; // oder ein anderer Wert, der "kein Feuer" darstellt
             }
         }
     }

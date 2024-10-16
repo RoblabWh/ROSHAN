@@ -4,7 +4,7 @@ import os
 import warnings
 import numpy as np
 from memory import SwarmMemory
-from network import ActorCritic
+from network_fly import ActorCritic
 from utils import RunningMeanStd
 from torch.utils.data.sampler import BatchSampler, SubsetRandomSampler
 
@@ -50,8 +50,11 @@ class PPO:
         # Current Policy
         self.policy = ActorCritic(vision_range=self.vision_range, time_steps=self.time_steps)
 
-        self.optimizer_a = torch.optim.Adam(self.policy.actor.parameters(), lr=lr, betas=betas, eps=1e-5)
-        self.optimizer_c = torch.optim.Adam(self.policy.critic.parameters(), lr=lr, betas=betas, eps=1e-5)
+        self.actor_params = self.policy.actor.parameters()
+        self.critic_params = self.policy.critic.parameters()
+
+        self.optimizer_a = torch.optim.Adam(self.actor_params, lr=lr, betas=betas, eps=1e-5)
+        self.optimizer_c = torch.optim.Adam(self.critic_params, lr=lr, betas=betas, eps=1e-5)
 
         self.MSE_loss = nn.MSELoss()
         self.running_reward_std = RunningMeanStd()
@@ -146,7 +149,7 @@ class PPO:
         var_returns = returns.var()
         return 0 if var_returns == 0 else 1 - (returns - values).var() / var_returns
 
-    def update(self, memory, horizon, mini_batch_size, next_obs, logger):
+    def update(self, memory, horizon, mini_batch_size, n_steps, next_obs, logger):
         """
         This function implements the update step of the Proximal Policy Optimization (PPO) algorithm for a swarm of
         robots. It takes in the memory buffer containing the experiences of the swarm, as well as the number of batches
@@ -172,26 +175,47 @@ class PPO:
         # Clipping most likely is unnecessary
         # rewards = [np.clip(np.array(reward.detach().cpu()) / self.running_reward_std.get_std(), -10, 10) for reward in rewards]
         # Reward normalization
-        self.running_reward_std.update(torch.cat(rewards).detach().cpu().numpy())
-        rewards = [reward / self.running_reward_std.get_std() for reward in rewards]
-        logger.add_rewards_scaled(torch.cat(rewards).detach().cpu().numpy())
+        # self.running_reward_std.update(torch.cat(rewards).detach().cpu().numpy())
+        # rewards = [reward / self.running_reward_std.get_std() for reward in rewards]
+        # logger.add_rewards_scaled(torch.cat(rewards).detach().cpu().numpy())
 
         # Don't shift rewards like this, it will mess up your reward function. Only do scaling
         # rewards = (rewards - rewards.mean()) / (rewards.std() + 1e-10)
 
         # Advantages
-        with torch.no_grad():
+        with (torch.no_grad()):
             advantages = []
             returns = []
             for i in range(memory.num_agents):
-                _, values_, _ = self.policy.evaluate(states[i], actions[i])
-                if masks[i][-1] == 1:
-                    last_state = tuple(torch.FloatTensor(np.array(state)).to(self.device) for state in memory.get_agent_state(next_obs, i))
-                    bootstrapped_value = self.policy.critic(last_state).detach()
-                    values_ = torch.cat((values_, bootstrapped_value[0]), dim=0)
-                adv, ret = self.get_advantages(values_.detach(), masks[i], rewards[i].detach())
-                advantages.append(adv)
-                returns.append(ret)
+                # _, values_, _ = self.policy.evaluate(states[i], actions[i])
+                # if masks[i][-1] == 1:
+                #     last_state = tuple(torch.FloatTensor(np.array(state)).to(self.device) for state in memory.get_agent_state(next_obs, i))
+                #     bootstrapped_value = self.policy.critic(last_state).detach()
+                #     values_ = torch.cat((values_, bootstrapped_value[0]), dim=0)
+                # adv, ret = self.get_advantages(values_.detach(), masks[i], rewards[i].detach())
+                #
+                # advantages.append(adv)
+                # returns.append(ret)
+
+                step_indices = list(np.arange(0, len(states[0][0]), n_steps))
+                if step_indices[-1] != len(states[0][0]):
+                    step_indices.append(len(states[0][0]))
+
+                for idx in range(len(step_indices) - 1):
+                    begin = step_indices[idx]
+                    end = step_indices[idx + 1]
+                    batch_states = tuple(state[begin:end] for state in states[i])
+                    batch_actions = actions[i][begin:end]
+                    batch_rewards = rewards[i][begin:end]
+                    batch_masks = masks[i][begin:end]
+                    _, values_, _ = self.policy.evaluate(batch_states, batch_actions)
+                    if batch_masks[-1] == 1:
+                        last_state = tuple(torch.FloatTensor(np.array(state)).to(self.device) for state in memory.get_agent_state(next_obs, i))
+                        bootstrapped_value = self.policy.critic(last_state).detach()
+                        values_ = torch.cat((values_, bootstrapped_value[0]), dim=0)
+                    adv, ret = self.get_advantages(values_.detach(), batch_masks, batch_rewards.detach())
+                    advantages.append(adv)
+                    returns.append(ret)
 
         # Merge all agent states, actions, rewards etc.
         advantages = torch.cat(advantages)
@@ -215,7 +239,8 @@ class PPO:
                 # batch_states = (
                 #     states[0][index], states[1][index], states[2][index], states[3][index], states[4][index])
                 # batch_states = (state[i][index] for state in states)
-                batch_states = (states[0][index], states[1][index], states[2][index], states[3][index], states[4][index], states[5][index])
+                #batch_states = (states[0][index], states[1][index], states[2][index], states[3][index], states[4][index], states[5][index])
+                batch_states = (states[0][index], states[1][index], states[2][index])
                 batch_actions = actions[index]
                 logprobs, values, dist_entropy = self.policy.evaluate(batch_states, batch_actions)
 
@@ -229,18 +254,20 @@ class PPO:
                 #                 f"This happend in epoch {_} and mini_batch {index}. Early stopping for this training peroid.\n")
                 #     break
 
+                actor_loss = -torch.mean(torch.min(ratios * advantages[index], torch.clamp(ratios, 1 - self.eps_clip, 1 + self.eps_clip) * advantages[index]))
+
                 # Actor loss using Surrogate loss
-                surr1 = ratios * advantages[index]
-                surr2 = torch.clamp(ratios, 1 - self.eps_clip, 1 + self.eps_clip) * advantages[index]
-                entropy = 0.001 * dist_entropy
-                actor_loss = ((-torch.min(surr1, surr2).type(torch.float32)) - entropy).mean()
+                # surr1 = ratios * advantages[index]
+                # surr2 = torch.clamp(ratios, 1 - self.eps_clip, 1 + self.eps_clip) * advantages[index]
+                # # entropy = torch.Tensor(0) #0.001 * dist_entropy
+                # actor_loss = ((-torch.min(surr1, surr2).type(torch.float32))).mean()
 
                 # TODO CLIP VALUE LOSS ? Probably not necessary as according to:
                 # https://iclr-blog-track.github.io/2022/03/25/ppo-implementation-details/
                 critic_loss = self.MSE_loss(returns[index].squeeze(), values)
 
                 # Log loss
-                logger.add_losses(critic_loss=critic_loss.detach().cpu().item(), actor_loss=actor_loss.detach().cpu().item(), entropy=entropy.detach().cpu().numpy())
+                logger.add_losses(critic_loss=critic_loss.detach().cpu().item(), actor_loss=actor_loss.detach().cpu().item())
                 logger.add_std(torch.exp(self.policy.actor.log_std).cpu().detach().numpy())
                 logging_values.append(values.detach().cpu().numpy())
                 epoch_values.append(values.detach().cpu().numpy())
@@ -256,13 +283,13 @@ class PPO:
                 self.optimizer_a.zero_grad()
                 actor_loss.backward(retain_graph=True)
                 # Global gradient norm clipping https://vitalab.github.io/article/2020/01/14/Implementation_Matters.html
-                torch.nn.utils.clip_grad_norm_(self.policy.actor.parameters(), max_norm=0.5)
+                torch.nn.utils.clip_grad_norm_(self.actor_params, max_norm=0.5)
                 self.optimizer_a.step()
 
                 self.optimizer_c.zero_grad()
                 critic_loss.backward()
                 # Global gradient norm clipping https://vitalab.github.io/article/2020/01/14/Implementation_Matters.html
-                torch.nn.utils.clip_grad_norm_(self.policy.critic.parameters(), max_norm=0.5)
+                torch.nn.utils.clip_grad_norm_(self.critic_params, max_norm=0.5)
                 self.optimizer_c.step()
 
             # Compute explained variance over the epoch

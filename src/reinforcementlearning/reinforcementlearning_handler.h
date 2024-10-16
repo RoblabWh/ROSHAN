@@ -63,6 +63,7 @@ private:
     std::shared_ptr<std::vector<std::shared_ptr<DroneAgent>>> drones_;
 
     double CalculateReward(std::shared_ptr<DroneAgent> drone, bool terminal_state) const;
+    double CalculateReward2(std::shared_ptr<DroneAgent> drone, bool terminal_state) const;
 
     //Flags
     bool agent_is_running_;
@@ -70,8 +71,10 @@ private:
     // Rewards Collection for Debugging!
     CircularBuffer<float> rewards_;
     std::vector<float> all_rewards_;
+    int total_env_steps_;
 
     pybind11::dict rl_status_; // Status of the current episode
+    double FindNearestFireDistanceGlobal(std::shared_ptr<DroneAgent> drone) const;
 };
 
 

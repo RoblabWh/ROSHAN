@@ -41,12 +41,15 @@ public:
     double PercentageBurned() const;
     std::vector<std::vector<int>> GetExploredMap(int size=0, bool interpolated=true);
     std::vector<std::vector<double>> GetFireMap(int size=0, bool interpolated=true);
+    const std::vector<std::vector<int>> &GetFireMapRef() const { return fire_map_; }
 
     double PercentageBurning() const;
     double PercentageUnburnable() const;
     int GetNumOfCells() const { return num_cells_; }
+    std::unordered_set<Point> GetBurningCells() const { return burning_cells_; }
     int GetNumBurningCells() const { return burning_cells_.size(); }
     int GetNumBurnedCells() const { return num_burned_cells_; }
+    std::pair<double, double> GetNextFire(std::shared_ptr<DroneAgent> drone);
     int GetNumUnburnable() const { return num_unburnable_; }
     bool CanStartFires(int num_fires) const;
     bool IsBurning() const;

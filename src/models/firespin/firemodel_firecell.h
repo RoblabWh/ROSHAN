@@ -49,6 +49,7 @@ public:
     bool IsFlooded();
 
     bool CanIgnite();
+    bool IsBurning() const { return cell_state_ == CellState::GENERIC_BURNING; }
     void Ignite();
     std::pair<bool, bool> ShouldEmitNextParticles();
     VirtualParticle EmitConvectionParticle();

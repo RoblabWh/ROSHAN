@@ -29,13 +29,13 @@ if __name__ == '__main__':
     t = -1
     train_step = 0
     eval_step = 0
-    llm_support = True
+    llm_support = False
 
     # 0: GUI_RL, 2: NoGUI_RL
     mode = 0
 
     # This map is used in NoGUI setup, if left empty("") the default map will be used. Has no impact on GUI Setup
-    map = "/home/nex/Dokumente/Code/ROSHAN/maps/Small2.tif"
+    map = "/home/nex/Dokumente/Code/ROSHAN/maps/21x21_Field.tif"
     #map = ""
 
     console = ""
@@ -54,8 +54,9 @@ if __name__ == '__main__':
               "agent_online": True,
               "obs_collected": 0,
               "num_agents": 1,
-              "horizon": 12800,
-              "batch_size": 64,
+              "horizon": 5120,#12800,
+              "n_steps": 32,
+              "batch_size": 256,
               "auto_train": False, # If True, the agent will train several episodes and then evaluate
               "train_episodes": 10, # Number of total trainings containing each max_train steps
               "train_episode": 0, # Current training episode
@@ -112,7 +113,6 @@ if __name__ == '__main__':
                 next_obs = agent.restructure_data(engine.GetObservations())
                 agent_cnt = next_obs[0].shape[0]
                 terminals = [False] * agent_cnt
-
             obs = next_obs
             if status["rl_mode"] == "train":
                 actions, action_logprobs = agent.act(obs)
@@ -126,7 +126,7 @@ if __name__ == '__main__':
                 status["obs_collected"] = len(memory) + 1
 
                 if agent.should_train(memory):
-                    agent.update(status, memory, mini_batch_size=status["batch_size"], next_obs=next_obs)
+                    agent.update(status, memory, mini_batch_size=status["batch_size"], n_steps=status["n_steps"], next_obs=next_obs)
             else:
                 actions = agent.act_certain(obs)
                 drone_actions = agent.get_action(actions)
@@ -135,6 +135,9 @@ if __name__ == '__main__':
                 agent.evaluate(status, rewards, terminals, dones, percent_burned)
             engine.SendRLStatusToModel(status)
         else:
+            if not status["agent_online"]:
+                print("Ende")
+                exit()
             obs, rewards = None, None
 
         user_input = engine.GetUserInput()

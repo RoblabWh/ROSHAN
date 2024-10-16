@@ -25,6 +25,7 @@ public:
                         std::vector<std::vector<double>> fire_map,
                         std::pair<double, double> map_dimensions,
                         std::pair<double, double> position,
+                        std::pair<double, double> goal_position,
                         int water_dispense,
                         double cell_size);
 //    void SetOrientation() { orientation_vector_.first = cos(velocity_.first); orientation_vector_.second = sin(velocity_.first); }
@@ -44,6 +45,10 @@ public:
     std::vector<std::vector<double>> GetExplorationMapNorm() const;
     static std::vector<std::vector<double>> GetMapNorm();
     std::pair<double, double> GetPositionNorm() const;
+    std::pair<double, double> GetGridPositionDouble() const;
+    std::pair<double, double> GetGridPositionDoubleNorm() const;
+    std::pair<double, double> GetGoalPosition() const { return goal_position_; }
+    std::pair<double, double> GetGoalPositionNorm() const;
     std::vector<std::vector<std::vector<int>>> GetDroneViewNorm();
 
     // Used for Reward Calculation
@@ -64,6 +69,7 @@ private:
     std::pair<double, double> map_dimensions_;
     double cell_size_;
     std::pair<double, double> position_; // x, y
+    std::pair<double, double> goal_position_;
     std::vector<std::vector<std::vector<int>>> drone_view_; // terrain, fire_status split at the first dimension
     std::vector<std::vector<int>> exploration_map_;
     std::vector<std::vector<double>> fire_map_;

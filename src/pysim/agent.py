@@ -88,8 +88,8 @@ class AgentHandler:
                 self.algorithm.set_eval()
         return memory
 
-    def update(self, status, memory, mini_batch_size, next_obs):
-        status["console"] += self.algorithm.update(memory, self.horizon, mini_batch_size, next_obs, self.logger)
+    def update(self, status, memory, mini_batch_size, n_steps, next_obs):
+        status["console"] += self.algorithm.update(memory, self.horizon, mini_batch_size, n_steps, next_obs, self.logger)
         status["train_step"] += 1
         if status["train_step"] >= status["max_train"]:
             if not status["auto_train"]:
@@ -171,6 +171,24 @@ class AgentHandler:
         return False, console
 
     def restructure_data(self, observations_):
+        all_velocities, all_positions, all_goals = [], [], []
+
+        for deque in observations_:
+            drone_states = np.array([state for state in deque if isinstance(state, firesim.DroneState)])
+            if len(drone_states) == 0:
+                continue
+
+            velocities = np.array([state.GetVelocityNorm() for state in drone_states])
+            positions = np.array([state.GetGridPositionDoubleNorm() for state in drone_states])
+            goals = np.array([state.GetGoalPositionNorm() for state in drone_states])
+
+            all_velocities.append(velocities)
+            all_positions.append(positions)
+            all_goals.append(goals)
+
+        return np.array(all_velocities), np.array(all_positions), np.array(all_goals)
+
+    def restructure_data2(self, observations_):
         all_drone_views, all_velocities, all_maps, all_fires, all_positions, all_water_dispense = [], [], [], [], [], []
 
         for deque in observations_:

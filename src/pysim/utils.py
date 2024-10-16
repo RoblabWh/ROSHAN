@@ -161,8 +161,8 @@ class Logger:
     def log_episode(self, observations, done, burned_percentage):
         """Logs metrics at each step and handles episode completion."""
         self.current_steps += 1
-        self.velocities.append(observations[2].squeeze())
-        self.positions.append(observations[3].squeeze())
+        # self.velocities.append(observations[2].squeeze())
+        # self.positions.append(observations[3].squeeze())
 
         if done:
             self.objectives.append(burned_percentage)
@@ -196,9 +196,9 @@ class Logger:
         """Adds value function predictions."""
         self.values.extend(values)  # Assuming values is a list or array
 
-    def add_losses(self, critic_loss, actor_loss, entropy):
+    def add_losses(self, critic_loss, actor_loss, entropy=0):
         """Adds loss metrics."""
-        self.entropies.extend(entropy)
+        # self.entropies.extend(entropy)
         self.critic_losses.append(critic_loss)
         self.actor_losses.append(actor_loss)
 
@@ -218,7 +218,7 @@ class Logger:
         # Log scalar metrics
         self.writer.add_scalar(f'{self.tag}/Critic Loss', np.mean(self.critic_losses), t)
         self.writer.add_scalar(f'{self.tag}/Actor Loss', np.mean(self.actor_losses), t)
-        self.writer.add_scalar(f'{self.tag}/Entropy', np.mean(self.entropies), t)
+        # self.writer.add_scalar(f'{self.tag}/Entropy', np.mean(self.entropies), t)
         self.writer.add_scalar(f'{self.tag}/Reward (Avg)', np.mean(self.rewards), t)
         self.writer.add_scalar(f'{self.tag}/Reward Scaled (Avg)', np.mean(self.rewards_scaled), t)
         self.writer.add_scalar(f'{self.tag}/Return (Avg)', np.mean(self.returns), t)
@@ -229,13 +229,13 @@ class Logger:
 
         # Log histogram metrics
         self.writer.add_histogram(f'{self.tag}/Rewards', np.array(self.rewards), t)
-        self.writer.add_histogram(f'{self.tag}/Rewards Scaled', np.array(self.rewards_scaled), t)
+        # self.writer.add_histogram(f'{self.tag}/Rewards Scaled', np.array(self.rewards_scaled), t)
         self.writer.add_histogram(f'{self.tag}/Returns', np.array(self.returns), t)
         self.writer.add_histogram(f'{self.tag}/Values', np.array(self.values), t)
         self.writer.add_histogram(f'{self.tag}/Std X', np.array(self.std_xs), t)
         self.writer.add_histogram(f'{self.tag}/Std Y', np.array(self.std_ys), t)
-        self.writer.add_histogram(f'{self.tag}/Velocities', np.array(self.velocities), t)
-        self.writer.add_histogram(f'{self.tag}/Positions', np.array(self.positions), t)
+        # self.writer.add_histogram(f'{self.tag}/Velocities', np.array(self.velocities), t)
+        # self.writer.add_histogram(f'{self.tag}/Positions', np.array(self.positions), t)
         self.writer.add_histogram(f'{self.tag}/Explained Variances', np.array(self.explained_variances), t)
 
         self.summarize_steps += 1

@@ -11,6 +11,7 @@ ReinforcementLearningHandler::ReinforcementLearningHandler(FireModelParameters &
                                                            rewards_(parameters_.GetRewardsBufferSize()){
     drones_ = std::make_shared<std::vector<std::shared_ptr<DroneAgent>>>();
     agent_is_running_ = false;
+    total_env_steps_ = parameters_.GetTotalEnvSteps();
 }
 
 std::vector<std::deque<std::shared_ptr<State>>> ReinforcementLearningHandler::GetObservations() {
@@ -34,6 +35,7 @@ std::vector<std::deque<std::shared_ptr<State>>> ReinforcementLearningHandler::Ge
 
 void ReinforcementLearningHandler::ResetDrones(Mode mode) {
     drones_->clear();
+    total_env_steps_ = parameters_.GetTotalEnvSteps();
     for (int i = 0; i < parameters_.GetNumberOfDrones(); ++i) {
         auto newDrone = std::make_shared<DroneAgent>(gridmap_->GetRandomPointInGrid(), parameters_, i);
         if (mode == Mode::GUI_RL) {
@@ -41,6 +43,8 @@ void ReinforcementLearningHandler::ResetDrones(Mode mode) {
         }
         gridmap_->UpdateExploredAreaFromDrone(newDrone);
         newDrone->SetExploreDifference(0);
+        newDrone->SetGoalPosition(gridmap_->GetNextFire(newDrone));
+        newDrone->SetLastDistanceToGoal(newDrone->GetDistanceToGoal());
         newDrone->Initialize(*gridmap_);
         newDrone->SetLastNearFires(newDrone->DroneSeesFire());
         newDrone->SetLastDistanceToFire(newDrone->FindNearestFireDistance());
@@ -49,8 +53,14 @@ void ReinforcementLearningHandler::ResetDrones(Mode mode) {
 }
 
 void ReinforcementLearningHandler::StepDrone(int drone_idx, double speed_x, double speed_y, int water_dispense) {
-    std::pair<double, double> vel_vector = drones_->at(drone_idx)->Step(speed_x * parameters_.GetDt(), speed_y * parameters_.GetDt());
-    drones_->at(drone_idx)->DispenseWater(*gridmap_, water_dispense);
+    std::pair<double, double> vel_vector = drones_->at(drone_idx)->Step(speed_x, speed_y);
+    drones_->at(drone_idx)->DispenseWaterCertain(*gridmap_);
+    drones_->at(drone_idx)->SetReachedGoal(drones_->at(drone_idx)->GetGoalPositionInt() == drones_->at(drone_idx)->GetGridPosition());
+    if (drones_->at(drone_idx)->GetGoalPositionInt() == drones_->at(drone_idx)->GetGridPosition()){
+        auto next_fire = gridmap_->GetNextFire(drones_->at(drone_idx));
+        drones_->at(drone_idx)->SetGoalPosition(next_fire);
+    }
+//    drones_->at(drone_idx)->DispenseWater(*gridmap_, water_dispense);
     auto drone_view = gridmap_->GetDroneView(drones_->at(drone_idx));
     gridmap_->UpdateExploredAreaFromDrone(drones_->at(drone_idx));
     // TODO consider not only adding the current velocity, but the last netoutputs (these are two potential dimensions)
@@ -61,9 +71,102 @@ void ReinforcementLearningHandler::InitFires() {
         this->startFires(parameters_.fire_percentage_);
 }
 
+double ReinforcementLearningHandler::FindNearestFireDistanceGlobal(std::shared_ptr<DroneAgent> drone) const {
+    double min_distance = std::numeric_limits<double>::max();
+    auto fire_map = gridmap_->GetFireMapRef();
+    std::pair<double, double> position = drone->GetRealPosition();
+
+    for (int x = 0; x < fire_map.size(); ++x) {
+        for (int y = 0; y < fire_map[0].size(); ++y) {
+            if (fire_map[x][y] == 1) { // Assuming 1 indicates fire
+                double real_x, real_y;
+                parameters_.ConvertGridToRealCoordinates(x, y, real_x, real_y);
+                double distance = sqrt(
+                        pow(real_x - position.first, 2) +
+                        pow(real_y - position.second, 2)
+                );
+
+                if (distance < min_distance) {
+                    min_distance = distance;
+                }
+            }
+        }
+    }
+
+    return min_distance;
+}
+
 double ReinforcementLearningHandler::CalculateReward(std::shared_ptr<DroneAgent> drone, bool terminal_state) const {
+    // Calculate distance to goal
+    double distance_to_goal = drone->GetDistanceToGoal();
+    double last_distance_to_goal = drone->GetLastDistanceToGoal();
+    double delta_distance = last_distance_to_goal - distance_to_goal;
+    bool drone_in_grid = drone->GetDroneInGrid();
+    bool fires = gridmap_->GetNumBurningCells() > 0;
+    std::string debug_str;
+
+    double reward = 0;
+
+    if (drone->GetReachedGoal()) {
+        reward += 1;
+        if(terminal_state){
+            reward += 5;
+            debug_str += "Goal Reached Reward: " + std::to_string(reward) + "\n";
+#ifdef DEBUG_REWARD_YES
+            std::cout << debug_str;
+#endif
+            return reward;
+        }
+        debug_str += "Goal Reached Reward: " + std::to_string(reward) + "\n";
+    }
+
+    // Check the boundaries of the map
+    if (!drone_in_grid && terminal_state) {
+            reward += -5;
+            debug_str += "Boundary Terminal Reward: " + std::to_string(-1) + "\n";
+#ifdef DEBUG_REWARD_YES
+            std::cout << debug_str;
+#endif
+            return reward;
+    }
+
+    // The environment reached terminal state, this means the map is burned too much
+    if(terminal_state && (total_env_steps_ <= 0)){
+        reward += -5;
+        debug_str += "Terminal State(Took too long) Reward: " + std::to_string(-1) + "\n";
+        return reward;
+    }
+
+    if(terminal_state && fires){
+        reward += -5;
+        debug_str += "Terminal State(Map Burned) Reward: " + std::to_string(-1) + "\n";
+        return reward;
+    }
+    if(terminal_state && !fires){
+        reward += 0;
+        debug_str += "Terminal State(Took too long) Reward: " + std::to_string(1) + "\n";
+        return reward;
+    }
+
+    if (delta_distance > 0) {
+        reward += 0.1 * delta_distance;
+        debug_str += "Distance Reward: " + std::to_string(0.1 * delta_distance) + "\n";
+    }
+
+    // Set some drone variables now so we don't need to compute them again
+
+    debug_str += "Total Reward: " + std::to_string(reward) + "\n\n";
+#ifdef DEBUG_REWARD_YES
+    std::cout << debug_str;
+#endif
+    drone->SetLastDistanceToGoal(distance_to_goal);
+    return reward;
+}
+
+double ReinforcementLearningHandler::CalculateReward2(std::shared_ptr<DroneAgent> drone, bool terminal_state) const {
     // Calculate distance to nearest fire, dirty maybe change that later(lol never gonna happen)
-    double distance_to_fire = drone->FindNearestFireDistance();
+    //double distance_to_fire = drone->FindNearestFireDistance();
+    double distance_to_fire = FindNearestFireDistanceGlobal(drone);
     // Get the last distance to the nearest fire
     double last_distance_to_fire_ = drone->GetLastDistanceToFire();
     // Check if the Fire Extinquished flag is set
@@ -86,7 +189,7 @@ double ReinforcementLearningHandler::CalculateReward(std::shared_ptr<DroneAgent>
     // How many cells are burning, not used in reward but in checking terminal states
     bool fires = gridmap_->GetNumBurningCells() > 0;
     std::vector<std::vector<double>> exploration_map = drone->GetLastState().GetExplorationMapNorm();
-    std::string debug_str = "";
+    std::string debug_str;
 
     double reward = 0;
 
@@ -127,60 +230,58 @@ double ReinforcementLearningHandler::CalculateReward(std::shared_ptr<DroneAgent>
 //    debug_str += "Burned Area Penalty: " + std::to_string(-0.01 * burned_cells) + "\n";
 
     // Exploration Reward
-    double exploration_reward = 0.05 * explore_difference;
-    debug_str += "Exploration Reward: " + std::to_string(exploration_reward) + "\n";
-    reward += exploration_reward;
+//    double exploration_reward = 0.05 * explore_difference;
+//    debug_str += "Exploration Reward: " + std::to_string(exploration_reward) + "\n";
+//    reward += exploration_reward;
 
     // Calculating the reward for the whole exploration map
     double freshness = 0;
     for (auto &row : exploration_map) {
         for (double value : row) {
             freshness += value;
-            if (value == 0.0) {
-                freshness -= 1.0;
-            }
+//            if (value == 0.0) {
+//                freshness -= 1.0;
+//            }
         }
     }
     freshness /= static_cast<int>(exploration_map.size() * exploration_map[0].size());
-    debug_str += "Freshness: " + std::to_string(freshness) + "\n";
-    reward += freshness;
+    debug_str += "Freshness: " + std::to_string(0.1*freshness) + "\n";
+    reward += 0.001 * freshness;
 
     // Staying Alive Reward
 //    reward += pow(0.1, (0.000000000000000000001+gridmap_->PercentageBurned()/0.05));
 //    debug_str += "Staying Alive Reward: " + std::to_string(pow(0.1, (0.000000000000000000001+gridmap_->PercentageBurned()/0.05))) + "\n";
 
     // Fire Proximity Reward
-    if (last_near_fires_ == 0 && near_fires > 0) {
-        reward += 0.2; // TODO we need to check for firespread here
-        debug_str += "Fire Proximity 1:" + std::to_string(0.2) + "\n";
-    }
-    if (near_fires > 0) {
-        reward += 0.05 * near_fires;
-        debug_str += "Fire Proximity 2:" + std::to_string(0.05 * near_fires) + "\n";
-    }
-    if ((near_fires < last_near_fires_) && !fire_extinguished){
-        reward += -0.5;
-        debug_str += "Fire Proximity 3:" + std::to_string(-0.5) + "\n";
-    }
-    if (near_fires > last_near_fires_){
-        reward += 0.2;
-        debug_str += "Fire Proximity 4:" + std::to_string(0.2) + "\n";
-    }
+//    if (last_near_fires_ == 0 && near_fires > 0) {
+//        reward += 0.2; // TODO we need to check for firespread here
+//        debug_str += "Fire Proximity 1:" + std::to_string(0.2) + "\n";
+//    }
+//    if (near_fires > 0) {
+//        reward += 0.5 * near_fires;
+//        debug_str += "Fire Proximity 2:" + std::to_string(0.05 * near_fires) + "\n";
+//    }
+//    if ((near_fires < last_near_fires_) && !fire_extinguished){
+//        reward += -0.5;
+//        debug_str += "Fire Proximity 3:" + std::to_string(-0.5) + "\n";
+//    }
+//    if (near_fires > last_near_fires_){
+//        reward += 0.2;
+//        debug_str += "Fire Proximity 4:" + std::to_string(0.2) + "\n";
+//    }
 
     // Reward for moving towards the fire
     // If last_distance or last_distance_to_fire_ is very large, dismiss the reward
     // These high values occure when fire spreads and gets extinguished
-    if (!(last_distance_to_fire_ > 1000000 || distance_to_fire > 1000000))
+    if (distance_to_fire <= 1000000)
     {
-        double delta_distance = last_distance_to_fire_ - distance_to_fire;
-
-        if(delta_distance >= 0) {
-            reward += 0.2;
-            debug_str += "Moving towards fire Reward: " + std::to_string(0.2) + "\n";
-        } else {
-            reward += -0.4;
-            debug_str += "Moving towards fire Reward: " + std::to_string(-0.4) + "\n";
-        }
+        auto epsilon_ = 1e-6;
+        double span = sqrt(pow(gridmap_->GetRows(), 2) + pow(gridmap_->GetCols(), 2)) * parameters_.GetCellSize();
+        auto dist_to_fire_reward = std::max(0.0, 0.05 * log(1 / ((distance_to_fire / span) + epsilon_)));
+        reward += dist_to_fire_reward;
+//        debug_str += "span: " + std::to_string(span) + "\n";
+//        debug_str += "distance to fire: " + std::to_string(distance_to_fire) + "\n";
+        debug_str += "distance to fire REWARD: " + std::to_string(dist_to_fire_reward) + "\n";
     }
     
 //     if (water_dispensed && !fire_extinguished) {
@@ -210,6 +311,7 @@ double ReinforcementLearningHandler::CalculateReward(std::shared_ptr<DroneAgent>
 std::tuple<std::vector<std::deque<std::shared_ptr<State>>>, std::vector<double>, std::vector<bool>, std::pair<bool, bool>, double> ReinforcementLearningHandler::Step(std::vector<std::shared_ptr<Action>> actions) {
 
     if (gridmap_ != nullptr) {
+        total_env_steps_ -= 1;
         std::vector<bool> terminals;
         std::vector<double> rewards;
         // TODO this is dirty, but maybe ok since it's only used for logging rn
@@ -234,6 +336,8 @@ std::tuple<std::vector<std::deque<std::shared_ptr<State>>>, std::vector<double>,
             if (drones_->at(i)->GetOutOfAreaCounter() > 1) {
                 terminals[i] = true;
                 drone_died = true;
+            } else if(drones_->at(i)->GetReachedGoal() && false) {
+                terminals[i] = true;
             } else if(gridmap_->PercentageBurned() > 0.30) {
 //                std::cout << "Percentage burned: " << gridmap_->PercentageBurned() << " resetting GridMap" << std::endl;
                 terminals[i] = true;
@@ -246,6 +350,8 @@ std::tuple<std::vector<std::deque<std::shared_ptr<State>>>, std::vector<double>,
                 terminals[i] = true;
                 all_fires_ext = true;
             } else if (!gridmap_->IsBurning()) {
+                terminals[i] = true;
+            } else if (total_env_steps_ <= 0) {
                 terminals[i] = true;
             }
 

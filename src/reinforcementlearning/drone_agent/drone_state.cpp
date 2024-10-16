@@ -11,6 +11,7 @@ DroneState::DroneState(std::pair<double, double> velocity_vector,
                        std::vector<std::vector<double>> fire_map,
                        std::pair<double, double> map_dimensions,
                        std::pair<double, double> position,
+                       std::pair<double, double> goal_position,
                        int water_dispense,
                        double cell_size) {
     velocity_ = velocity_vector;
@@ -19,6 +20,7 @@ DroneState::DroneState(std::pair<double, double> velocity_vector,
     fire_map_ = std::move(fire_map);
     max_speed_ = max_speed;
     position_ = position;
+    goal_position_ = goal_position;
     water_dispense_ = water_dispense;
     map_dimensions_ = map_dimensions;
     cell_size_ = cell_size;
@@ -104,6 +106,26 @@ int DroneState::CountOutsideArea() {
 std::pair<double, double> DroneState::GetPositionNorm() const {
     double x = (2.0 * position_.first / (map_dimensions_.first * cell_size_)) - 1;
     double y = (2.0 * position_.second / (map_dimensions_.second * cell_size_)) - 1;
+    return std::make_pair(x, y);
+}
+
+std::pair<double, double> DroneState::GetGoalPositionNorm() const {
+    double x = goal_position_.first / map_dimensions_.first;
+    double y = goal_position_.second / map_dimensions_.second;
+    return std::make_pair(x, y);
+}
+
+std::pair<double, double> DroneState::GetGridPositionDoubleNorm() const {
+    auto grid_position = GetGridPositionDouble();
+    double x = grid_position.first / map_dimensions_.first;
+    double y = grid_position.second / map_dimensions_.second;
+    return std::make_pair(x, y);
+}
+
+std::pair<double, double> DroneState::GetGridPositionDouble() const {
+    double x, y;
+    x = position_.first / cell_size_;
+    y = position_.second / cell_size_;
     return std::make_pair(x, y);
 }
 

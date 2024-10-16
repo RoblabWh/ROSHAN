@@ -25,10 +25,16 @@ public:
     void SetRenderer(std::shared_ptr<SDL_Renderer> renderer) { renderer_ = DroneRenderer(std::move(renderer)); }
     void UpdateStates(GridMap &grid_map, std::pair<double, double> velocity_vector, const std::vector<std::vector<std::vector<int>>>& drone_view, int water_dispense);
     std::pair<double, double> Step(double netout_x, double netout_y);
+    bool DispenseWaterCertain(GridMap &grid_map);
     void DispenseWater(GridMap &grid_map, int water_dispense);
     std::pair<int, int> GetGridPosition();
     std::pair<double, double> GetGridPositionDouble();
     std::pair<double, double> GetRealPosition();
+    std::pair<double, double> GetGoalPosition() { return goal_position_; }
+    double GetDistanceToGoal();
+    void SetReachedGoal(bool reached_goal) { reached_goal_ = reached_goal; }
+    bool GetReachedGoal() { return reached_goal_; }
+    std::pair<int, int> GetGoalPositionInt() { return std::make_pair((int)goal_position_.first, (int)goal_position_.second); }
     void IncrementOutOfAreaCounter() { out_of_area_counter_++; }
     void ResetOutOfAreaCounter() { out_of_area_counter_ = 0; }
     int GetOutOfAreaCounter() { return out_of_area_counter_; }
@@ -36,6 +42,9 @@ public:
     double GetMaxDistanceFromMap() { return max_distance_from_map_; }
     void SetLastDistanceToFire(double distance) { last_distance_to_fire_ = distance; }
     void SetLastNearFires(int near_fires) { last_near_fires_ = near_fires; }
+    void SetGoalPosition(std::pair<double, double> goal_position) { goal_position_ = goal_position; }
+    void SetLastDistanceToGoal(double distance) { last_distance_to_goal_ = distance; }
+    double GetLastDistanceToGoal() { return last_distance_to_goal_; }
     bool GetDroneInGrid() { return drone_in_grid_; }
     void SetDispenedWater(bool dispensed) { dispensed_water_ = dispensed; }
     bool GetDispensedWater() { return dispensed_water_; }
@@ -61,16 +70,19 @@ private:
     std::deque<DroneState> drone_states_;
     std::pair<int, int> map_dimensions_;
     std::pair<double, double> position_; // x, y in (m)
+    std::pair<double, double> goal_position_;
     int explore_difference_;
     int view_range_;
     int time_steps_;
     bool drone_in_grid_;
     double max_distance_from_map_;
     int out_of_area_counter_;
+    bool reached_goal_ = false;
     bool dispensed_water_;
     bool extinguished_fire_;
     bool extinguished_last_fire_ = false;
     double last_distance_to_fire_{};
+    double last_distance_to_goal_{};
     int last_near_fires_{};
     std::pair<double, double> velocity_; // angular & linear
     DroneRenderer renderer_;

@@ -277,6 +277,10 @@ void FireModel::StartFires(float percentage) {
             }
         }
     }
+
+//    for (auto cell : gridmap_->GetBurningCells()) {
+//        std::cout << "Burning cell: " << cell.x_ << ", " << cell.y_ << std::endl;
+//    }
     //std::cout << "Fires started: " << fires << std::endl;
 }
 

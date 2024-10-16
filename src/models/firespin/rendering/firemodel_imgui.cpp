@@ -378,8 +378,12 @@ void ImguiHandler::PyConfig(std::vector<float> rewards,
                     // Display drone information
                     ImGui::Text("Drone %d", selected_drone->GetId());
                     ImGui::Text("Out of Area Counter: %d", selected_drone->GetOutOfAreaCounter());
+                    ImGui::Text("Goal Position: (%.2f, %.2f)", selected_drone->GetGoalPosition().first,
+                                selected_drone->GetGoalPosition().second);
                     ImGui::Text("Real Position: (%.2f, %.2f)", selected_drone->GetRealPosition().first,
                                 selected_drone->GetRealPosition().second);
+                    ImGui::Text("Grid Position Double: (%.2f, %.2f)", selected_drone->GetGridPositionDouble().first,
+                                selected_drone->GetGridPositionDouble().second);
                     ImGui::Text("Grid Position: (%d, %d)", selected_drone->GetGridPosition().first,
                                 selected_drone->GetGridPosition().second);
                     ImGui::Text("Drone in Grid: %s", selected_drone->GetDroneInGrid() ? "true" : "false");
