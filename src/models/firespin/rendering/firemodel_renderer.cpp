@@ -65,7 +65,7 @@ void FireModelRenderer::CheckCamera() {
     camera_.Update(width_, height_, gridmap_->GetCols(), gridmap_->GetRows());
 }
 
-void FireModelRenderer::Render(std::shared_ptr<std::vector<std::shared_ptr<DroneAgent>>> drones) {
+void FireModelRenderer::Render(std::shared_ptr<std::vector<std::shared_ptr<DroneAgent>>> drones, std::shared_ptr<Groundstation> groundstation) {
     SDL_RenderClear(renderer_.get());
     if (gridmap_ != nullptr) {
         camera_.Update(width_, height_, gridmap_->GetCols(), gridmap_->GetRows());
@@ -78,6 +78,7 @@ void FireModelRenderer::Render(std::shared_ptr<std::vector<std::shared_ptr<Drone
 //        std::cout << "Finished rendering cells" << std::endl;
         DrawParticles();
         DrawDrones(drones);
+        DrawGroundstation(groundstation);
     }
 }
 
@@ -282,6 +283,17 @@ void FireModelRenderer::DrawDrones(std::shared_ptr<std::vector<std::shared_ptr<D
                                                                            agent_position.second - 0.5);
         agent->Render(screen_position, size);
     }
+}
+
+void FireModelRenderer::DrawGroundstation(std::shared_ptr<Groundstation> groundstation) {
+    int size = static_cast<int>(camera_.GetCellSize());
+
+    std::pair<double, double> agent_position = groundstation->GetGridPositionDouble();
+//    agent_position.first -= 0.5;
+//    agent_position.second -= 0.5;
+    std::pair<int, int> screen_position = camera_.GridToScreenPosition(agent_position.first -0.5,
+                                                                       agent_position.second - 0.5);
+    groundstation->Render(screen_position, static_cast<int>(size * 1));
 }
 
 ImVec4 FireModelRenderer::GetMappedColor(int cell_type) {

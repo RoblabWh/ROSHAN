@@ -16,7 +16,7 @@ class AgentHandler:
         self.mode = status["rl_mode"]
         self.initialized = False
         if algorithm == 'ppo':
-            self.algorithm = PPO(vision_range=vision_range, time_steps=time_steps, lr=0.0003, betas=(0.9, 0.999), gamma=0.99, _lambda=0.9, K_epochs=10, eps_clip=0.2, model_path=status["model_path"], model_name=status["model_name"])
+            self.algorithm = PPO(vision_range=vision_range, time_steps=time_steps, lr=0.0003, betas=(0.9, 0.999), gamma=0.99, _lambda=0.9, K_epochs=status["K_epochs"], eps_clip=0.2, model_path=status["model_path"], model_name=status["model_name"])
             self.initialized = True
             print("PPO agent initialized")
 
@@ -90,15 +90,15 @@ class AgentHandler:
 
     def update(self, status, memory, mini_batch_size, n_steps, next_obs):
         status["console"] += self.algorithm.update(memory, self.horizon, mini_batch_size, n_steps, next_obs, self.logger)
-        status["train_step"] += 1
-        if status["train_step"] >= status["max_train"]:
-            if not status["auto_train"]:
-                status["console"] += "Training finished, after {} training steps".format(status["train_step"])
-                status["agent_online"] = False
-                status["console"] += "Agent is offline\n"
-            else:
-                status["console"] += "Training finished, after {} training steps\n".format(status["train_step"])
-                self.reset(status)
+        if self.algorithm_name == 'ppo':
+            status["train_step"] += status["horizon"] // status["batch_size"] * status["K_epochs"]
+            train_step = status["train_step"] / status["K_epochs"] / (status["horizon"] // status["batch_size"])
+        else:
+            status["train_step"] += status["horizon"] // status["batch_size"]
+            train_step = status["train_step"] / (status["horizon"] // status["batch_size"])
+        if train_step >= status["max_train"] and status["auto_train"]:
+            status["console"] += "Training finished, after {} training steps\n".format(status["train_step"])
+            self.reset(status)
         self.logger.summarize_metrics(status)
 
     def act(self, observations):
@@ -171,6 +171,22 @@ class AgentHandler:
         return False, console
 
     def restructure_data(self, observations_):
+        all_velocities, all_positions = [], []
+
+        for deque in observations_:
+            drone_states = np.array([state for state in deque if isinstance(state, firesim.DroneState)])
+            if len(drone_states) == 0:
+                continue
+
+            velocities = np.array([state.GetVelocityNorm() for state in drone_states])
+            positions = np.array([state.GetDeltaGoal() for state in drone_states])
+
+            all_velocities.append(velocities)
+            all_positions.append(positions)
+
+        return np.array(all_velocities), np.array(all_positions)
+
+    def restructure_data1(self, observations_):
         all_velocities, all_positions, all_goals = [], [], []
 
         for deque in observations_:

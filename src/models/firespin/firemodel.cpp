@@ -8,7 +8,6 @@ std::shared_ptr<FireModel> FireModel::instance_ = nullptr;
 
 FireModel::FireModel(Mode mode, const std::string& map_path) : mode_(mode)
 {
-
     running_time_ = 0;
     timer_.Start();
 
@@ -141,7 +140,7 @@ std::tuple<std::vector<std::deque<std::shared_ptr<State>>>, std::vector<double>,
     std::tuple<std::vector<std::deque<std::shared_ptr<State>>>, std::vector<double>, std::vector<bool>, std::pair<bool, bool>, double>  result;
     result = rl_handler_->Step(actions);
 #ifndef SPEEDTEST
-    // Check if all elements in terminals are true, if so all agents reached a terminal state
+    // Check if any element in terminals is true, if so some agent reached a terminal state
     std::vector<bool> terminals = std::get<2>(result);
     bool resetEnv = std::any_of(terminals.begin(), terminals.end(),
                                 [](bool terminal) {return terminal;});
@@ -156,7 +155,7 @@ bool FireModel::AgentIsRunning() {
 }
 
 void FireModel::Render() {
-    model_renderer_->Render(rl_handler_->GetDrones());
+    model_renderer_->Render(rl_handler_->GetDrones(), rl_handler_->GetGroundstation());
     model_renderer_->DrawArrow(-wind_->GetCurrentAngle() * 180 / M_PI + 130);
 }
 

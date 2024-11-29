@@ -18,6 +18,7 @@
 #include <SDL_image.h>
 #include <memory>
 #include "reinforcementlearning/drone_agent/drone.h"
+#include "reinforcementlearning/groundstation.h"
 
 #include "src/models/firespin/cell_classes/cell_generic_burned.h"
 #include "src/models/firespin/cell_classes/cell_generic_unburned.h"
@@ -44,7 +45,7 @@ public:
         }
         return instance_;    }
 
-    void Render(std::shared_ptr<std::vector<std::shared_ptr<DroneAgent>>> drones);
+    void Render(std::shared_ptr<std::vector<std::shared_ptr<DroneAgent>>> drones, std::shared_ptr<Groundstation> groundstation);
     void SetScreenResolution();
     void SetGridMap(std::shared_ptr<GridMap> gridmap) { gridmap_ = gridmap; SetFullRedraw(); }
     std::shared_ptr<SDL_Renderer> GetRenderer() { return renderer_; }
@@ -97,6 +98,7 @@ private:
     void ResizePixelBuffer();
     void ResizeTexture();
     void DrawDrones(std::shared_ptr<std::vector<std::shared_ptr<DroneAgent>>> drones);
+    void DrawGroundstation(std::shared_ptr<Groundstation> groundstation);
 };
 
 

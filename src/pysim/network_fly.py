@@ -30,17 +30,19 @@ class Inputspace(nn.Module):
         self.position_dense1 = nn.Linear(in_features=2, out_features=position_out_features)
         # initialize_hidden_weights(self.position_dense1)
 
-        goal_out_features = 16
+        goal_out_features = 8
         self.goal_dense1 = nn.Linear(in_features=2, out_features=goal_out_features)
 
         self.flatten = nn.Flatten()
 
-        input_features = (position_out_features + vel_out_features + goal_out_features) * self.time_steps
-        self.out_features = 128
-        #self.pos_dense1 = nn.Linear(in_features=input_features, out_features=16)
-        self.pos_dense1 = nn.Linear(in_features=input_features, out_features=self.out_features)
-        # self.vic_dense1 = nn.Linear(in_features=vicinity_features, out_features=32)
-        # self.vic_dense2 = nn.Linear(in_features=32, out_features=16)
+        input_features1 = (position_out_features + vel_out_features + goal_out_features) * self.time_steps
+        input_features = (position_out_features + vel_out_features) * self.time_steps
+        self.out_features = 32
+        mid_features = 64
+
+        self.pos_dense1 = nn.Linear(in_features=input_features, out_features=mid_features)
+        self.pos_dense2 = nn.Linear(in_features=mid_features, out_features=self.out_features)
+
 
     def get_in_features_2d(self, h_in, w_in, layers_dict):
         for layer in layers_dict:
@@ -68,6 +70,18 @@ class Inputspace(nn.Module):
         return d_in * h_in * w_in
 
     def prepare_tensor(self, states):
+        velocity, position = states
+
+        if isinstance(velocity, np.ndarray):
+            velocity = torch.tensor(velocity, dtype=torch.float32).to(device)
+
+        if isinstance(position, np.ndarray):
+            position = torch.tensor(position, dtype=torch.float32).to(device)
+
+        return velocity, position
+
+
+    def prepare_tensor1(self, states):
         velocity, position, goal = states
 
         if isinstance(velocity, np.ndarray):
@@ -82,6 +96,24 @@ class Inputspace(nn.Module):
         return velocity, position, goal
 
     def forward(self, states):
+        velocity, position = self.prepare_tensor(states)
+
+        position = F.relu(self.position_dense1(position))
+        position = torch.flatten(position, start_dim=1)
+
+        velocity = F.relu(self.vel_dense1(velocity))
+        velocity = torch.flatten(velocity, start_dim=1)
+
+
+        concat_pos = torch.cat((position, velocity), dim=1)
+        # concat_vic = torch.cat((view, water), dim=1)
+        pos_feature = F.relu(self.pos_dense1(concat_pos))
+        pos_feature = F.relu(self.pos_dense2(pos_feature))
+        output_vision = torch.flatten(pos_feature, start_dim=1)
+
+        return output_vision
+
+    def forward1(self, states):
         velocity, position, goal = self.prepare_tensor(states)
 
         position = F.relu(self.position_dense1(position))
@@ -96,6 +128,7 @@ class Inputspace(nn.Module):
         concat_pos = torch.cat((position, velocity, goal), dim=1)
         # concat_vic = torch.cat((view, water), dim=1)
         pos_feature = F.relu(self.pos_dense1(concat_pos))
+        pos_feature = F.relu(self.pos_dense2(pos_feature))
         output_vision = torch.flatten(pos_feature, start_dim=1)
 
         return output_vision

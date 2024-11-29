@@ -9,7 +9,7 @@
 #include <SDL.h>
 #include <deque>
 #include <memory>
-#include "reinforcementlearning/drone_agent/rendering/DroneRenderer.h"
+#include "reinforcementlearning/texturerenderer.h"
 #include "src/models/firespin/model_parameters.h"
 #include "src/models/firespin/firemodel_gridmap.h"
 #include "drone_state.h"
@@ -22,7 +22,7 @@ public:
     explicit DroneAgent(std::pair<int, int> point, FireModelParameters &parameters, int id);
     ~DroneAgent() = default;
     std::deque<DroneState> GetStates() { return drone_states_; }
-    void SetRenderer(std::shared_ptr<SDL_Renderer> renderer) { renderer_ = DroneRenderer(std::move(renderer)); }
+    void SetRenderer(std::shared_ptr<SDL_Renderer> renderer) { renderer_ = TextureRenderer(std::move(renderer), "../assets/drone.png"); }
     void UpdateStates(GridMap &grid_map, std::pair<double, double> velocity_vector, const std::vector<std::vector<std::vector<int>>>& drone_view, int water_dispense);
     std::pair<double, double> Step(double netout_x, double netout_y);
     bool DispenseWaterCertain(GridMap &grid_map);
@@ -34,6 +34,10 @@ public:
     double GetDistanceToGoal();
     void SetReachedGoal(bool reached_goal) { reached_goal_ = reached_goal; }
     bool GetReachedGoal() { return reached_goal_; }
+    double GetWaterCapacity() { return water_capacity_; }
+    void SetWaterCapacity(double water_capacity) { water_capacity_ = water_capacity; }
+    int GetPolicyType() { return policy_type_; }
+    void SetPolicyType(int policy_type) { policy_type_ = policy_type; }
     std::pair<int, int> GetGoalPositionInt() { return std::make_pair((int)goal_position_.first, (int)goal_position_.second); }
     void IncrementOutOfAreaCounter() { out_of_area_counter_++; }
     void ResetOutOfAreaCounter() { out_of_area_counter_ = 0; }
@@ -57,6 +61,7 @@ public:
     int GetLastNearFires() { return last_near_fires_; }
     int DroneSeesFire();
     int GetId() const { return id_; }
+    void SetActive(bool active) { active_ = active; }
     int GetViewRange() const { return view_range_; }
     void Render(std::pair<int, int> position, int size);
     void Initialize(GridMap &grid_map);
@@ -77,15 +82,18 @@ private:
     bool drone_in_grid_;
     double max_distance_from_map_;
     int out_of_area_counter_;
+    double water_capacity_;
+    int policy_type_; // 0 = extinguish fire, 1 = fill water
     bool reached_goal_ = false;
     bool dispensed_water_;
     bool extinguished_fire_;
     bool extinguished_last_fire_ = false;
+    bool active_ = false;
     double last_distance_to_fire_{};
     double last_distance_to_goal_{};
     int last_near_fires_{};
     std::pair<double, double> velocity_; // angular & linear
-    DroneRenderer renderer_;
+    TextureRenderer renderer_;
 };
 
 

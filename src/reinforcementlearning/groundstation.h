@@ -1,0 +1,30 @@
+//
+// Created by nex on 28.11.24.
+//
+
+#ifndef ROSHAN_GROUNDSTATION_H
+#define ROSHAN_GROUNDSTATION_H
+
+#include <utility>
+#include <SDL.h>
+#include <deque>
+#include <memory>
+#include "reinforcementlearning/texturerenderer.h"
+#include "src/models/firespin/model_parameters.h"
+#include "src/models/firespin/firemodel_gridmap.h"
+
+class Groundstation {
+public:
+    explicit Groundstation(std::pair<int, int> point, FireModelParameters &parameters);
+    std::pair<int, int> GetGridPosition();
+    std::pair<double, double> GetGridPositionDouble();
+    void SetRenderer(std::shared_ptr<SDL_Renderer> renderer) { renderer_ = TextureRenderer(std::move(renderer), "../assets/groundstation.png"); }
+    void Render(std::pair<int, int> position, int size);
+private:
+    TextureRenderer renderer_;
+    std::pair<double, double> position_; // x, y in (m)
+    FireModelParameters &parameters_;
+};
+
+
+#endif //ROSHAN_GROUNDSTATION_H

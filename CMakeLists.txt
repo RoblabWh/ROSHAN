@@ -109,9 +109,11 @@ set(CORE_SOURCES
         src/point_hash.h)
 
 # Agent sources
+#src/reinforcementlearning/drone_agent/rendering/DroneRenderer.cpp src/reinforcementlearning/drone_agent/rendering/DroneRenderer.h
 set(AGENT_SOURCES
         src/reinforcementlearning/drone_agent/drone.cpp src/reinforcementlearning/drone_agent/drone.h
-        src/reinforcementlearning/drone_agent/rendering/DroneRenderer.cpp src/reinforcementlearning/drone_agent/rendering/DroneRenderer.h
+        src/reinforcementlearning/texturerenderer.cpp src/reinforcementlearning/texturerenderer.h
+        src/reinforcementlearning/groundstation.h src/reinforcementlearning/groundstation.cpp
         src/reinforcementlearning/drone_agent/drone_state.cpp src/reinforcementlearning/drone_agent/drone_state.h
         src/reinforcementlearning/drone_agent/drone_action.h
         src/agent.h

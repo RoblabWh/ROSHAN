@@ -54,15 +54,16 @@ if __name__ == '__main__':
               "agent_online": True,
               "obs_collected": 0,
               "num_agents": 1,
-              "horizon": 5120,#12800,
               "n_steps": 32,
+              "horizon": 5120,#12800,
               "batch_size": 256,
               "auto_train": False, # If True, the agent will train several episodes and then evaluate
               "train_episodes": 10, # Number of total trainings containing each max_train steps
               "train_episode": 0, # Current training episode
               "train_step": 0,
               "max_eval": 1000, # Number of Environments to run before stopping evaluation
-              "max_train": 1000 # Number of Updates to perform before stopping training
+              "max_train": 1000, # Number of Updates to perform before stopping training
+              "K_epochs": 10
               }
 
     if llm_support:
@@ -135,9 +136,9 @@ if __name__ == '__main__':
                 agent.evaluate(status, rewards, terminals, dones, percent_burned)
             engine.SendRLStatusToModel(status)
         else:
-            if not status["agent_online"]:
-                print("Ende")
-                exit()
+            # if not status["agent_online"]:
+            #     print("Dein automatisches Training ist vorbei. Hurra!")
+            #     exit()
             obs, rewards = None, None
 
         user_input = engine.GetUserInput()

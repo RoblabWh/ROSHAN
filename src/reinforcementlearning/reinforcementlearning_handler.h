@@ -5,7 +5,7 @@
 #ifndef ROSHAN_REINFORCEMENTLEARNING_HANDLER_H
 #define ROSHAN_REINFORCEMENTLEARNING_HANDLER_H
 
-#define DEBUG_REWARD_YES
+#define DEBUG_REWARD_NO
 
 #include <shared_mutex>
 #include <deque>
@@ -16,6 +16,7 @@
 #include "src/reinforcementlearning/drone_agent/drone.h"
 #include "src/reinforcementlearning/drone_agent/drone_state.h"
 #include "src/reinforcementlearning/drone_agent/drone_action.h"
+#include "src/reinforcementlearning/groundstation.h"
 #include "src/utils.h"
 
 namespace py = pybind11;
@@ -41,13 +42,14 @@ public:
 
     void SetModelRenderer(std::shared_ptr<FireModelRenderer> model_renderer) { model_renderer_ = model_renderer; }
     void SetGridMap(std::shared_ptr<GridMap> gridmap) { gridmap_ = gridmap; }
-    void SetRLStatus(py::dict status) { rl_status_ = status; }
+    void SetRLStatus(py::dict status);
     py::dict GetRLStatus() { return rl_status_; }
 
     void SetAgentRunning(bool running) { agent_is_running_ = running; }
     bool GetAgentRunning() { return agent_is_running_; }
 
     std::shared_ptr<std::vector<std::shared_ptr<DroneAgent>>> GetDrones() { return drones_; }
+    std::shared_ptr<Groundstation> GetGroundstation() { return groundstation_; }
     CircularBuffer<float> GetRewards() { return rewards_; }
     std::vector<float> GetAllRewards() { return all_rewards_; }
 
@@ -61,12 +63,14 @@ private:
     std::shared_ptr<FireModelRenderer> model_renderer_;
     FireModelParameters& parameters_;
     std::shared_ptr<std::vector<std::shared_ptr<DroneAgent>>> drones_;
+    std::shared_ptr<Groundstation> groundstation_;
 
     double CalculateReward(std::shared_ptr<DroneAgent> drone, bool terminal_state) const;
     double CalculateReward2(std::shared_ptr<DroneAgent> drone, bool terminal_state) const;
 
     //Flags
     bool agent_is_running_;
+    bool eval_mode_ = false;
 
     // Rewards Collection for Debugging!
     CircularBuffer<float> rewards_;

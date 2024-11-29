@@ -34,17 +34,41 @@ DroneState::DroneState(std::pair<double, double> velocity_vector,
 //    return 1.0;
 //}
 
+//double DroneState::DiscretizeOutput(double netout) {
+//    if (netout <= -0.9) return -1.0;
+//    if (netout <= -0.7) return -0.8;
+//    if (netout <= -0.5) return -0.6;
+//    if (netout <= -0.3) return -0.4;
+//    if (netout <= -0.1) return -0.2;
+//    if (netout <= 0.1) return 0.0;
+//    if (netout <= 0.3) return 0.2;
+//    if (netout <= 0.5) return 0.4;
+//    if (netout <= 0.7) return 0.6;
+//    if (netout <= 0.9) return 0.8;
+//    return 1.0;
+//}
+
 double DroneState::DiscretizeOutput(double netout) {
     if (netout <= -0.9) return -1.0;
+    if (netout <= -0.8) return -0.9;
     if (netout <= -0.7) return -0.8;
+    if (netout <= -0.6) return -0.7;
     if (netout <= -0.5) return -0.6;
+    if (netout <= -0.4) return -0.5;
     if (netout <= -0.3) return -0.4;
+    if (netout <= -0.2) return -0.3;
     if (netout <= -0.1) return -0.2;
-    if (netout <= 0.1) return 0.0;
-    if (netout <= 0.3) return 0.2;
-    if (netout <= 0.5) return 0.4;
-    if (netout <= 0.7) return 0.6;
-    if (netout <= 0.9) return 0.8;
+    if (netout <= -0.05) return -0.1;
+    if (netout < 0.05) return 0.0;
+    if (netout >= 0.05) return 0.1;
+    if (netout >= 0.1) return 0.2;
+    if (netout >= 0.2) return 0.3;
+    if (netout >= 0.3) return 0.4;
+    if (netout >= 0.4) return 0.5;
+    if (netout >= 0.5) return 0.6;
+    if (netout >= 0.6) return 0.7;
+    if (netout >= 0.7) return 0.8;
+    if (netout >= 0.8) return 0.9;
     return 1.0;
 }
 
@@ -52,6 +76,8 @@ std::pair<double, double> DroneState::GetNewVelocity(double netout_speed_x, doub
     // Netout determines the velocity CHANGE
 //    auto speed_x = std::round(netout_speed_x * 10.0) / 10.0;
 //    auto speed_y = std::round(netout_speed_y * 10.0) / 10.0;
+//    auto speed_x = netout_speed_x;
+//    auto speed_y = netout_speed_y;
     auto speed_x = DiscretizeOutput(netout_speed_x);
     auto speed_y = DiscretizeOutput(netout_speed_y);
     double new_speed_x = velocity_.first + speed_x * max_speed_.first;
@@ -113,6 +139,22 @@ std::pair<double, double> DroneState::GetGoalPositionNorm() const {
     double x = goal_position_.first / map_dimensions_.first;
     double y = goal_position_.second / map_dimensions_.second;
     return std::make_pair(x, y);
+}
+
+std::pair<double, double> DroneState::GetDeltaGoal() const {
+    auto position = GetGridPositionDouble();
+    double x = goal_position_.first - position.first;
+    double y = goal_position_.second - position.second;
+    return std::make_pair(x, y);
+}
+
+std::pair<double, double> DroneState::GetOrientationToGoal() const {
+    double x = goal_position_.first - position_.first;
+    double y = goal_position_.second - position_.second;
+    double magnitude = sqrt(x * x + y * y);
+    return std::make_pair(x / magnitude, y / magnitude);
+//    double angle = atan2(y, x);
+//    return std::make_pair(cos(angle), sin(angle));
 }
 
 std::pair<double, double> DroneState::GetGridPositionDoubleNorm() const {

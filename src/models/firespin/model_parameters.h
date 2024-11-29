@@ -29,7 +29,7 @@ public:
     bool GetCorineLoaded() {return corine_loaded_;}
 
     // Simulation parameters
-    double dt_ = 1; // in seconds (s)
+    double dt_ = 0.1; // in seconds (s)
     double GetDt() const {return dt_;}
     // Minimum and maximum values for the ImGui Sliders for the simulation parameters
     double min_dt_ = 0.0001; // in seconds (s)
@@ -117,11 +117,13 @@ public:
 
 
     // Parameters for the wind
+
     double wind_uw_ = 10.0; // The 10-m wind speed in m/s
     double GetWindSpeed() const {return wind_uw_;}
     // random number between 0 and 2pi
     double wind_angle_ = random() * 2 * M_PI / RAND_MAX;
     double GetAngle() const {return wind_angle_;}
+    void SetWindAngle(double angle) {wind_angle_ = angle;}
     double wind_a_ = 0.314; // The component of the wind speed in the 1st direction
     double GetA() const {return wind_a_;}
     // Minimum and maximum values for the ImGui Sliders for the wind
@@ -154,10 +156,10 @@ public:
     bool GetAgentIsRunning() const {return agent_is_running_;}
     int number_of_drones_ = 1;
     int total_env_steps_ = 200;
-    int GetTotalEnvSteps() const {return total_env_steps_;}
+    int GetTotalEnvSteps() const {return (int)((grid_nx_ * grid_ny_ * (0.1 / dt_)) + 80);}
     int view_range_ = 8;
     int GetViewRange() const {return view_range_;}
-    int time_steps_ = 4;
+    int time_steps_ = 32; // 16
     int GetTimeSteps() const {return time_steps_;}
     // std::pair<double, double> min_velocity_ = std::make_pair(-5.0, -5.0);
     // std::pair<double, double> GetMinVelocity() const {return min_velocity_;}
@@ -166,7 +168,13 @@ public:
     std::pair<double, double> GetMaxVelocity() const {return max_velocity_;}
     int GetNumberOfDrones() const {return number_of_drones_;}
     void SetNumberOfDrones(int number) {number_of_drones_ = number;}
-    double GetDroneSpeed(double speed) { return speed * GetDt(); }
+    int water_capacity_ = 10;
+    int GetWaterCapacity() const {return water_capacity_;}
+    double GetWaterRefillDt() const {return GetWaterCapacity() / (5 * 60 / GetDt());}
+
+    // Parameters for the groundstation
+    std::pair<int, int> groundstation_position_ = std::make_pair(1, 1);
+    std::pair<int, int> GetGroundstationPosition() const {return groundstation_position_;}
 
     //Parameters for ImGui
     int RewardsBufferSize = 300;

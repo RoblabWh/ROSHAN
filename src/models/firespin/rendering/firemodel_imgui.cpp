@@ -58,7 +58,7 @@ void ImguiHandler::ImGuiSimulationControls(std::shared_ptr<GridMap> gridmap, std
                 std::string analysis_text;
                 analysis_text += "Number of particles: " + std::to_string(gridmap->GetNumParticles()) + "\n";
                 analysis_text += "Number of cells: " + std::to_string(gridmap->GetNumCells()) + "\n";
-                analysis_text += "Running Time: " + formatTime(running_time) + "\n";
+                analysis_text += "Running Time: " + formatTime(int(running_time)) + "\n";
                 analysis_text +=
                         "Height: " + std::to_string(gridmap->GetRows() * parameters_.GetCellSize() / 1000) + "km | ";
                 analysis_text += "Width: " + std::to_string(gridmap->GetCols() * parameters_.GetCellSize() / 1000) + "km";
@@ -169,6 +169,203 @@ void ImguiHandler::Config(std::shared_ptr<FireModelRenderer> model_renderer,
     }
 }
 
+void ImguiHandler::RLStatusParser(py::dict rl_status) {
+    auto rl_mode = rl_status["rl_mode"].cast<std::string>();
+    auto model_path = rl_status["model_path"].cast<std::string>();
+    auto model_name = rl_status["model_name"].cast<std::string>();
+    auto agent_online = rl_status["agent_online"].cast<bool>();
+    auto horizon = rl_status["horizon"].cast<int>();
+    auto obs_collected = rl_status["obs_collected"].cast<int>();
+    auto n_steps = rl_status["n_steps"].cast<int>();
+    auto auto_train = rl_status["auto_train"].cast<bool>();
+    auto batch_size = rl_status["batch_size"].cast<int>();
+    auto train_step = rl_status["train_step"].cast<int>();
+    auto k_epochs = rl_status["K_epochs"].cast<int>();
+
+    ImGui::Separator();
+    ImGui::SetWindowFontScale(1.8f);
+    if (ImGui::Selectable("Mode of operation:")) {
+        ImGui::OpenPopup("Warning RL Mode");
+    }
+    if (ImGui::BeginPopupModal("Warning RL Mode", NULL, ImGuiWindowFlags_AlwaysAutoResize)) {
+        ImGui::Text("You are about to switch to %s mode.", rl_mode == "train" ? "eval" : "train");
+        ImGui::Separator();
+
+        if (ImGui::Button("OK", ImVec2(120, 0))) {
+            auto new_value_str = rl_mode == "train" ? "eval" : "train";
+            rl_status["rl_mode"] = new_value_str;
+            rl_mode = new_value_str;
+            auto console = rl_status["console"].cast<std::string>();
+            console += "Switched to " + static_cast<std::string>(new_value_str) + " mode.\n";
+            rl_status[py::str("console")] = console;
+            onSetRLStatus(rl_status);
+            ImGui::CloseCurrentPopup();
+        }
+
+        ImGui::SameLine();
+
+        if (ImGui::Button("Cancel", ImVec2(120, 0))) {
+            ImGui::CloseCurrentPopup();
+        }
+
+        ImGui::EndPopup();
+    }
+    ImGui::SameLine();
+    ImGui::Text("%s", rl_mode.c_str());
+    ImGui::SetWindowFontScale(1.0f);
+
+    ImGui::Separator();
+    ImGui::SetWindowFontScale(1.8f);
+    ImGui::Text("Model will be saved under: ");
+    ImGui::SetWindowFontScale(1.0f);
+    if (ImGui::Selectable("Model Path")) {
+        open_file_dialog_ = true;
+        model_path_selection_ = true;
+        path_key_ = "model_path";
+    }
+    ImGui::SameLine();
+    ImGui::Text(": %s", model_path.c_str());
+
+    if (ImGui::Selectable("Model Name")) {
+        open_file_dialog_ = true;
+        model_path_selection_ = true;
+        path_key_ = "model_name";
+    }
+    ImGui::SameLine();
+    ImGui::Text(": %s", model_name.c_str());
+
+    ImGui::Separator();
+    ImGui::SetWindowFontScale(1.8f);
+    ImGui::Text("Hyperparameters");
+    ImGui::SetWindowFontScale(1.0f);
+    ImGui::Text("Train Step(Policy Updates): %d(%d)", (int)(train_step / k_epochs / (horizon / batch_size)), train_step);
+    ImGui::Text("Horizon: %d/%d", obs_collected, horizon);
+    ImGui::Text("Batch Size: %d", batch_size);
+    ImGui::Text("n_steps: %d", n_steps);
+    ImGui::Text("Auto Train: %s", auto_train ? "true" : "false");
+    if(auto_train){
+        auto train_episodes = rl_status["train_episodes"].cast<int>();
+        auto max_eval = rl_status["max_eval"].cast<int>();
+        auto max_train = rl_status["max_train"].cast<int>();
+        auto train_episode = rl_status["train_episode"].cast<int>();
+        ImGui::Text("Train Episodes: %d/%d", train_episode + 1, train_episodes);
+        ImGui::Text("Training Steps before Evaluation: %d", max_train);
+        ImGui::Text("Evaluation Episodes: %d", max_eval);
+    }
+
+//    for (auto item : rl_status) {
+//        auto key = item.first.cast<std::string>();
+//        auto value = py::reinterpret_borrow<py::object>(item.second);
+//
+//        if(py::isinstance<py::str>(value)) {
+//            if (key == "rl_mode") {
+//                auto value_str = value.cast<std::string>();
+//                if (ImGui::Selectable(key.c_str())) {
+//                    ImGui::OpenPopup("Warning RL Mode");
+//                }
+//                if (ImGui::BeginPopupModal("Warning RL Mode", NULL, ImGuiWindowFlags_AlwaysAutoResize)) {
+//                    ImGui::Text("You are about to switch to %s mode.", value_str == "train" ? "eval" : "train");
+//                    ImGui::Separator();
+//
+//                    if (ImGui::Button("OK", ImVec2(120, 0))) {
+//                        auto new_value_str = value_str == "train" ? "eval" : "train";
+//                        rl_status[py::str(key)] = new_value_str;
+//                        value_str = new_value_str;
+//                        auto console = rl_status["console"].cast<std::string>();
+//                        console += "Switched to " + static_cast<std::string>(new_value_str) + " mode.\n";
+//                        rl_status[py::str("console")] = console;
+//                        onSetRLStatus(rl_status);
+//                        ImGui::CloseCurrentPopup();
+//                    }
+//
+//                    ImGui::SameLine();
+//
+//                    if (ImGui::Button("Cancel", ImVec2(120, 0))) {
+//                        ImGui::CloseCurrentPopup();
+//                    }
+//
+//                    ImGui::EndPopup();
+//                }
+//                ImGui::SameLine();
+//                ImGui::Text(": %s", value_str.c_str());
+//            }
+//            else if (key == "console"){
+//                // Do nothing
+//            }
+//            else if (key == "model_path" || key == "model_name"){
+//                auto value_str = value.cast<std::string>();
+//                if (ImGui::Selectable(key.c_str())) {
+//                    open_file_dialog_ = true;
+//                    model_path_selection_ = true;
+//                    path_key_ = key;
+//                }
+//                ImGui::SameLine();
+//                ImGui::Text(": %s", value_str.c_str());
+//            }
+//            else {
+//                auto value_str = value.cast<std::string>();
+//                ImGui::Text("%s: %s", key.c_str(), value_str.c_str());
+//            }
+//        }
+//        else if (py::isinstance<py::bool_>(value)) {
+//            bool value_bool = value.cast<bool>();
+//            ImGui::Text("%s: %s", key.c_str(), value_bool ? "true" : "false");
+//        }
+//        else if (py::isinstance<py::int_>(value)) {
+//            if (key == "horizon") {
+//                int horizon = value.cast<int>();
+//                int obs_collected = rl_status["obs_collected"].cast<int>();
+//                ImGui::Text("%s : %d/%d", key.c_str(), obs_collected, horizon);
+//            }
+//            else if (key == "obs_collected") {
+////                    static int new_horizon = rl_status["horizon"].cast<int>();
+////                    if (ImGui::Selectable(key.c_str())) {
+////                        ImGui::OpenPopup("Set Horizon");
+////                    }
+////                    if (ImGui::BeginPopupModal("Set Horizon", NULL, ImGuiWindowFlags_AlwaysAutoResize)) {
+////                        ImGui::Text("Do you want to change the horizon?");
+////                        ImGui::TextColored(ImVec4(1.0f, 0.0f, 0.0f, 1.0f), "WARNING: Changing the Horizon during Training is not recommended.");
+////                        ImGui::TextColored(ImVec4(1.0f, 0.0f, 0.0f, 1.0f), "It will reset the collected observations and the logs.");
+////                        ImGui::TextColored(ImVec4(1.0f, 0.0f, 0.0f, 1.0f), "If you choose a Horizon Size not completly dividable by the");
+////                        ImGui::TextColored(ImVec4(1.0f, 0.0f, 0.0f, 1.0f), "batch size, the last batch will be dropped to avoid issues..");
+////                        ImGui::Separator();
+////                        ImGui::InputInt("Horizon", &new_horizon, 1, 10, ImGuiInputTextFlags_CharsDecimal);
+////
+////                        if (ImGui::Button("OK", ImVec2(120, 0))) {
+////                            rl_status[py::str("horizon")] = new_horizon;
+////                            console += "Horizon switched to Horizon of Size: " + std::to_string(new_horizon) + ".\n";
+////                            rl_status[py::str("console")] = console;
+////                            onSetRLStatus(rl_status);
+////                            ImGui::CloseCurrentPopup();
+////                        }
+////
+////                        ImGui::SameLine();
+////
+////                        if (ImGui::Button("Cancel", ImVec2(120, 0))) {
+////                            ImGui::CloseCurrentPopup();
+////                        }
+////
+////                        ImGui::EndPopup();
+////                    }
+////                    int value_int = value.cast<int>();
+////                    int horizon = rl_status["horizon"].cast<int>();
+////                    ImGui::SameLine();
+////                    ImGui::Text(" : %d/%d", value_int, horizon);
+//            }
+//            else if ((key == "train_episodes" || key == "max_eval" || key == "max_train" || key == "train_episode")) {
+//                if(auto_train){
+//                    int value_int = value.cast<int>();
+//                    ImGui::Text("%s: %d", key.c_str(), value_int);
+//                }
+//            }
+//            else {
+//                int value_int = value.cast<int>();
+//                ImGui::Text("%s: %d", key.c_str(), value_int);
+//            }
+//        }
+//    }
+}
+
 void ImguiHandler::PyConfig(std::vector<float> rewards,
                             int rewards_pos, std::vector<float> all_rewards,
                             bool &agent_is_running,
@@ -205,122 +402,14 @@ void ImguiHandler::PyConfig(std::vector<float> rewards,
         }
 
         py::dict rl_status = onGetRLStatus();
+        RLStatusParser(rl_status);
         auto console = rl_status["console"].cast<std::string>();
-        auto auto_train = rl_status["auto_train"].cast<bool>();
-
-        for (auto item : rl_status) {
-            auto key = item.first.cast<std::string>();
-            auto value = py::reinterpret_borrow<py::object>(item.second);
-
-            if(py::isinstance<py::str>(value)) {
-                if (key == "rl_mode") {
-                    auto value_str = value.cast<std::string>();
-                    if (ImGui::Selectable(key.c_str())) {
-                        ImGui::OpenPopup("Warning RL Mode");
-                    }
-                    if (ImGui::BeginPopupModal("Warning RL Mode", NULL, ImGuiWindowFlags_AlwaysAutoResize)) {
-                        ImGui::Text("You are about to switch to %s mode.", value_str == "train" ? "eval" : "train");
-                        ImGui::Separator();
-
-                        if (ImGui::Button("OK", ImVec2(120, 0))) {
-                            auto new_value_str = value_str == "train" ? "eval" : "train";
-                            rl_status[py::str(key)] = new_value_str;
-                            value_str = new_value_str;
-                            console += "Switched to " + static_cast<std::string>(new_value_str) + " mode.\n";
-                            rl_status[py::str("console")] = console;
-                            onSetRLStatus(rl_status);
-                            ImGui::CloseCurrentPopup();
-                        }
-
-                        ImGui::SameLine();
-
-                        if (ImGui::Button("Cancel", ImVec2(120, 0))) {
-                            ImGui::CloseCurrentPopup();
-                        }
-
-                        ImGui::EndPopup();
-                    }
-                    ImGui::SameLine();
-                    ImGui::Text(": %s", value_str.c_str());
-                }
-                else if (key == "console"){
-                    // Do nothing
-                }
-                else if (key == "model_path" || key == "model_name"){
-                    auto value_str = value.cast<std::string>();
-                    if (ImGui::Selectable(key.c_str())) {
-                        open_file_dialog_ = true;
-                        model_path_selection_ = true;
-                        path_key_ = key;
-                    }
-                    ImGui::SameLine();
-                    ImGui::Text(": %s", value_str.c_str());
-                }
-                else {
-                    auto value_str = value.cast<std::string>();
-                    ImGui::Text("%s: %s", key.c_str(), value_str.c_str());
-                }
-            }
-            else if (py::isinstance<py::bool_>(value)) {
-                bool value_bool = value.cast<bool>();
-                if (key == "auto_train") {
-                    if (value_bool)
-                        ImGui::Text("%s: %s", key.c_str(), value_bool ? "true" : "false");
-                } else {
-                    ImGui::Text("%s: %s", key.c_str(), value_bool ? "true" : "false");
-                }
-
-            }
-            else if (py::isinstance<py::int_>(value)) {
-                if (key == "horizon") {
-                    // Do nothing
-                }
-                else if (key == "obs_collected") {
-                    static int new_horizon = rl_status["horizon"].cast<int>();
-                    if (ImGui::Selectable(key.c_str())) {
-                        ImGui::OpenPopup("Set Horizon");
-                    }
-                    if (ImGui::BeginPopupModal("Set Horizon", NULL, ImGuiWindowFlags_AlwaysAutoResize)) {
-                        ImGui::Text("Do you want to change the horizon?");
-                        ImGui::TextColored(ImVec4(1.0f, 0.0f, 0.0f, 1.0f), "WARNING: Changing the Horizon during Training is not recommended.");
-                        ImGui::TextColored(ImVec4(1.0f, 0.0f, 0.0f, 1.0f), "It will reset the collected observations and the logs.");
-                        ImGui::TextColored(ImVec4(1.0f, 0.0f, 0.0f, 1.0f), "If you choose a Horizon Size not completly dividable by the");
-                        ImGui::TextColored(ImVec4(1.0f, 0.0f, 0.0f, 1.0f), "batch size, the last batch will be dropped to avoid issues..");
-                        ImGui::Separator();
-                        ImGui::InputInt("Horizon", &new_horizon, 1, 10, ImGuiInputTextFlags_CharsDecimal);
-
-                        if (ImGui::Button("OK", ImVec2(120, 0))) {
-                            rl_status[py::str("horizon")] = new_horizon;
-                            console += "Horizon switched to Horizon of Size: " + std::to_string(new_horizon) + ".\n";
-                            rl_status[py::str("console")] = console;
-                            onSetRLStatus(rl_status);
-                            ImGui::CloseCurrentPopup();
-                        }
-
-                        ImGui::SameLine();
-
-                        if (ImGui::Button("Cancel", ImVec2(120, 0))) {
-                            ImGui::CloseCurrentPopup();
-                        }
-
-                        ImGui::EndPopup();
-                    }
-                    int value_int = value.cast<int>();
-                    int horizon = rl_status["horizon"].cast<int>();
-                    ImGui::SameLine();
-                    ImGui::Text(" : %d/%d", value_int, horizon);
-                }
-                else if ((key == "train_episodes" || key == "max_eval" || key == "max_train" || key == "train_episode")) {
-                    if (auto_train) {
-                        int value_int = value.cast<int>();
-                        ImGui::Text("%s: %d", key.c_str(), value_int);
-                    }
-                } else {
-                    int value_int = value.cast<int>();
-                    ImGui::Text("%s: %d", key.c_str(), value_int);
-                }
-            }
-        }
+        ImGui::Text("Environment Steps before failure: %d", parameters_.GetTotalEnvSteps());
+        if (ImGui::IsItemHovered())
+            ImGui::SetTooltip("The number of steps the environment will take before the episode is considered a failure.\n"
+                              "This number is calculated by the size of the map and the simulation time:\n"
+                              "grid_nx_ * grid_ny_ * (0.1 / dt_)");
+        ImGui::Separator();
 
         if (ImGui::BeginTabBar("RLStatus")){
             if (ImGui::BeginTabItem("Console")) {
@@ -358,6 +447,7 @@ void ImguiHandler::PyConfig(std::vector<float> rewards,
                     // Create an array of drone names
                     std::vector<std::string> drone_names;
                     for (const auto &drone: *drones) {
+                        drone->SetActive(false);
                         drone_names.push_back(std::to_string(drone->GetId()));
                     }
 
@@ -371,7 +461,7 @@ void ImguiHandler::PyConfig(std::vector<float> rewards,
 
                     // Get the currently selected drone
                     auto &selected_drone = (*drones)[current_drone_index];
-
+                    selected_drone->SetActive(true);
                     // Use columns to separate text and images
                     ImGui::Columns(2, nullptr, true);
 
@@ -578,6 +668,10 @@ void ImguiHandler::FileHandling(std::shared_ptr<DatasetHandler> dataset_handler,
             // close
             ImGuiFileDialog::Instance()->Close();
             open_file_dialog_ = false;
+            model_load_selection_ = false;
+            model_path_selection_ = false;
+            load_map_from_disk_ = false;
+            save_map_to_disk_ = false;
         }
     }
 }
@@ -894,16 +988,16 @@ void ImguiHandler::HandleEvents(SDL_Event event, ImGuiIO *io, std::shared_ptr<Gr
         }
     } else if (event.type == SDL_KEYDOWN && parameters_.GetNumberOfDrones() == 1 && !agent_is_running && !io->WantTextInput) {
         if (event.key.keysym.sym == SDLK_w)
-            onMoveDrone(0, -parameters_.GetDroneSpeed(1), 0, 0);
+            onMoveDrone(0, -1, 0, 0);
         // MoveDroneByAngle(0, 0.25, 0, 0);
         if (event.key.keysym.sym == SDLK_s)
-            onMoveDrone(0, parameters_.GetDroneSpeed(1), 0, 0);
+            onMoveDrone(0, 1, 0, 0);
         // MoveDroneByAngle(0, -0.25, 0, 0);
         if (event.key.keysym.sym == SDLK_a)
-            onMoveDrone(0, 0, -parameters_.GetDroneSpeed(1), 0);
+            onMoveDrone(0, 0, -1, 0);
         // MoveDroneByAngle(0, 0, -0.25, 0);
         if (event.key.keysym.sym == SDLK_d)
-            onMoveDrone(0, 0, parameters_.GetDroneSpeed(1), 0);
+            onMoveDrone(0, 0, 1, 0);
         // MoveDroneByAngle(0, 0, 0.25, 0);
         if (event.key.keysym.sym == SDLK_SPACE)
             onMoveDrone(0, 0, 0, 1);

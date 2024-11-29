@@ -81,6 +81,7 @@ public:
     std::vector<std::pair<int, int>> GetMooreNeighborhood(int x, int y) const;
     void UpdateExploredAreaFromDrone(std::shared_ptr<DroneAgent> drone);
     void UpdateCellDiminishing();
+    std::pair<int, int> GetRandomCorner();
 
     // For Rendering Only
     void GenerateNoiseMap();

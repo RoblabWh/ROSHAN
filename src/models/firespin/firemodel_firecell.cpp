@@ -34,6 +34,17 @@ FireCell::FireCell(int x, int y, std::mt19937& gen, FireModelParameters &paramet
         tau_ign_ = cell_->GetIgnitionDelayTime();
     }
 
+    // TODO Auslagern der Zufallszahlen in eine eigene Klasse?
+    // Initialize random number generator
+    std::random_device rd;
+    gen_.seed(rd());
+    real_dis_ = std::uniform_real_distribution<>(0.0, 1.0);
+    std::uniform_real_distribution<> dis(0.1, 0.2);
+    std::uniform_int_distribution<> sign_dis(-1, 1);
+    burning_duration_ += sign_dis(gen_) * burning_duration_ * dis(gen_);
+    tau_ign_ += sign_dis(gen_) * tau_ign_ * dis(gen_);
+    tau_ign_start_ = tau_ign_;
+
     convection_particle_emission_threshold_ = (burning_duration_ - 1) / num_convection_particles_;
     if (convection_particle_emission_threshold_ < 1)
         convection_particle_emission_threshold_ = 1;
@@ -45,16 +56,6 @@ FireCell::FireCell(int x, int y, std::mt19937& gen, FireModelParameters &paramet
     flood_duration_ = parameters_.GetFloodDuration();
     flood_timer_ = flood_duration_;
     tau_ign_tmp_ = 0;
-
-    // TODO Auslagern der Zufallszahlen in eine eigene Klasse?
-    // Initialize random number generator
-    std::random_device rd;
-    gen_.seed(rd());
-    real_dis_ = std::uniform_real_distribution<>(0.0, 1.0);
-    std::uniform_real_distribution<> dis(0.1, 0.2);
-    std::uniform_int_distribution<> sign_dis(-1, 1);
-    tau_ign_ += sign_dis(gen_) * tau_ign_ * dis(gen_);
-    tau_ign_start_ = tau_ign_;
 }
 
 CellState FireCell::GetIgnitionState() {

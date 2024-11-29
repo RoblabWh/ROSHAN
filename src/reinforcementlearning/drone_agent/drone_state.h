@@ -49,6 +49,8 @@ public:
     std::pair<double, double> GetGridPositionDoubleNorm() const;
     std::pair<double, double> GetGoalPosition() const { return goal_position_; }
     std::pair<double, double> GetGoalPositionNorm() const;
+    std::pair<double, double> GetDeltaGoal() const;
+    std::pair<double, double> GetOrientationToGoal() const;
     std::vector<std::vector<std::vector<int>>> GetDroneViewNorm();
 
     // Used for Reward Calculation

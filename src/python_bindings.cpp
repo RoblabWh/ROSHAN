@@ -28,6 +28,8 @@ PYBIND11_MODULE(firesim, m) {
             .def("GetExplorationMapNorm", &DroneState::GetExplorationMapNorm)
             .def("GetPositionNorm", &DroneState::GetPositionNorm)
             .def("GetGridPositionDoubleNorm", &DroneState::GetGridPositionDoubleNorm)
+            .def("GetDeltaGoal", &DroneState::GetDeltaGoal)
+            .def("GetOrientationToGoal", &DroneState::GetOrientationToGoal)
             .def("GetGoalPosition", &DroneState::GetGoalPosition)
             .def("GetGoalPositionNorm", &DroneState::GetGoalPositionNorm)
             .def("GetFireStatus", &DroneState::GetFireStatus)

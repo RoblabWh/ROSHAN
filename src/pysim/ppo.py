@@ -129,13 +129,11 @@ class PPO:
             advantages.insert(0, gae)
             returns.insert(0, gae + values[i])
 
+        # Norm advantages
         advantages = torch.FloatTensor(advantages).to(device)
-        norm_adv = (advantages - advantages.mean()) / (advantages.std() + 1e-10)
+        advantages = (advantages - advantages.mean()) / (advantages.std() + 1e-10)
 
-        returns = torch.FloatTensor(returns).to(device)
-        #norm_returns = (returns - returns.mean()) / (returns.std() + 1e-10)
-
-        return norm_adv, returns
+        return advantages, torch.FloatTensor(returns).to(device)
 
     def calculate_explained_variance(self, values, returns):
         """
@@ -175,7 +173,7 @@ class PPO:
         # Clipping most likely is unnecessary
         # rewards = [np.clip(np.array(reward.detach().cpu()) / self.running_reward_std.get_std(), -10, 10) for reward in rewards]
         # Reward normalization
-        # self.running_reward_std.update(torch.cat(rewards).detach().cpu().numpy())
+        self.running_reward_std.update(torch.cat(rewards).detach().cpu().numpy())
         # rewards = [reward / self.running_reward_std.get_std() for reward in rewards]
         # logger.add_rewards_scaled(torch.cat(rewards).detach().cpu().numpy())
 
@@ -219,6 +217,8 @@ class PPO:
 
         # Merge all agent states, actions, rewards etc.
         advantages = torch.cat(advantages)
+        # # Norm advantages
+        # advantages = (advantages - advantages.mean()) / (advantages.std() + 1e-10)
         returns = torch.cat(returns)
         # Log returns
         logger.add_returns(returns.detach().cpu().numpy())
@@ -240,7 +240,8 @@ class PPO:
                 #     states[0][index], states[1][index], states[2][index], states[3][index], states[4][index])
                 # batch_states = (state[i][index] for state in states)
                 #batch_states = (states[0][index], states[1][index], states[2][index], states[3][index], states[4][index], states[5][index])
-                batch_states = (states[0][index], states[1][index], states[2][index])
+                #batch_states = (states[0][index], states[1][index], states[2][index])
+                batch_states = (states[0][index], states[1][index])
                 batch_actions = actions[index]
                 logprobs, values, dist_entropy = self.policy.evaluate(batch_states, batch_actions)
 

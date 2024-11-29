@@ -12,6 +12,7 @@ DroneAgent::DroneAgent(std::pair<int, int> point, FireModelParameters &parameter
     goal_position_ = std::make_pair(0, 0);
     view_range_ = parameters_.GetViewRange();
     time_steps_ = parameters_.GetTimeSteps();
+    water_capacity_ = parameters_.GetWaterCapacity();
     out_of_area_counter_ = 0;
 }
 
@@ -31,7 +32,7 @@ void DroneAgent::Initialize(GridMap &grid_map) {
 }
 
 void DroneAgent::Render(std::pair<int, int> position, int size) {
-    renderer_.Render(position, size, view_range_, 0);
+    renderer_.Render(position, size, view_range_, 0, active_);
 }
 
 std::pair<double, double> DroneAgent::MoveByAngle(double netout_speed, double netout_angle){
@@ -84,6 +85,7 @@ bool DroneAgent::DispenseWaterCertain(GridMap &grid_map) {
     }
     if (cell_is_burning) {
         dispensed_water_ = true;
+        water_capacity_ -= 1;
         bool fire_extinguished = grid_map.WaterDispension(grid_position.first, grid_position.second);
         if (fire_extinguished) {
             if (grid_map.GetNumBurningCells() == 0) {

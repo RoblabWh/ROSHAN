@@ -476,3 +476,12 @@ std::vector<std::vector<double>> GridMap::GetFireMap(int size, bool interpolated
     }
     return BilinearInterpolation(fire_map_, size, size);
 }
+
+std::pair<int, int> GridMap::GetRandomCorner() {
+    // Returns a random corner of the grid with offset of 1 cell
+    std::uniform_int_distribution<> dis_x(0, 1);
+    std::uniform_int_distribution<> dis_y(0, 1);
+    int x = dis_x(gen_);
+    int y = dis_y(gen_);
+    return std::make_pair(((1 - x) * (rows_ - 2)) + x, ((1 - y) * (cols_ - 2)) + y);
+}

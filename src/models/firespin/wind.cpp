@@ -22,6 +22,7 @@ void Wind::CalculateComponents() {
 }
 
 void Wind::SetRandomAngle() {
+    double wind_angle_ = random() * 2 * M_PI / RAND_MAX;
+    parameters_.SetWindAngle(wind_angle_);
     this->UpdateWind();
-    angle_ = random() * 2 * M_PI / RAND_MAX;
 }

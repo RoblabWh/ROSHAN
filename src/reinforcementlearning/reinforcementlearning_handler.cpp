@@ -10,6 +10,7 @@ ReinforcementLearningHandler::ReinforcementLearningHandler(FireModelParameters &
                                                            parameters_(parameters),
                                                            rewards_(parameters_.GetRewardsBufferSize()){
     drones_ = std::make_shared<std::vector<std::shared_ptr<DroneAgent>>>();
+    groundstation_ = std::make_shared<Groundstation>(parameters_.GetGroundstationPosition(), parameters_);
     agent_is_running_ = false;
     total_env_steps_ = parameters_.GetTotalEnvSteps();
 }
@@ -35,6 +36,11 @@ std::vector<std::deque<std::shared_ptr<State>>> ReinforcementLearningHandler::Ge
 
 void ReinforcementLearningHandler::ResetDrones(Mode mode) {
     drones_->clear();
+    auto corner = gridmap_->GetRandomCorner();
+    groundstation_ = std::make_shared<Groundstation>(corner, parameters_);
+    if (mode == Mode::GUI_RL) {
+        groundstation_->SetRenderer(model_renderer_->GetRenderer());
+    }
     total_env_steps_ = parameters_.GetTotalEnvSteps();
     for (int i = 0; i < parameters_.GetNumberOfDrones(); ++i) {
         auto newDrone = std::make_shared<DroneAgent>(gridmap_->GetRandomPointInGrid(), parameters_, i);
@@ -43,7 +49,17 @@ void ReinforcementLearningHandler::ResetDrones(Mode mode) {
         }
         gridmap_->UpdateExploredAreaFromDrone(newDrone);
         newDrone->SetExploreDifference(0);
-        newDrone->SetGoalPosition(gridmap_->GetNextFire(newDrone));
+
+        // Generate random number between -1 and 1
+        double dicider = -1 + (rand() % 200) / 100.0;
+        std::pair<double, double> goal_pos;
+        auto rl_mode = rl_status_["rl_mode"].cast<std::string>();
+        if (dicider < 0.89 || rl_mode == "eval") {
+            goal_pos = gridmap_->GetNextFire(newDrone);
+        } else {
+            goal_pos = groundstation_->GetGridPosition();
+        }
+        newDrone->SetGoalPosition(goal_pos);
         newDrone->SetLastDistanceToGoal(newDrone->GetDistanceToGoal());
         newDrone->Initialize(*gridmap_);
         newDrone->SetLastNearFires(newDrone->DroneSeesFire());
@@ -53,12 +69,35 @@ void ReinforcementLearningHandler::ResetDrones(Mode mode) {
 }
 
 void ReinforcementLearningHandler::StepDrone(int drone_idx, double speed_x, double speed_y, int water_dispense) {
-    std::pair<double, double> vel_vector = drones_->at(drone_idx)->Step(speed_x, speed_y);
-    drones_->at(drone_idx)->DispenseWaterCertain(*gridmap_);
-    drones_->at(drone_idx)->SetReachedGoal(drones_->at(drone_idx)->GetGoalPositionInt() == drones_->at(drone_idx)->GetGridPosition());
-    if (drones_->at(drone_idx)->GetGoalPositionInt() == drones_->at(drone_idx)->GetGridPosition()){
-        auto next_fire = gridmap_->GetNextFire(drones_->at(drone_idx));
-        drones_->at(drone_idx)->SetGoalPosition(next_fire);
+    drones_->at(drone_idx)->SetReachedGoal(false);
+    std::pair<double, double> vel_vector;
+    if(drones_->at(drone_idx)->GetPolicyType() == 0) {
+        vel_vector = drones_->at(drone_idx)->Step(speed_x, speed_y);
+        if (drones_->at(drone_idx)->GetGoalPositionInt() == drones_->at(drone_idx)->GetGridPosition()) {
+            drones_->at(drone_idx)->SetReachedGoal(true);
+            drones_->at(drone_idx)->DispenseWaterCertain(*gridmap_);
+            if (drones_->at(drone_idx)->GetWaterCapacity() <= 0) {
+                auto groundstation_position = groundstation_->GetGridPosition();
+                drones_->at(drone_idx)->SetGoalPosition(groundstation_position);
+                drones_->at(drone_idx)->SetPolicyType(1);
+            } else {
+                auto next_fire = gridmap_->GetNextFire(drones_->at(drone_idx));
+                drones_->at(drone_idx)->SetGoalPosition(next_fire);
+            }
+        }
+    } else if (drones_->at(drone_idx)->GetPolicyType() == 1) {
+        vel_vector = drones_->at(drone_idx)->Step(speed_x, speed_y);
+        if (drones_->at(drone_idx)->GetGoalPositionInt() == drones_->at(drone_idx)->GetGridPosition()) {
+            drones_->at(drone_idx)->SetPolicyType(2);
+        }
+    } else {
+        vel_vector = std::make_pair(0, 0);
+        if (drones_->at(drone_idx)->GetWaterCapacity() <= parameters_.GetWaterCapacity()) {
+            drones_->at(drone_idx)->SetWaterCapacity(drones_->at(drone_idx)->GetWaterCapacity() + parameters_.GetWaterRefillDt());
+        } else {
+            drones_->at(drone_idx)->SetPolicyType(0);
+            drones_->at(drone_idx)->SetGoalPosition(gridmap_->GetNextFire(drones_->at(drone_idx)));
+        }
     }
 //    drones_->at(drone_idx)->DispenseWater(*gridmap_, water_dispense);
     auto drone_view = gridmap_->GetDroneView(drones_->at(drone_idx));
@@ -110,7 +149,7 @@ double ReinforcementLearningHandler::CalculateReward(std::shared_ptr<DroneAgent>
     if (drone->GetReachedGoal()) {
         reward += 1;
         if(terminal_state){
-            reward += 5;
+            reward += 9;
             debug_str += "Goal Reached Reward: " + std::to_string(reward) + "\n";
 #ifdef DEBUG_REWARD_YES
             std::cout << debug_str;
@@ -122,7 +161,7 @@ double ReinforcementLearningHandler::CalculateReward(std::shared_ptr<DroneAgent>
 
     // Check the boundaries of the map
     if (!drone_in_grid && terminal_state) {
-            reward += -5;
+            reward += -10;
             debug_str += "Boundary Terminal Reward: " + std::to_string(-1) + "\n";
 #ifdef DEBUG_REWARD_YES
             std::cout << debug_str;
@@ -132,26 +171,25 @@ double ReinforcementLearningHandler::CalculateReward(std::shared_ptr<DroneAgent>
 
     // The environment reached terminal state, this means the map is burned too much
     if(terminal_state && (total_env_steps_ <= 0)){
-        reward += -5;
+        reward += -10;
         debug_str += "Terminal State(Took too long) Reward: " + std::to_string(-1) + "\n";
         return reward;
     }
 
     if(terminal_state && fires){
-        reward += -5;
+        reward += -10;
         debug_str += "Terminal State(Map Burned) Reward: " + std::to_string(-1) + "\n";
-        return reward;
-    }
-    if(terminal_state && !fires){
-        reward += 0;
-        debug_str += "Terminal State(Took too long) Reward: " + std::to_string(1) + "\n";
         return reward;
     }
 
     if (delta_distance > 0) {
-        reward += 0.1 * delta_distance;
-        debug_str += "Distance Reward: " + std::to_string(0.1 * delta_distance) + "\n";
+        reward += 0.1;
+        debug_str += "Distance Reward: " + std::to_string(0.1) + "\n";
     }
+//    else {
+//        reward += -0.5;
+//        debug_str += "Distance Reward: " + std::to_string(-0.2) + "\n";
+//    }
 
     // Set some drone variables now so we don't need to compute them again
 
@@ -336,7 +374,7 @@ std::tuple<std::vector<std::deque<std::shared_ptr<State>>>, std::vector<double>,
             if (drones_->at(i)->GetOutOfAreaCounter() > 1) {
                 terminals[i] = true;
                 drone_died = true;
-            } else if(drones_->at(i)->GetReachedGoal() && false) {
+            } else if(drones_->at(i)->GetReachedGoal() && !eval_mode_) {
                 terminals[i] = true;
             } else if(gridmap_->PercentageBurned() > 0.30) {
 //                std::cout << "Percentage burned: " << gridmap_->PercentageBurned() << " resetting GridMap" << std::endl;
@@ -378,4 +416,14 @@ std::tuple<std::vector<std::deque<std::shared_ptr<State>>>, std::vector<double>,
     }
     std::cout << "Taking a step into nothingness..." << std::endl;
     return {};
+}
+
+void ReinforcementLearningHandler::SetRLStatus(py::dict status) {
+    rl_status_ = status;
+    auto rl_mode = rl_status_[py::str("rl_mode")].cast<std::string>();
+    if (rl_mode == "eval") {
+        eval_mode_ = true;
+    } else {
+        eval_mode_ = false;
+    }
 }
