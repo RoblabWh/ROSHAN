@@ -1,8 +1,7 @@
 import copy
 import warnings
 
-from network import Inputspace
-from utils import initialize_output_weights
+from old.network import Inputspace
 import torch
 import torch.nn.functional as F
 import torch.nn as nn

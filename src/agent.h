@@ -9,18 +9,16 @@
 #include <vector>
 #include <memory>
 #include <deque>
-#include "action.h"
 #include "state.h"
+#include "action.h"
 
-class Agent {
+class DroneAction;
+class GridMap;
+
+class Agent : public std::enable_shared_from_this<Agent> {
 public:
     virtual ~Agent() = default;
-    virtual std::vector<std::shared_ptr<Action>> SelectActions(std::vector<std::deque<std::shared_ptr<State>>> states) = 0;
-    virtual void Update(std::vector<std::vector<std::shared_ptr<State>>> observations,
-                        std::vector<std::shared_ptr<Action>> actions,
-                        std::vector<double> rewards,
-                        std::vector<std::vector<std::shared_ptr<State>>> next_observations,
-                        std::vector<bool> dones) = 0;
+    virtual void OnDroneAction(std::shared_ptr<DroneAction> action, std::shared_ptr<GridMap> gridMap) = 0;
 };
 
 #endif //ROSHAN_AGENT_H

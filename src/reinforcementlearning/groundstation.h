@@ -10,8 +10,7 @@
 #include <deque>
 #include <memory>
 #include "reinforcementlearning/texturerenderer.h"
-#include "src/models/firespin/model_parameters.h"
-#include "src/models/firespin/firemodel_gridmap.h"
+#include "firespin/model_parameters.h"
 
 class Groundstation {
 public:

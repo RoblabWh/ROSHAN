@@ -14,11 +14,12 @@ DroneAgent::DroneAgent(std::pair<int, int> point, FireModelParameters &parameter
     time_steps_ = parameters_.GetTimeSteps();
     water_capacity_ = parameters_.GetWaterCapacity();
     out_of_area_counter_ = 0;
+    is_alive_ = true;
 }
 
 void DroneAgent::Initialize(GridMap &grid_map) {
     map_dimensions_ = std::make_pair(grid_map.GetRows(), grid_map.GetCols());
-    auto drone_view = grid_map.GetDroneView(shared_from_this());
+    auto drone_view = grid_map.GetDroneView(std::dynamic_pointer_cast<DroneAgent>(shared_from_this()));
     auto explored_map = grid_map.GetExploredMap();
     auto fire_map = grid_map.GetFireMap();
     dispensed_water_ = false;
@@ -52,7 +53,7 @@ std::pair<double, double> DroneAgent::MoveByXYVel(double netout_speed_x, double 
     return velocity_vector;
 }
 
-std::pair<double, double> DroneAgent::Step(double netout_x, double netout_y) {
+std::pair<double, double> DroneAgent::MovementStep(double netout_x, double netout_y) {
     return this->MoveByXYVel(netout_x, netout_y);
 }
 
@@ -138,7 +139,7 @@ std::pair<double, double> DroneAgent::GetGridPositionDouble() {
 
 // Checks whether the drone sees fire in the current fire status and return how much
 int DroneAgent::DroneSeesFire() {
-    std::vector<std::vector<int>> fire_status = GetLastState().GetFireStatus();
+    std::vector<std::vector<int>> fire_status = GetLastState().GetFireView();
     int count = std::accumulate(fire_status.begin(), fire_status.end(), 0,
                                 [](int acc, const std::vector<int>& vec) {
                                     return acc + std::count(vec.begin(), vec.end(), 1);
@@ -150,7 +151,7 @@ int DroneAgent::DroneSeesFire() {
 double DroneAgent::FindNearestFireDistance() {
     std::pair<int, int> drone_grid_position = GetGridPosition();
     double min_distance = std::numeric_limits<double>::max();
-    std::vector<std::vector<int>> fire_status = GetLastState().GetFireStatus();
+    std::vector<std::vector<int>> fire_status = GetLastState().GetFireView();
 
     for (int y = 0; y <= view_range_; ++y) {
         for (int x = 0; x <= view_range_; ++x) {
@@ -199,4 +200,49 @@ double DroneAgent::GetDistanceToGoal() {
     return sqrt(pow(this->GetGoalPosition().first - this->GetGridPositionDouble().first, 2) +
          pow(this->GetGoalPosition().second - this->GetGridPositionDouble().second, 2)
     );
+}
+
+void DroneAgent::Step(double speed_x, double speed_y, const std::shared_ptr<GridMap>& gridmap) {
+    this->SetReachedGoal(false);
+    std::pair<double, double> vel_vector;
+    if(this->GetPolicyType() == 0) {
+        vel_vector = this->MovementStep(speed_x, speed_y);
+        if (this->GetGoalPositionInt() == this->GetGridPosition()) {
+            this->SetReachedGoal(true);
+            this->DispenseWaterCertain(*gridmap);
+            if (this->GetWaterCapacity() <= 0) {
+                auto groundstation_position = gridmap->GetGroundstationPosition();
+                this->SetGoalPosition(groundstation_position);
+                this->SetPolicyType(1);
+            } else {
+                auto next_fire = gridmap->GetNextFire(std::dynamic_pointer_cast<DroneAgent>(shared_from_this()));
+                this->SetGoalPosition(next_fire);
+            }
+        }
+    } else if (this->GetPolicyType() == 1) {
+        vel_vector = this->MovementStep(speed_x, speed_y);
+        if (this->GetGoalPositionInt() == this->GetGridPosition()) {
+            this->SetPolicyType(2);
+        }
+    } else {
+        vel_vector = std::make_pair(0, 0);
+        if (this->GetWaterCapacity() <= parameters_.GetWaterCapacity()) {
+            this->SetWaterCapacity(this->GetWaterCapacity() + parameters_.GetWaterRefillDt());
+        } else {
+            this->SetPolicyType(0);
+            this->SetGoalPosition(gridmap->GetNextFire(std::dynamic_pointer_cast<DroneAgent>(shared_from_this())));
+        }
+    }
+//    drones_->at(drone_idx)->DispenseWater(*gridmap_, water_dispense);
+    auto drone_view = gridmap->GetDroneView(std::dynamic_pointer_cast<DroneAgent>(shared_from_this()));
+    gridmap->UpdateExploredAreaFromDrone(std::dynamic_pointer_cast<DroneAgent>(shared_from_this()));
+    // TODO consider not only adding the current velocity, but the last netoutputs (these are two potential dimensions)
+    this->UpdateStates(*gridmap, vel_vector, drone_view, 0);
+}
+
+void DroneAgent::OnDroneAction(std::shared_ptr<DroneAction> action, const std::shared_ptr<GridMap> gridMap) {
+    // Get the speed and water dispense from the action
+    double speed_x = action->GetSpeedX(); // change this to "real" speed
+    double speed_y = action->GetSpeedY();
+    this->Step(speed_x, speed_y, gridMap);
 }

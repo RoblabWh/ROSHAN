@@ -9,7 +9,7 @@ PYBIND11_MODULE(firesim, m) {
 
     py::class_<DroneAction, Action, std::shared_ptr<DroneAction>>(m, "DroneAction")
             .def(py::init<>())
-            .def(py::init<double, double, int>())
+            .def(py::init<double, double>())
             .def("GetSpeedX", &DroneAction::GetSpeedX)
             .def("GetSpeedY", &DroneAction::GetSpeedY)
             .def("GetWaterDispense", &DroneAction::GetWaterDispense);
@@ -29,10 +29,11 @@ PYBIND11_MODULE(firesim, m) {
             .def("GetPositionNorm", &DroneState::GetPositionNorm)
             .def("GetGridPositionDoubleNorm", &DroneState::GetGridPositionDoubleNorm)
             .def("GetDeltaGoal", &DroneState::GetDeltaGoal)
+            .def("GetOutsideAreaCounter", &DroneState::CountOutsideArea)
             .def("GetOrientationToGoal", &DroneState::GetOrientationToGoal)
             .def("GetGoalPosition", &DroneState::GetGoalPosition)
             .def("GetGoalPositionNorm", &DroneState::GetGoalPositionNorm)
-            .def("GetFireStatus", &DroneState::GetFireStatus)
+            .def("GetFireView", &DroneState::GetFireView)
             .def("GetWaterDispense", &DroneState::GetWaterDispense)
             .def_property_readonly("velocity", &DroneState::get_velocity)
             .def_property_readonly("drone_view", &DroneState::get_drone_view)

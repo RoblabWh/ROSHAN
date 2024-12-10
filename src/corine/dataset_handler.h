@@ -10,7 +10,7 @@
 #include <gdal_priv.h>
 #include "json.hpp"
 #include <fstream>
-#include "src/models/firespin/utils.h"
+#include "firespin/utils.h"
 
 using json = nlohmann::json;
 

@@ -10,7 +10,6 @@ ReinforcementLearningHandler::ReinforcementLearningHandler(FireModelParameters &
                                                            parameters_(parameters),
                                                            rewards_(parameters_.GetRewardsBufferSize()){
     drones_ = std::make_shared<std::vector<std::shared_ptr<DroneAgent>>>();
-    groundstation_ = std::make_shared<Groundstation>(parameters_.GetGroundstationPosition(), parameters_);
     agent_is_running_ = false;
     total_env_steps_ = parameters_.GetTotalEnvSteps();
 }
@@ -36,10 +35,9 @@ std::vector<std::deque<std::shared_ptr<State>>> ReinforcementLearningHandler::Ge
 
 void ReinforcementLearningHandler::ResetDrones(Mode mode) {
     drones_->clear();
-    auto corner = gridmap_->GetRandomCorner();
-    groundstation_ = std::make_shared<Groundstation>(corner, parameters_);
+
     if (mode == Mode::GUI_RL) {
-        groundstation_->SetRenderer(model_renderer_->GetRenderer());
+        gridmap_->SetGroundstationRenderer(model_renderer_->GetRenderer());
     }
     total_env_steps_ = parameters_.GetTotalEnvSteps();
     for (int i = 0; i < parameters_.GetNumberOfDrones(); ++i) {
@@ -57,7 +55,7 @@ void ReinforcementLearningHandler::ResetDrones(Mode mode) {
         if (dicider < 0.89 || rl_mode == "eval") {
             goal_pos = gridmap_->GetNextFire(newDrone);
         } else {
-            goal_pos = groundstation_->GetGridPosition();
+            goal_pos = gridmap_->GetGroundstation()->GetGridPosition();
         }
         newDrone->SetGoalPosition(goal_pos);
         newDrone->SetLastDistanceToGoal(newDrone->GetDistanceToGoal());
@@ -69,41 +67,41 @@ void ReinforcementLearningHandler::ResetDrones(Mode mode) {
 }
 
 void ReinforcementLearningHandler::StepDrone(int drone_idx, double speed_x, double speed_y, int water_dispense) {
-    drones_->at(drone_idx)->SetReachedGoal(false);
-    std::pair<double, double> vel_vector;
-    if(drones_->at(drone_idx)->GetPolicyType() == 0) {
-        vel_vector = drones_->at(drone_idx)->Step(speed_x, speed_y);
-        if (drones_->at(drone_idx)->GetGoalPositionInt() == drones_->at(drone_idx)->GetGridPosition()) {
-            drones_->at(drone_idx)->SetReachedGoal(true);
-            drones_->at(drone_idx)->DispenseWaterCertain(*gridmap_);
-            if (drones_->at(drone_idx)->GetWaterCapacity() <= 0) {
-                auto groundstation_position = groundstation_->GetGridPosition();
-                drones_->at(drone_idx)->SetGoalPosition(groundstation_position);
-                drones_->at(drone_idx)->SetPolicyType(1);
-            } else {
-                auto next_fire = gridmap_->GetNextFire(drones_->at(drone_idx));
-                drones_->at(drone_idx)->SetGoalPosition(next_fire);
-            }
-        }
-    } else if (drones_->at(drone_idx)->GetPolicyType() == 1) {
-        vel_vector = drones_->at(drone_idx)->Step(speed_x, speed_y);
-        if (drones_->at(drone_idx)->GetGoalPositionInt() == drones_->at(drone_idx)->GetGridPosition()) {
-            drones_->at(drone_idx)->SetPolicyType(2);
-        }
-    } else {
-        vel_vector = std::make_pair(0, 0);
-        if (drones_->at(drone_idx)->GetWaterCapacity() <= parameters_.GetWaterCapacity()) {
-            drones_->at(drone_idx)->SetWaterCapacity(drones_->at(drone_idx)->GetWaterCapacity() + parameters_.GetWaterRefillDt());
-        } else {
-            drones_->at(drone_idx)->SetPolicyType(0);
-            drones_->at(drone_idx)->SetGoalPosition(gridmap_->GetNextFire(drones_->at(drone_idx)));
-        }
-    }
-//    drones_->at(drone_idx)->DispenseWater(*gridmap_, water_dispense);
-    auto drone_view = gridmap_->GetDroneView(drones_->at(drone_idx));
-    gridmap_->UpdateExploredAreaFromDrone(drones_->at(drone_idx));
-    // TODO consider not only adding the current velocity, but the last netoutputs (these are two potential dimensions)
-    drones_->at(drone_idx)->UpdateStates(*gridmap_, vel_vector, drone_view, water_dispense);
+//    drones_->at(drone_idx)->SetReachedGoal(false);
+//    std::pair<double, double> vel_vector;
+//    if(drones_->at(drone_idx)->GetPolicyType() == 0) {
+//        vel_vector = drones_->at(drone_idx)->Step(speed_x, speed_y);
+//        if (drones_->at(drone_idx)->GetGoalPositionInt() == drones_->at(drone_idx)->GetGridPosition()) {
+//            drones_->at(drone_idx)->SetReachedGoal(true);
+//            drones_->at(drone_idx)->DispenseWaterCertain(*gridmap_);
+//            if (drones_->at(drone_idx)->GetWaterCapacity() <= 0) {
+//                auto groundstation_position = groundstation_->GetGridPosition();
+//                drones_->at(drone_idx)->SetGoalPosition(groundstation_position);
+//                drones_->at(drone_idx)->SetPolicyType(1);
+//            } else {
+//                auto next_fire = gridmap_->GetNextFire(drones_->at(drone_idx));
+//                drones_->at(drone_idx)->SetGoalPosition(next_fire);
+//            }
+//        }
+//    } else if (drones_->at(drone_idx)->GetPolicyType() == 1) {
+//        vel_vector = drones_->at(drone_idx)->Step(speed_x, speed_y);
+//        if (drones_->at(drone_idx)->GetGoalPositionInt() == drones_->at(drone_idx)->GetGridPosition()) {
+//            drones_->at(drone_idx)->SetPolicyType(2);
+//        }
+//    } else {
+//        vel_vector = std::make_pair(0, 0);
+//        if (drones_->at(drone_idx)->GetWaterCapacity() <= parameters_.GetWaterCapacity()) {
+//            drones_->at(drone_idx)->SetWaterCapacity(drones_->at(drone_idx)->GetWaterCapacity() + parameters_.GetWaterRefillDt());
+//        } else {
+//            drones_->at(drone_idx)->SetPolicyType(0);
+//            drones_->at(drone_idx)->SetGoalPosition(gridmap_->GetNextFire(drones_->at(drone_idx)));
+//        }
+//    }
+////    drones_->at(drone_idx)->DispenseWater(*gridmap_, water_dispense);
+//    auto drone_view = gridmap_->GetDroneView(drones_->at(drone_idx));
+//    gridmap_->UpdateExploredAreaFromDrone(drones_->at(drone_idx));
+//    // TODO consider not only adding the current velocity, but the last netoutputs (these are two potential dimensions)
+//    drones_->at(drone_idx)->UpdateStates(*gridmap_, vel_vector, drone_view, water_dispense);
 }
 
 void ReinforcementLearningHandler::InitFires() {
@@ -176,11 +174,11 @@ double ReinforcementLearningHandler::CalculateReward(std::shared_ptr<DroneAgent>
         return reward;
     }
 
-    if(terminal_state && fires){
-        reward += -10;
-        debug_str += "Terminal State(Map Burned) Reward: " + std::to_string(-1) + "\n";
-        return reward;
-    }
+//    if(terminal_state && fires){
+//        reward += -10;
+//        debug_str += "Terminal State(Map Burned) Reward: " + std::to_string(-1) + "\n";
+//        return reward;
+//    }
 
     if (delta_distance > 0) {
         reward += 0.1;
@@ -358,12 +356,7 @@ std::tuple<std::vector<std::deque<std::shared_ptr<State>>>, std::vector<double>,
         gridmap_->UpdateCellDiminishing();
         // First Step through all the Drones and update their states
         for (int i = 0; i < (*drones_).size(); ++i) {
-            // Get the speed and water dispense from the action
-            double speed_x = std::dynamic_pointer_cast<DroneAction>(
-                    actions[i])->GetSpeedX(); // change this to "real" speed
-            double speed_y = std::dynamic_pointer_cast<DroneAction>(actions[i])->GetSpeedY();
-            int water_dispense = std::dynamic_pointer_cast<DroneAction>(actions[i])->GetWaterDispense();
-            StepDrone(i, speed_x, speed_y, water_dispense);
+            actions[i]->Apply(drones_->at(i), gridmap_);
         }
 
         // Now we calculate the rewards for each drone
@@ -371,25 +364,34 @@ std::tuple<std::vector<std::deque<std::shared_ptr<State>>>, std::vector<double>,
             terminals.push_back(false);
 
             // Check if drone is out of area for too long
-            if (drones_->at(i)->GetOutOfAreaCounter() > 1) {
+            if (drones_->at(i)->GetOutOfAreaCounter() > 1 && !eval_mode_) {
                 terminals[i] = true;
                 drone_died = true;
-            } else if(drones_->at(i)->GetReachedGoal() && !eval_mode_) {
+            }
+            else if(drones_->at(i)->GetOutOfAreaCounter() > 30 && eval_mode_) {
                 terminals[i] = true;
-            } else if(gridmap_->PercentageBurned() > 0.30) {
+                drone_died = true;
+            }
+            else if(drones_->at(i)->GetReachedGoal() && !eval_mode_) {
+                terminals[i] = true;
+            }
+            else if(gridmap_->PercentageBurned() > 0.30) {
 //                std::cout << "Percentage burned: " << gridmap_->PercentageBurned() << " resetting GridMap" << std::endl;
                 terminals[i] = true;
                 drone_died = true;
-            } else if (drones_->at(i)->GetExtinguishedLastFire()) {
+            }
+            else if (drones_->at(i)->GetExtinguishedLastFire()) {
 //                std::cout << "Fire is extinguished, resetting GridMap" << std::endl;
                 // TODO Don't use gridmap_->IsBurning() because it is not reliable since it returns false when there
                 //  are particles in the air. Instead, check if the drone has extinguished the last fire on the map.
                 //  This also makes sure that only the drone that actually extinguished the fire gets the reward
                 terminals[i] = true;
                 all_fires_ext = true;
-            } else if (!gridmap_->IsBurning()) {
+            }
+            else if (!gridmap_->IsBurning()) {
                 terminals[i] = true;
-            } else if (total_env_steps_ <= 0) {
+            }
+            else if (total_env_steps_ <= 0 && !eval_mode_) {
                 terminals[i] = true;
             }
 

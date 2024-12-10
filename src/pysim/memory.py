@@ -3,7 +3,7 @@ import numpy as np
 
 
 class SwarmMemory(object):
-    def __init__(self, num_agents=2, action_dim=3, max_size=int(1e5)):
+    def __init__(self, num_agents=2, action_dim=2, max_size=int(1e5)):
         self.num_agents = num_agents
         self.memory = [Memory(action_dim=action_dim, max_size=max_size) for _ in range(num_agents)]
 
@@ -50,7 +50,7 @@ class SwarmMemory(object):
 
 
 class Memory(object):
-    def __init__(self, action_dim=3, max_size=int(1e5)):
+    def __init__(self, action_dim=2, max_size=int(1e5)):
         self.max_size = max_size
         self.action_dim = action_dim
         self.ptr = 0

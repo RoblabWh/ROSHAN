@@ -6,6 +6,8 @@
 #define ROSHAN_UTILS2_H
 
 #include <chrono>
+#include <unordered_set>
+#include <functional>
 
 enum Mode {
     GUI_RL = 0,
@@ -52,5 +54,30 @@ private:
     std::chrono::time_point<std::chrono::high_resolution_clock> start_;
     std::chrono::time_point<std::chrono::high_resolution_clock> end_;
 };
+
+class Point {
+
+public:
+    Point(int x, int y) {
+        x_ = x;
+        y_ = y;
+    }
+
+    bool operator==(const Point& other) const {
+        return x_ == other.x_ && y_ == other.y_;
+    }
+
+    int x_;
+    int y_;
+};
+
+namespace std {
+    template <>
+    struct hash<Point> {
+        size_t operator()(const Point& p) const {
+            return p.x_ ^ (p.y_ << 1);
+        }
+    };
+}
 
 #endif //ROSHAN_UTILS2_H

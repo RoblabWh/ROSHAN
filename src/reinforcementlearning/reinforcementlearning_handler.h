@@ -12,11 +12,10 @@
 #include <vector>
 #include "externals/pybind11/include/pybind11/embed.h"
 #include "state.h"
-#include "src/models/firespin/rendering/firemodel_renderer.h"
+#include "firespin/rendering/firemodel_renderer.h"
 #include "src/reinforcementlearning/drone_agent/drone.h"
 #include "src/reinforcementlearning/drone_agent/drone_state.h"
 #include "src/reinforcementlearning/drone_agent/drone_action.h"
-#include "src/reinforcementlearning/groundstation.h"
 #include "src/utils.h"
 
 namespace py = pybind11;
@@ -49,7 +48,6 @@ public:
     bool GetAgentRunning() { return agent_is_running_; }
 
     std::shared_ptr<std::vector<std::shared_ptr<DroneAgent>>> GetDrones() { return drones_; }
-    std::shared_ptr<Groundstation> GetGroundstation() { return groundstation_; }
     CircularBuffer<float> GetRewards() { return rewards_; }
     std::vector<float> GetAllRewards() { return all_rewards_; }
 
@@ -63,7 +61,6 @@ private:
     std::shared_ptr<FireModelRenderer> model_renderer_;
     FireModelParameters& parameters_;
     std::shared_ptr<std::vector<std::shared_ptr<DroneAgent>>> drones_;
-    std::shared_ptr<Groundstation> groundstation_;
 
     double CalculateReward(std::shared_ptr<DroneAgent> drone, bool terminal_state) const;
     double CalculateReward2(std::shared_ptr<DroneAgent> drone, bool terminal_state) const;

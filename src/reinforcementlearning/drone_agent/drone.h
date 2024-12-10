@@ -10,21 +10,23 @@
 #include <deque>
 #include <memory>
 #include "reinforcementlearning/texturerenderer.h"
-#include "src/models/firespin/model_parameters.h"
-#include "src/models/firespin/firemodel_gridmap.h"
+#include "firespin/model_parameters.h"
+#include "firespin/firemodel_gridmap.h"
+#include "agent.h"
 #include "drone_state.h"
+#include "drone_action.h"
 
 // TODO Remove circular dependency
 class GridMap;
 
-class DroneAgent: public std::enable_shared_from_this<DroneAgent> {
+class DroneAgent: public Agent {
 public:
     explicit DroneAgent(std::pair<int, int> point, FireModelParameters &parameters, int id);
     ~DroneAgent() = default;
     std::deque<DroneState> GetStates() { return drone_states_; }
     void SetRenderer(std::shared_ptr<SDL_Renderer> renderer) { renderer_ = TextureRenderer(std::move(renderer), "../assets/drone.png"); }
     void UpdateStates(GridMap &grid_map, std::pair<double, double> velocity_vector, const std::vector<std::vector<std::vector<int>>>& drone_view, int water_dispense);
-    std::pair<double, double> Step(double netout_x, double netout_y);
+    std::pair<double, double> MovementStep(double netout_x, double netout_y);
     bool DispenseWaterCertain(GridMap &grid_map);
     void DispenseWater(GridMap &grid_map, int water_dispense);
     std::pair<int, int> GetGridPosition();
@@ -66,6 +68,9 @@ public:
     void Render(std::pair<int, int> position, int size);
     void Initialize(GridMap &grid_map);
     double FindNearestFireDistance();
+    void Step(double speed_x, double speed_y, const std::shared_ptr<GridMap>& gridmap);
+    void OnDroneAction(std::shared_ptr<DroneAction> action, const std::shared_ptr<GridMap> gridMap) override;
+    bool IsAlive() const { return is_alive_; }
 private:
     std::pair<double, double> MoveByXYVel(double speed_x, double speed_y);
     std::pair<double, double> MoveByAngle(double netout_speed, double netout_angle);
@@ -76,6 +81,7 @@ private:
     std::pair<int, int> map_dimensions_;
     std::pair<double, double> position_; // x, y in (m)
     std::pair<double, double> goal_position_;
+    bool is_alive_;
     int explore_difference_;
     int view_range_;
     int time_steps_;

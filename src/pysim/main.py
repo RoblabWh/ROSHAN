@@ -16,7 +16,7 @@ sys.path.insert(0, config['module_directory'])
 os.chdir(config['module_directory'])
 
 import firesim
-from agent import AgentHandler
+from agent_handler import AgentHandler
 from memory import SwarmMemory
 
 # Press the green button in the gutter to run the script.
@@ -63,12 +63,15 @@ if __name__ == '__main__':
               "train_step": 0,
               "max_eval": 1000, # Number of Environments to run before stopping evaluation
               "max_train": 1000, # Number of Updates to perform before stopping training
-              "K_epochs": 10
+              "K_epochs": 10,
+              "agent_type": "FlyAgent", # Either FlyAgent, ExplorationAgent
               }
 
     if llm_support:
         from llmsupport import LLMPredictorAPI
         llm = LLMPredictorAPI("mistralai/Mistral-7B-Instruct-v0.3")
+    else:
+        llm = None
         #llm = LLMPredictorAPI("Qwen/Qwen2-1.5B")
 
     # Initialize the EngineCore and send the RL_Status
@@ -84,7 +87,7 @@ if __name__ == '__main__':
     status = engine.GetRLStatusFromModel()
 
     # Memory and Logger Objects, setting logging will create a tensorboardX writer
-    memory = SwarmMemory(num_agents=status["num_agents"], max_size=status["horizon"])
+    memory = SwarmMemory(num_agents=status["num_agents"], action_dim=2, max_size=status["horizon"])
 
     # Now get the view range and time steps from the engine, these parameters are currently set in the model_params
     # TODO Keep this in the model_params as soft hidden param since it meddles with the model structure?
@@ -93,9 +96,7 @@ if __name__ == '__main__':
 
     # Create the Agent Object, which might actually hold multiple agents...
     agent = AgentHandler(status=status, algorithm='ppo', vision_range=view_range, time_steps=time_steps, logdir=config['log_directory'])
-
-    # agent.set_paths(status["model_path"], status["model_name"])
-    status["console"] = agent.load_model(status=status, resume=False, train_=status["rl_mode"])
+    status["console"] += agent.load_model(status=status, resume=False, train_=status["rl_mode"])
 
     engine.SendRLStatusToModel(status)
 
@@ -108,12 +109,13 @@ if __name__ == '__main__':
         status = engine.GetRLStatusFromModel()
         memory = agent.update_status(status, memory)
 
+        # Initial Observation
+        next_obs = agent.restructure_data(engine.GetObservations())
+        agent_cnt = next_obs[0].shape[0]
+        terminals = [False] * agent_cnt
+
         if engine.AgentIsRunning() and status["agent_online"]:
             t += 1
-            if t == 0:
-                next_obs = agent.restructure_data(engine.GetObservations())
-                agent_cnt = next_obs[0].shape[0]
-                terminals = [False] * agent_cnt
             obs = next_obs
             if status["rl_mode"] == "train":
                 actions, action_logprobs = agent.act(obs)
@@ -136,9 +138,8 @@ if __name__ == '__main__':
                 agent.evaluate(status, rewards, terminals, dones, percent_burned)
             engine.SendRLStatusToModel(status)
         else:
-            # if not status["agent_online"]:
-            #     print("Dein automatisches Training ist vorbei. Hurra!")
-            #     exit()
+            if not status["agent_online"]:
+                status["console"] += "Autotrain done! Yippie"
             obs, rewards = None, None
 
         user_input = engine.GetUserInput()

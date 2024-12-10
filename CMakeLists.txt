@@ -102,55 +102,55 @@ set(CORE_SOURCES
         src/engine_core.cpp src/engine_core.h
         src/corine/dataset_handler.cpp src/corine/dataset_handler.h
         externals/ImGuiFileDialog/ImGuiFileDialog.cpp externals/ImGuiFileDialog/ImGuiFileDialog.h
-        src/state.h
-        src/action.h
         src/model_interface.h
-        src/point.h
-        src/point_hash.h)
+)
 
 # Agent sources
 #src/reinforcementlearning/drone_agent/rendering/DroneRenderer.cpp src/reinforcementlearning/drone_agent/rendering/DroneRenderer.h
 set(AGENT_SOURCES
+        src/state.h
+        src/agent.h
+        src/action.h
+        src/reinforcementlearning/utils.h src/reinforcementlearning/utils.cpp
+        src/reinforcementlearning/drone_agent/drone_state.cpp src/reinforcementlearning/drone_agent/drone_state.h
+        src/reinforcementlearning/drone_agent/drone_action.h
         src/reinforcementlearning/drone_agent/drone.cpp src/reinforcementlearning/drone_agent/drone.h
         src/reinforcementlearning/texturerenderer.cpp src/reinforcementlearning/texturerenderer.h
         src/reinforcementlearning/groundstation.h src/reinforcementlearning/groundstation.cpp
-        src/reinforcementlearning/drone_agent/drone_state.cpp src/reinforcementlearning/drone_agent/drone_state.h
-        src/reinforcementlearning/drone_agent/drone_action.h
-        src/agent.h
         src/reinforcementlearning/reinforcementlearning_handler.cpp
         src/reinforcementlearning/reinforcementlearning_handler.h)
 
 # Fire model sources
 set(FIREMODEL_SOURCES
-        src/models/firespin/firemodel.cpp src/models/firespin/firemodel.h
-        src/models/firespin/firemodel_gridmap.cpp src/models/firespin/firemodel_gridmap.h
-        src/models/firespin/rendering/firemodel_renderer.cpp src/models/firespin/rendering/firemodel_renderer.h
-        src/models/firespin/rendering/firemodel_camera.cpp src/models/firespin/rendering/firemodel_camera.h
-        src/models/firespin/firemodel_firecell.cpp src/models/firespin/firemodel_firecell.h
-        src/models/firespin/particles/virtual_particle.cpp src/models/firespin/particles/virtual_particle.h
-        src/models/firespin/particles/radiation_particle.cpp src/models/firespin/particles/radiation_particle.h
-        src/models/firespin/wind.cpp src/models/firespin/wind.h
-        src/models/firespin/utils.h src/models/firespin/utils.cpp
-        src/models/firespin/model_parameters.h
-        src/models/firespin/firemodel_cell_interface.h
-        src/models/firespin/cell_classes/cell_generic_flooded.cpp src/models/firespin/cell_classes/cell_generic_flooded.h
-        src/models/firespin/cell_classes/cell_generic_unburned.cpp src/models/firespin/cell_classes/cell_generic_unburned.h
-        src/models/firespin/cell_classes/cell_sealed.cpp src/models/firespin/cell_classes/cell_sealed.h
-        src/models/firespin/cell_classes/cell_woody_needle_leaved_trees.cpp src/models/firespin/cell_classes/cell_woody_needle_leaved_trees.h
-        src/models/firespin/cell_classes/cell_woody_breadleaved_deciduous_trees.cpp src/models/firespin/cell_classes/cell_woody_breadleaved_deciduous_trees.h
-        src/models/firespin/cell_classes/cell_woody_broadleaved_evergreen_trees.cpp src/models/firespin/cell_classes/cell_woody_broadleaved_evergreen_trees.h
-        src/models/firespin/cell_classes/cell_low_growing_woody_plants.cpp src/models/firespin/cell_classes/cell_low_growing_woody_plants.h
-        src/models/firespin/cell_classes/cell_permanent_herbaceous.cpp src/models/firespin/cell_classes/cell_permanent_herbaceous.h
-        src/models/firespin/cell_classes/cell_periodically_herbaceous.cpp src/models/firespin/cell_classes/cell_periodically_herbaceous.h
-        src/models/firespin/cell_classes/cell_lichens_and_mosses.cpp src/models/firespin/cell_classes/cell_lichens_and_mosses.h
-        src/models/firespin/cell_classes/cell_non_and_sparsley_vegetated.cpp src/models/firespin/cell_classes/cell_non_and_sparsley_vegetated.h
-        src/models/firespin/cell_classes/cell_water.cpp src/models/firespin/cell_classes/cell_water.h
-        src/models/firespin/cell_classes/cell_snow_and_ice.cpp src/models/firespin/cell_classes/cell_snow_and_ice.h
-        src/models/firespin/cell_classes/cell_generic_burning.cpp src/models/firespin/cell_classes/cell_generic_burning.h
-        src/models/firespin/cell_classes/cell_outside_area.cpp src/models/firespin/cell_classes/cell_outside_area.h
-        src/models/firespin/cell_classes/cell_generic_burned.cpp src/models/firespin/cell_classes/cell_generic_burned.h
-        src/models/firespin/rendering/firemodel_pixelbuffer.cpp src/models/firespin/rendering/firemodel_pixelbuffer.h
-        src/models/firespin/rendering/firemodel_imgui.cpp src/models/firespin/rendering/firemodel_imgui.h
+        src/firespin/firemodel.cpp src/firespin/firemodel.h
+        src/firespin/firemodel_gridmap.cpp src/firespin/firemodel_gridmap.h
+        src/firespin/rendering/firemodel_renderer.cpp src/firespin/rendering/firemodel_renderer.h
+        src/firespin/rendering/firemodel_camera.cpp src/firespin/rendering/firemodel_camera.h
+        src/firespin/firemodel_firecell.cpp src/firespin/firemodel_firecell.h
+        src/firespin/particles/virtual_particle.cpp src/firespin/particles/virtual_particle.h
+        src/firespin/particles/radiation_particle.cpp src/firespin/particles/radiation_particle.h
+        src/firespin/wind.cpp src/firespin/wind.h
+        src/firespin/utils.h src/firespin/utils.cpp
+        src/firespin/model_parameters.h
+        src/firespin/firemodel_cell_interface.h
+        src/firespin/cell_classes/cell_generic_flooded.cpp src/firespin/cell_classes/cell_generic_flooded.h
+        src/firespin/cell_classes/cell_generic_unburned.cpp src/firespin/cell_classes/cell_generic_unburned.h
+        src/firespin/cell_classes/cell_sealed.cpp src/firespin/cell_classes/cell_sealed.h
+        src/firespin/cell_classes/cell_woody_needle_leaved_trees.cpp src/firespin/cell_classes/cell_woody_needle_leaved_trees.h
+        src/firespin/cell_classes/cell_woody_breadleaved_deciduous_trees.cpp src/firespin/cell_classes/cell_woody_breadleaved_deciduous_trees.h
+        src/firespin/cell_classes/cell_woody_broadleaved_evergreen_trees.cpp src/firespin/cell_classes/cell_woody_broadleaved_evergreen_trees.h
+        src/firespin/cell_classes/cell_low_growing_woody_plants.cpp src/firespin/cell_classes/cell_low_growing_woody_plants.h
+        src/firespin/cell_classes/cell_permanent_herbaceous.cpp src/firespin/cell_classes/cell_permanent_herbaceous.h
+        src/firespin/cell_classes/cell_periodically_herbaceous.cpp src/firespin/cell_classes/cell_periodically_herbaceous.h
+        src/firespin/cell_classes/cell_lichens_and_mosses.cpp src/firespin/cell_classes/cell_lichens_and_mosses.h
+        src/firespin/cell_classes/cell_non_and_sparsley_vegetated.cpp src/firespin/cell_classes/cell_non_and_sparsley_vegetated.h
+        src/firespin/cell_classes/cell_water.cpp src/firespin/cell_classes/cell_water.h
+        src/firespin/cell_classes/cell_snow_and_ice.cpp src/firespin/cell_classes/cell_snow_and_ice.h
+        src/firespin/cell_classes/cell_generic_burning.cpp src/firespin/cell_classes/cell_generic_burning.h
+        src/firespin/cell_classes/cell_outside_area.cpp src/firespin/cell_classes/cell_outside_area.h
+        src/firespin/cell_classes/cell_generic_burned.cpp src/firespin/cell_classes/cell_generic_burned.h
+        src/firespin/rendering/firemodel_pixelbuffer.cpp src/firespin/rendering/firemodel_pixelbuffer.h
+        src/firespin/rendering/firemodel_imgui.cpp src/firespin/rendering/firemodel_imgui.h
 )
 
 # Python bindings

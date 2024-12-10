@@ -21,7 +21,7 @@
 #include <iostream>
 #include <thread>
 #include "model_interface.h"
-#include "models/firespin/firemodel.h"
+#include "firespin/firemodel.h"
 #include "corine/dataset_handler.h"
 #include "agent.h"
 #include "action.h"

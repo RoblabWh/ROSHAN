@@ -52,3 +52,6 @@ openstreetmap/server.pid
 # Large Files
 CLMS_CLCplus_RASTER_2018_010m_eu_03035_V1_1.tif
 CLMS_CLCplus_*
+
+# Files
+config.json

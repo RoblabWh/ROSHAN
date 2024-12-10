@@ -4,6 +4,33 @@ from pathlib import Path
 from torch.utils.tensorboard import SummaryWriter
 
 
+def get_in_features_2d(h_in, w_in, layers_dict):
+    for layer in layers_dict:
+        padding = layer['padding']
+        dilation = layer['dilation']
+        kernel_size = layer['kernel_size']
+        stride = layer['stride']
+
+        h_in = ((h_in + 2 * padding[0] - dilation[0] * (kernel_size[0] - 1) - 1) // stride[0]) + 1
+        w_in = ((w_in + 2 * padding[1] - dilation[1] * (kernel_size[1] - 1) - 1) // stride[1]) + 1
+
+    return h_in * w_in
+
+
+def get_in_features_3d(h_in, w_in, d_in, layers_dict):
+    for layer in layers_dict:
+        padding = layer['padding']
+        dilation = layer['dilation']
+        kernel_size = layer['kernel_size']
+        stride = layer['stride']
+
+        d_in = ((d_in + 2 * padding[0] - dilation[0] * (kernel_size[0] - 1) - 1) // stride[0]) + 1
+        h_in = ((h_in + 2 * padding[1] - dilation[1] * (kernel_size[1] - 1) - 1) // stride[1]) + 1
+        w_in = ((w_in + 2 * padding[2] - dilation[2] * (kernel_size[2] - 1) - 1) // stride[2]) + 1
+
+    return d_in * h_in * w_in
+
+
 def find_project_root(current_path):
     # Search for a prominent marker of the project root
     for parent in current_path.parents:

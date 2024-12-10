@@ -4,7 +4,6 @@ import os
 import warnings
 import numpy as np
 from memory import SwarmMemory
-from network_fly import ActorCritic
 from utils import RunningMeanStd
 from torch.utils.data.sampler import BatchSampler, SubsetRandomSampler
 
@@ -28,7 +27,7 @@ class PPO:
     :param ckpt: The checkpoint to restore from.
     """
 
-    def __init__(self, vision_range, time_steps, lr, betas, gamma, _lambda, K_epochs, eps_clip, model_path, model_name):
+    def __init__(self, network, vision_range, time_steps, lr, betas, gamma, _lambda, K_epochs, eps_clip, model_path, model_name):
 
         # Algorithm parameters
         self.lr = lr
@@ -39,6 +38,7 @@ class PPO:
         self.K_epochs = K_epochs
         self.vision_range = vision_range
         self.time_steps = time_steps
+        self.network = network
         self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
         self.model_path = os.path.abspath(model_path)
@@ -48,7 +48,7 @@ class PPO:
         self.model_latest = model_name.split(".")[0] + "_latest." + model_name.split(".")[1]
 
         # Current Policy
-        self.policy = ActorCritic(vision_range=self.vision_range, time_steps=self.time_steps)
+        self.policy = self.network(vision_range=self.vision_range, time_steps=self.time_steps)
 
         self.actor_params = self.policy.actor.parameters()
         self.critic_params = self.policy.critic.parameters()
@@ -63,7 +63,7 @@ class PPO:
     def reset(self):
         self.version += 1
         self.model_version = self.model_name.split(".")[0] + "_v" + str(self.version) + "." + self.model_name.split(".")[1]
-        self.policy = ActorCritic(vision_range=self.vision_range, time_steps=self.time_steps)
+        self.policy = self.network(vision_range=self.vision_range, time_steps=self.time_steps)
         self.optimizer_a = torch.optim.Adam(self.policy.actor.parameters(), lr=self.lr, betas=self.betas, eps=1e-5)
         self.optimizer_c = torch.optim.Adam(self.policy.critic.parameters(), lr=self.lr, betas=self.betas, eps=1e-5)
         self.MSE_loss = nn.MSELoss()
@@ -84,7 +84,7 @@ class PPO:
 
     def load(self):
         try:
-            path = os.path.join(self.model_path, self.model_name)
+            path: str = os.path.join(self.model_path, self.model_name).__str__()
             # self.policy.load_state_dict(torch.load(path, map_location=lambda storage, loc: storage))
             self.policy.load_state_dict(torch.load(path, map_location=self.device))
             self.policy.to(self.device)
@@ -147,7 +147,7 @@ class PPO:
         var_returns = returns.var()
         return 0 if var_returns == 0 else 1 - (returns - values).var() / var_returns
 
-    def update(self, memory, horizon, mini_batch_size, n_steps, next_obs, logger):
+    def update(self, memory: SwarmMemory, horizon, mini_batch_size, n_steps, next_obs, logger):
         """
         This function implements the update step of the Proximal Policy Optimization (PPO) algorithm for a swarm of
         robots. It takes in the memory buffer containing the experiences of the swarm, as well as the number of batches
@@ -241,7 +241,7 @@ class PPO:
                 # batch_states = (state[i][index] for state in states)
                 #batch_states = (states[0][index], states[1][index], states[2][index], states[3][index], states[4][index], states[5][index])
                 #batch_states = (states[0][index], states[1][index], states[2][index])
-                batch_states = (states[0][index], states[1][index])
+                batch_states = tuple(state[index] for state in states)
                 batch_actions = actions[index]
                 logprobs, values, dist_entropy = self.policy.evaluate(batch_states, batch_actions)
 
