@@ -12,13 +12,15 @@
 #include "state.h"
 #include "action.h"
 
-class DroneAction;
+class FlyAction;
+class ExploreAction;
 class GridMap;
 
 class Agent : public std::enable_shared_from_this<Agent> {
 public:
     virtual ~Agent() = default;
-    virtual void OnDroneAction(std::shared_ptr<DroneAction> action, std::shared_ptr<GridMap> gridMap) = 0;
+    virtual void OnFlyAction(std::shared_ptr<FlyAction> action, std::shared_ptr<GridMap> gridMap) = 0;
+    virtual void OnExploreAction(std::shared_ptr<ExploreAction> action, std::shared_ptr<GridMap> gridMap) = 0;
 };
 
 #endif //ROSHAN_AGENT_H

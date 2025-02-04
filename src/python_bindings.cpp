@@ -7,12 +7,18 @@ namespace py = pybind11;
 PYBIND11_MODULE(firesim, m) {
     py::class_<Action, std::shared_ptr<Action>>(m, "Action");
 
-    py::class_<DroneAction, Action, std::shared_ptr<DroneAction>>(m, "DroneAction")
+    py::class_<FlyAction, Action, std::shared_ptr<FlyAction>>(m, "DroneAction")
             .def(py::init<>())
             .def(py::init<double, double>())
-            .def("GetSpeedX", &DroneAction::GetSpeedX)
-            .def("GetSpeedY", &DroneAction::GetSpeedY)
-            .def("GetWaterDispense", &DroneAction::GetWaterDispense);
+            .def("GetSpeedX", &FlyAction::GetSpeedX)
+            .def("GetSpeedY", &FlyAction::GetSpeedY)
+            .def("GetWaterDispense", &FlyAction::GetWaterDispense);
+
+    py::class_<ExploreAction, Action, std::shared_ptr<ExploreAction>>(m, "ExploreAction")
+            .def(py::init<>())
+            .def(py::init<double, double>())
+            .def("GetGoalX", &ExploreAction::GetGoalX)
+            .def("GetGoalY", &ExploreAction::GetGoalY);
 
     py::class_<State, std::shared_ptr<State>>(m, "State");
 
@@ -26,7 +32,7 @@ PYBIND11_MODULE(firesim, m) {
             .def("GetExplorationMap", &DroneState::GetExplorationMap)
             .def("GetFireMap", &DroneState::GetFireMap)
             .def("GetExplorationMapNorm", &DroneState::GetExplorationMapNorm)
-            .def("GetPositionNorm", &DroneState::GetPositionNorm)
+            .def("GetPositionNormAroundCenter", &DroneState::GetPositionNormAroundCenter)
             .def("GetGridPositionDoubleNorm", &DroneState::GetGridPositionDoubleNorm)
             .def("GetDeltaGoal", &DroneState::GetDeltaGoal)
             .def("GetOutsideAreaCounter", &DroneState::CountOutsideArea)

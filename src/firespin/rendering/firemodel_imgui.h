@@ -27,18 +27,17 @@ public:
                                  std::shared_ptr<FireModelRenderer> model_renderer, bool &update_simulation,
                                  bool &render_simulation, int &delay, float framerate, double running_time);
     void Config(std::shared_ptr<FireModelRenderer> model_renderer, std::vector<std::vector<int>> &current_raster_data, std::shared_ptr<Wind> wind);
-    void FileHandling(std::shared_ptr<DatasetHandler> dataset_handler, std::vector<std::vector<int>> &current_raster_data);
-    void PyConfig(std::vector<float> rewards, int rewards_pos, std::vector<float> all_rewards,
-                  bool &agent_is_running, std::string &user_input, std::string &model_output,
-                  std::shared_ptr<GridMap> gridmap,
-                  std::shared_ptr<std::vector<std::shared_ptr<DroneAgent>>> drones,
+    void FileHandling(const std::shared_ptr<DatasetHandler>& dataset_handler, std::vector<std::vector<int>> &current_raster_data);
+    void PyConfig(std::string &user_input, std::string &model_output,
+                  const std::shared_ptr<GridMap>& gridmap,
+                  const std::shared_ptr<std::vector<std::shared_ptr<DroneAgent>>>& drones,
                   const std::shared_ptr<FireModelRenderer>& model_renderer);
     void ImGuiModelMenu(std::vector<std::vector<int>> &current_raster_data);
-    void ShowPopups(std::shared_ptr<GridMap> gridmap, std::vector<std::vector<int>> &current_raster_data);
-    bool ImGuiOnStartup(std::shared_ptr<FireModelRenderer> model_renderer, std::vector<std::vector<int>> &current_raster_data);
-    void ShowParameterConfig(std::shared_ptr<Wind> wind);
-    void HandleEvents(SDL_Event event, ImGuiIO *io, std::shared_ptr<GridMap> gridmap, std::shared_ptr<FireModelRenderer> model_renderer,
-                      std::shared_ptr<DatasetHandler> dataset_handler, std::vector<std::vector<int>> &current_raster_data, bool agent_is_running);
+    void ShowPopups(const std::shared_ptr<GridMap>& gridmap, std::vector<std::vector<int>> &current_raster_data);
+    bool ImGuiOnStartup(const std::shared_ptr<FireModelRenderer>& model_renderer, std::vector<std::vector<int>> &current_raster_data);
+    void ShowParameterConfig(const std::shared_ptr<Wind>& wind);
+    void HandleEvents(SDL_Event event, ImGuiIO *io, const std::shared_ptr<GridMap>& gridmap, const std::shared_ptr<FireModelRenderer>& model_renderer,
+                      const std::shared_ptr<DatasetHandler>& dataset_handler, std::vector<std::vector<int>> &current_raster_data, bool agent_is_running);
     static void OpenBrowser(const std::string& url);
 
     // Callbacks
@@ -70,6 +69,7 @@ private:
     bool model_mode_selection_ = false;
     bool model_load_selection_ = false;
     bool train_mode_selected_ = false;
+    bool episode_termination_indicator_ = false;
     std::string path_key_;
     Mode mode_;
     bool show_input_images_ = false;
@@ -82,8 +82,8 @@ private:
 
     //Helper
     template<typename T>
-    void DrawGrid(const std::vector<std::vector<T>>& grid, std::shared_ptr<FireModelRenderer> renderer, float cell_size, bool is_fire_status = false, bool is_exploration_map = false);
-    void DrawBuffer(std::vector<float> buffer, int buffer_pos);
+    void DrawGrid(const std::vector<std::vector<T>>& grid, float cell_size, bool is_fire_status = false, bool is_exploration_map = false);
+    static void DrawBuffer(std::vector<float> buffer, int buffer_pos);
 
     void RLStatusParser(py::dict rl_status);
 };

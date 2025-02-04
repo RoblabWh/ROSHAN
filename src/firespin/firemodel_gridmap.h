@@ -50,7 +50,7 @@ public:
     std::unordered_set<Point> GetBurningCells() const { return burning_cells_; }
     int GetNumBurningCells() const { return burning_cells_.size(); }
     int GetNumBurnedCells() const { return num_burned_cells_; }
-    std::pair<double, double> GetNextFire(std::shared_ptr<DroneAgent> drone);
+    std::pair<double, double> GetNextFire(const std::shared_ptr<DroneAgent>& drone);
     int GetNumUnburnable() const { return num_unburnable_; }
     bool CanStartFires(int num_fires) const;
     bool IsBurning() const;
@@ -63,16 +63,22 @@ public:
     std::vector<Point> GetChangedCells() const { return changed_cells_; }
     void ResetChangedCells() { changed_cells_.clear(); }
     std::vector<std::vector<std::vector<int>>> GetDroneView(std::shared_ptr<DroneAgent> drone);
-    std::vector<std::vector<int>> GetUpdatedMap(std::shared_ptr<DroneAgent> drone, std::vector<std::vector<int>> fire_status);
     void SetGroundstation();
     std::shared_ptr<Groundstation> GetGroundstation() { return groundstation_; }
     void SetGroundstationRenderer(std::shared_ptr<SDL_Renderer> renderer) {groundstation_->SetRenderer(std::move(renderer));};
-    std::pair<int, int> GetGroundstationPosition() { return groundstation_->GetGridPosition(); }
 
     std::pair<int, int> GetRandomPointInGrid() {
         std::uniform_int_distribution<> dis_x(0, rows_ - 1);
         std::uniform_int_distribution<> dis_y(0, cols_ - 1);
         return std::make_pair(dis_x(gen_), dis_y(gen_));
+    }
+
+    std::pair<int, int> GetNonGroundStationCorner() {
+        std::pair<int, int> corner = GetRandomCorner();
+        while (corner == groundstation_->GetGridPosition()) {
+            corner = GetRandomCorner();
+        }
+        return corner;
     }
 
     bool IsPointInGrid(int x, int y) const {
@@ -93,6 +99,8 @@ public:
     void SetCellNoise(CellState state, int noise_level, int noise_size);
     void SetNoiseGenerated(bool noise_generated) { noise_generated_ = noise_generated; }
     bool HasNoiseGenerated() const { return noise_generated_; }
+    int GetXOff() const { return x_off_; }
+    int GetYOff() const { return y_off_; }
 
 private:
     FireModelParameters &parameters_;
@@ -129,6 +137,8 @@ private:
 
     //Optimization
     RandomBuffer buffer_;
+    double x_off_;
+    double y_off_;
 
     int GetNumUnburnableCells() const;
 

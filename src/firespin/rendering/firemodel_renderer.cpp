@@ -3,12 +3,13 @@
 //
 
 #include <iostream>
+#include <utility>
 #include "firemodel_renderer.h"
 
 std::shared_ptr<FireModelRenderer> FireModelRenderer::instance_ = nullptr;
 
 FireModelRenderer::FireModelRenderer(std::shared_ptr<SDL_Renderer> renderer, FireModelParameters& parameters)
-    : parameters_(parameters), renderer_(renderer), camera_(FireModelCamera()) {
+    : parameters_(parameters), renderer_(std::move(renderer)), camera_(FireModelCamera()) {
     SetScreenResolution();
     texture_ = SDL_CreateTexture(renderer_.get(),SDL_PIXELFORMAT_ARGB8888,SDL_TEXTUREACCESS_STREAMING,width_,height_);
 
@@ -73,12 +74,11 @@ void FireModelRenderer::Render(std::shared_ptr<std::vector<std::shared_ptr<Drone
             gridmap_->GenerateNoiseMap();
             this->needs_init_cell_noise_ = false;
         }
-//        std::cout << "Rendering" << std::endl;
         DrawCells();
-//        std::cout << "Finished rendering cells" << std::endl;
+        DrawGroundstation(gridmap_->GetGroundstation());
         DrawParticles();
         DrawDrones(std::move(drones));
-        DrawGroundstation(gridmap_->GetGroundstation());
+        FlashScreen();
     }
 }
 
@@ -279,9 +279,12 @@ void FireModelRenderer::DrawDrones(std::shared_ptr<std::vector<std::shared_ptr<D
 
     for (auto &agent : *drones) {
         std::pair<double, double> agent_position = agent->GetGridPositionDouble();
+        std::pair<double, double> goal_position = agent->GetGoalPosition();
         std::pair<int, int> screen_position = camera_.GridToScreenPosition(agent_position.first -0.5,
                                                                            agent_position.second - 0.5);
-        agent->Render(screen_position, size);
+        std::pair<int, int> goal_screen_position = camera_.GridToScreenPosition(goal_position.first -0.5,
+                                                                                goal_position.second - 0.5);
+        agent->Render(screen_position, goal_screen_position, size);
     }
 }
 
@@ -338,6 +341,26 @@ ImVec4 FireModelRenderer::GetMappedColor(int cell_type) {
         default:
             color = { 80, 80, 80, 255 }; break;
     }
-    return ImVec4(color.r / 255.0f, color.g / 255.0f, color.b / 255.0f, 1.0f);
+    return {color.r / 255.0f, color.g / 255.0f, color.b / 255.0f, 1.0f};
+}
+
+void FireModelRenderer::FlashScreen() {
+    if ((show_green_flash_ || show_red_flash_) && flash_screen_){
+        Uint32 current_time = SDL_GetTicks();
+        Uint32 elapsed_time = current_time - flash_start_time_;
+        if (elapsed_time < flash_duration_){
+            if (show_green_flash_) {
+                SDL_SetRenderDrawColor(renderer_.get(), 0, 255, 0, 128);
+            } else {
+                SDL_SetRenderDrawColor(renderer_.get(), 255, 0, 0, 128);
+            }
+            auto [gridLeft, gridTop] = camera_.GridToScreenPosition(0, 0);
+            SDL_Rect fullscreen_rect{gridLeft, gridTop, static_cast<int>(camera_.GetCellSize()) * gridmap_->GetCols(), static_cast<int>(camera_.GetCellSize()) * gridmap_->GetRows()};
+            SDL_RenderFillRect(renderer_.get(), &fullscreen_rect);
+        } else {
+            show_green_flash_ = false;
+            show_red_flash_ = false;
+        }
+    }
 }
 

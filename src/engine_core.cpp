@@ -200,7 +200,7 @@ void EngineCore::SendDataToModel(std::string data) {
 
 void EngineCore::SendRLStatusToModel(pybind11::dict status) {
     if(model_ != nullptr){
-        model_->SetRLStatus(status);
+        model_->SetRLStatus(std::move(status));
     }
 }
 
@@ -208,7 +208,7 @@ pybind11::dict EngineCore::GetRLStatusFromModel() {
     if(model_ != nullptr){
         return model_->GetRLStatus();
     }
-    return pybind11::dict();
+    return {};
 }
 
 std::string EngineCore::GetUserInput() {
@@ -322,7 +322,7 @@ bool EngineCore::SDLInit() {
     auto rendererDeleter = [](SDL_Renderer* r) { SDL_DestroyRenderer(r); };
     renderer_ = std::shared_ptr<SDL_Renderer>(renderer, rendererDeleter);
     SDL_GetRendererOutputSize(renderer_.get(), &width_, &height_);
-
+    SDL_SetRenderDrawBlendMode(renderer_.get(), SDL_BLENDMODE_BLEND);
     return true;
 }
 

@@ -107,7 +107,7 @@ private:
     // Flags
     Mode mode_;
 
-    void StyleColorsEnemyMouse(ImGuiStyle *dst);
+    static void StyleColorsEnemyMouse(ImGuiStyle *dst);
 };
 
 

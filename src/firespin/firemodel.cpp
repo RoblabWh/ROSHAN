@@ -68,9 +68,8 @@ void FireModel::ResetGridMap(std::vector<std::vector<int>>* rasterData) {
         rl_handler_->InitFires();
 #endif
         // Init drones
-        rl_handler_->ResetDrones(mode_);
+        rl_handler_->ResetEnvironment(mode_);
     }
-
 
     //Reset simulation time
     running_time_ = 0;
@@ -142,11 +141,17 @@ std::tuple<std::vector<std::deque<std::shared_ptr<State>>>, std::vector<double>,
     result = rl_handler_->Step(actions);
 #ifndef SPEEDTEST
     // Check if any element in terminals is true, if so some agent reached a terminal state
-    std::vector<bool> terminals = std::get<2>(result);
-    bool resetEnv = std::any_of(terminals.begin(), terminals.end(),
-                                [](bool terminal) {return terminal;});
-    if (resetEnv)
+    if (std::get<3>(result).first) {
         ResetGridMap(&current_raster_data_);
+        // Check if died or reached goal
+        if (mode_ == Mode::GUI_RL) {
+            if (std::get<3>(result).second){
+                model_renderer_->ShowRedFlash();
+            } else {
+                model_renderer_->ShowGreenFlash();
+            }
+        }
+    }
 #endif
     return result;
 }
@@ -185,11 +190,11 @@ void FireModel::setupRLHandler() {
 
 void FireModel::setupImGui() {
     imgui_handler_ = std::make_shared<ImguiHandler>(mode_, parameters_);
-    imgui_handler_->onResetDrones = [this]() {rl_handler_->ResetDrones(mode_);};
+    imgui_handler_->onResetDrones = [this]() { rl_handler_->ResetEnvironment(mode_);};
     imgui_handler_->onResetGridMap = [this](std::vector<std::vector<int>>* rasterData) {ResetGridMap(rasterData);};
     imgui_handler_->onFillRasterWithEnum = [this]() {FillRasterWithEnum();};
     imgui_handler_->onSetUniformRasterData = [this]() {SetUniformRasterData();};
-    imgui_handler_->onMoveDrone = [this](int drone_idx, double speed_x, double speed_y, int water_dispense) {return rl_handler_->StepDrone(
+    imgui_handler_->onMoveDrone = [this](int drone_idx, double speed_x, double speed_y, int water_dispense) {return rl_handler_->StepDroneManual(
             drone_idx, speed_x, speed_y, water_dispense);};
     imgui_handler_->startFires = [this](float percentage) {StartFires(percentage);};
     imgui_handler_->onSetNoise = [this](CellState state, int noise_level, int noise_size) {gridmap_->SetCellNoise(state, noise_level, noise_size);};
@@ -203,9 +208,7 @@ void FireModel::ImGuiRendering(bool &update_simulation, bool &render_simulation,
                                             running_time_);
     imgui_handler_->ImGuiModelMenu(current_raster_data_);
     imgui_handler_->Config(model_renderer_, current_raster_data_, wind_);
-    imgui_handler_->PyConfig(rl_handler_->GetRewards().getBuffer(), rl_handler_->GetRewards().getHead(),
-                             rl_handler_->GetAllRewards(), parameters_.agent_is_running_, user_input_,
-                             model_output_, gridmap_, rl_handler_->GetDrones(), model_renderer_);
+    imgui_handler_->PyConfig(user_input_,model_output_, gridmap_, rl_handler_->GetDrones(), model_renderer_);
     imgui_handler_->FileHandling(dataset_handler_, current_raster_data_);
     imgui_handler_->ShowPopups(gridmap_, current_raster_data_);
 }

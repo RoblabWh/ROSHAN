@@ -113,7 +113,8 @@ set(AGENT_SOURCES
         src/action.h
         src/reinforcementlearning/utils.h src/reinforcementlearning/utils.cpp
         src/reinforcementlearning/drone_agent/drone_state.cpp src/reinforcementlearning/drone_agent/drone_state.h
-        src/reinforcementlearning/drone_agent/drone_action.h
+        src/reinforcementlearning/drone_agent/fly_action.h
+        src/reinforcementlearning/drone_agent/explore_action.h
         src/reinforcementlearning/drone_agent/drone.cpp src/reinforcementlearning/drone_agent/drone.h
         src/reinforcementlearning/texturerenderer.cpp src/reinforcementlearning/texturerenderer.h
         src/reinforcementlearning/groundstation.h src/reinforcementlearning/groundstation.cpp

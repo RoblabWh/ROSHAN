@@ -5,8 +5,6 @@
 #ifndef ROSHAN_REINFORCEMENTLEARNING_HANDLER_H
 #define ROSHAN_REINFORCEMENTLEARNING_HANDLER_H
 
-#define DEBUG_REWARD_NO
-
 #include <shared_mutex>
 #include <deque>
 #include <vector>
@@ -15,7 +13,7 @@
 #include "firespin/rendering/firemodel_renderer.h"
 #include "src/reinforcementlearning/drone_agent/drone.h"
 #include "src/reinforcementlearning/drone_agent/drone_state.h"
-#include "src/reinforcementlearning/drone_agent/drone_action.h"
+#include "src/reinforcementlearning/drone_agent/fly_action.h"
 #include "src/utils.h"
 
 namespace py = pybind11;
@@ -34,48 +32,35 @@ public:
 
     ~ReinforcementLearningHandler() = default;
     std::vector<std::deque<std::shared_ptr<State>>> GetObservations();
-    void StepDrone(int drone_idx, double speed_x, double speed_y, int water_dispense);
-    void ResetDrones(Mode mode);
-    void InitFires();
+    void StepDroneManual(int drone_idx, double speed_x, double speed_y, int water_dispense);
+    void ResetEnvironment(Mode mode);
+    void InitFires() const;
     std::tuple<std::vector<std::deque<std::shared_ptr<State>>>, std::vector<double>, std::vector<bool>, std::pair<bool, bool>, double> Step(std::vector<std::shared_ptr<Action>> actions);
 
     void SetModelRenderer(std::shared_ptr<FireModelRenderer> model_renderer) { model_renderer_ = model_renderer; }
     void SetGridMap(std::shared_ptr<GridMap> gridmap) { gridmap_ = gridmap; }
     void SetRLStatus(py::dict status);
     py::dict GetRLStatus() { return rl_status_; }
-
-    void SetAgentRunning(bool running) { agent_is_running_ = running; }
-    bool GetAgentRunning() { return agent_is_running_; }
-
     std::shared_ptr<std::vector<std::shared_ptr<DroneAgent>>> GetDrones() { return drones_; }
-    CircularBuffer<float> GetRewards() { return rewards_; }
-    std::vector<float> GetAllRewards() { return all_rewards_; }
-
     std::function<void(float)> startFires;
 private:
     static std::shared_ptr<ReinforcementLearningHandler> instance_;
 
-    ReinforcementLearningHandler(FireModelParameters &parameters);
+    explicit ReinforcementLearningHandler(FireModelParameters &parameters);
 
     std::shared_ptr<GridMap> gridmap_;
     std::shared_ptr<FireModelRenderer> model_renderer_;
     FireModelParameters& parameters_;
     std::shared_ptr<std::vector<std::shared_ptr<DroneAgent>>> drones_;
 
-    double CalculateReward(std::shared_ptr<DroneAgent> drone, bool terminal_state) const;
-    double CalculateReward2(std::shared_ptr<DroneAgent> drone, bool terminal_state) const;
-
     //Flags
     bool agent_is_running_;
     bool eval_mode_ = false;
 
     // Rewards Collection for Debugging!
-    CircularBuffer<float> rewards_;
-    std::vector<float> all_rewards_;
     int total_env_steps_;
 
     pybind11::dict rl_status_; // Status of the current episode
-    double FindNearestFireDistanceGlobal(std::shared_ptr<DroneAgent> drone) const;
 };
 
 

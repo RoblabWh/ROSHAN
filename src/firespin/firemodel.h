@@ -23,7 +23,7 @@
 #include "wind.h"
 #include "corine/dataset_handler.h"
 #include "reinforcementlearning/drone_agent/drone.h"
-#include "reinforcementlearning/drone_agent/drone_action.h"
+#include "reinforcementlearning/drone_agent/fly_action.h"
 #include "reinforcementlearning/reinforcementlearning_handler.h"
 #include "src/utils.h"
 

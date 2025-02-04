@@ -41,3 +41,9 @@ void TextureRenderer::Render(std::pair<int, int> position, int size, int view_ra
     }
     SDL_RenderDrawRect(renderer_.get(), &view_range_rect);
 }
+
+void TextureRenderer::RenderGoal(std::pair<double, double> position, int size) {
+    // Render the Goal
+    SDL_Rect destRect = {static_cast<int>(position.first), static_cast<int>(position.second), size, size}; // x, y, width and height of the arrow
+    SDL_RenderCopyEx(renderer_.get(), texture_.get(), NULL, &destRect, 0, NULL, SDL_FLIP_NONE);
+}

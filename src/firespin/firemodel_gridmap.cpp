@@ -31,6 +31,8 @@ GridMap::GridMap(std::shared_ptr<Wind> wind, FireModelParameters &parameters,
     rows_ = rows;
     num_cells_ = cols_ * rows_;
     parameters_.SetGridNxNy(cols_, rows_);
+    double x_off_ = 2 * (1 - ((cols_ - 0.5) / cols_));
+    double y_off_ = 2 * (1 - ((rows_ - 0.5) / rows_));
     num_burned_cells_ = 0;
     num_unburnable_ = this->GetNumUnburnableCells();
     virtual_particles_.reserve(100000);
@@ -105,7 +107,7 @@ void GridMap::UpdateParticles() {
 GridMap::~GridMap() {
 }
 
-std::pair<double, double> GridMap::GetNextFire(std::shared_ptr<DroneAgent> drone) {
+std::pair<double, double> GridMap::GetNextFire(const std::shared_ptr<DroneAgent>& drone) {
     auto drone_position = drone->GetGridPosition();
     double min_distance = std::numeric_limits<double>::max();
     std::pair<double, double> next_fire = std::make_pair(-1, -1);
@@ -116,8 +118,11 @@ std::pair<double, double> GridMap::GetNextFire(std::shared_ptr<DroneAgent> drone
         );
         if (distance < min_distance) {
             min_distance = distance;
-            next_fire = std::make_pair(cell.x_, cell.y_);
+            next_fire = std::make_pair(cell.x_ + 0.5, cell.y_ + 0.5);
         }
+    }
+    if (burning_cells_.empty()) {
+        next_fire = this->groundstation_->GetGridPositionDouble();
     }
     return next_fire;
 }

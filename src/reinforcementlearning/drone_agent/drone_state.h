@@ -51,7 +51,7 @@ public:
     //* @param speed_x The netout of the neural network for the x velocity
     //* @param speed_y The netout of the neural network for the y velocity
     //* @return std::pair<double, double> New Velocity
-    [[nodiscard]] std::pair<double, double> GetNewVelocity(double speed_x, double speed_y) const;
+    [[nodiscard]] std::pair<double, double> GetNewVelocity(double next_speed_x, double next_speed_y) const;
 
     //** These functions are for the states **//
 
@@ -61,7 +61,7 @@ public:
 
     //* Returns the normalized velocity of the drone. Normalized by the max speed.
     //* @return std::pair<double, double> The normalized velocity of the drone
-    [[nodiscard]] std::pair<double, double> GetVelocityNorm() const { return std::make_pair(velocity_.first / max_speed_.first, velocity_.second / max_speed_.second); }
+    [[nodiscard]] std::pair<double, double> GetVelocityNorm() const;
 
     //* Returns the Terrain of this State
     //* @return std::vector<std::vector<int>> TerrainView around the Agent.
@@ -93,7 +93,7 @@ public:
     //* Returns the Position of this State
     //* The Position is normalized by the map dimensions and cell_size. It is in the range of [-1, 1]
     //* @return std::pair<double, double> The normalized Position of the Agent.
-    [[nodiscard]] std::pair<double, double> GetPositionNorm() const;
+    [[nodiscard]] std::pair<double, double> GetPositionNormAroundCenter() const;
 
     //* Returns the Grid Position of this State
     //* The Grid Position is the position of the Agent in the grid.
@@ -140,6 +140,12 @@ public:
     //* The Drone View is normalized by the maximum value of the Terrain and Fire Status
     //* @return std::vector<std::vector<std::vector<int>>> The normalized Drone View of the Agent.
     [[nodiscard]] std::vector<std::vector<std::vector<int>>> GetDroneViewNorm();
+
+    //* Returns the normalized Distance to the next Boundary of this State
+    //* The Distance to the next Boundary is the distance of the Agent to the next boundary of the map.
+    //* The Distance is normalized by the maximum distance of the map.
+    //* @return double The normalized Distance to the next Boundary of the Agent.
+    [[nodiscard]] double GetDistanceToNearestBoundaryNorm() const;
 
     //** These functions are only for Python Debugger Visibility **//
     [[nodiscard]] std::pair<double, double> get_velocity() const { return velocity_; }

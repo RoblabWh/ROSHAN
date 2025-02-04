@@ -1,6 +1,7 @@
 import numpy as np
 import torch
 from pathlib import Path
+from collections import deque
 from torch.utils.tensorboard import SummaryWriter
 
 
@@ -45,33 +46,15 @@ def initialize_output_weights(m, out_type):
     :param m: the layer to initialize
     :param out_type: the type of the output layer (actor or critic)
     """
-    if out_type == 'actor':
-        torch.nn.init.orthogonal_(m.weight.data, gain=1)
+    if isinstance(m, torch.nn.Linear):
+        if out_type == 'actor':
+            torch.nn.init.orthogonal_(m.weight, gain=0.1)
+        elif out_type == 'critic':
+            torch.nn.init.orthogonal_(m.weight, gain=1.0)
+        else: # Hidden Layers
+            torch.nn.init.orthogonal_(m.weight, gain=torch.nn.init.calculate_gain('relu'))
         if m.bias is not None:
-            torch.nn.init.constant_(m.bias.data, 0)
-    elif out_type == 'critic':
-        torch.nn.init.orthogonal_(m.weight.data, gain=1)
-        if m.bias is not None:
-            torch.nn.init.constant_(m.bias.data, 0)
-
-
-def initialize_hidden_weights(m):
-    """
-    Initialize the weights of the hidden layers of the actor and critic networks
-    :param m: the layer to initialize
-    """
-    if isinstance(m, torch.nn.Conv2d):
-        torch.nn.init.orthogonal_(m.weight.data, gain=1)
-        if m.bias is not None:
-            torch.nn.init.constant_(m.bias.data, 0)
-    elif isinstance(m, torch.nn.Linear):
-        torch.nn.init.orthogonal_(m.weight.data, gain=1)
-        if m.bias is not None:
-            torch.nn.init.constant_(m.bias.data, 0)
-    elif isinstance(m, torch.nn.Conv1d):
-        torch.nn.init.orthogonal_(m.weight.data, gain=1)
-        if m.bias is not None:
-            torch.nn.init.constant_(m.bias.data, 0)
+            torch.nn.init.zeros_(m.bias)
 
 
 def standardize(tensor):
@@ -139,6 +122,8 @@ class Logger:
     """
 
     def __init__(self, log_dir, horizon):
+        self.current_steps = None
+        self.episode_finished = None
         self.writer = SummaryWriter(log_dir)
         self.log_dir = log_dir
         self.tag = 'run0'
@@ -150,10 +135,13 @@ class Logger:
         self.reset_metrics()
 
         # Best reward tracking
+        self.current_episode = 0
         self.best_reward = float('-inf')
+        self.objectives = deque(maxlen=100)
+        self.best_objective = float('-inf')
+        self.current_objective = 0
 
         # Episodic metrics
-        self.objectives = []
         self.agent_steps = []
 
     def reset_metrics(self):
@@ -185,17 +173,28 @@ class Logger:
         self.current_steps = 0
         self.episode_finished = False
 
-    def log_episode(self, observations, done, burned_percentage):
+    def log_episode(self, terminal_result):
         """Logs metrics at each step and handles episode completion."""
         self.current_steps += 1
-        # self.velocities.append(observations[2].squeeze())
-        # self.positions.append(observations[3].squeeze())
-
-        if done:
-            self.objectives.append(burned_percentage)
+        env_done = terminal_result[0]
+        
+        if env_done:
+            self.current_episode += 1
+            objective_reached = not terminal_result[1]
+            self.objectives.append(objective_reached)
             self.agent_steps.append(self.current_steps)
             self.episode_finished = True
             self.current_steps = 0  # Reset steps for next episode
+
+    def calc_objective_percentage(self):
+        if len(self.objectives) == self.objectives.maxlen:
+            self.current_objective = np.mean(self.objectives)
+
+    def get_best_objective(self):
+        if self.current_objective > self.best_objective:
+            return True, self.current_objective
+        else:
+            return False, self.best_objective
 
     def add_filters(self, filters):
         """Adds the number of filters in each layer."""
@@ -237,9 +236,7 @@ class Logger:
         """Logs all metrics to TensorBoard."""
         t = self.summarize_steps
         if self.episode_finished:
-            self.writer.add_scalar(f'{self.tag}/Percentage Burned', np.mean(self.objectives), t)
             self.writer.add_histogram(f'{self.tag}/Agent Steps', np.array(self.agent_steps), t)
-            self.objectives.clear()
             self.agent_steps.clear()
 
         # Log scalar metrics
@@ -271,9 +268,6 @@ class Logger:
         # Clear metrics after logging
         self.reset_metrics()
 
-    def get_objective(self):
-        return np.mean(self.objectives) if len(self.objectives) > 0 else 0
-
     def is_better_reward(self):
         """Checks if the current reward is better than the best recorded reward."""
         current_reward = np.mean(self.rewards)
@@ -282,6 +276,11 @@ class Logger:
             return True
         else:
             return False
+
+    def is_better_objective(self):
+        """Checks if the current objective is better than the best recorded objective."""
+        is_better, self.best_objective = self.get_best_objective()
+        return is_better
 
     def close(self):
         """Closes the SummaryWriter."""

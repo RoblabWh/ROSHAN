@@ -3,12 +3,12 @@ import torch.nn as nn
 import os
 import warnings
 import numpy as np
+from ActorCritic import ActorCritic
 from memory import SwarmMemory
 from utils import RunningMeanStd
 from torch.utils.data.sampler import BatchSampler, SubsetRandomSampler
 
 device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
-
 
 class PPO:
     """
@@ -30,6 +30,9 @@ class PPO:
     def __init__(self, network, vision_range, time_steps, lr, betas, gamma, _lambda, K_epochs, eps_clip, model_path, model_name):
 
         # Algorithm parameters
+        self.entropy_coeff = 0.01 #0.001
+        self.value_loss_coef = 0.5
+        self.separate_optimizers = False
         self.lr = lr
         self.betas = betas
         self.gamma = gamma
@@ -38,23 +41,30 @@ class PPO:
         self.K_epochs = K_epochs
         self.vision_range = vision_range
         self.time_steps = time_steps
-        self.network = network
+        self.actor = network[0]
+        self.critic = network[1]
         self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
         self.model_path = os.path.abspath(model_path)
         self.model_name = model_name
         self.version = 1
-        self.model_version = model_name.split(".")[0] + "_v" + str(self.version) + "." + model_name.split(".")[1]
+        self.model_version_reward = model_name.split(".")[0] + "_reward_v" + str(self.version) + "." + model_name.split(".")[1]
+        self.model_version_obj = model_name.split(".")[0] + "_obj_v" + str(self.version) + "." + model_name.split(".")[1]
         self.model_latest = model_name.split(".")[0] + "_latest." + model_name.split(".")[1]
 
         # Current Policy
-        self.policy = self.network(vision_range=self.vision_range, time_steps=self.time_steps)
+        self.policy = ActorCritic(Actor=self.actor, Critic=self.critic, vision_range=self.vision_range, time_steps=self.time_steps)
 
         self.actor_params = self.policy.actor.parameters()
         self.critic_params = self.policy.critic.parameters()
 
-        self.optimizer_a = torch.optim.Adam(self.actor_params, lr=lr, betas=betas, eps=1e-5)
-        self.optimizer_c = torch.optim.Adam(self.critic_params, lr=lr, betas=betas, eps=1e-5)
+        if self.separate_optimizers:
+            self.optimizer_a = torch.optim.Adam(self.actor_params, lr=lr, betas=betas, eps=1e-5)
+            self.optimizer_c = torch.optim.Adam(self.critic_params, lr=lr, betas=betas, eps=1e-5)
+        else:
+            params = list(self.actor_params) + list(self.critic_params)
+            self.optimizer_a = torch.optim.Adam(params, lr=lr, betas=betas, eps=1e-5)
+            self.optimizer_c = None
 
         self.MSE_loss = nn.MSELoss()
         self.running_reward_std = RunningMeanStd()
@@ -62,8 +72,9 @@ class PPO:
 
     def reset(self):
         self.version += 1
-        self.model_version = self.model_name.split(".")[0] + "_v" + str(self.version) + "." + self.model_name.split(".")[1]
-        self.policy = self.network(vision_range=self.vision_range, time_steps=self.time_steps)
+        self.model_version_reward = self.model_name.split(".")[0] + "_reward_v" + str(self.version) + "." + self.model_name.split(".")[1]
+        self.model_version_obj = self.model_name.split(".")[0] + "_obj_v" + str(self.version) + "." + self.model_name.split(".")[1]
+        self.policy = ActorCritic(Actor=self.actor, Critic=self.critic, vision_range=self.vision_range, time_steps=self.time_steps)
         self.optimizer_a = torch.optim.Adam(self.policy.actor.parameters(), lr=self.lr, betas=self.betas, eps=1e-5)
         self.optimizer_c = torch.optim.Adam(self.policy.critic.parameters(), lr=self.lr, betas=self.betas, eps=1e-5)
         self.MSE_loss = nn.MSELoss()
@@ -73,7 +84,8 @@ class PPO:
     def set_paths(self, model_path, model_name):
         self.model_path = os.path.abspath(model_path)
         self.model_name = model_name
-        self.model_version = model_name.split(".")[0] + "_v" + str(self.version) + "." + model_name.split(".")[1]
+        self.model_version_reward = model_name.split(".")[0] + "_reward_v" + str(self.version) + "." + model_name.split(".")[1]
+        self.model_version_obj = model_name.split(".")[0] + "_obj_v" + str(self.version) + "." + model_name.split(".")[1]
         self.model_latest = model_name.split(".")[0] + "_latest." + model_name.split(".")[1]
 
     def set_eval(self):
@@ -102,8 +114,11 @@ class PPO:
     def save(self, logger):
         console = ""
         if logger.is_better_reward():
-            console = f"Saving best with reward {logger.best_reward:.4f} and mean burned {logger.get_objective():.2f}%\n"
-            torch.save(self.policy.state_dict(), f'{os.path.join(self.model_path, self.model_version)}')
+            console = f"Saving Network with best reward {logger.best_reward:.4f} in episode {logger.current_episode}\n"
+            torch.save(self.policy.state_dict(), f'{os.path.join(self.model_path, self.model_version_reward)}')
+        if logger.is_better_objective():
+            console = f"Saving Network with best objective {logger.best_objective:.2f} in episode {logger.current_episode}\n"
+            torch.save(self.policy.state_dict(), f'{os.path.join(self.model_path, self.model_version_obj)}')
         torch.save(self.policy.state_dict(), f'{os.path.join(self.model_path, self.model_latest)}')
 
         return console
@@ -130,10 +145,10 @@ class PPO:
             returns.insert(0, gae + values[i])
 
         # Norm advantages
-        advantages = torch.FloatTensor(advantages).to(device)
+        advantages = torch.FloatTensor(advantages).to(self.device)
         advantages = (advantages - advantages.mean()) / (advantages.std() + 1e-10)
 
-        return advantages, torch.FloatTensor(returns).to(device)
+        return advantages, torch.FloatTensor(returns).to(self.device)
 
     def calculate_explained_variance(self, values, returns):
         """
@@ -170,15 +185,16 @@ class PPO:
         console = ""
         logger.add_rewards(torch.cat(rewards).detach().cpu().numpy())
 
+        # Save current weights if mean reward or objective is higher than the best so far
+        # (Save BEFORE training, so if the policy worsens we can still go back)
+        console += self.save(logger)
+
         # Clipping most likely is unnecessary
         # rewards = [np.clip(np.array(reward.detach().cpu()) / self.running_reward_std.get_std(), -10, 10) for reward in rewards]
-        # Reward normalization
+        # Reward normalization !!!!DON'T SHIFT THE REWARDS BECAUSE YOU F UP YOUR OBJECTIVE FUNCTION!!!!
         self.running_reward_std.update(torch.cat(rewards).detach().cpu().numpy())
-        # rewards = [reward / self.running_reward_std.get_std() for reward in rewards]
+        rewards = [reward / self.running_reward_std.get_std() for reward in rewards]
         # logger.add_rewards_scaled(torch.cat(rewards).detach().cpu().numpy())
-
-        # Don't shift rewards like this, it will mess up your reward function. Only do scaling
-        # rewards = (rewards - rewards.mean()) / (rewards.std() + 1e-10)
 
         # Advantages
         with (torch.no_grad()):
@@ -255,57 +271,64 @@ class PPO:
                 #                 f"This happend in epoch {_} and mini_batch {index}. Early stopping for this training peroid.\n")
                 #     break
 
-                actor_loss = -torch.mean(torch.min(ratios * advantages[index], torch.clamp(ratios, 1 - self.eps_clip, 1 + self.eps_clip) * advantages[index]))
-
                 # Actor loss using Surrogate loss
-                # surr1 = ratios * advantages[index]
-                # surr2 = torch.clamp(ratios, 1 - self.eps_clip, 1 + self.eps_clip) * advantages[index]
-                # # entropy = torch.Tensor(0) #0.001 * dist_entropy
-                # actor_loss = ((-torch.min(surr1, surr2).type(torch.float32))).mean()
+                surr1 = ratios * advantages[index]
+                surr2 = torch.clamp(ratios, 1 - self.eps_clip, 1 + self.eps_clip) * advantages[index]
+                entropy = self.entropy_coeff * dist_entropy[0]
+                actor_loss = (-torch.min(surr1, surr2).type(torch.float32)).mean() - entropy
+                # actor_loss = -torch.mean(torch.min(ratios * advantages[index], torch.clamp(ratios, 1 - self.eps_clip, 1 + self.eps_clip) * advantages[index]))
 
                 # TODO CLIP VALUE LOSS ? Probably not necessary as according to:
                 # https://iclr-blog-track.github.io/2022/03/25/ppo-implementation-details/
-                critic_loss = self.MSE_loss(returns[index].squeeze(), values)
+                value_loss = self.MSE_loss(values, returns[index].squeeze())
 
                 # Log loss
-                logger.add_losses(critic_loss=critic_loss.detach().cpu().item(), actor_loss=actor_loss.detach().cpu().item())
+                logger.add_losses(critic_loss=value_loss.detach().cpu().item(), actor_loss=actor_loss.detach().cpu().item())
                 logger.add_std(torch.exp(self.policy.actor.log_std).cpu().detach().numpy())
                 logging_values.append(values.detach().cpu().numpy())
                 epoch_values.append(values.detach().cpu().numpy())
                 epoch_returns.append(returns[index].detach().cpu().numpy())
 
                 # Sanity checks
-                assert not torch.isnan(critic_loss).any(), f"Critic Loss is NaN, check returns, values or entroy"
+                assert not torch.isnan(value_loss).any(), f"Critic Loss is NaN, check returns, values or entroy"
                 assert not torch.isnan(actor_loss).any()
-                assert not torch.isinf(critic_loss).any()
+                assert not torch.isinf(value_loss).any()
                 assert not torch.isinf(actor_loss).any()
 
                 # Backward gradients
-                self.optimizer_a.zero_grad()
-                actor_loss.backward(retain_graph=True)
-                # Global gradient norm clipping https://vitalab.github.io/article/2020/01/14/Implementation_Matters.html
-                torch.nn.utils.clip_grad_norm_(self.actor_params, max_norm=0.5)
-                self.optimizer_a.step()
+                if not self.separate_optimizers:
+                    loss = actor_loss + value_loss * self.value_loss_coef
+                    self.optimizer_a.zero_grad()
+                    loss.backward()
+                    # Global gradient norm clipping https://vitalab.github.io/article/2020/01/14/Implementation_Matters.html
+                    torch.nn.utils.clip_grad_norm_(self.actor_params, max_norm=0.5)
+                    torch.nn.utils.clip_grad_norm_(self.critic_params, max_norm=0.5)
+                    self.optimizer_a.step()
+                else:
+                    self.optimizer_a.zero_grad()
+                    actor_loss.backward(retain_graph=True)
+                    # Global gradient norm clipping https://vitalab.github.io/article/2020/01/14/Implementation_Matters.html
+                    torch.nn.utils.clip_grad_norm_(self.actor_params, max_norm=0.5)
+                    self.optimizer_a.step()
 
-                self.optimizer_c.zero_grad()
-                critic_loss.backward()
-                # Global gradient norm clipping https://vitalab.github.io/article/2020/01/14/Implementation_Matters.html
-                torch.nn.utils.clip_grad_norm_(self.critic_params, max_norm=0.5)
-                self.optimizer_c.step()
+                    self.optimizer_c.zero_grad()
+                    value_loss.backward()
+                    # Global gradient norm clipping https://vitalab.github.io/article/2020/01/14/Implementation_Matters.html
+                    torch.nn.utils.clip_grad_norm_(self.critic_params, max_norm=0.5)
+                    self.optimizer_c.step()
 
             # Compute explained variance over the epoch
             epoch_values = np.concatenate(epoch_values)
             epoch_returns = np.concatenate(epoch_returns)
             ev = self.calculate_explained_variance(epoch_values, epoch_returns)
-            if ev <= 0:
-                console += (f"Explained Variance for Epoch {_}: {ev}\n"
-                            f"This is bad. The Critic might aswell have predicted zero or is even doing worse than that.\n")
+            # if ev <= 0:
+            #     console += (f"Explained Variance for Epoch {_}: {ev}\n"
+            #                 f"This is bad. The Critic might aswell have predicted zero or is even doing worse than that.\n")
             logger.add_explained_variance(ev)
 
 
         # Save current weights if the mean reward is higher than the best reward so far
         logger.add_values(np.concatenate(logging_values))
-        console += self.save(logger)
 
         # Clear memory
         memory.clear_memory()

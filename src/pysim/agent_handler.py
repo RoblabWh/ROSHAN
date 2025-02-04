@@ -3,6 +3,7 @@ import firesim
 from utils import Logger
 import numpy as np
 import os
+from memory import SwarmMemory
 from explore_agent import ExploreAgent
 from flying_agent import FlyAgent
 
@@ -11,6 +12,7 @@ class AgentHandler:
     def __init__(self, status, algorithm: str = 'ppo', vision_range=21, time_steps=4, logdir='./logs'):
         self.algorithm_name = algorithm
         self.eval_steps = 0
+        self.env_step = 0
         self.max_eval = status["max_eval"]
         self.horizon = status["horizon"]
         self.stats = {'died': [0], 'reached': [0], 'time': [0], 'reward': [0], 'episode': [0], 'perc_burn': [0]}
@@ -18,8 +20,11 @@ class AgentHandler:
         self.mode = status["rl_mode"]
         self.initialized = False
         self.agent_type = self.get_agent_type(status["agent_type"])
+        self.hierachy_level = self.agent_type.get_hierachy_level()
+        self.memory = SwarmMemory(num_agents=status["num_agents"], action_dim=2, max_size=status["horizon"])
+        self.next_obs = None
         if algorithm == 'ppo':
-            self.algorithm = PPO(network=self.agent_type.get_network(), vision_range=vision_range, time_steps=time_steps, lr=0.0003, betas=(0.9, 0.999), gamma=0.99, _lambda=0.9, K_epochs=status["K_epochs"], eps_clip=0.2, model_path=status["model_path"], model_name=status["model_name"])
+            self.algorithm = PPO(network=self.agent_type.get_network(), vision_range=vision_range, time_steps=time_steps, lr=3e-4, betas=(0.9, 0.999), gamma=0.99, _lambda=0.96, K_epochs=status["K_epochs"], eps_clip=0.2, model_path=status["model_path"], model_name=status["model_name"])
             self.initialized = True
             status["console"] += "PPO agent initialized\n"
         status["console"] += f"{status['num_agents']} agents of Type: {self.agent_type.name} initialized\n"
@@ -46,12 +51,12 @@ class AgentHandler:
             self.algorithm.reset()
             self.initialized = True
 
-    def should_train(self, memory):
+    def should_train(self):
         if self.algorithm_name == 'ppo':
-            return len(memory) >= self.horizon
+            return len(self.memory) >= self.horizon
 
-    def load_model(self, status, resume=False, train_="train"):
-        train = True if train_ == "train" else False
+    def load_model(self, status):
+        train = True if status["rl_mode"] == "train" else False
         # Load model, return True if successful and set model to evaluation mode
         if not train:
             if self.algorithm.load():
@@ -63,7 +68,7 @@ class AgentHandler:
                 self.algorithm.set_train()
                 status["rl_mode"] = "train"
                 return "No checkpoint found to evaluate model, start training from scratch\n"
-        elif resume:
+        elif status["resume"]:
             if self.algorithm.load():
                 self.algorithm.set_train()
                 status["rl_mode"] = "train"
@@ -81,28 +86,59 @@ class AgentHandler:
     def set_paths(self, model_path, model_name):
         self.algorithm.set_paths(model_path, model_name)
 
-    def check_horizon(self, new_horizon, memory):
+    def check_horizon(self, new_horizon):
         if new_horizon != self.horizon:
             self.horizon = new_horizon
             self.logger.episode_finished = True
             self.logger.horizon = self.horizon
             self.logger.clear_summary()
-            memory.change_horizon(self.horizon)
-        return memory
+            self.memory.change_horizon(self.horizon)
 
-    def update_status(self, status, memory):
+    def add_memory_entry(self, obs, actions, action_logprobs, rewards, terminals):
+        self.memory.add(obs, actions, action_logprobs, rewards, terminals)
+
+    def update_status(self, status):
         self.set_paths(status["model_path"], status["model_name"])
-        memory = self.check_horizon(status["horizon"], memory)
+        self.check_horizon(status["horizon"])
+        status["obs_collected"] = len(self.memory) + 1
         if status["rl_mode"] != self.mode:
             self.mode = status["rl_mode"]
             if self.mode == "train":
                 self.algorithm.set_train()
             else:
                 self.algorithm.set_eval()
-        return memory
 
-    def update(self, status, memory, mini_batch_size, n_steps, next_obs):
-        status["console"] += self.algorithm.update(memory, self.horizon, mini_batch_size, n_steps, next_obs, self.logger)
+    def initial_observation(self, observations):
+        self.next_obs = self.restructure_data(observations)
+
+    def train_loop(self, status, engine):
+        actions, action_logprobs = self.act(self.next_obs)
+        obs, rewards, all_terminals, terminal_result, percent_burned = self.step_agent(status, engine, actions)
+        # Memory Adding #TODO DO NOT FORGET TO CHANGE BACK TO SELF.NEXT_OBS!!!!!!!!!!!!!!!!!!!!!!!!!
+        self.add_memory_entry(self.next_obs, actions, action_logprobs, rewards, all_terminals)
+        # Logging
+        status["objective"], status["best_objective"] = self.update_logging(terminal_result)
+        # Training
+        if self.should_train():
+            self.update(status, mini_batch_size=status["batch_size"], n_steps=status["n_steps"], next_obs=obs)
+        self.next_obs = obs
+
+    def eval_loop(self, status, engine, evaluate=False):
+        actions = self.act_certain(self.next_obs)
+        obs, rewards, all_terminals, terminal_result, percent_burned = self.step_agent(status, engine, actions)
+        if evaluate: self.evaluate(status, rewards, all_terminals, terminal_result, percent_burned)
+        self.next_obs = obs
+
+    def step_agent(self, status, engine, actions):
+        agent_actions = self.get_action(actions)
+        observations, rewards, all_terminals, terminal_result, percent_burned = engine.Step(agent_actions)
+        obs = self.restructure_data(observations)
+        if terminal_result[0]: status["current_episode"] += 1
+        self.env_step += 1
+        return obs, rewards, all_terminals, terminal_result, percent_burned
+
+    def update(self, status, mini_batch_size, n_steps, next_obs):
+        status["console"] += self.algorithm.update(self.memory, self.horizon, mini_batch_size, n_steps, next_obs, self.logger)
         if self.algorithm_name == 'ppo':
             status["train_step"] += status["horizon"] // status["batch_size"] * status["K_epochs"]
             train_step = status["train_step"] / status["K_epochs"] / (status["horizon"] // status["batch_size"])
@@ -121,8 +157,10 @@ class AgentHandler:
     def get_action(self, actions):
         return self.agent_type.get_action(actions)
 
-    def update_logging(self, observations, done, burned_percentage):
-        self.logger.log_episode(observations, done, burned_percentage)
+    def update_logging(self, terminal_result):
+        self.logger.log_episode(terminal_result)
+        self.logger.calc_objective_percentage()
+        return self.logger.current_objective, self.logger.get_best_objective()[1]
 
     def act_certain(self, observations):
         return self.algorithm.select_action_certain(observations)
@@ -143,9 +181,9 @@ class AgentHandler:
         self.stats['time'][-1] += 1
         console = ""
 
-        if terminals[0]:
+        if dones[0]:
             console += "Episode: {} finished with terminal state\n".format(self.stats['episode'][-1] + 1)
-            if dones[0]:  # Drone died
+            if dones[1]:  # Drone died
                 console += "One of the Drones died.\n\n"
                 self.stats['died'][-1] += 1
             else:  # Drone reached goal

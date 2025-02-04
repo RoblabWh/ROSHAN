@@ -47,13 +47,13 @@ public:
 
     void Render(std::shared_ptr<std::vector<std::shared_ptr<DroneAgent>>> drones);
     void SetScreenResolution();
-    void SetGridMap(std::shared_ptr<GridMap> gridmap) { gridmap_ = gridmap; SetFullRedraw(); }
+    void SetGridMap(std::shared_ptr<GridMap> gridmap) { gridmap_ = std::move(gridmap); SetFullRedraw(); }
     std::shared_ptr<SDL_Renderer> GetRenderer() { return renderer_; }
     std::shared_ptr<GridMap> GetGridMap() { return gridmap_; }
 
     // Converter Functions
     std::pair<int, int> ScreenToGridPosition(int x, int y);
-    ImVec4 GetMappedColor(int cell_type);
+    static ImVec4 GetMappedColor(int cell_type);
 
     // Camera functions
     void CheckCamera();
@@ -65,6 +65,11 @@ public:
     void SetInitCellNoise() { gridmap_->GenerateNoiseMap(); }
     void ResizeEvent();
     void DrawArrow(double angle);
+
+    // Flash Screen
+    void SetFlashScreen(bool flash_screen) { flash_screen_ = flash_screen; }
+    void ShowGreenFlash() { show_green_flash_ = true; show_red_flash_=false; flash_start_time_ = SDL_GetTicks(); }
+    void ShowRedFlash() { show_red_flash_ = true; show_green_flash_=false; flash_start_time_ = SDL_GetTicks(); }
 
     ~FireModelRenderer();
 
@@ -84,13 +89,21 @@ private:
     SDL_Texture* arrow_texture_;
 
     std::shared_ptr<GridMap> gridmap_;
-    int width_;
-    int height_;
+    int width_{};
+    int height_{};
 
     static std::shared_ptr<FireModelRenderer> instance_;
 
     bool needs_full_redraw_;
     bool needs_init_cell_noise_;
+
+    //Flash Screen
+    bool flash_screen_ = parameters_.episode_termination_indicator_;
+    bool show_green_flash_ = false;
+    bool show_red_flash_ = false;
+    Uint32 flash_start_time_ = 0;
+    Uint32 flash_duration_ = 300;
+
     void DrawAllCells(int grid_left, int grid_right, int grid_top, int grid_bottom);
     void DrawChangesCells();
     SDL_Rect DrawCell(int x, int y);
@@ -99,6 +112,8 @@ private:
     void ResizeTexture();
     void DrawDrones(std::shared_ptr<std::vector<std::shared_ptr<DroneAgent>>> drones);
     void DrawGroundstation(const std::shared_ptr<Groundstation>& groundstation);
+
+    void FlashScreen();
 };
 
 

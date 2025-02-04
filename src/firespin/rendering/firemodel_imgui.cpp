@@ -87,6 +87,9 @@ void ImguiHandler::ImGuiSimulationControls(std::shared_ptr<GridMap> gridmap, std
                 if(ImGui::Checkbox("Lingering", &parameters_.lingering_)){
                     model_renderer->SetFullRedraw();
                 }
+                if(ImGui::Checkbox("Episode Termination Indicator", &parameters_.episode_termination_indicator_)){
+                    model_renderer->SetFlashScreen(parameters_.episode_termination_indicator_);
+                }
                 ImGui::EndTabItem();
             }
         }
@@ -181,12 +184,19 @@ void ImguiHandler::RLStatusParser(py::dict rl_status) {
     auto batch_size = rl_status["batch_size"].cast<int>();
     auto train_step = rl_status["train_step"].cast<int>();
     auto k_epochs = rl_status["K_epochs"].cast<int>();
-
+    auto objective = rl_status["objective"].cast<double>();
+    auto best_objective = rl_status["best_objective"].cast<double>();
+    auto current_episode = rl_status["current_episode"].cast<int>();
+    ImVec4 color = ImVec4(0.33f, 0.67f, 0.86f, 1.0f);
     ImGui::Separator();
-    ImGui::SetWindowFontScale(1.8f);
+    ImGui::SetWindowFontScale(1.5f);
+    ImGui::PushStyleColor(ImGuiCol_Text, color);
     if (ImGui::Selectable("Mode of operation:")) {
         ImGui::OpenPopup("Warning RL Mode");
     }
+    ImGui::SetWindowFontScale(1.0f);
+    ImGui::PopStyleColor();
+
     if (ImGui::BeginPopupModal("Warning RL Mode", NULL, ImGuiWindowFlags_AlwaysAutoResize)) {
         ImGui::Text("You are about to switch to %s mode.", rl_mode == "train" ? "eval" : "train");
         ImGui::Separator();
@@ -211,13 +221,18 @@ void ImguiHandler::RLStatusParser(py::dict rl_status) {
         ImGui::EndPopup();
     }
     ImGui::SameLine();
+    ImGui::SetWindowFontScale(1.5f);
+    ImGui::PushStyleColor(ImGuiCol_Text, color);
     ImGui::Text("%s", rl_mode.c_str());
     ImGui::SetWindowFontScale(1.0f);
+    ImGui::PopStyleColor();
 
     ImGui::Separator();
-    ImGui::SetWindowFontScale(1.8f);
+    ImGui::SetWindowFontScale(1.5f);
+    ImGui::PushStyleColor(ImGuiCol_Text, color);
     ImGui::Text("Model will be saved under: ");
     ImGui::SetWindowFontScale(1.0f);
+    ImGui::PopStyleColor();
     if (ImGui::Selectable("Model Path")) {
         open_file_dialog_ = true;
         model_path_selection_ = true;
@@ -235,14 +250,34 @@ void ImguiHandler::RLStatusParser(py::dict rl_status) {
     ImGui::Text(": %s", model_name.c_str());
 
     ImGui::Separator();
-    ImGui::SetWindowFontScale(1.8f);
-    ImGui::Text("Hyperparameters");
+    ImGui::SetWindowFontScale(1.5f);
+    ImGui::PushStyleColor(ImGuiCol_Text, color);
+    ImGui::Text("Hyperparameter");
     ImGui::SetWindowFontScale(1.0f);
+    ImGui::PopStyleColor();
     ImGui::Text("Train Step(Policy Updates): %d(%d)", (int)(train_step / k_epochs / (horizon / batch_size)), train_step);
     ImGui::Text("Horizon: %d/%d", obs_collected, horizon);
     ImGui::Text("Batch Size: %d", batch_size);
     ImGui::Text("n_steps: %d", n_steps);
     ImGui::Text("Auto Train: %s", auto_train ? "true" : "false");
+    ImGui::Separator();
+    ImGui::SetWindowFontScale(1.5f);
+    ImGui::PushStyleColor(ImGuiCol_Text, color);
+    ImGui::Text("Overview");
+    ImGui::SetWindowFontScale(1.0f);
+    ImGui::PopStyleColor();
+    ImGui::Text("Current Episode: %d", current_episode);
+    if (ImGui::IsItemHovered())
+        ImGui::SetTooltip("The current episode the agent is in. After 100 episodes the objective will be calculated.");
+    if (current_episode > 100){
+        ImGui::Text("Current Objective: %.2f", objective);
+        if (ImGui::IsItemHovered())
+            ImGui::SetTooltip("The Objective is the goal of the agent is trying to reach. It is calculated from the last 100 episodes.\n"
+                              "The best Objective might actually go lower sometimes, this behaviour is due to the updates in the policy.");
+        ImGui::Text("Best Objective: %.2f", best_objective);
+        if (ImGui::IsItemHovered())
+            ImGui::SetTooltip("The best Objective might go lower sometimes, this behaviour is intended and occurs because it is recalculated at policy update.");
+    }
     if(auto_train){
         auto train_episodes = rl_status["train_episodes"].cast<int>();
         auto max_eval = rl_status["max_eval"].cast<int>();
@@ -252,130 +287,14 @@ void ImguiHandler::RLStatusParser(py::dict rl_status) {
         ImGui::Text("Training Steps before Evaluation: %d", max_train);
         ImGui::Text("Evaluation Episodes: %d", max_eval);
     }
-
-//    for (auto item : rl_status) {
-//        auto key = item.first.cast<std::string>();
-//        auto value = py::reinterpret_borrow<py::object>(item.second);
-//
-//        if(py::isinstance<py::str>(value)) {
-//            if (key == "rl_mode") {
-//                auto value_str = value.cast<std::string>();
-//                if (ImGui::Selectable(key.c_str())) {
-//                    ImGui::OpenPopup("Warning RL Mode");
-//                }
-//                if (ImGui::BeginPopupModal("Warning RL Mode", NULL, ImGuiWindowFlags_AlwaysAutoResize)) {
-//                    ImGui::Text("You are about to switch to %s mode.", value_str == "train" ? "eval" : "train");
-//                    ImGui::Separator();
-//
-//                    if (ImGui::Button("OK", ImVec2(120, 0))) {
-//                        auto new_value_str = value_str == "train" ? "eval" : "train";
-//                        rl_status[py::str(key)] = new_value_str;
-//                        value_str = new_value_str;
-//                        auto console = rl_status["console"].cast<std::string>();
-//                        console += "Switched to " + static_cast<std::string>(new_value_str) + " mode.\n";
-//                        rl_status[py::str("console")] = console;
-//                        onSetRLStatus(rl_status);
-//                        ImGui::CloseCurrentPopup();
-//                    }
-//
-//                    ImGui::SameLine();
-//
-//                    if (ImGui::Button("Cancel", ImVec2(120, 0))) {
-//                        ImGui::CloseCurrentPopup();
-//                    }
-//
-//                    ImGui::EndPopup();
-//                }
-//                ImGui::SameLine();
-//                ImGui::Text(": %s", value_str.c_str());
-//            }
-//            else if (key == "console"){
-//                // Do nothing
-//            }
-//            else if (key == "model_path" || key == "model_name"){
-//                auto value_str = value.cast<std::string>();
-//                if (ImGui::Selectable(key.c_str())) {
-//                    open_file_dialog_ = true;
-//                    model_path_selection_ = true;
-//                    path_key_ = key;
-//                }
-//                ImGui::SameLine();
-//                ImGui::Text(": %s", value_str.c_str());
-//            }
-//            else {
-//                auto value_str = value.cast<std::string>();
-//                ImGui::Text("%s: %s", key.c_str(), value_str.c_str());
-//            }
-//        }
-//        else if (py::isinstance<py::bool_>(value)) {
-//            bool value_bool = value.cast<bool>();
-//            ImGui::Text("%s: %s", key.c_str(), value_bool ? "true" : "false");
-//        }
-//        else if (py::isinstance<py::int_>(value)) {
-//            if (key == "horizon") {
-//                int horizon = value.cast<int>();
-//                int obs_collected = rl_status["obs_collected"].cast<int>();
-//                ImGui::Text("%s : %d/%d", key.c_str(), obs_collected, horizon);
-//            }
-//            else if (key == "obs_collected") {
-////                    static int new_horizon = rl_status["horizon"].cast<int>();
-////                    if (ImGui::Selectable(key.c_str())) {
-////                        ImGui::OpenPopup("Set Horizon");
-////                    }
-////                    if (ImGui::BeginPopupModal("Set Horizon", NULL, ImGuiWindowFlags_AlwaysAutoResize)) {
-////                        ImGui::Text("Do you want to change the horizon?");
-////                        ImGui::TextColored(ImVec4(1.0f, 0.0f, 0.0f, 1.0f), "WARNING: Changing the Horizon during Training is not recommended.");
-////                        ImGui::TextColored(ImVec4(1.0f, 0.0f, 0.0f, 1.0f), "It will reset the collected observations and the logs.");
-////                        ImGui::TextColored(ImVec4(1.0f, 0.0f, 0.0f, 1.0f), "If you choose a Horizon Size not completly dividable by the");
-////                        ImGui::TextColored(ImVec4(1.0f, 0.0f, 0.0f, 1.0f), "batch size, the last batch will be dropped to avoid issues..");
-////                        ImGui::Separator();
-////                        ImGui::InputInt("Horizon", &new_horizon, 1, 10, ImGuiInputTextFlags_CharsDecimal);
-////
-////                        if (ImGui::Button("OK", ImVec2(120, 0))) {
-////                            rl_status[py::str("horizon")] = new_horizon;
-////                            console += "Horizon switched to Horizon of Size: " + std::to_string(new_horizon) + ".\n";
-////                            rl_status[py::str("console")] = console;
-////                            onSetRLStatus(rl_status);
-////                            ImGui::CloseCurrentPopup();
-////                        }
-////
-////                        ImGui::SameLine();
-////
-////                        if (ImGui::Button("Cancel", ImVec2(120, 0))) {
-////                            ImGui::CloseCurrentPopup();
-////                        }
-////
-////                        ImGui::EndPopup();
-////                    }
-////                    int value_int = value.cast<int>();
-////                    int horizon = rl_status["horizon"].cast<int>();
-////                    ImGui::SameLine();
-////                    ImGui::Text(" : %d/%d", value_int, horizon);
-//            }
-//            else if ((key == "train_episodes" || key == "max_eval" || key == "max_train" || key == "train_episode")) {
-//                if(auto_train){
-//                    int value_int = value.cast<int>();
-//                    ImGui::Text("%s: %d", key.c_str(), value_int);
-//                }
-//            }
-//            else {
-//                int value_int = value.cast<int>();
-//                ImGui::Text("%s: %d", key.c_str(), value_int);
-//            }
-//        }
-//    }
 }
 
-void ImguiHandler::PyConfig(std::vector<float> rewards,
-                            int rewards_pos, std::vector<float> all_rewards,
-                            bool &agent_is_running,
-                            std::string &user_input,
+void ImguiHandler::PyConfig(std::string &user_input,
                             std::string &model_output,
-                            std::shared_ptr<GridMap> gridmap,
-                            std::shared_ptr<std::vector<std::shared_ptr<DroneAgent>>> drones,
+                            const std::shared_ptr<GridMap>& gridmap,
+                            const std::shared_ptr<std::vector<std::shared_ptr<DroneAgent>>>& drones,
                             const std::shared_ptr<FireModelRenderer>& model_renderer) {
     if (show_rl_status_ && mode_ == Mode::GUI_RL && model_startup_) {
-
         py::dict rl_status = onGetRLStatus();
 
         ImGuiWindowFlags window_flags =
@@ -385,7 +304,7 @@ void ImguiHandler::PyConfig(std::vector<float> rewards,
 
         // RL Controls, always showing
         bool button_color = false;
-        if (agent_is_running) {
+        if (parameters_.agent_is_running_) {
             ImGui::PushStyleColor(ImGuiCol_Button, ImVec4(0.35f, 0.6f, 0.85f, 1.0f));
             ImGui::PushStyleColor(ImGuiCol_ButtonHovered, ImVec4(0.45f, 0.7f, 0.95f, 1.0f));
             ImGui::PushStyleColor(ImGuiCol_ButtonActive, ImVec4(0.25f, 0.5f, 0.75f, 1.0f));
@@ -394,11 +313,11 @@ void ImguiHandler::PyConfig(std::vector<float> rewards,
         auto rl_mode = rl_status["rl_mode"].cast<std::string>();
         auto running_str_start = rl_mode == "train" ? "Start Training" : "Start Evaluation";
         auto running_str_stop = rl_mode == "train" ? "Stop Training" : "Stop Evaluation";
-        if (ImGui::Button(agent_is_running ? running_str_stop : running_str_start)) {
-            agent_is_running = !agent_is_running;
+        if (ImGui::Button(parameters_.agent_is_running_ ? running_str_stop : running_str_start)) {
+            parameters_.agent_is_running_ = !parameters_.agent_is_running_;
         }
         if (ImGui::IsItemHovered())
-            ImGui::SetTooltip("Click to %s Reinforcement Learning.", agent_is_running ? "stop" : "start");
+            ImGui::SetTooltip("Click to %s Reinforcement Learning.", parameters_.agent_is_running_ ? "stop" : "start");
         if (button_color) {
             ImGui::PopStyleColor(3);
         }
@@ -409,11 +328,11 @@ void ImguiHandler::PyConfig(std::vector<float> rewards,
 
         RLStatusParser(rl_status);
         auto console = rl_status["console"].cast<std::string>();
-        ImGui::Text("Environment Steps before failure: %d", parameters_.GetTotalEnvSteps());
+        ImGui::Text("Environment Steps before failure: %d/%d",parameters_.GetCurrentEnvSteps(), parameters_.GetTotalEnvSteps());
         if (ImGui::IsItemHovered())
             ImGui::SetTooltip("The number of steps the environment will take before the episode is considered a failure.\n"
                               "This number is calculated by the size of the map and the simulation time:\n"
-                              "grid_nx_ * grid_ny_ * (0.1 / dt_)");
+                              "sqrt(grid_nx_ * grid_nx_ + grid_ny_ * grid_ny_) * (20 / (max_velocity * dt_)");
         ImGui::Separator();
 
         if (ImGui::BeginTabBar("RLStatus")){
@@ -442,15 +361,16 @@ void ImguiHandler::PyConfig(std::vector<float> rewards,
                 ImGui::EndChild();
                 ImGui::EndTabItem();
             }
-            if (ImGui::BeginTabItem("Drone Analysis")){
-                ImGui::Checkbox("Show Input Images", &show_input_images_);
+            if (ImGui::BeginTabItem("Drone Information")){
+                ImVec4 color = ImVec4(0.33f, 0.67f, 0.86f, 1.0f);
+                ImGui::Checkbox("Show Drone View", &show_input_images_);
                 ImGui::BeginChild("scrolling", ImVec2(0, ImGui::GetTextLineHeightWithSpacing() * 40),
                                   true, ImGuiWindowFlags_HorizontalScrollbar);
 
                 static int current_drone_index = 0;
 
                 if (!drones->empty()) {
-                    // Create an array of drone names
+                    // Create an Array of Drone Names
                     std::vector<std::string> drone_names;
                     for (const auto &drone: *drones) {
                         drone->SetActive(false);
@@ -463,82 +383,144 @@ void ImguiHandler::PyConfig(std::vector<float> rewards,
                         if (idx < 0 || idx >= names.size()) return false;
                         *out_text = names[idx].c_str();
                         return true;
-                    }, &drone_names, drone_names.size());
+                    }, &drone_names, static_cast<int>(drone_names.size()));
 
                     // Get the currently selected drone
                     auto &selected_drone = (*drones)[current_drone_index];
                     selected_drone->SetActive(true);
-                    // Use columns to separate text and images
-                    ImGui::Columns(2, nullptr, true);
 
-                    // Display drone information
-                    ImGui::Text("Drone %d", selected_drone->GetId());
-                    ImGui::Text("Out of Area Counter: %d", selected_drone->GetOutOfAreaCounter());
-                    ImGui::Text("Goal Position: (%.2f, %.2f)", selected_drone->GetGoalPosition().first,
-                                selected_drone->GetGoalPosition().second);
-                    ImGui::Text("Real Position: (%.2f, %.2f)", selected_drone->GetRealPosition().first,
-                                selected_drone->GetRealPosition().second);
-                    ImGui::Text("Grid Position Double: (%.2f, %.2f)", selected_drone->GetGridPositionDouble().first,
-                                selected_drone->GetGridPositionDouble().second);
-                    ImGui::Text("Grid Position: (%d, %d)", selected_drone->GetGridPosition().first,
-                                selected_drone->GetGridPosition().second);
-                    ImGui::Text("Drone in Grid: %s", selected_drone->GetDroneInGrid() ? "true" : "false");
-                    ImGui::Spacing();
+                    // Display Drone Information
+                    ImGui::TextColored(color, "Drone State Information");
+                    if (ImGui::BeginTable("DroneInfoTable", 2, ImGuiTableFlags_Borders | ImGuiTableFlags_RowBg))
+                    {
+                        ImGui::TableSetupColumn("Label", ImGuiTableColumnFlags_WidthFixed, 200.0f);
+                        ImGui::TableSetupColumn("Value", ImGuiTableColumnFlags_WidthStretch);
+                        ImGui::TableHeadersRow();
 
-                    // Display network input information
-                    ImGui::Text("Network Input:");
-                    ImGui::BulletText("Relative Position: (%.2f, %.2f)",
-                                      selected_drone->GetLastState().GetPositionNorm().first,
-                                      selected_drone->GetLastState().GetPositionNorm().second);
-                    ImGui::BulletText("Velocity (x,y) m/s: %.2f, %.2f",
-                                      selected_drone->GetLastState().GetVelocityNorm().first,
-                                      selected_drone->GetLastState().GetVelocityNorm().second);
-                    // Move to the next column
-                    ImGui::NextColumn();
+                        ImGui::TableNextRow();
+                        ImGui::TableNextColumn(); ImGui::Text("GetOutOfAreaCounter");
+                        ImGui::TableNextColumn(); ImGui::Text("%d", selected_drone->GetOutOfAreaCounter());
 
-                    if (show_input_images_){
-                        // Draw terrain map
-                        ImVec2 title_origin = ImGui::GetCursorScreenPos();
-                        ImGui::Text("Terrain");
-                        ImVec2 map_origin = ImGui::GetCursorScreenPos();
-                        DrawGrid(selected_drone->GetLastState().GetTerrainView(), model_renderer, 5.0f);
+                        ImGui::TableNextRow();
+                        ImGui::TableNextColumn(); ImGui::Text("GetGoalPosition");
+                        ImGui::TableNextColumn(); ImGui::Text("(%.6f, %.6f)",
+                                                              selected_drone->GetGoalPosition().first,
+                                                              selected_drone->GetGoalPosition().second);
 
-                        // Fire Status Title
-                        ImVec2 firedet_title_origin = ImVec2(
-                                title_origin.x + selected_drone->GetLastState().GetTerrainView()[0].size() * 5.0f + 10,
-                                title_origin.y);
-                        ImGui::SetCursorScreenPos(firedet_title_origin);
-                        ImGui::Text("Fire Status");
-                        // Draw fire status map
-                        ImVec2 firedet_map_origin = ImVec2(
-                                map_origin.x + selected_drone->GetLastState().GetTerrainView()[0].size() * 5.0f + 10,
-                                map_origin.y);
-                        ImGui::SetCursorScreenPos(firedet_map_origin);
-                        DrawGrid(selected_drone->GetLastState().GetFireView(), model_renderer, 5.0f, true);
+                        ImGui::TableNextRow();
+                        ImGui::TableNextColumn(); ImGui::Text("GetRealPosition");
+                        ImGui::TableNextColumn(); ImGui::Text("(%.6f, %.6f)",
+                                                              selected_drone->GetRealPosition().first,
+                                                              selected_drone->GetRealPosition().second);
 
-                        // Perception Map Title
-                        ImVec2 perception_title_origin = ImVec2(
-                                firedet_title_origin.x + selected_drone->GetLastState().GetTerrainView().size() * 5.0f + 10,
-                                firedet_title_origin.y);
-                        ImGui::SetCursorScreenPos(perception_title_origin);
+                        ImGui::TableNextRow();
+                        ImGui::TableNextColumn(); ImGui::Text("GetGridPosition");
+                        ImGui::TableNextColumn(); ImGui::Text("(%d, %d)",
+                                                              selected_drone->GetGridPosition().first,
+                                                              selected_drone->GetGridPosition().second);
+
+                        ImGui::TableNextRow();
+                        ImGui::TableNextColumn(); ImGui::Text("GetGridPositionDouble");
+                        ImGui::TableNextColumn(); ImGui::Text("(%.6f, %.6f)",
+                                                              selected_drone->GetLastState().GetGridPositionDouble().first,
+                                                              selected_drone->GetLastState().GetGridPositionDouble().second);
+
+                        ImGui::TableNextRow();
+                        ImGui::TableNextColumn(); ImGui::Text("GetGridPositionDoubleNorm");
+                        ImGui::TableNextColumn(); ImGui::Text("(%.6f, %.6f)",
+                                                              selected_drone->GetLastState().GetGridPositionDoubleNorm().first,
+                                                              selected_drone->GetLastState().GetGridPositionDoubleNorm().second);
+
+                        ImGui::TableNextRow();
+                        ImGui::TableNextColumn(); ImGui::Text("GetPositionNormAroundCenter");
+                        ImGui::TableNextColumn(); ImGui::Text("(%.6f, %.6f)",
+                                                              selected_drone->GetLastState().GetPositionNormAroundCenter().first,
+                                                              selected_drone->GetLastState().GetPositionNormAroundCenter().second);
+
+                        ImGui::TableNextRow();
+                        ImGui::TableNextColumn(); ImGui::Text("GetDistanceToNearestBoundaryNorm");
+                        ImGui::TableNextColumn(); ImGui::Text("%.6f", selected_drone->GetLastState().GetDistanceToNearestBoundaryNorm());
+
+                        ImGui::TableNextRow();
+                        ImGui::TableNextColumn(); ImGui::Text("GetDroneInGrid");
+                        ImGui::TableNextColumn(); ImGui::Text("%s", selected_drone->GetDroneInGrid() ? "true" : "false");
+
+                        ImGui::EndTable();
                     }
 
-
-                    // Move back to one column to column 1
-                    ImGui::Columns(1);
                     ImGui::Spacing();
-                    ImGui::Text("Episodic Rewards");
+                    ImGui::Separator();
+                    ImGui::Spacing();
+                    ImGui::TextColored(color, "Drone Network Input");
+                    if (ImGui::BeginTable("NetworkInputTable", 2, ImGuiTableFlags_Borders | ImGuiTableFlags_RowBg)) {
+                        ImGui::TableSetupColumn("Label", ImGuiTableColumnFlags_WidthFixed, 200.0f);
+                        ImGui::TableSetupColumn("Value", ImGuiTableColumnFlags_WidthStretch);
+                        ImGui::TableHeadersRow();
+
+                        ImGui::TableNextRow();
+                        ImGui::TableNextColumn(); ImGui::Text("GetDeltaGoal");
+                        ImGui::TableNextColumn(); ImGui::Text("(%.6f, %.6f)",
+                                                              selected_drone->GetLastState().GetDeltaGoal().first,
+                                                              selected_drone->GetLastState().GetDeltaGoal().second);
+
+                        ImGui::TableNextRow();
+                        ImGui::TableNextColumn(); ImGui::Text("GetVelocityNorm");
+                        ImGui::TableNextColumn(); ImGui::Text("%.6f, %.6f",
+                                                              selected_drone->GetLastState().GetVelocityNorm().first,
+                                                              selected_drone->GetLastState().GetVelocityNorm().second);
+
+                        ImGui::EndTable();
+                    }
+                    ImGui::Spacing();
+                    ImGui::Separator();
+                    ImGui::Spacing();
+                    if (show_input_images_){
+                        if (ImGui::BeginTable("MapsTable", 2, ImGuiTableFlags_Borders))
+                        {
+                            ImGui::TableNextColumn();
+                            ImGui::Text("GetTerrainView");
+                            DrawGrid(selected_drone->GetLastState().GetTerrainView(), 5.0f);
+
+                            ImGui::TableNextColumn();
+                            ImGui::Text("GetFireView");
+                            DrawGrid(selected_drone->GetLastState().GetFireView(), 5.0f, true);
+
+                            ImGui::EndTable();
+                        }
+                        ImGui::Dummy(ImVec2(0.0f, 40.0f)); // Adds vertical spacing
+                        ImGui::Spacing();
+                        ImGui::Separator();
+                        ImGui::Spacing();
+                    }
+                    ImGui::Spacing();
+                    ImGui::Separator();
+                    ImGui::Spacing();
+                    ImGui::TextColored(color, "Episodic Rewards");
                     // Plot rewards using ImGui::PlotLines
+                    auto rewards = selected_drone->GetEpisodeRewards().getBuffer();
+                    auto rewards_pos = static_cast<int>(selected_drone->GetEpisodeRewards().getHead());
                     if (!rewards.empty()) {
-                        this->DrawBuffer(rewards, rewards_pos);
+                        ImguiHandler::DrawBuffer(rewards, rewards_pos);
                     } else {
                         ImGui::Text("No rewards data available.");
                     }
-                    ImGui::Text("Accumulated Episodic Rewards");
-                    if (!all_rewards.empty()) {
-                        this->DrawBuffer(all_rewards, all_rewards.size());
-                    } else {
-                        ImGui::Text("No total rewards data available.");
+                    ImGui::Spacing();
+                    ImGui::Separator();
+                    ImGui::Spacing();
+                    ImGui::TextColored(color, "Reward Components");
+                    auto reward_components = selected_drone->GetRewardComponents();
+                    if (ImGui::BeginTable("RewardComponentTable", 2, ImGuiTableFlags_Borders | ImGuiTableFlags_RowBg)) {
+                        ImGui::TableSetupColumn("Label", ImGuiTableColumnFlags_WidthFixed, 200.0f);
+                        ImGui::TableSetupColumn("Value", ImGuiTableColumnFlags_WidthStretch);
+                        ImGui::TableHeadersRow();
+
+                        for (const auto& [key, value] : reward_components) {
+                            ImGui::TableNextRow();
+                            ImGui::TableNextColumn(); ImGui::Text("%s", key.c_str());
+                            ImGui::TableNextColumn(); ImGui::Text("%.6f", value);
+                        }
+
+                        ImGui::EndTable();
                     }
                 } else {
                     ImGui::Text("No drones available.");
@@ -550,30 +532,105 @@ void ImguiHandler::PyConfig(std::vector<float> rewards,
                 static bool show_explored_map = true;
                 static bool interpolated = true;
                 ImGui::SliderInt("##size_slider", &parameters_.exploration_map_show_size_, 5, 200);
-                if(ImGui::Button(show_explored_map ? "Show Fire Map" : "Show Explored Map")){
+                if(ImGui::Button(show_explored_map ? "GetFireMap" : "GetExploredMap")){
                     show_explored_map = !show_explored_map;
                 }
                 ImGui::Checkbox("Interpolated", &interpolated);
                 if (show_explored_map)
-                    DrawGrid(gridmap->GetExploredMap(parameters_.exploration_map_show_size_, interpolated), model_renderer, 5.0f, false, true);
+                    DrawGrid(gridmap->GetExploredMap(parameters_.exploration_map_show_size_, interpolated), 5.0f, false, true);
                 else
-                    DrawGrid(gridmap->GetFireMap(parameters_.exploration_map_show_size_, interpolated), model_renderer, 5.0f, true, true);
+                    DrawGrid(gridmap->GetFireMap(parameters_.exploration_map_show_size_, interpolated), 5.0f, true, true);
 
                 ImGui::EndTabItem();
             }
             if (ImGui::BeginTabItem("Env Controls")){
-                ImGui::Text("Fire Percentage");
-                ImGui::SliderFloat("##fire_percentage_map", &parameters_.fire_percentage_, 0, 100);
-                ImGui::Text("Fire Spread Probability");
-                ImGui::SliderFloat("##fire_spread_prob", &parameters_.fire_spread_prob_, 0, 1);
-                ImGui::Text("Fire Noise");
-                ImGui::SliderFloat("##fire_noise", &parameters_.fire_noise_, -1, 1);
-                if (ImGui::Button("Start some fires")) {
-                    this->startFires(parameters_.fire_percentage_);
+                ImVec4 color = ImVec4(0.33f, 0.67f, 0.86f, 1.0f);
+                ImGui::SetWindowFontScale(1.5f);
+                ImGui::PushStyleColor(ImGuiCol_Text, color);
+                ImGui::TextColored(color, "Fire Controls");
+                ImGui::SetWindowFontScale(1.0f);
+                ImGui::PopStyleColor();
+                if (ImGui::BeginTable("##FireControlsTable", 2, ImGuiTableFlags_Borders | ImGuiTableFlags_RowBg)){
+                    ImGui::TableSetupColumn("Label", ImGuiTableColumnFlags_WidthFixed, 200.0f);
+                    ImGui::TableSetupColumn("Control", ImGuiTableColumnFlags_WidthStretch);
+                    ImGui::TableHeadersRow();
+
+                    ImGui::TableNextRow();
+                    ImGui::TableNextColumn(); ImGui::Text("Fire Percentage");
+                    ImGui::TableNextColumn(); ImGui::SetNextItemWidth(-1); ImGui::SliderFloat("##fire_percentage_map", &parameters_.fire_percentage_, 0, 100);
+
+                    ImGui::TableNextRow();
+                    ImGui::TableNextColumn(); ImGui::Text("Fire Spread Probability");
+                    ImGui::TableNextColumn(); ImGui::SetNextItemWidth(-1); ImGui::SliderFloat("##fire_spread_prob", &parameters_.fire_spread_prob_, 0, 1);
+
+                    ImGui::TableNextRow();
+                    ImGui::TableNextColumn(); ImGui::Text("Fire Noise");
+                    ImGui::TableNextColumn(); ImGui::SetNextItemWidth(-1); ImGui::SliderFloat("##fire_noise", &parameters_.fire_noise_, -1, 1);
+
+                    ImGui::TableNextRow();
+                    ImGui::TableNextColumn(); ImGui::Text("Ignite only Single Cells");
+                    ImGui::TableNextColumn(); ImGui::SetCursorPosX(ImGui::GetCursorPosX() + (ImGui::GetContentRegionAvail().x / 2) - 10);
+                    ImGui::Checkbox("##SingleCellIgnite", &parameters_.ignite_single_cells_);
+
+                    ImGui::TableNextRow();
+                    ImGui::TableNextColumn(); ImGui::Text("Start new Fires");
+                    ImGui::TableNextColumn();
+                    ImGui::SetCursorPosX(ImGui::GetCursorPosX() + (ImGui::GetContentRegionAvail().x / 2) - 50);
+                    if (ImGui::Button("##StartFires", ImVec2(100, 17))) { this->startFires(parameters_.fire_percentage_);}
+                    if (ImGui::IsItemHovered()){ ImGui::SetTooltip("Click to start some fires");}
+                    ImGui::EndTable();
                 }
-                if (ImGui::IsItemHovered())
-                    ImGui::SetTooltip("Click to start some fires");
-                ImGui::Checkbox("Ignite Single Cells", &parameters_.ignite_single_cells_);
+                ImGui::SetWindowFontScale(1.5f);
+                ImGui::PushStyleColor(ImGuiCol_Text, color);
+                ImGui::TextColored(color, "Start and Goal Controls");
+                ImGui::SetWindowFontScale(1.0f);
+                ImGui::PopStyleColor();
+                if (ImGui::BeginTable("##GoalControl", 2, ImGuiTableFlags_Borders | ImGuiTableFlags_RowBg)) {
+                    ImGui::TableSetupColumn("Label", ImGuiTableColumnFlags_WidthFixed, 200.0f);
+                    ImGui::TableSetupColumn("Control", ImGuiTableColumnFlags_WidthStretch);
+                    ImGui::TableHeadersRow();
+
+                    ImGui::TableNextRow();
+                    ImGui::TableNextColumn(); ImGui::Text("Fire Goal Percentage");
+                    ImGui::TableNextColumn(); ImGui::SetNextItemWidth(-1); if(ImGui::SliderFloat("##fire_goal_perc", &parameters_.fire_goal_percentage_, 0, 1))
+                    {
+                        if(parameters_.fire_goal_percentage_ != 1) {
+                            parameters_.groundstation_start_percentage_ = 0;
+                        }
+                    }
+                    if (ImGui::IsItemHovered())
+                        ImGui::SetTooltip("The percentage of goals that are set to a fire location, rather than a "
+                                          "ground station. Set this to 0 to disable fire goals or to 1 to disable all "
+                                          "groundstation goals.");
+
+                    ImGui::TableNextRow();
+                    ImGui::TableNextColumn(); ImGui::Text("Groundstation Start Percentage");
+                    ImGui::TableNextColumn(); ImGui::SetNextItemWidth(-1); if(ImGui::SliderFloat("##groundstation_start_perc", &parameters_.groundstation_start_percentage_, 0, 1)){
+                        if(parameters_.groundstation_start_percentage_ != 0) {
+                            parameters_.fire_goal_percentage_ = 1;
+                        }
+                    }
+
+                    ImGui::TableNextRow();
+                    ImGui::TableNextColumn(); ImGui::Text("Non Groundstation Corner Start Percentage");
+                    ImGui::TableNextColumn(); ImGui::SetNextItemWidth(-1); ImGui::SliderFloat("##corner_start_perc", &parameters_.corner_start_percentage_, 0, 1);
+
+                    ImGui::TableNextRow();
+                    ImGui::TableNextColumn(); ImGui::Text("Use Only Groundstation Start");
+                    ImGui::TableNextColumn(); ImGui::SetCursorPosX(ImGui::GetCursorPosX() + (ImGui::GetContentRegionAvail().x / 2) - 10);
+                    ImGui::Checkbox("##GroundstationStart", &parameters_.only_corner_start_);
+                    if (ImGui::IsItemHovered())
+                        ImGui::SetTooltip("If checked, the start position of all agents will always be set to the groundstation.");
+
+                    ImGui::TableNextRow();
+                    ImGui::TableNextColumn(); ImGui::Text("Recharge Time");
+                    ImGui::TableNextColumn(); ImGui::SetCursorPosX(ImGui::GetCursorPosX() + (ImGui::GetContentRegionAvail().x / 2) - 10);
+                    ImGui::Checkbox("##RechargeTime", &parameters_.recharge_time_active_);
+
+                    ImGui::EndTable();
+
+                }
+
                 ImGui::SameLine();
                 ImGui::Spacing();
                 ImGui::EndTabItem();
@@ -584,7 +641,7 @@ void ImguiHandler::PyConfig(std::vector<float> rewards,
     }
 }
 
-void ImguiHandler::FileHandling(std::shared_ptr<DatasetHandler> dataset_handler, std::vector<std::vector<int>> &current_raster_data){
+void ImguiHandler::FileHandling(const std::shared_ptr<DatasetHandler>& dataset_handler, std::vector<std::vector<int>> &current_raster_data){
 
     // Show the file dialog for loading and saving maps
     if (open_file_dialog_) {
@@ -682,16 +739,19 @@ void ImguiHandler::FileHandling(std::shared_ptr<DatasetHandler> dataset_handler,
     }
 }
 
-bool ImguiHandler::ImGuiOnStartup(std::shared_ptr<FireModelRenderer> model_renderer, std::vector<std::vector<int>> &current_raster_data) {
+bool ImguiHandler::ImGuiOnStartup(const std::shared_ptr<FireModelRenderer>& model_renderer, std::vector<std::vector<int>> &current_raster_data) {
     if (!model_startup_) {
         int width, height;
         SDL_GetRendererOutputSize(model_renderer->GetRenderer().get(), &width, &height);
-        ImVec2 window_size = ImVec2(400, 160);
-        ImGui::SetNextWindowSize(window_size);
-        ImVec2 appWindowPos = ImVec2((width - window_size.x) * 0.5f, (height - window_size.y) * 0.5f);
-        ImGui::SetNextWindowPos(appWindowPos);
+//        ImVec2 window_size = ImVec2(400, 160);
+//        ImGui::SetNextWindowSize(window_size);
+//        ImVec2 appWindowPos = ImVec2((width - window_size.x) * 0.5f, (height - window_size.y) * 0.5f);
+//        ImGui::SetNextWindowPos(appWindowPos, ImGuiCond_Always);
         if(!model_mode_selection_ && mode_ == Mode::GUI_RL){
-            ImGui::Begin("Select Mode", nullptr, ImGuiWindowFlags_NoResize | ImGuiWindowFlags_NoCollapse | ImGuiWindowFlags_NoMove);
+            ImGui::Begin("Select Mode", nullptr, ImGuiWindowFlags_NoResize | ImGuiWindowFlags_NoCollapse | ImGuiWindowFlags_NoMove | ImGuiWindowFlags_AlwaysAutoResize);
+            ImVec2 window_size = ImGui::GetWindowSize(); // Actual size after auto-resizing
+            ImGui::SetWindowPos(ImVec2((width - window_size.x) * 0.5f,
+                                       (height - window_size.y) * 0.5f));
             ImGui::Spacing();
             ImGui::PushStyleColor(ImGuiCol_Button, ImVec4(0.45f, 0.6f, 0.85f, 1.0f));
             ImGui::PushStyleColor(ImGuiCol_ButtonHovered, ImVec4(0.45f, 0.7f, 0.95f, 1.0f));
@@ -749,16 +809,19 @@ bool ImguiHandler::ImGuiOnStartup(std::shared_ptr<FireModelRenderer> model_rende
             return true;
         }
         else if (train_mode_selected_) {
-            window_size = ImVec2(400, 220);
-            ImGui::SetNextWindowSize(window_size);
             ImGui::PushStyleColor(ImGuiCol_Button, ImVec4(0.45f, 0.6f, 0.85f, 1.0f));
             ImGui::PushStyleColor(ImGuiCol_ButtonHovered, ImVec4(0.45f, 0.7f, 0.95f, 1.0f));
             ImGui::PushStyleColor(ImGuiCol_ButtonActive, ImVec4(0.45f, 0.5f, 0.75f, 1.0f));
-            ImGui::Begin("Training Setup", nullptr, ImGuiWindowFlags_NoResize | ImGuiWindowFlags_NoCollapse | ImGuiWindowFlags_NoMove);
+            ImGui::Begin("Training Setup", nullptr, ImGuiWindowFlags_NoResize | ImGuiWindowFlags_NoCollapse | ImGuiWindowFlags_NoMove | ImGuiWindowFlags_AlwaysAutoResize);
+            ImVec2 window_size = ImGui::GetWindowSize(); // Actual size after auto-resizing
+            ImGui::SetWindowPos(ImVec2((width - window_size.x) * 0.5f,
+                                       (height - window_size.y) * 0.5f));
             ImGui::Spacing();
             ImGui::Text("Choose Initial Training Parameters");
             ImGui::Spacing();
             py::dict rl_status = onGetRLStatus();
+            static bool n_steps_auto = true;
+            auto n_steps = rl_status["n_steps"].cast<int>();
             static int new_horizon = rl_status["horizon"].cast<int>();
             auto auto_train = rl_status["auto_train"].cast<bool>();
             auto train_episodes = rl_status["train_episodes"].cast<int>();
@@ -771,6 +834,15 @@ bool ImguiHandler::ImGuiOnStartup(std::shared_ptr<FireModelRenderer> model_rende
             ImGui::InputInt("Batch Size", &batch_size, 1, 10, ImGuiInputTextFlags_CharsDecimal);
             if(ImGui::IsItemHovered())
                 ImGui::SetTooltip("The Batch Size is the number of observations collected from the horizon with which the model will be updated.");
+            ImGui::Checkbox("Use n_steps", &n_steps_auto);
+            if (n_steps_auto) {
+                ImGui::InputInt("n_steps", &n_steps, 1, 10, ImGuiInputTextFlags_CharsDecimal);
+                if(ImGui::IsItemHovered())
+                    ImGui::SetTooltip("Number of steps the discount function takes before resetting.");
+            }
+            else {
+                n_steps = new_horizon;
+            }
             if (auto_train) {
                 ImGui::InputInt("Train X Models", &train_episodes, 1, 10, ImGuiInputTextFlags_CharsDecimal);
                 if(ImGui::IsItemHovered())
@@ -791,6 +863,7 @@ bool ImguiHandler::ImGuiOnStartup(std::shared_ptr<FireModelRenderer> model_rende
             rl_status[py::str("horizon")] = new_horizon;
             rl_status[py::str("batch_size")] = batch_size;
             rl_status[py::str("auto_train")] = auto_train;
+            rl_status[py::str("n_steps")] = n_steps;
             onSetRLStatus(rl_status);
             if (ImGui::Button("Proceed to Map Selection", ImVec2(-1, 0))) {
                 train_mode_selected_ = false;
@@ -800,15 +873,16 @@ bool ImguiHandler::ImGuiOnStartup(std::shared_ptr<FireModelRenderer> model_rende
             return true;
         }
         else {
-            ImGui::Begin("Initial Map Selection", nullptr, ImGuiWindowFlags_NoResize | ImGuiWindowFlags_NoCollapse | ImGuiWindowFlags_NoMove);
+            ImGui::Begin("Map Selection", nullptr, ImGuiWindowFlags_NoResize | ImGuiWindowFlags_NoCollapse | ImGuiWindowFlags_NoMove | ImGuiWindowFlags_AlwaysAutoResize);
             ImGui::Spacing();
-
             ImGui::PushStyleColor(ImGuiCol_Button, ImVec4(0.45f, 0.6f, 0.85f, 1.0f));
             ImGui::PushStyleColor(ImGuiCol_ButtonHovered, ImVec4(0.45f, 0.7f, 0.95f, 1.0f));
             ImGui::PushStyleColor(ImGuiCol_ButtonActive, ImVec4(0.45f, 0.5f, 0.75f, 1.0f));
-
+            ImVec2 window_size = ImGui::GetWindowSize(); // Actual size after auto-resizing
+            ImGui::SetWindowPos(ImVec2((width - window_size.x) * 0.5f,
+                                       (height - window_size.y) * 0.5f));
             bool still_no_init = true;
-            if (ImGui::Button("Uniform Vegetation", ImVec2(-1, 0))) {
+            if (ImGui::Button("Uniform Vegetation")) {
                 onSetUniformRasterData();
                 // TODO I don't really know why this works, but it does. If I don't call this function, everything works fine
                 //  until I reset the GridMap again, which works fine as well. But if I then try to zoom in it crashes.
@@ -835,7 +909,7 @@ bool ImguiHandler::ImGuiOnStartup(std::shared_ptr<FireModelRenderer> model_rende
     }
 }
 
-void ImguiHandler::ShowParameterConfig(std::shared_ptr<Wind> wind) {
+void ImguiHandler::ShowParameterConfig(const std::shared_ptr<Wind>& wind) {
     ImGuiWindowFlags window_flags =
             ImGuiWindowFlags_HorizontalScrollbar | ImGuiWindowFlags_AlwaysVerticalScrollbar;
     ImGui::Begin("Simulation Parameters", &show_model_parameter_config_, window_flags);
@@ -919,7 +993,7 @@ void ImguiHandler::ShowParameterConfig(std::shared_ptr<Wind> wind) {
     ImGui::End();
 }
 
-void ImguiHandler::ShowPopups(std::shared_ptr<GridMap> gridmap, std::vector<std::vector<int>> &current_raster_data) {
+void ImguiHandler::ShowPopups(const std::shared_ptr<GridMap>& gridmap, std::vector<std::vector<int>> &current_raster_data) {
     // Start the Dear ImGui frame
     for (auto it = popups_.begin(); it != popups_.end();) {
         char popupId[20];
@@ -966,8 +1040,8 @@ void ImguiHandler::ShowPopups(std::shared_ptr<GridMap> gridmap, std::vector<std:
     }
 }
 
-void ImguiHandler::HandleEvents(SDL_Event event, ImGuiIO *io, std::shared_ptr<GridMap> gridmap, std::shared_ptr<FireModelRenderer> model_renderer,
-                                std::shared_ptr<DatasetHandler> dataset_handler, std::vector<std::vector<int>> &current_raster_data, bool agent_is_running) {
+void ImguiHandler::HandleEvents(SDL_Event event, ImGuiIO *io, const std::shared_ptr<GridMap>& gridmap, const std::shared_ptr<FireModelRenderer>& model_renderer,
+                                const std::shared_ptr<DatasetHandler>& dataset_handler, std::vector<std::vector<int>> &current_raster_data, bool agent_is_running) {
     // SDL Events
     if (event.type == SDL_MOUSEBUTTONDOWN && !io->WantCaptureMouse && event.button.button == SDL_BUTTON_LEFT) {
         int x, y;
@@ -1042,39 +1116,40 @@ void ImguiHandler::HandleEvents(SDL_Event event, ImGuiIO *io, std::shared_ptr<Gr
 }
 
 void ImguiHandler::DrawBuffer(std::vector<float> buffer, int buffer_pos) {
-    // Calculate the minimum and maximum values from the data
     float min_value = *std::min_element(buffer.begin(), buffer.end());
     float max_value = *std::max_element(buffer.begin(), buffer.end());
-    // Calculate the position and size of the graph
-    //ImVec2 graph_pos = ImGui::GetCursorScreenPos();
+
+    // Display a legend
+    ImGui::Text("Min: %.2f | Max: %.2f | Avg: %.2f", min_value, max_value,
+                std::accumulate(buffer.begin(), buffer.end(), 0.0f) / static_cast<float>(buffer.size()));
+
+    // Plot the graph
     ImGui::PlotLines("", buffer.data(), static_cast<int>(buffer.size()), 0, nullptr, min_value, max_value, ImVec2(0, 150));
-    // Get the draw list
+
     ImDrawList* draw_list = ImGui::GetWindowDrawList();
+    ImVec2 graph_pos = ImGui::GetItemRectMin();
+    ImVec2 graph_size = ImGui::GetItemRectSize();
 
-    // Get the position and size of the plot
-    ImVec2 graph_pos = ImGui::GetItemRectMin(); // Top-left corner of the plot
-    ImVec2 graph_size = ImGui::GetItemRectSize(); // Size of the plot
-
-    // Ensure pos_index is within bounds
+    // Highlight selected data point
     if (buffer_pos >= 0 && buffer_pos < buffer.size()) {
-        // Calculate the x-position of the data point in screen coordinates
-        float x = graph_pos.x + ((float)buffer_pos / (buffer.size() - 1)) * graph_size.x;
-
-        // Draw a vertical line at the data point position
+        float x = graph_pos.x + ((float)buffer_pos / (static_cast<float>(buffer.size()) - 1)) * graph_size.x;
+        float y = graph_pos.y + graph_size.y - ((buffer[buffer_pos] - min_value) / (max_value - min_value) * graph_size.y);
         draw_list->AddLine(ImVec2(x, graph_pos.y), ImVec2(x, graph_pos.y + graph_size.y), IM_COL32(255, 0, 0, 255), 2.0f);
+        draw_list->AddCircleFilled(ImVec2(x, y), 3.0f, IM_COL32(0, 255, 125, 255));
 
-        // Optionally, add a text label at the data point position
-        char label[32];
-        snprintf(label, sizeof(label), "Value: %.2f", buffer[buffer_pos]);
-        draw_list->AddText(ImVec2(x + 10, graph_pos.y), IM_COL32(255, 255, 255, 255), label);
+        // Dynamic tooltip
+        if (ImGui::IsItemHovered()) {
+            ImGui::SetTooltip("Value: %.2f\nIndex: %d", buffer[buffer_pos], buffer_pos);
+        }
     }
 }
+
 template<typename T>
-void ImguiHandler::DrawGrid(const std::vector<std::vector<T>>& grid, std::shared_ptr<FireModelRenderer> renderer, float cell_size, bool is_fire_status, bool is_exploration_map) {
+void ImguiHandler::DrawGrid(const std::vector<std::vector<T>>& grid, float cell_size, bool is_fire_status, bool is_exploration_map) {
     ImVec2 cursor_pos = ImGui::GetCursorScreenPos();
 
     // Function to map a value to a color
-    float max_exploration_time = parameters_.GetExplorationTime();
+    float max_exploration_time = static_cast<float>(parameters_.GetExplorationTime());
     std::function<ImVec4(double)> value_to_color;
     if (!is_fire_status) {
         value_to_color = [&max_exploration_time](double value) -> ImVec4 {
@@ -1096,7 +1171,7 @@ void ImguiHandler::DrawGrid(const std::vector<std::vector<T>>& grid, std::shared
             if (!is_exploration_map) {
                 color = is_fire_status
                                ? (grid[y][x] > 0 ? ImVec4(1.0f, 0.0f, 0.0f, 1.0f) : ImVec4(0.0f, 1.0f, 0.0f, 1.0f))
-                               : renderer->GetMappedColor(grid[y][x]);
+                               : FireModelRenderer::GetMappedColor(grid[y][x]);
             } else {
                 color = value_to_color(grid[y][x]);
             }

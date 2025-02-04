@@ -24,6 +24,7 @@ public:
 
     bool corine_loaded_ = false;
     bool initial_mode_selection_done_ = false;
+    bool episode_termination_indicator_ = true;
     bool InitialModeSelectionDone() {return initial_mode_selection_done_;}
     void SetCorineLoaded(bool loaded) {corine_loaded_ = loaded;}
     bool GetCorineLoaded() {return corine_loaded_;}
@@ -34,10 +35,14 @@ public:
     // Minimum and maximum values for the ImGui Sliders for the simulation parameters
     double min_dt_ = 0.0001; // in seconds (s)
     double max_dt_ = 5.0; // in seconds (s)
+
+    // Environment Controls
     bool ignite_single_cells_ = false;
+    float fire_goal_percentage_ = 0.69 ; // in percent (%)
     float fire_percentage_ = 0.5; // in percent (%)
     float fire_spread_prob_ = 0.5; // in percent (%)
     float fire_noise_ = 0.1;
+    bool recharge_time_active_ = true;
 
 
     // Parameters for the virtual particles
@@ -134,8 +139,10 @@ public:
 
     void ConvertRealToGridCoordinates(double x, double y, int &i, int &j) const {
         // round x and y to get the cell coordinates
-        i = int(trunc(x / this->GetCellSize()));
-        j = int(trunc(y / this->GetCellSize()));
+//        i = int(trunc(x / this->GetCellSize()));
+//        j = int(trunc(y / this->GetCellSize()));
+        i = static_cast<int>(std::floor(x / this->GetCellSize()));
+        j = static_cast<int>(std::floor(y / this->GetCellSize()));
     }
 
     void ConvertGridToRealCoordinates(int x_grid, int y_grid, double &x_real, double &y_real) const {
@@ -156,10 +163,14 @@ public:
     bool GetAgentIsRunning() const {return agent_is_running_;}
     int number_of_drones_ = 1;
     int total_env_steps_ = 200;
-    int GetTotalEnvSteps() const {return (int)((grid_nx_ * grid_ny_ * (0.1 / dt_)) + 80);}
+    int current_env_steps_ = 0;
+    int GetCurrentEnvSteps() const {return current_env_steps_;}
+    void SetCurrentEnvSteps(int steps) {current_env_steps_ = steps;}
+//    int GetTotalEnvSteps() const {return (int)((grid_nx_ * grid_ny_ * (0.1 / dt_)) + 80);}
+    int GetTotalEnvSteps() const {return (int)(sqrt(grid_nx_ * grid_nx_ + grid_ny_ * grid_ny_) * (20 / (max_velocity_.first * dt_)));}
     int view_range_ = 8;
     int GetViewRange() const {return view_range_;}
-    int time_steps_ = 32; // 16
+    int time_steps_ = 3; // 16 //32
     int GetTimeSteps() const {return time_steps_;}
     // std::pair<double, double> min_velocity_ = std::make_pair(-5.0, -5.0);
     // std::pair<double, double> GetMinVelocity() const {return min_velocity_;}
@@ -173,8 +184,9 @@ public:
     double GetWaterRefillDt() const {return GetWaterCapacity() / (5 * 60 / GetDt());}
 
     // Parameters for the groundstation
-    std::pair<int, int> groundstation_position_ = std::make_pair(1, 1);
-    std::pair<int, int> GetGroundstationPosition() const {return groundstation_position_;}
+    bool only_corner_start_ = false;
+    float groundstation_start_percentage_ = 0.0;
+    float corner_start_percentage_ = 0.8;
 
     //Parameters for ImGui
     int RewardsBufferSize = 300;

@@ -26,33 +26,20 @@ DroneState::DroneState(std::pair<double, double> velocity_vector,
     cell_size_ = cell_size;
 }
 
-std::pair<double, double> DroneState::GetNewVelocity(double netout_speed_x, double netout_speed_y) const {
-    // Netout determines the velocity CHANGE
-//    auto speed_x = std::round(netout_speed_x * 10.0) / 10.0;
-//    auto speed_y = std::round(netout_speed_y * 10.0) / 10.0;
-//    auto speed_x = netout_speed_x;
-//    auto speed_y = netout_speed_y;
-    auto speed_x = DiscretizeOutput(netout_speed_x, 0.1);
-    auto speed_y = DiscretizeOutput(netout_speed_y, 0.1);
-    double new_speed_x = velocity_.first + speed_x * max_speed_.first;
-    double new_speed_y = velocity_.second + speed_y * max_speed_.second;
+std::pair<double, double> DroneState::GetNewVelocity(double next_speed_x, double next_speed_y) const {
+    // Next Speed determines the velocity CHANGE
+//    next_speed_x = DiscretizeOutput(next_speed_x, 0.05);
+//    next_speed_y = DiscretizeOutput(next_speed_y, 0.05);
+//    double new_speed_x = velocity_.first + next_speed_x * max_speed_.first;
+//    double new_speed_y = velocity_.second + next_speed_y * max_speed_.second;
 
     // Netout determines the velocity DIRECTLY #TODO: Why does this perform worse??
-//     double new_speed_x = netout_speed_x * max_speed_.first;
-//     double new_speed_y = netout_speed_y * max_speed_.second;
+     double new_speed_x = next_speed_x * max_speed_.first;
+     double new_speed_y = next_speed_y * max_speed_.second;
 
     // Clamp new_speed between -max_speed_.first and max_speed_.first
     new_speed_x = std::clamp(new_speed_x, -max_speed_.first, max_speed_.first);
     new_speed_y = std::clamp(new_speed_y, -max_speed_.second, max_speed_.second);
-
-    // By Angle
-    // double angle = fmod(new_speed_y, 2 * M_PI);
-
-    // // This ensures that if the angle is negative, it's converted to a positive value within the range.
-    // if (angle < 0) {
-    //     angle += 2 * M_PI;
-    // }
-    // new_speed_y = angle;
 
     return std::make_pair(new_speed_x, new_speed_y);
 }
@@ -83,7 +70,7 @@ int DroneState::CountOutsideArea() {
     return outside_area;
 }
 
-std::pair<double, double> DroneState::GetPositionNorm() const {
+std::pair<double, double> DroneState::GetPositionNormAroundCenter() const {
     double x = (2.0 * position_.first / (map_dimensions_.first * cell_size_)) - 1;
     double y = (2.0 * position_.second / (map_dimensions_.second * cell_size_)) - 1;
     return std::make_pair(x, y);
@@ -97,9 +84,17 @@ std::pair<double, double> DroneState::GetGoalPositionNorm() const {
 
 std::pair<double, double> DroneState::GetDeltaGoal() const {
     auto position = GetGridPositionDouble();
-    double x = goal_position_.first - position.first;
-    double y = goal_position_.second - position.second;
+    auto largest_side = std::max(map_dimensions_.first, map_dimensions_.second);
+//    auto diagonal = sqrt(map_dimensions_.first * map_dimensions_.first + map_dimensions_.second * map_dimensions_.second);
+    double x = ((position.first - goal_position_.first) / largest_side) * 1;
+    double y = ((position.second - goal_position_.second) / largest_side) * 1;
     return std::make_pair(x, y);
+}
+
+[[nodiscard]] std::pair<double, double> DroneState::GetVelocityNorm() const {
+    auto largest_side = std::max(map_dimensions_.first, map_dimensions_.second);
+    return std::make_pair(velocity_.first / (largest_side * cell_size_), velocity_.second / (largest_side * cell_size_));
+    //{ return std::make_pair(velocity_.first / max_speed_.first, velocity_.second / max_speed_.second); }
 }
 
 std::pair<double, double> DroneState::GetOrientationToGoal() const {
@@ -121,6 +116,25 @@ std::pair<double, double> DroneState::GetGridPositionDouble() const {
     x = position_.first / cell_size_;
     y = position_.second / cell_size_;
     return std::make_pair(x, y);
+}
+
+double DroneState::GetDistanceToNearestBoundaryNorm() const {
+    auto largest_side = std::max(map_dimensions_.first, map_dimensions_.second);
+    auto position = GetGridPositionDouble();
+    double x = position.first;
+    double y = position.second;
+
+    if (x < 0) {
+        x = std::abs(x);
+    }
+    if (y < 0) {
+        y = std::abs(y);
+    }
+    auto distance_x = map_dimensions_.first - x;
+    auto distance_y = map_dimensions_.second - y;
+    auto distance = std::min({x, y, distance_x, distance_y});
+
+    return distance / largest_side;
 }
 
 std::vector<std::vector<double>> DroneState::GetExplorationMapNorm() const {
