@@ -5,7 +5,7 @@
 #ifndef ROSHAN_DRONE_H
 #define ROSHAN_DRONE_H
 
-#define DEBUG_REWARD_NO
+#define DEBUG_REWARD_YES
 
 #include <utility>
 #include <SDL.h>
@@ -43,6 +43,9 @@ public:
     void Initialize(const std::shared_ptr<GridMap>& grid_map);
     double FindNearestFireDistance();
     void Step(double speed_x, double speed_y, const std::shared_ptr<GridMap>& gridmap);
+    void PolicyStep(const std::shared_ptr<GridMap> &gridmap);
+    void SimplePolicy(const std::shared_ptr<GridMap> &gridmap);
+    void ExplorePolicy(const std::shared_ptr<GridMap> &gridmap);
     void OnFlyAction(std::shared_ptr<FlyAction> action, std::shared_ptr<GridMap> gridMap) override;
     void OnExploreAction(std::shared_ptr<ExploreAction> action, std::shared_ptr<GridMap> gridMap) override;
 

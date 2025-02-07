@@ -99,6 +99,7 @@ std::tuple<std::vector<std::deque<std::shared_ptr<State>>>, std::vector<double>,
         // First Step through all the drones and update their states, then calculate their reward
         for (int i = 0; i < (*drones_).size(); ++i) {
             actions[i]->Apply(drones_->at(i), gridmap_);
+            drones_->at(i)->PolicyStep(gridmap_);
             auto terminal_state = drones_->at(i)->IsTerminal(eval_mode_, gridmap_, total_env_steps_);
             terminals.push_back(terminal_state.first);
             agent_died.push_back(terminal_state.second);

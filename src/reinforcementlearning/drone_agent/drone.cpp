@@ -236,10 +236,24 @@ void DroneAgent::OnExploreAction(std::shared_ptr<ExploreAction> action, std::sha
 }
 
 void DroneAgent::Step(double speed_x, double speed_y, const std::shared_ptr<GridMap>& gridmap) {
-    this->SetReachedGoal(false);
     std::pair<double, double> vel_vector;
+    vel_vector = this->MovementStep(speed_x, speed_y);
+    auto drone_view = gridmap->GetDroneView(std::dynamic_pointer_cast<DroneAgent>(shared_from_this()));
+    gridmap->UpdateExploredAreaFromDrone(std::dynamic_pointer_cast<DroneAgent>(shared_from_this()));
+    this->UpdateStates(gridmap, vel_vector, drone_view, 0);
+}
+
+void DroneAgent::PolicyStep(const std::shared_ptr<GridMap>& gridmap){
+    if (agent_type_ == "FlyAgent") {
+        this->SimplePolicy(gridmap);
+    } else {
+        this->ExplorePolicy(gridmap);
+    }
+}
+
+void DroneAgent::SimplePolicy(const std::shared_ptr<GridMap>& gridmap){
+    this->SetReachedGoal(false);
     if(this->GetPolicyType() == 0) {
-        vel_vector = this->MovementStep(speed_x, speed_y);
         if (this->GetGoalPositionInt() == this->GetGridPosition()) {
             this->SetReachedGoal(true);
             this->DispenseWaterCertain(gridmap);
@@ -253,12 +267,10 @@ void DroneAgent::Step(double speed_x, double speed_y, const std::shared_ptr<Grid
             }
         }
     } else if (this->GetPolicyType() == 1) {
-        vel_vector = this->MovementStep(speed_x, speed_y);
         if (this->GetGoalPositionInt() == this->GetGridPosition()) {
             this->SetPolicyType(2);
         }
-    } else {
-        vel_vector = std::make_pair(0, 0);
+    } else if (this->GetPolicyType() == 2) {
         if (parameters_.recharge_time_active_) {
             if (this->GetWaterCapacity() <= parameters_.GetWaterCapacity()) {
                 this->SetWaterCapacity(this->GetWaterCapacity() + parameters_.GetWaterRefillDt());
@@ -272,11 +284,10 @@ void DroneAgent::Step(double speed_x, double speed_y, const std::shared_ptr<Grid
             this->SetGoalPosition(gridmap->GetNextFire(std::dynamic_pointer_cast<DroneAgent>(shared_from_this())));
         }
     }
-//    drones_->at(drone_idx)->DispenseWater(*gridmap_, water_dispense);
-    auto drone_view = gridmap->GetDroneView(std::dynamic_pointer_cast<DroneAgent>(shared_from_this()));
-    gridmap->UpdateExploredAreaFromDrone(std::dynamic_pointer_cast<DroneAgent>(shared_from_this()));
-    // TODO consider not only adding the current velocity, but the last netoutputs (these are two potential dimensions)
-    this->UpdateStates(gridmap, vel_vector, drone_view, 0);
+}
+
+void DroneAgent::ExplorePolicy(const std::shared_ptr<GridMap> &gridmap){
+
 }
 
 std::pair<bool, bool> DroneAgent::IsTerminal(bool eval_mode, const std::shared_ptr<GridMap>& grid_map, int total_env_steps) const {
@@ -362,23 +373,13 @@ double DroneAgent::CalculateExploreReward(bool terminal_state, int total_env_ste
     double distance_to_boundary = GetLastState().GetDistanceToNearestBoundaryNorm();
     double delta_distance = last_distance_to_goal - distance_to_goal;
     bool drone_in_grid = GetDroneInGrid();
+    auto explore_map = GetLastState().GetExplorationMapScalar();
 
     std::unordered_map<std::string, double> reward_components;
-    double total_reward = 0;
 
-    if (GetReachedGoal()) {
-        reward_components["GoalReached"] = 5;
-    }
+    reward_components["explore_map"] = explore_map;
 
-    if (!drone_in_grid && terminal_state) {
-        reward_components["BoundaryTerminal"] = -2;
-    }
-
-    if (terminal_state && (total_env_steps <= 0)) {
-        reward_components["TimeOut"] = -2;
-    }
-
-    total_reward = ComputeTotalReward(reward_components);
+    double total_reward = ComputeTotalReward(reward_components);
     LogRewards(reward_components);
     SetLastDistanceToGoal(distance_to_goal);
     reward_components_ = reward_components;

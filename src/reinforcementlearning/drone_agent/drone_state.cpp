@@ -148,4 +148,16 @@ std::vector<std::vector<double>> DroneState::GetExplorationMapNorm() const {
     return exploration_map_norm;
 }
 
+double DroneState::GetExplorationMapScalar() const {
+    auto explore_norm_ = this->GetExplorationMapNorm();
+    double scalar = 0;
+    int max = explore_norm_.size() * explore_norm_[0].size();
+    for (size_t i = 0; i < explore_norm_.size(); i++) {
+        for(size_t j = 0; j < explore_norm_[i].size(); j++) {
+            scalar += explore_norm_[i][j];
+        }
+    }
+    return scalar / max;
+}
+
 

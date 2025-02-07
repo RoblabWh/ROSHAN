@@ -15,6 +15,16 @@ sys.path.insert(0, config['module_directory'])
 # Change the current working directory, so that the python script has the same folder as the c++ executable
 os.chdir(config['module_directory'])
 
+# Check Python Version
+pythonversion = str(sys.version_info[0]) + str(sys.version_info[1])
+
+# Find Firesim Module in the current directory
+firesimverison = [f for f in os.listdir(config['module_directory']) if f[:7] == 'firesim'][0].split('-')[1]
+
+if pythonversion != firesimverison:
+    raise ValueError(f"Python Version {pythonversion} does not match Firesim Version {firesimverison}."
+                     f"Activate your conda environment before compiling the library.")
+
 import firesim
 from agent_handler import AgentHandler
 from hierarchy_manager import HierarchyManager
@@ -65,7 +75,7 @@ if __name__ == '__main__':
               "train_step": 0,
               "max_eval": 1000, # Number of Environments to run before stopping evaluation
               "max_train": 1000, # Number of Updates to perform before stopping training
-              "K_epochs": 16,
+              "K_epochs": 18,
               "current_episode": 0,
               "agent_type": "FlyAgent", # Either FlyAgent, ExplorationAgent
               "resume": False, # If True, the agent will resume training from the last checkpoint

@@ -204,4 +204,5 @@ target_link_libraries(ROSHAN PRIVATE
         ${GDAL_LIBRARIES}
         dl
         tiff
+        ffi
 )
