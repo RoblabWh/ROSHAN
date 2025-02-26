@@ -9,7 +9,7 @@ class HierarchyManager:
         self.hierarchy = {}
         self.hierarchy_keys = list(self.hierarchy.keys())
         self.build_hierarchy(status, agent_handler)
-        self.low_level_steps = 250
+        self.low_level_steps = 100
 
     def initial_observation(self, observations_):
         for key in self.hierarchy_keys:

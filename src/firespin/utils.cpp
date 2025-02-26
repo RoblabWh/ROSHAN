@@ -117,22 +117,22 @@ std::vector<std::vector<int>> PoolingResize(const std::vector<std::vector<int>>&
 }
 
 std::vector<std::vector<int>> InterpolationResize(const std::vector<std::vector<int>>& input_map, int new_width, int new_height) {
-    int old_width = input_map.size();
-    int old_height = input_map[0].size();
+    auto old_width = input_map.size();
+    auto old_height = input_map[0].size();
 
     std::vector<std::vector<int>> resized_map(new_width, std::vector<int>(new_height, 0));
 
-    float x_ratio = static_cast<float>(old_width) / new_width;
-    float y_ratio = static_cast<float>(old_height) / new_height;
+    float x_ratio = static_cast<float>(old_width) / static_cast<float>(new_width);
+    float y_ratio = static_cast<float>(old_height) / static_cast<float>(new_height);
 
     for (int y = 0; y < new_height; ++y) {
         for (int x = 0; x < new_width; ++x) {
-            float gx = x * x_ratio;
-            float gy = y * y_ratio;
+            float gx = static_cast<float>(x) * x_ratio;
+            float gy = static_cast<float>(y) * y_ratio;
             int gxi = static_cast<int>(gx);
             int gyi = static_cast<int>(gy);
-            float x_diff = gx - gxi;
-            float y_diff = gy - gyi;
+            float x_diff = gx - static_cast<float>(gxi);
+            float y_diff = gy - static_cast<float>(gyi);
 
             // Bounds checking
             if (gxi >= old_width - 1 || gyi >= old_height - 1) {
@@ -141,10 +141,10 @@ std::vector<std::vector<int>> InterpolationResize(const std::vector<std::vector<
             }
 
             // Bilinear interpolation
-            float top_left = input_map[gxi][gyi];
-            float top_right = input_map[gxi + 1][gyi];
-            float bottom_left = input_map[gxi][gyi + 1];
-            float bottom_right = input_map[gxi + 1][gyi + 1];
+            auto top_left = static_cast<float>(input_map[gxi][gyi]);
+            auto top_right = static_cast<float>(input_map[gxi + 1][gyi]);
+            auto bottom_left = static_cast<float>(input_map[gxi][gyi + 1]);
+            auto bottom_right = static_cast<float>(input_map[gxi + 1][gyi + 1]);
 
             float top = top_left + x_diff * (top_right - top_left);
             float bottom = bottom_left + x_diff * (bottom_right - bottom_left);

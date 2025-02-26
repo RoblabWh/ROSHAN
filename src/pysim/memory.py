@@ -7,7 +7,8 @@ class SwarmMemory(object):
         self.num_agents = num_agents
         self.memory = [Memory(action_dim=action_dim, max_size=max_size) for _ in range(num_agents)]
 
-    def get_agent_state(self, state, agent_id):
+    @staticmethod
+    def get_agent_state(state, agent_id):
         tuple_state = tuple()
         for state_ in state:
             if isinstance(state_[agent_id], np.ndarray):

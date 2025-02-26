@@ -4,10 +4,11 @@
 
 #include <iostream>
 #include <utility>
-#include "drone.h"
+#include "drone_agent.h"
 
-DroneAgent::DroneAgent(const std::shared_ptr<GridMap>& grid_map, std::string agent_type, FireModelParameters &parameters, int id) : id_(id), parameters_(parameters),
-                                                                                             rewards_(parameters_.GetRewardsBufferSize()) {
+DroneAgent::DroneAgent(const std::shared_ptr<GridMap>& grid_map, std::string agent_type, FireModelParameters &parameters, int id) :
+                                                                                                id_(id), parameters_(parameters),
+                                                                                                rewards_(parameters_.GetRewardsBufferSize()) {
 
     std::random_device rd;
     std::mt19937 gen(rd());
@@ -17,8 +18,8 @@ DroneAgent::DroneAgent(const std::shared_ptr<GridMap>& grid_map, std::string age
     std::pair<int, int> point;
     if (rng_number <= parameters_.corner_start_percentage_) {
         point = grid_map->GetNonGroundStationCorner();
-    } else
-    if (rng_number <= parameters_.groundstation_start_percentage_) {
+    }
+    else if (rng_number <= parameters_.groundstation_start_percentage_) {
         point = grid_map->GetGroundstation()->GetGridPosition();
     }
     else {
@@ -220,6 +221,10 @@ void DroneAgent::OnFlyAction(std::shared_ptr<FlyAction> action, std::shared_ptr<
     double speed_x = action->GetSpeedX(); // change this to "real" speed
     double speed_y = action->GetSpeedY();
     this->Step(speed_x, speed_y, gridMap);
+    if (agent_type_ == "FlyAgent") {
+        this->FlyPolicy(gridMap);
+        this->SetDroneDidHierachyAction(true);
+    }
 }
 
 void DroneAgent::OnExploreAction(std::shared_ptr<ExploreAction> action, std::shared_ptr<GridMap> gridMap) {
@@ -228,11 +233,16 @@ void DroneAgent::OnExploreAction(std::shared_ptr<ExploreAction> action, std::sha
     double y_off = gridMap->GetYOff();
     double goal_x = action->GetGoalX();
     double goal_y = action->GetGoalY();
-    goal_x = goal_x < 0 ? (goal_x + x_off) : (goal_x - x_off);
-    goal_y = goal_y < 0 ? (goal_y + y_off) : (goal_y - y_off);
+    goal_x = goal_x <= 0 ? (goal_x + x_off) : goal_x >= 1 ? (goal_x - x_off) : goal_x;
+    goal_y = goal_y <= 0 ? (goal_y + y_off) : goal_y >= 1 ? (goal_y - y_off) : goal_y;
     goal_x = ((goal_x + 1) / 2) * gridMap->GetCols();
     goal_y = ((goal_y + 1) / 2) * gridMap->GetRows();
+//    goal_x = goal_x * gridMap->GetCols();
+//    goal_y = goal_y * gridMap->GetRows();
     this->SetGoalPosition(std::make_pair(goal_x, goal_y));
+    if (agent_type_ == "ExploreAgent") {
+        this->SetDroneDidHierachyAction(true);
+    }
 }
 
 void DroneAgent::Step(double speed_x, double speed_y, const std::shared_ptr<GridMap>& gridmap) {
@@ -243,15 +253,7 @@ void DroneAgent::Step(double speed_x, double speed_y, const std::shared_ptr<Grid
     this->UpdateStates(gridmap, vel_vector, drone_view, 0);
 }
 
-void DroneAgent::PolicyStep(const std::shared_ptr<GridMap>& gridmap){
-    if (agent_type_ == "FlyAgent") {
-        this->SimplePolicy(gridmap);
-    } else {
-        this->ExplorePolicy(gridmap);
-    }
-}
-
-void DroneAgent::SimplePolicy(const std::shared_ptr<GridMap>& gridmap){
+void DroneAgent::FlyPolicy(const std::shared_ptr<GridMap>& gridmap){
     this->SetReachedGoal(false);
     if(this->GetPolicyType() == 0) {
         if (this->GetGoalPositionInt() == this->GetGridPosition()) {
@@ -286,38 +288,85 @@ void DroneAgent::SimplePolicy(const std::shared_ptr<GridMap>& gridmap){
     }
 }
 
-void DroneAgent::ExplorePolicy(const std::shared_ptr<GridMap> &gridmap){
-
-}
-
-std::pair<bool, bool> DroneAgent::IsTerminal(bool eval_mode, const std::shared_ptr<GridMap>& grid_map, int total_env_steps) const {
+std::pair<bool, bool> DroneAgent::TerminalFly(bool eval_mode, const std::shared_ptr<GridMap>& grid_map, int total_env_steps) const {
     bool terminal_state = false;
     bool drone_died = false;
+
+    // If the agent has flown out of the grid it has reached a terminal state and died
     if (GetOutOfAreaCounter() > 1) {
         terminal_state = true;
         drone_died = true;
     }
+    // If the drone has reached the goal and it is not in evaluation mode
+    // the goal is reached because the fly agent is trained that way
     if (GetReachedGoal() && !eval_mode) {
         terminal_state = true;
     }
-    if (grid_map->PercentageBurned() > 0.30) {
+    // If the agent has taken too long it has reached a terminal state and died
+    if (total_env_steps <= 0 && !eval_mode) {
         terminal_state = true;
         drone_died = true;
     }
-    if (GetExtinguishedLastFire()) {
-        // TODO Don't use gridmap_->IsBurning() because it is not reliable since it returns false when there
-        //  are particles in the air. Instead, check if the drone has extinguished the last fire on the map.
-        //  This also makes sure that only the drone that actually extinguished the fire gets the reward
+
+    // TODO CHANGE LATER
+    // Terminals only for evaluation
+    if (eval_mode){
+        if (grid_map->PercentageBurned() > 0.30) {
+            terminal_state = true;
+            drone_died = true;
+        }
+        if (GetExtinguishedLastFire()) {
+            // TODO Don't use gridmap_->IsBurning() because it is not reliable since it returns false when there
+            //  are particles in the air. Instead, check if the drone has extinguished the last fire on the map.
+            //  This also makes sure that only the drone that actually extinguished the fire gets the reward
+            terminal_state = true;
+        }
+        if (!grid_map->IsBurning()) {
+            terminal_state = true;
+        }
+    }
+
+    return std::make_pair(terminal_state, drone_died);
+}
+
+std::pair<bool, bool> DroneAgent::TerminalExplore(bool eval_mode, const std::shared_ptr<GridMap> &grid_map, int total_env_steps) {
+    bool terminal_state = false;
+    bool drone_died = false;
+//    int num_burning_cells = grid_map->GetNumBurningCells();
+//    int num_explored_fires = grid_map->GetNumExploredFires();
+    explored_fires_equals_actual_fires_ = grid_map->ExploredFiresEqualsActualFires();
+
+    // If the agent has flown out of the grid it has reached a terminal state and died
+    if (GetOutOfAreaCounter() > 1) {
+        terminal_state = true;
+        drone_died = true;
+    }
+
+    // If the drone has reached the goal and it is not in evaluation mode
+    // the goal is reached because the fly agent is trained that way
+    auto explore_map = GetLastState().GetExplorationMapScalar();
+    if (explore_map >= 0.99 || explored_fires_equals_actual_fires_) {
         terminal_state = true;
     }
-    if (!grid_map->IsBurning()) {
-        terminal_state = true;
-    }
+
+    // If the agent has taken too long it has reached a terminal state and died
     if (total_env_steps <= 0 && !eval_mode) {
         terminal_state = true;
         drone_died = true;
     }
     return std::make_pair(terminal_state, drone_died);
+}
+
+std::pair<bool, bool> DroneAgent::IsTerminal(bool eval_mode, const std::shared_ptr<GridMap>& grid_map, int total_env_steps) {
+    std::pair<bool, bool> terminal_states;
+
+    if (agent_type_ == "FlyAgent") {
+        terminal_states = TerminalFly(eval_mode, grid_map, total_env_steps);
+    } else {
+        terminal_states = TerminalExplore(eval_mode, grid_map, total_env_steps);
+    }
+
+    return terminal_states;
 }
 
 double DroneAgent::CalculateReward(bool terminal_state, int total_env_steps) {
@@ -368,20 +417,23 @@ double DroneAgent::CalculateFlyReward(bool terminal_state, int total_env_steps) 
 }
 
 double DroneAgent::CalculateExploreReward(bool terminal_state, int total_env_steps){
-    double distance_to_goal = GetDistanceToGoal();
-    double last_distance_to_goal = GetLastDistanceToGoal();
-    double distance_to_boundary = GetLastState().GetDistanceToNearestBoundaryNorm();
-    double delta_distance = last_distance_to_goal - distance_to_goal;
-    bool drone_in_grid = GetDroneInGrid();
     auto explore_map = GetLastState().GetExplorationMapScalar();
+    auto explore_difference = GetExploreDifference();
 
     std::unordered_map<std::string, double> reward_components;
 
-    reward_components["explore_map"] = explore_map;
+    if (explore_map >= 0.99 && terminal_state){
+        reward_components["MapExplored"] = 5;
+    } else if (explored_fires_equals_actual_fires_ && terminal_state) {
+        reward_components["ExploredFires"] = 5;
+    } else if (terminal_state) {
+        reward_components["Failure"] = -10;
+    }
+//    reward_components["ExploreMapScalar"] = 0.01 * explore_map;
+    reward_components["ExploreDifference"] = 0.01 * explore_difference;
 
     double total_reward = ComputeTotalReward(reward_components);
     LogRewards(reward_components);
-    SetLastDistanceToGoal(distance_to_goal);
     reward_components_ = reward_components;
     return total_reward;
 }

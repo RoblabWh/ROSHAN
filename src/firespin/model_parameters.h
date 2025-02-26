@@ -7,6 +7,7 @@
 
 #include <math.h>
 #include <random>
+#include <utility>
 #include <SDL.h>
 class FireModelParameters {
 
@@ -158,6 +159,8 @@ public:
     }
 
     // Parameters for the agent
+    std::string agent_type;
+    void SetAgentType(std::string type) {agent_type = std::move(type);}
     bool agent_is_running_ = false;
     void SetAgentIsRunning(bool running) {agent_is_running_ = running;}
     bool GetAgentIsRunning() const {return agent_is_running_;}
@@ -167,9 +170,15 @@ public:
     int GetCurrentEnvSteps() const {return current_env_steps_;}
     void SetCurrentEnvSteps(int steps) {current_env_steps_ = steps;}
 //    int GetTotalEnvSteps() const {return (int)((grid_nx_ * grid_ny_ * (0.1 / dt_)) + 80);}
-    int GetTotalEnvSteps() const {return (int)(sqrt(grid_nx_ * grid_nx_ + grid_ny_ * grid_ny_) * (20 / (max_velocity_.first * dt_)));}
-    int view_range_ = 8;
-    int GetViewRange() const {return view_range_;}
+    int GetTotalEnvSteps() const {
+        int agent_factor = agent_type == "FlyAgent" ? 1 : agent_type == "ExploreAgent" ? 2 : 0;
+        return (int)(agent_factor * sqrt(grid_nx_ * grid_nx_ + grid_ny_ * grid_ny_) * (20 / (max_velocity_.first * dt_)));
+    }
+
+    [[nodiscard]] int GetViewRange() const {
+        int view_range_ = agent_type == "FlyAgent" ? 8 : agent_type == "ExploreAgent" ? 12 : 2;
+        return view_range_;
+    }
     int time_steps_ = 3; // 16 //32
     int GetTimeSteps() const {return time_steps_;}
     // std::pair<double, double> min_velocity_ = std::make_pair(-5.0, -5.0);

@@ -2,8 +2,8 @@
 // Created by nex on 13.07.23.
 //
 
-#ifndef ROSHAN_DRONE_H
-#define ROSHAN_DRONE_H
+#ifndef ROSHAN_DRONE_AGENT_H
+#define ROSHAN_DRONE_AGENT_H
 
 #define DEBUG_REWARD_YES
 
@@ -43,9 +43,7 @@ public:
     void Initialize(const std::shared_ptr<GridMap>& grid_map);
     double FindNearestFireDistance();
     void Step(double speed_x, double speed_y, const std::shared_ptr<GridMap>& gridmap);
-    void PolicyStep(const std::shared_ptr<GridMap> &gridmap);
-    void SimplePolicy(const std::shared_ptr<GridMap> &gridmap);
-    void ExplorePolicy(const std::shared_ptr<GridMap> &gridmap);
+    void FlyPolicy(const std::shared_ptr<GridMap> &gridmap);
     void OnFlyAction(std::shared_ptr<FlyAction> action, std::shared_ptr<GridMap> gridMap) override;
     void OnExploreAction(std::shared_ptr<ExploreAction> action, std::shared_ptr<GridMap> gridMap) override;
 
@@ -85,8 +83,10 @@ public:
     void SetDispenedWater(bool dispensed) { dispensed_water_ = dispensed; }
     void SetExploreDifference(int explore_difference) { explore_difference_ = explore_difference; }
     void SetReward(double reward) { rewards_.put(static_cast<float>(reward));}
+    void SetDroneDidHierachyAction(bool did_hierachy_step) { drone_did_hierachy_step_ = did_hierachy_step; }
+    bool GetDroneDidHierachyAction() const { return drone_did_hierachy_step_; }
     void PushEpisodeReward();
-    std::pair<bool, bool> IsTerminal(bool eval_mode, const std::shared_ptr<GridMap>& grid_map, int total_env_steps) const;
+    std::pair<bool, bool> IsTerminal(bool eval_mode, const std::shared_ptr<GridMap>& grid_map, int total_env_steps);
     double CalculateReward(bool terminal_state, int total_env_steps);
     std::unordered_map<std::string, double> GetRewardComponents() { return reward_components_; }
 private:
@@ -105,6 +105,7 @@ private:
     int view_range_;
     int time_steps_;
     bool drone_in_grid_ = true;
+    bool drone_did_hierachy_step_ = false;
     double max_distance_from_map_{};
     int out_of_area_counter_;
     double water_capacity_;
@@ -122,13 +123,17 @@ private:
     TextureRenderer renderer2_;
 
     // Rewards Collection for Debugging!
+    bool explored_fires_equals_actual_fires_ = false;
     std::string agent_type_;
     CircularBuffer<float> rewards_;
     std::unordered_map<std::string, double> reward_components_;
 
     double CalculateFlyReward(bool terminal_state, int total_env_steps);
     double CalculateExploreReward(bool terminal_state, int total_env_steps);
+
+    std::pair<bool, bool> TerminalFly(bool eval_mode, const std::shared_ptr<GridMap> &grid_map, int total_env_steps) const;
+    std::pair<bool, bool> TerminalExplore(bool eval_mode, const std::shared_ptr<GridMap> &grid_map, int total_env_steps);
 };
 
 
-#endif //ROSHAN_DRONE_H
+#endif //ROSHAN_DRONE_AGENT_H

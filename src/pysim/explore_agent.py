@@ -25,7 +25,7 @@ class ExploreAgent:
 
     @staticmethod
     def restructure_data(observations_):
-        all_explore_maps, all_positions = [], []
+        all_explore_maps, all_fire_maps, all_positions = [], [], []
 
         for deque in observations_:
             drone_states = np.array([state for state in deque if isinstance(state, firesim.DroneState)])
@@ -33,9 +33,11 @@ class ExploreAgent:
                 continue
 
             exploration_map = np.array([state.GetExplorationMapNorm() for state in drone_states])
+            fire_map = np.array([state.GetFireMap() for state in drone_states])
             position = np.array([state.GetGridPositionDoubleNorm() for state in drone_states])
 
             all_explore_maps.append(exploration_map)
+            all_fire_maps.append(fire_map)
             all_positions.append(position)
 
-        return np.array(all_explore_maps), np.array(all_positions)
+        return np.array(all_explore_maps), np.array(all_fire_maps), np.array(all_positions)

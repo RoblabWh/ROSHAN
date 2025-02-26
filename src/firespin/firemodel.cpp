@@ -4,6 +4,8 @@
 
 #include "firemodel.h"
 
+#include <utility>
+
 std::shared_ptr<FireModel> FireModel::instance_ = nullptr;
 
 FireModel::FireModel(Mode mode, const std::string& map_path) : mode_(mode)
@@ -170,9 +172,7 @@ void FireModel::Render() {
 //   ######################################################################
 // **//
 
-FireModel::~FireModel() {
-
-}
+FireModel::~FireModel() = default;
 
 void FireModel::LoadMap(std::string path) {
     dataset_handler_->LoadMap(std::move(path));
@@ -199,7 +199,7 @@ void FireModel::setupImGui() {
     imgui_handler_->startFires = [this](float percentage) {StartFires(percentage);};
     imgui_handler_->onSetNoise = [this](CellState state, int noise_level, int noise_size) {gridmap_->SetCellNoise(state, noise_level, noise_size);};
     imgui_handler_->onGetRLStatus = [this]() {return rl_handler_->GetRLStatus();};
-    imgui_handler_->onSetRLStatus = [this](py::dict status) {rl_handler_->SetRLStatus(status);};
+    imgui_handler_->onSetRLStatus = [this](py::dict status) {rl_handler_->SetRLStatus(std::move(status));};
 }
 
 void FireModel::ImGuiRendering(bool &update_simulation, bool &render_simulation, int &delay, float framerate) {

@@ -149,6 +149,11 @@ public:
     //* @return double The normalized Distance to the next Boundary of the Agent.
     [[nodiscard]] double GetDistanceToNearestBoundaryNorm() const;
 
+    //* Returns the Position of the Agent in the Exploration Map
+    //* The Position is the position of the Agent in the actual Map rescaled to the dimensions of the Exploration Map.
+    //* @return std::pair<double, double> The Position of the Agent in the Exploration Map.
+    [[nodiscard]] std::pair<double, double> GetPositionInExplorationMap() const;
+
     //** These functions are only for Python Debugger Visibility **//
     [[nodiscard]] std::pair<double, double> get_velocity() const { return velocity_; }
     [[nodiscard]] std::vector<std::vector<std::vector<int>>> get_drone_view() const { return drone_view_; }

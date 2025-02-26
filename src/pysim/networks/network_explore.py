@@ -47,9 +47,26 @@ class Inputspace(nn.Module):
 
         self.explore_flat1 = nn.Linear(in_features=features_explore, out_features=explore_out_features)
 
+        # FIRE VIEW CONVOLUTION LAYERS
+        self.fire_conv1 = nn.Conv2d(in_channels=layers_dict[0]['in_channels'],
+                                       out_channels=layers_dict[0]['out_channels'],
+                                       kernel_size=layers_dict[0]['kernel_size'], stride=layers_dict[0]['stride'],
+                                       padding=layers_dict[0]['padding'])
+        self.fire_conv2 = nn.Conv2d(in_channels=layers_dict[1]['in_channels'],
+                                       out_channels=layers_dict[1]['out_channels'],
+                                       kernel_size=layers_dict[1]['kernel_size'], stride=layers_dict[1]['stride'],
+                                       padding=layers_dict[1]['padding'])
+
+        in_f = get_in_features_2d(h_in=30, w_in=30, layers_dict=layers_dict)
+
+        features_fire = in_f * layers_dict[1]['out_channels']
+        fire_out_features = 64
+
+        self.fire_flat1 = nn.Linear(in_features=features_fire, out_features=fire_out_features)
+
         self.flatten = nn.Flatten()
 
-        input_features = pos_out_features * self.time_steps + explore_out_features
+        input_features = pos_out_features * self.time_steps + explore_out_features + fire_out_features
         self.out_features = 32
         mid_features = 64
 
@@ -60,18 +77,21 @@ class Inputspace(nn.Module):
 
     @staticmethod
     def prepare_tensor(states):
-        exploration_map, position = states
+        exploration_map, fire_map, position = states
 
         if isinstance(exploration_map, np.ndarray):
             exploration_map = torch.tensor(exploration_map, dtype=torch.float32).to(device)
 
+        if isinstance(fire_map, np.ndarray):
+            fire_map = torch.tensor(fire_map, dtype=torch.float32).to(device)
+
         if isinstance(position, np.ndarray):
             position = torch.tensor(position, dtype=torch.float32).to(device)
 
-        return exploration_map, position
+        return exploration_map, fire_map, position
 
     def forward(self, states):
-        exploration_map, position = self.prepare_tensor(states)
+        exploration_map, fire_map, position = self.prepare_tensor(states)
 
         pos = F.relu(self.pos_dense1(position))
         pos = self.flatten(pos)
@@ -81,7 +101,12 @@ class Inputspace(nn.Module):
         explore = self.flatten(explore)
         explore = F.relu(self.explore_flat1(explore))
 
-        concat_tensor = torch.cat((pos, explore), dim=1)
+        fire = F.relu(self.fire_conv1(fire_map))
+        fire = F.relu(self.fire_conv2(fire))
+        fire = self.flatten(fire)
+        fire = F.relu(self.fire_flat1(fire))
+
+        concat_tensor = torch.cat((pos, fire, explore), dim=1)
 
         concat_tensor = F.relu(self.input_dense1(concat_tensor))
         concat_tensor = F.relu(self.input_dense2(concat_tensor))
@@ -120,7 +145,7 @@ class Critic(nn.Module):
     """
     def __init__(self, vision_range, time_steps):
         super(Critic, self).__init__()
-        self.Inputspace = self.Inputspace = Inputspace(vision_range, time_steps=time_steps)
+        self.Inputspace = Inputspace(vision_range, time_steps=time_steps)
         self.in_features = self.Inputspace.out_features
 
         # Value
@@ -131,3 +156,20 @@ class Critic(nn.Module):
         x = self.Inputspace(states)
         value = self.value(x)
         return value
+
+class RNDModel(nn.Module):
+    def __init__(self, vision_range, time_steps):
+        super(RNDModel, self).__init__()
+
+        self.predictor = Inputspace(vision_range, time_steps)
+        self.target = Inputspace(vision_range, time_steps)
+
+        # Set parameters in target network to be non-trainable
+        for param in self.target.parameters():
+            param.requires_grad = False
+
+    def forward(self, states):
+        target_features = self.target(states)
+        predictor_features = self.predictor(states)
+
+        return target_features, predictor_features

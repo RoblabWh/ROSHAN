@@ -106,8 +106,17 @@ std::pair<double, double> DroneState::GetOrientationToGoal() const {
 
 std::pair<double, double> DroneState::GetGridPositionDoubleNorm() const {
     auto grid_position = GetGridPositionDouble();
-    double x = grid_position.first / map_dimensions_.first;
-    double y = grid_position.second / map_dimensions_.second;
+    double x = (2 * grid_position.first / map_dimensions_.first) - 1;
+    double y = (2 * grid_position.second / map_dimensions_.second) - 1;
+    return std::make_pair(x, y);
+}
+
+std::pair<double, double> DroneState::GetPositionInExplorationMap() const {
+    auto grid_double_norm = GetGridPositionDoubleNorm();
+    // Get Dim from exploration map
+    auto dimension = exploration_map_.size();
+    double x = grid_double_norm.first * dimension;
+    double y = grid_double_norm.second * dimension;
     return std::make_pair(x, y);
 }
 

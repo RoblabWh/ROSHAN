@@ -114,7 +114,7 @@ class AgentHandler:
     def train_loop(self, status, engine):
         actions, action_logprobs = self.act(self.next_obs)
         obs, rewards, all_terminals, terminal_result, percent_burned = self.step_agent(status, engine, actions)
-        # Memory Adding #TODO DO NOT FORGET TO CHANGE BACK TO SELF.NEXT_OBS!!!!!!!!!!!!!!!!!!!!!!!!!
+        # Memory Adding
         self.add_memory_entry(self.next_obs, actions, action_logprobs, rewards, all_terminals)
         # Logging
         status["objective"], status["best_objective"] = self.update_logging(terminal_result)

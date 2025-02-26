@@ -31,8 +31,8 @@ GridMap::GridMap(std::shared_ptr<Wind> wind, FireModelParameters &parameters,
     rows_ = rows;
     num_cells_ = cols_ * rows_;
     parameters_.SetGridNxNy(cols_, rows_);
-    double x_off_ = 2 * (1 - ((cols_ - 0.5) / cols_));
-    double y_off_ = 2 * (1 - ((rows_ - 0.5) / rows_));
+    x_off_ = 2 * (1 - ((cols_ - 0.5) / cols_));
+    y_off_ = 2 * (1 - ((rows_ - 0.5) / rows_));
     num_burned_cells_ = 0;
     num_unburnable_ = this->GetNumUnburnableCells();
     virtual_particles_.reserve(100000);
@@ -287,7 +287,10 @@ std::vector<std::vector<std::vector<int>>> GridMap::GetDroneView(std::shared_ptr
 }
 
 int GridMap::UpdateLastSeenTime(int x, int y) {
-    int difference = parameters_.GetExplorationTime() - explored_map_[x][y];
+//    int difference = parameters_.GetExplorationTime() - explored_map_[x][y];
+//    explored_map_[x][y] = parameters_.GetExplorationTime();
+    // If this part of the map was previously not seen by the drone, return 1
+    auto difference = explored_map_[x][y] > 0 ? 0 : 1;
     explored_map_[x][y] = parameters_.GetExplorationTime();
     return difference;
 }
@@ -302,7 +305,7 @@ void GridMap::UpdateCellDiminishing() {
     }
 }
 
-void GridMap::UpdateExploredAreaFromDrone(std::shared_ptr<DroneAgent> drone) {
+void GridMap::UpdateExploredAreaFromDrone(const std::shared_ptr<DroneAgent>& drone) {
     std::pair<int, int> drone_position = drone->GetGridPosition();
     int drone_view_radius = drone->GetViewRange();
     int drone_view_radius_2 = drone_view_radius / 2;
@@ -316,7 +319,8 @@ void GridMap::UpdateExploredAreaFromDrone(std::shared_ptr<DroneAgent> drone) {
             }
         }
     }
-    drone->SetExploreDifference(combined_difference);
+    auto old_difference = drone->GetExploreDifference();
+    drone->SetExploreDifference(old_difference + combined_difference);
 }
 
 // Calculates the number of unburnable cells
@@ -494,4 +498,28 @@ std::pair<int, int> GridMap::GetRandomCorner() {
 void GridMap::SetGroundstation() {
     auto corner = this->GetRandomCorner();
     groundstation_ = std::make_shared<Groundstation>(corner, parameters_);
+}
+
+int GridMap::GetNumExploredFires() const {
+    // Returns the number of fires that have been seen by the drone
+    int num_fires = 0;
+    for (auto& row : fire_map_) {
+        num_fires += static_cast<int>(std::count(row.begin(), row.end(), 1));
+    }
+    return num_fires;
+}
+
+bool GridMap::ExploredFiresEqualsActualFires() const {
+    // Returns true if the fires seen by the drone are the same as the actual fires. This is needed because the explored
+    // map may contain fires that are burned out
+
+    bool explored_fires_equal_actual_fires = true;
+    for (auto& fire : burning_cells_) {
+        if (fire_map_[fire.x_][fire.y_] == 0) {
+            explored_fires_equal_actual_fires = false;
+            break;
+        }
+    }
+
+    return explored_fires_equal_actual_fires;
 }

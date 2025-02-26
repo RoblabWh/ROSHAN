@@ -42,15 +42,17 @@ void ReinforcementLearningHandler::ResetEnvironment(Mode mode) {
     if (mode == Mode::GUI_RL) {
         gridmap_->SetGroundstationRenderer(model_renderer_->GetRenderer());
     }
+    auto agent_type = rl_status_["agent_type"].cast<std::string>();
+    parameters_.SetAgentType(agent_type);
     total_env_steps_ = parameters_.GetTotalEnvSteps();
     for (int i = 0; i < parameters_.GetNumberOfDrones(); ++i) {
-        auto newDrone = std::make_shared<DroneAgent>(gridmap_, rl_status_["agent_type"].cast<std::string>(), parameters_, i);
+        auto newDrone = std::make_shared<DroneAgent>(gridmap_, agent_type, parameters_, i);
         if (mode == Mode::GUI_RL) {
             newDrone->SetRenderer(model_renderer_->GetRenderer());
             newDrone->SetRenderer2(model_renderer_->GetRenderer());
         }
-        gridmap_->UpdateExploredAreaFromDrone(newDrone);
         newDrone->SetExploreDifference(0);
+        gridmap_->UpdateExploredAreaFromDrone(newDrone);
 
         // Generate random number between 0 and 1
         double rng_number = dist(gen);
@@ -91,21 +93,26 @@ std::tuple<std::vector<std::deque<std::shared_ptr<State>>>, std::vector<double>,
     if (gridmap_ != nullptr) {
         total_env_steps_ -= 1;
         parameters_.SetCurrentEnvSteps(parameters_.GetTotalEnvSteps() - total_env_steps_);
-        std::vector<bool> terminals;
+        //init bool vector that is size of drones_
+        std::vector<bool> terminals = std::vector<bool>(drones_->size(), false);
         std::vector<bool> agent_died;
 //        std::vector<bool> goal_reached;
         std::vector<double> rewards;
-        gridmap_->UpdateCellDiminishing();
+//        gridmap_->UpdateCellDiminishing();
         // First Step through all the drones and update their states, then calculate their reward
         for (int i = 0; i < (*drones_).size(); ++i) {
             actions[i]->Apply(drones_->at(i), gridmap_);
-            drones_->at(i)->PolicyStep(gridmap_);
-            auto terminal_state = drones_->at(i)->IsTerminal(eval_mode_, gridmap_, total_env_steps_);
-            terminals.push_back(terminal_state.first);
-            agent_died.push_back(terminal_state.second);
-            double reward = drones_->at(i)->CalculateReward(terminal_state.first, total_env_steps_);
-            drones_->at(i)->SetReward(reward);
-            rewards.push_back(reward);
+            if (drones_->at(i)->GetDroneDidHierachyAction()) {
+                auto terminal_state = drones_->at(i)->IsTerminal(eval_mode_, gridmap_, total_env_steps_);
+                terminals[i] = terminal_state.first;
+                agent_died.push_back(terminal_state.second);
+                double reward = drones_->at(i)->CalculateReward(terminal_state.first, total_env_steps_);
+                drones_->at(i)->SetReward(reward);
+                rewards.push_back(reward);
+                // Reset some values for the next step
+                drones_->at(i)->SetExploreDifference(0);
+                drones_->at(i)->SetDroneDidHierachyAction(false);
+            }
         }
 
         // Check if any element in terminals is true, if so some agent reached a terminal state

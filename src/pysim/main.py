@@ -64,7 +64,7 @@ if __name__ == '__main__':
               "agent_online": True,
               "obs_collected": 0,
               "num_agents": 1,
-              "n_steps": 1024, #128
+              "n_steps": 1024, #128 #TODO: Deprecated
               "horizon": 1024,#12800,
               "batch_size": 512,
               "auto_train": False, # If True, the agent will train several episodes and then evaluate

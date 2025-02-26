@@ -18,7 +18,7 @@
 #include <mutex>
 #include <omp.h>
 #include <memory>
-#include "src/reinforcementlearning/drone_agent/drone.h"
+#include "src/reinforcementlearning/agents/drone_agent.h"
 #include "src/reinforcementlearning/groundstation.h"
 
 // TODO Remove circular dependency
@@ -42,13 +42,14 @@ public:
     double PercentageBurned() const;
     std::vector<std::vector<int>> GetExploredMap(int size=0, bool interpolated=true);
     std::vector<std::vector<double>> GetFireMap(int size=0, bool interpolated=true);
-    const std::vector<std::vector<int>> &GetFireMapRef() const { return fire_map_; }
+    int GetNumExploredFires() const;
+    bool ExploredFiresEqualsActualFires() const;
 
     double PercentageBurning() const;
     double PercentageUnburnable() const;
     int GetNumOfCells() const { return num_cells_; }
     std::unordered_set<Point> GetBurningCells() const { return burning_cells_; }
-    int GetNumBurningCells() const { return burning_cells_.size(); }
+    int GetNumBurningCells() const { return static_cast<int>(burning_cells_.size()); }
     int GetNumBurnedCells() const { return num_burned_cells_; }
     std::pair<double, double> GetNextFire(const std::shared_ptr<DroneAgent>& drone);
     int GetNumUnburnable() const { return num_unburnable_; }
@@ -90,7 +91,7 @@ public:
     }
 
     std::vector<std::pair<int, int>> GetMooreNeighborhood(int x, int y) const;
-    void UpdateExploredAreaFromDrone(std::shared_ptr<DroneAgent> drone);
+    void UpdateExploredAreaFromDrone(const std::shared_ptr<DroneAgent>& drone);
     void UpdateCellDiminishing();
     std::pair<int, int> GetRandomCorner();
 
@@ -99,8 +100,8 @@ public:
     void SetCellNoise(CellState state, int noise_level, int noise_size);
     void SetNoiseGenerated(bool noise_generated) { noise_generated_ = noise_generated; }
     bool HasNoiseGenerated() const { return noise_generated_; }
-    int GetXOff() const { return x_off_; }
-    int GetYOff() const { return y_off_; }
+    double GetXOff() const { return x_off_; }
+    double GetYOff() const { return y_off_; }
 
 private:
     FireModelParameters &parameters_;

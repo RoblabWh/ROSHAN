@@ -363,7 +363,28 @@ void ImguiHandler::PyConfig(std::string &user_input,
             }
             if (ImGui::BeginTabItem("Drone Information")){
                 ImVec4 color = ImVec4(0.33f, 0.67f, 0.86f, 1.0f);
+                static bool show_exploration_map = false;
+                ImGui::Checkbox("Show Exploration Map", &show_exploration_map);
                 ImGui::Checkbox("Show Drone View", &show_input_images_);
+
+                if (show_exploration_map){
+                    if (ImGui::Begin("Exploration & Fire Map")) {
+                        static bool show_explored_map = true;
+                        static bool interpolated = true;
+                        ImGui::SliderInt("##size_slider", &parameters_.exploration_map_show_size_, 5, 200);
+                        if(ImGui::Button(show_explored_map ? "GetFireMap" : "GetExploredMap")){
+                            show_explored_map = !show_explored_map;
+                        }
+                        ImGui::Checkbox("Interpolated", &interpolated);
+                        if (show_explored_map)
+                            DrawGrid(gridmap->GetExploredMap(parameters_.exploration_map_show_size_, interpolated), 5.0f, false, true);
+                        else
+                            DrawGrid(gridmap->GetFireMap(parameters_.exploration_map_show_size_, interpolated), 5.0f, true, true);
+
+                        ImGui::End();
+                    }
+                }
+
                 ImGui::BeginChild("scrolling", ImVec2(0, ImGui::GetTextLineHeightWithSpacing() * 40),
                                   true, ImGuiWindowFlags_HorizontalScrollbar);
 
@@ -430,6 +451,12 @@ void ImguiHandler::PyConfig(std::string &user_input,
                         ImGui::TableNextColumn(); ImGui::Text("(%.6f, %.6f)",
                                                               selected_drone->GetLastState().GetGridPositionDoubleNorm().first,
                                                               selected_drone->GetLastState().GetGridPositionDoubleNorm().second);
+
+                        ImGui::TableNextRow();
+                        ImGui::TableNextColumn(); ImGui::Text("GetPositionInExplorationMap");
+                        ImGui::TableNextColumn(); ImGui::Text("(%.6f, %.6f)",
+                                                              selected_drone->GetLastState().GetPositionInExplorationMap().first,
+                                                              selected_drone->GetLastState().GetPositionInExplorationMap().second);
 
                         ImGui::TableNextRow();
                         ImGui::TableNextColumn(); ImGui::Text("GetPositionNormAroundCenter");
@@ -528,21 +555,21 @@ void ImguiHandler::PyConfig(std::string &user_input,
                 ImGui::EndChild();
                 ImGui::EndTabItem();
             }
-            if (ImGui::BeginTabItem("Exploration Map")) {
-                static bool show_explored_map = true;
-                static bool interpolated = true;
-                ImGui::SliderInt("##size_slider", &parameters_.exploration_map_show_size_, 5, 200);
-                if(ImGui::Button(show_explored_map ? "GetFireMap" : "GetExploredMap")){
-                    show_explored_map = !show_explored_map;
-                }
-                ImGui::Checkbox("Interpolated", &interpolated);
-                if (show_explored_map)
-                    DrawGrid(gridmap->GetExploredMap(parameters_.exploration_map_show_size_, interpolated), 5.0f, false, true);
-                else
-                    DrawGrid(gridmap->GetFireMap(parameters_.exploration_map_show_size_, interpolated), 5.0f, true, true);
-
-                ImGui::EndTabItem();
-            }
+//            if (ImGui::BeginTabItem("Exploration Map")) {
+//                static bool show_explored_map = true;
+//                static bool interpolated = true;
+//                ImGui::SliderInt("##size_slider", &parameters_.exploration_map_show_size_, 5, 200);
+//                if(ImGui::Button(show_explored_map ? "GetFireMap" : "GetExploredMap")){
+//                    show_explored_map = !show_explored_map;
+//                }
+//                ImGui::Checkbox("Interpolated", &interpolated);
+//                if (show_explored_map)
+//                    DrawGrid(gridmap->GetExploredMap(parameters_.exploration_map_show_size_, interpolated), 5.0f, false, true);
+//                else
+//                    DrawGrid(gridmap->GetFireMap(parameters_.exploration_map_show_size_, interpolated), 5.0f, true, true);
+//
+//                ImGui::EndTabItem();
+//            }
             if (ImGui::BeginTabItem("Env Controls")){
                 ImVec4 color = ImVec4(0.33f, 0.67f, 0.86f, 1.0f);
                 ImGui::SetWindowFontScale(1.5f);
@@ -820,7 +847,9 @@ bool ImguiHandler::ImGuiOnStartup(const std::shared_ptr<FireModelRenderer>& mode
             ImGui::Text("Choose Initial Training Parameters");
             ImGui::Spacing();
             py::dict rl_status = onGetRLStatus();
-            static bool n_steps_auto = true;
+            static bool n_steps_auto = false;
+            ImGui::SetTooltip("WARNING: Experimental feature. Divides the horizon into n_steps and resets the discount after each step. "
+                              "This is not according to the original paper and might not work as intended.");
             auto n_steps = rl_status["n_steps"].cast<int>();
             static int new_horizon = rl_status["horizon"].cast<int>();
             auto auto_train = rl_status["auto_train"].cast<bool>();

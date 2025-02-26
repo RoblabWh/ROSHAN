@@ -17,7 +17,7 @@
 #include <chrono>
 #include <SDL_image.h>
 #include <memory>
-#include "reinforcementlearning/drone_agent/drone.h"
+#include "reinforcementlearning/agents/drone_agent.h"
 #include "reinforcementlearning/groundstation.h"
 
 #include "firespin/cell_classes/cell_generic_burned.h"
