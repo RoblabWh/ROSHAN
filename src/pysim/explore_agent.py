@@ -1,5 +1,8 @@
-from networks.network_explore import Inputspace, Actor, Critic
+from networks.network_explore import Actor, Critic, RNDModel
+from torch.utils.data.sampler import BatchSampler, SubsetRandomSampler
 import numpy as np
+import torch.nn as nn
+import torch
 import firesim
 
 class ExploreAgent:
@@ -7,6 +10,10 @@ class ExploreAgent:
         self.name = "ExploreAgent"
         self.hierachy_level = "medium"
         self.low_level_steps = 200
+        self.use_intrinsic_reward = True
+        self.rnd_model = None
+        self.optimizer = None
+        self.MSE_loss = nn.MSELoss()
 
     def get_hierachy_level(self):
         return self.hierachy_level
@@ -14,6 +21,28 @@ class ExploreAgent:
     @staticmethod
     def get_network():
         return Actor, Critic
+
+    def initialize_rnd_model(self, vision_range, time_steps, lr=1e-4, betas=(0.9, 0.999)):
+        device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
+        self.rnd_model = RNDModel(vision_range, time_steps).to(device)
+        self.optimizer = torch.optim.Adam(self.rnd_model.parameters(), lr=lr, betas=betas, eps=1e-5)
+
+    def get_intrinsic_reward(self, obs):
+        return self.rnd_model.get_intrinsic_reward(obs)
+
+    def update_rnd_model(self, memory, horizon, mini_batch_size):
+        t_dict = memory.to_tensor()
+        states = t_dict['state']
+        states = memory.rearrange_states(states)
+
+        for index in BatchSampler(SubsetRandomSampler(range(horizon)), mini_batch_size, True):
+            batch_states = tuple(state[index] for state in states)
+            tgt_features = self.rnd_model.target(batch_states)
+            pred_features = self.rnd_model.predictor(batch_states)
+            rnd_loss = self.MSE_loss(pred_features, tgt_features)
+            self.optimizer.zero_grad()
+            rnd_loss.backward()
+            self.optimizer.step()
 
     @staticmethod
     def get_action(actions):

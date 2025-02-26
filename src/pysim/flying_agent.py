@@ -6,6 +6,7 @@ class FlyAgent:
     def __init__(self):
         self.name = "FlyAgent"
         self.hierachy_level = "low"
+        self.use_intrinsic_reward = False
 
     def get_hierachy_level(self):
         return self.hierachy_level

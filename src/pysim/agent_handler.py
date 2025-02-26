@@ -21,6 +21,9 @@ class AgentHandler:
         self.initialized = False
         self.agent_type = self.get_agent_type(status["agent_type"])
         self.hierachy_level = self.agent_type.get_hierachy_level()
+        self.use_intrinsic_reward = self.agent_type.use_intrinsic_reward
+        if self.use_intrinsic_reward:
+            self.agent_type.initialize_rnd_model(vision_range, time_steps)
         self.memory = SwarmMemory(num_agents=status["num_agents"], action_dim=2, max_size=status["horizon"])
         self.next_obs = None
         if algorithm == 'ppo':
@@ -94,8 +97,8 @@ class AgentHandler:
             self.logger.clear_summary()
             self.memory.change_horizon(self.horizon)
 
-    def add_memory_entry(self, obs, actions, action_logprobs, rewards, terminals):
-        self.memory.add(obs, actions, action_logprobs, rewards, terminals)
+    def add_memory_entry(self, obs, actions, action_logprobs, rewards, terminals, intrinsic_rewards=None):
+        self.memory.add(obs, actions, action_logprobs, rewards, terminals, intrinsic_reward=intrinsic_rewards)
 
     def update_status(self, status):
         self.set_paths(status["model_path"], status["model_name"])
@@ -114,13 +117,20 @@ class AgentHandler:
     def train_loop(self, status, engine):
         actions, action_logprobs = self.act(self.next_obs)
         obs, rewards, all_terminals, terminal_result, percent_burned = self.step_agent(status, engine, actions)
+        intrinsic_reward = None
+        if self.use_intrinsic_reward:
+            intrinsic_reward = self.agent_type.get_intrinsic_reward(self.next_obs)
         # Memory Adding
-        self.add_memory_entry(self.next_obs, actions, action_logprobs, rewards, all_terminals)
+        self.add_memory_entry(self.next_obs, actions, action_logprobs, rewards, all_terminals, intrinsic_rewards=intrinsic_reward)
         # Logging
         status["objective"], status["best_objective"] = self.update_logging(terminal_result)
         # Training
         if self.should_train():
             self.update(status, mini_batch_size=status["batch_size"], n_steps=status["n_steps"], next_obs=obs)
+            if self.use_intrinsic_reward:
+                self.agent_type.update_rnd_model(self.memory, self.horizon, status["batch_size"])
+            # Clear memory
+            self.memory.clear_memory()
         self.next_obs = obs
 
     def eval_loop(self, status, engine, evaluate=False):

@@ -67,7 +67,8 @@ class PPO:
             self.optimizer_c = None
 
         self.MSE_loss = nn.MSELoss()
-        self.running_reward_std = RunningMeanStd()
+        self.reward_rms = RunningMeanStd()
+        self.int_reward_rms = RunningMeanStd()
         self.set_train()
 
     def reset(self):
@@ -78,7 +79,8 @@ class PPO:
         self.optimizer_a = torch.optim.Adam(self.policy.actor.parameters(), lr=self.lr, betas=self.betas, eps=1e-5)
         self.optimizer_c = torch.optim.Adam(self.policy.critic.parameters(), lr=self.lr, betas=self.betas, eps=1e-5)
         self.MSE_loss = nn.MSELoss()
-        self.running_reward_std = RunningMeanStd()
+        self.reward_rms = RunningMeanStd()
+        self.int_reward_rms = RunningMeanStd()
         self.set_train()
 
     def set_paths(self, model_path, model_name):
@@ -178,12 +180,26 @@ class PPO:
         :param horizon: The size of all data gathered before training
         """
 
-        states, actions, old_logprobs, rewards, masks = memory.to_tensor()
+        t_dict = memory.to_tensor()
+
+        states = t_dict['state']
+        actions = t_dict['action']
+        old_logprobs = t_dict['logprobs']
+        ext_rewards = t_dict['reward']
+        masks = t_dict['not_done']
+
+        # Check for intrinsic rewards
+        intrinsic_rewards = None
+        if 'intrinsic_reward' in t_dict.keys():
+            intrinsic_rewards = t_dict['intrinsic_reward']
+            self.int_reward_rms.update(torch.cat(intrinsic_rewards).detach().cpu().numpy())
 
         # Logger
         logging_values = []
         console = ""
-        logger.add_rewards(torch.cat(rewards).detach().cpu().numpy())
+        log_rewards = torch.cat(ext_rewards).detach().cpu().numpy() if intrinsic_rewards is None \
+            else torch.cat(intrinsic_rewards).detach().cpu().numpy() + torch.cat(ext_rewards).detach().cpu().numpy()
+        logger.add_rewards(log_rewards)
 
         # Save current weights if mean reward or objective is higher than the best so far
         # (Save BEFORE training, so if the policy worsens we can still go back)
@@ -192,9 +208,12 @@ class PPO:
         # Clipping most likely is unnecessary
         # rewards = [np.clip(np.array(reward.detach().cpu()) / self.running_reward_std.get_std(), -10, 10) for reward in rewards]
         # Reward normalization !!!!DON'T SHIFT THE REWARDS BECAUSE YOU F UP YOUR OBJECTIVE FUNCTION!!!!
-        self.running_reward_std.update(torch.cat(rewards).detach().cpu().numpy())
-        rewards = [reward / self.running_reward_std.get_std() for reward in rewards]
-        # logger.add_rewards_scaled(torch.cat(rewards).detach().cpu().numpy())
+        self.reward_rms.update(torch.cat(ext_rewards).detach().cpu().numpy())
+        ext_rewards = [reward / self.reward_rms.get_std() for reward in ext_rewards]
+        intrinsic_rewards = [reward / self.int_reward_rms.get_std() for reward in intrinsic_rewards] if intrinsic_rewards is not None else None
+
+        rewards = ext_rewards if intrinsic_rewards is None \
+            else [ext_reward + int_reward for ext_reward, int_reward in zip(ext_rewards, intrinsic_rewards)]
 
         # Advantages
         with (torch.no_grad()):
@@ -240,10 +259,7 @@ class PPO:
         logger.add_returns(returns.detach().cpu().numpy())
         actions = torch.cat(actions)
         old_logprobs = torch.cat(old_logprobs)
-        states_ = tuple()
-        for i in range(len(states[0])):
-            states_ += (torch.cat([states[k][i] for k in range(len(states))]),)
-        states = states_
+        states = memory.rearrange_states(states)
 
         # Train policy for K epochs: sampling and updating
         for _ in range(self.K_epochs):
@@ -329,8 +345,5 @@ class PPO:
 
         # Save current weights if the mean reward is higher than the best reward so far
         logger.add_values(np.concatenate(logging_values))
-
-        # Clear memory
-        memory.clear_memory()
 
         return console

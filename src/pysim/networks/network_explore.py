@@ -168,6 +168,13 @@ class RNDModel(nn.Module):
         for param in self.target.parameters():
             param.requires_grad = False
 
+    def get_intrinsic_reward(self, obs):
+        with torch.no_grad():
+            tgt_features = self.target(obs)
+        pred_features = self.predictor(obs)
+        intrinsic_rewards = (tgt_features - pred_features).pow(2).mean(dim=1)
+        return intrinsic_rewards
+
     def forward(self, states):
         target_features = self.target(states)
         predictor_features = self.predictor(states)
