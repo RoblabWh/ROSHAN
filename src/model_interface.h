@@ -27,12 +27,14 @@ public:
     virtual void HandleEvents(SDL_Event event, ImGuiIO* io) = 0;
     virtual void GetData(std::string data) = 0;
     virtual void SetRLStatus(pybind11::dict status) = 0;
+    virtual void UpdateReward() = 0;
     virtual pybind11::dict GetRLStatus() = 0;
     virtual void SetRenderer(std::shared_ptr<SDL_Renderer> renderer) = 0;
     virtual void ImGuiRendering(bool &update_simulation, bool &render_simulation, int &delay, float framerate) = 0;
     virtual std::string GetUserInput() = 0;
     virtual int GetViewRange() = 0;
     virtual int GetTimeSteps() = 0;
+    virtual int GetMapSize() = 0;
     virtual bool InitialModeSelectionDone() = 0;
 };
 

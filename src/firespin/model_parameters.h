@@ -21,7 +21,7 @@ public:
     int noise_level_ = 20;
     int noise_size_ = 2;
     SDL_Color background_color_ = {41, 49, 51, 255};
-    bool map_is_uniform_;
+    bool map_is_uniform_{};
 
     bool corine_loaded_ = false;
     bool initial_mode_selection_done_ = false;
@@ -94,7 +94,7 @@ public:
     void SetGridNxNyStd() {grid_nx_ = std_grid_nx_; grid_ny_ = std_grid_ny_;}
     int GetGridNy() const {return grid_ny_;}
     int GetExplorationTime() const {return grid_nx_ * grid_ny_;}
-    int exploration_map_size_ = 30;
+    int exploration_map_size_ = 50;
     int exploration_map_show_size_ = exploration_map_size_;
     int GetExplorationMapSize() const {return exploration_map_size_;}
     int GetFireMapSize() const {return exploration_map_size_;}

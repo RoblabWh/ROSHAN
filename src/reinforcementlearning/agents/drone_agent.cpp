@@ -41,12 +41,13 @@ DroneAgent::DroneAgent(const std::shared_ptr<GridMap>& grid_map, std::string age
 void DroneAgent::Initialize(const std::shared_ptr<GridMap>& grid_map) {
     map_dimensions_ = std::make_pair(grid_map->GetRows(), grid_map->GetCols());
     auto drone_view = grid_map->GetDroneView(std::dynamic_pointer_cast<DroneAgent>(shared_from_this()));
+    auto total_drone_view = grid_map->GetInterpolatedDroneView(std::dynamic_pointer_cast<DroneAgent>(shared_from_this()));
     auto explored_map = grid_map->GetExploredMap();
     auto fire_map = grid_map->GetFireMap();
     dispensed_water_ = false;
     for(int i = 0; i < time_steps_; ++i) {
         DroneState new_state = DroneState(std::pair<int,int>(0,0),
-                parameters_.GetMaxVelocity(), drone_view,
+                parameters_.GetMaxVelocity(), drone_view, total_drone_view,
                 explored_map, fire_map, map_dimensions_, position_,
                 goal_position_, 0, parameters_.GetCellSize());
         drone_states_.push_front(new_state);
@@ -70,14 +71,25 @@ std::pair<double, double> DroneAgent::MovementStep(double netout_x, double netou
     return this->MoveByXYVel(netout_x, netout_y);
 }
 
-void DroneAgent::UpdateStates(const std::shared_ptr<GridMap>& grid_map, std::pair<double, double> velocity_vector, const std::vector<std::vector<std::vector<int>>>& drone_view, int water_dispense) {
+void DroneAgent::UpdateStates(const std::shared_ptr<GridMap>& grid_map, std::pair<double, double> velocity_vector, int water_dispense) {
     // Update the states, last state get's kicked out
     auto explored_map = grid_map->GetExploredMap();
     auto fire_map = grid_map->GetFireMap();
-    DroneState new_state = DroneState(velocity_vector, parameters_.GetMaxVelocity(), drone_view,
-                                      explored_map, fire_map, map_dimensions_,
-                                      position_, goal_position_, water_dispense,
-                                      parameters_.GetCellSize());
+    auto drone_view = grid_map->GetDroneView(std::dynamic_pointer_cast<DroneAgent>(shared_from_this()));
+    auto total_drone_view = grid_map->GetInterpolatedDroneView(std::dynamic_pointer_cast<DroneAgent>(shared_from_this()));
+
+    DroneState new_state = DroneState(velocity_vector,
+                                      parameters_.GetMaxVelocity(),
+                                      drone_view,
+                                      total_drone_view,
+                                      explored_map,
+                                      fire_map,
+                                      map_dimensions_,
+                                      position_,
+                                      goal_position_,
+                                      water_dispense,
+                                      parameters_.GetCellSize()
+                                      );
     drone_states_.push_front(new_state);
 
     // Maximum number of states i.e. memory
@@ -235,10 +247,9 @@ void DroneAgent::OnExploreAction(std::shared_ptr<ExploreAction> action, std::sha
     double goal_y = action->GetGoalY();
     goal_x = goal_x <= 0 ? (goal_x + x_off) : goal_x >= 1 ? (goal_x - x_off) : goal_x;
     goal_y = goal_y <= 0 ? (goal_y + y_off) : goal_y >= 1 ? (goal_y - y_off) : goal_y;
-    goal_x = ((goal_x + 1) / 2) * gridMap->GetCols();
-    goal_y = ((goal_y + 1) / 2) * gridMap->GetRows();
-//    goal_x = goal_x * gridMap->GetCols();
-//    goal_y = goal_y * gridMap->GetRows();
+    // TODO Must be changed
+    goal_x = ((goal_x + 1) / 2) * gridMap->GetRows();
+    goal_y = ((goal_y + 1) / 2) * gridMap->GetCols();
     this->SetGoalPosition(std::make_pair(goal_x, goal_y));
     if (agent_type_ == "ExploreAgent") {
         this->SetDroneDidHierachyAction(true);
@@ -246,11 +257,9 @@ void DroneAgent::OnExploreAction(std::shared_ptr<ExploreAction> action, std::sha
 }
 
 void DroneAgent::Step(double speed_x, double speed_y, const std::shared_ptr<GridMap>& gridmap) {
-    std::pair<double, double> vel_vector;
-    vel_vector = this->MovementStep(speed_x, speed_y);
-    auto drone_view = gridmap->GetDroneView(std::dynamic_pointer_cast<DroneAgent>(shared_from_this()));
+    std::pair<double, double> vel_vector = this->MovementStep(speed_x, speed_y);
     gridmap->UpdateExploredAreaFromDrone(std::dynamic_pointer_cast<DroneAgent>(shared_from_this()));
-    this->UpdateStates(gridmap, vel_vector, drone_view, 0);
+    this->UpdateStates(gridmap, vel_vector, 0);
 }
 
 void DroneAgent::FlyPolicy(const std::shared_ptr<GridMap>& gridmap){
@@ -334,7 +343,7 @@ std::pair<bool, bool> DroneAgent::TerminalExplore(bool eval_mode, const std::sha
     bool drone_died = false;
 //    int num_burning_cells = grid_map->GetNumBurningCells();
 //    int num_explored_fires = grid_map->GetNumExploredFires();
-    explored_fires_equals_actual_fires_ = grid_map->ExploredFiresEqualsActualFires();
+    explored_fires_equals_actual_fires_ = false; //grid_map->ExploredFiresEqualsActualFires();
 
     // If the agent has flown out of the grid it has reached a terminal state and died
     if (GetOutOfAreaCounter() > 1) {
@@ -430,7 +439,7 @@ double DroneAgent::CalculateExploreReward(bool terminal_state, int total_env_ste
         reward_components["Failure"] = -10;
     }
 //    reward_components["ExploreMapScalar"] = 0.01 * explore_map;
-    reward_components["ExploreDifference"] = 0.01 * explore_difference;
+    reward_components["ExploreDifference"] = 0.001 * explore_difference;
 
     double total_reward = ComputeTotalReward(reward_components);
     LogRewards(reward_components);

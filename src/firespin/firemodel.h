@@ -52,11 +52,13 @@ public:
     std::string GetUserInput() override;
     void GetData(std::string data) override;
     void SetRLStatus(pybind11::dict status) override;
+    void UpdateReward() override;
     pybind11::dict GetRLStatus() override;
     int GetViewRange() override;
     int GetTimeSteps() override;
+    int GetMapSize() override;
     void LoadMap(std::string path);
-    bool InitialModeSelectionDone();
+    bool InitialModeSelectionDone() override;
 
 private:
     explicit FireModel(Mode mode, const std::string& map_path);

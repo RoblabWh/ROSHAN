@@ -23,7 +23,17 @@ PYBIND11_MODULE(firesim, m) {
     py::class_<State, std::shared_ptr<State>>(m, "State");
 
     py::class_<DroneState, State, std::shared_ptr<DroneState>>(m, "DroneState")
-            .def(py::init<std::pair<double, double>, std::pair<double, double>, std::vector<std::vector<std::vector<int>>>, std::vector<std::vector<int>>, std::vector<std::vector<double>>, std::pair<double, double>, std::pair<double, double>,std::pair<double, double>, int, double >())
+            .def(py::init<std::pair<double, double>,
+                    std::pair<double, double>,
+                    std::vector<std::vector<std::vector<int>>>,
+                    std::vector<std::vector<double>>,
+                    std::vector<std::vector<int>>,
+                    std::vector<std::vector<double>>,
+                    std::pair<double, double>,
+                    std::pair<double, double>,
+                    std::pair<double, double>,
+                    int,
+                    double >())
             .def("SetVelocity", &DroneState::SetVelocity)
             .def("GetVelocity", &DroneState::GetVelocity)
             .def("GetDroneViewNorm", &DroneState::GetDroneViewNorm)
@@ -41,8 +51,10 @@ PYBIND11_MODULE(firesim, m) {
             .def("GetGoalPositionNorm", &DroneState::GetGoalPositionNorm)
             .def("GetFireView", &DroneState::GetFireView)
             .def("GetWaterDispense", &DroneState::GetWaterDispense)
+            .def("GetTotalDroneView", &DroneState::GetTotalDroneView)
             .def_property_readonly("velocity", &DroneState::get_velocity)
             .def_property_readonly("drone_view", &DroneState::get_drone_view)
+            .def_property_readonly("total_drone_view", &DroneState::get_total_drone_view)
             .def_property_readonly("exploration_map", &DroneState::get_map)
             .def_property_readonly("fire_map", &DroneState::get_fire_map)
             .def_property_readonly("position", &DroneState::get_position)
@@ -61,10 +73,12 @@ PYBIND11_MODULE(firesim, m) {
             .def("GetUserInput", &EngineCore::GetUserInput)
             .def("SendDataToModel", &EngineCore::SendDataToModel)
             .def("SendRLStatusToModel", &EngineCore::SendRLStatusToModel)
+            .def("UpdateReward", &EngineCore::UpdateReward)
             .def("GetRLStatusFromModel", &EngineCore::GetRLStatusFromModel)
             .def("AgentIsRunning", &EngineCore::AgentIsRunning)
             .def("InitialModeSelectionDone", &EngineCore::InitialModeSelectionDone)
             .def("GetViewRange", &EngineCore::GetViewRange)
             .def("GetTimeSteps", &EngineCore::GetTimeSteps)
+            .def("GetMapSize", &EngineCore::GetMapSize)
             .def("Step", &EngineCore::Step);
 }

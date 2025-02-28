@@ -27,7 +27,7 @@ class PPO:
     :param ckpt: The checkpoint to restore from.
     """
 
-    def __init__(self, network, vision_range, time_steps, lr, betas, gamma, _lambda, K_epochs, eps_clip, model_path, model_name):
+    def __init__(self, network, vision_range, map_size, time_steps, lr, betas, gamma, _lambda, K_epochs, eps_clip, model_path, model_name):
 
         # Algorithm parameters
         self.entropy_coeff = 0.01 #0.001
@@ -40,6 +40,7 @@ class PPO:
         self.eps_clip = eps_clip
         self.K_epochs = K_epochs
         self.vision_range = vision_range
+        self.map_size = map_size
         self.time_steps = time_steps
         self.actor = network[0]
         self.critic = network[1]
@@ -53,7 +54,7 @@ class PPO:
         self.model_latest = model_name.split(".")[0] + "_latest." + model_name.split(".")[1]
 
         # Current Policy
-        self.policy = ActorCritic(Actor=self.actor, Critic=self.critic, vision_range=self.vision_range, time_steps=self.time_steps)
+        self.policy = ActorCritic(Actor=self.actor, Critic=self.critic, vision_range=self.vision_range, map_size=map_size, time_steps=self.time_steps)
 
         self.actor_params = self.policy.actor.parameters()
         self.critic_params = self.policy.critic.parameters()
@@ -243,7 +244,7 @@ class PPO:
                     batch_masks = masks[i][begin:end]
                     _, values_, _ = self.policy.evaluate(batch_states, batch_actions)
                     if batch_masks[-1] == 1:
-                        last_state = tuple(torch.FloatTensor(np.array(state)).to(self.device) for state in memory.get_agent_state(next_obs, i))
+                        last_state = tuple(torch.FloatTensor(np.array(state)).to(self.device) for state in memory.get_agent_state(next_obs, i)) if isinstance(next_obs, tuple) else next_obs
                         bootstrapped_value = self.policy.critic(last_state).detach()
                         values_ = torch.cat((values_, bootstrapped_value[0]), dim=0)
                     adv, ret = self.get_advantages(values_.detach(), batch_masks, batch_rewards.detach())

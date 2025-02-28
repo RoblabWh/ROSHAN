@@ -72,7 +72,6 @@ private:
     bool episode_termination_indicator_ = false;
     std::string path_key_;
     Mode mode_;
-    bool show_input_images_ = false;
 
 
     //For the Popup of Cells
@@ -82,7 +81,7 @@ private:
 
     //Helper
     template<typename T>
-    void DrawGrid(const std::vector<std::vector<T>>& grid, float cell_size, bool is_fire_status = false, bool is_exploration_map = false);
+    void DrawGrid(const std::vector<std::vector<T>>& grid, float cell_size, const std::string color_status);
     static void DrawBuffer(std::vector<float> buffer, int buffer_pos);
 
     void RLStatusParser(py::dict rl_status);

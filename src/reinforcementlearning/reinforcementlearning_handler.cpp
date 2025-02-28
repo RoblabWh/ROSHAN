@@ -132,3 +132,11 @@ void ReinforcementLearningHandler::SetRLStatus(py::dict status) {
     auto rl_mode = rl_status_[py::str("rl_mode")].cast<std::string>();
     eval_mode_ = rl_mode == "eval";
 }
+
+void ReinforcementLearningHandler::UpdateReward() {
+    auto intrinsic_reward = rl_status_["intrinsic_reward"].cast<std::vector<double>>();
+
+    for (const auto& drone: *drones_) {
+        drone->ModifyReward(intrinsic_reward[drone->GetId()]);
+    }
+}

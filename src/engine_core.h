@@ -53,6 +53,7 @@ public:
     void Render();
     void HandleEvents();
     void SendDataToModel(std::string data);
+    void UpdateReward();
     void SendRLStatusToModel(pybind11::dict status);
     pybind11::dict GetRLStatusFromModel();
 
@@ -68,6 +69,7 @@ public:
     bool InitialModeSelectionDone();
     int GetViewRange();
     int GetTimeSteps();
+    int GetMapSize();
 
 private:
 

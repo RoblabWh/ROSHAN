@@ -204,6 +204,12 @@ void EngineCore::SendRLStatusToModel(pybind11::dict status) {
     }
 }
 
+void EngineCore::UpdateReward() {
+    if(model_ != nullptr){
+        model_->UpdateReward();
+    }
+}
+
 pybind11::dict EngineCore::GetRLStatusFromModel() {
     if(model_ != nullptr){
         return model_->GetRLStatus();
@@ -236,6 +242,14 @@ int EngineCore::GetTimeSteps() {
     }
     return 0;
 }
+
+int EngineCore::GetMapSize() {
+    if(model_ != nullptr){
+        return model_->GetMapSize();
+    }
+    return 0;
+}
+
 
 void EngineCore::StyleColorsEnemyMouse(ImGuiStyle* dst) {
 
@@ -359,4 +373,3 @@ bool EngineCore::ImGuiInit() {
     }
     return true;
 }
-

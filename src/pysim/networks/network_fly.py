@@ -8,7 +8,7 @@ torch.autograd.set_detect_anomaly(True)
 
 class Inputspace(nn.Module):
 
-    def __init__(self, vision_range, time_steps):
+    def __init__(self, vision_range, map_size, time_steps):
         """
         A PyTorch Module that represents the input space of a neural network.
         """
@@ -16,6 +16,7 @@ class Inputspace(nn.Module):
 
         self.device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
         self.vision_range = vision_range
+        self.map_size = map_size
         self.time_steps = time_steps
 
         mid_layer_out_features = 64
@@ -54,9 +55,9 @@ class Actor(nn.Module):
     """
     A PyTorch Module that represents the actor network of a PPO agent.
     """
-    def __init__(self, vision_range, time_steps):
+    def __init__(self, vision_range, map_size, time_steps):
         super(Actor, self).__init__()
-        self.Inputspace = Inputspace(vision_range, time_steps=time_steps)
+        self.Inputspace = Inputspace(vision_range, map_size, time_steps=time_steps)
         self.in_features = self.Inputspace.out_features
         # Mu
         self.mu_move = nn.Linear(in_features=self.in_features, out_features=2)
@@ -78,9 +79,9 @@ class Critic(nn.Module):
     """
     A PyTorch Module that represents the critic network of a PPO agent.
     """
-    def __init__(self, vision_range, time_steps):
+    def __init__(self, vision_range, map_size, time_steps):
         super(Critic, self).__init__()
-        self.Inputspace = self.Inputspace = Inputspace(vision_range, time_steps=time_steps)
+        self.Inputspace = Inputspace(vision_range, map_size, time_steps=time_steps)
         self.in_features = self.Inputspace.out_features
 
         # Value

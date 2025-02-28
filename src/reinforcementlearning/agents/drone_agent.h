@@ -5,7 +5,7 @@
 #ifndef ROSHAN_DRONE_AGENT_H
 #define ROSHAN_DRONE_AGENT_H
 
-#define DEBUG_REWARD_YES
+#define DEBUG_REWARD_NO
 
 #include <utility>
 #include <SDL.h>
@@ -30,7 +30,7 @@ public:
     std::deque<DroneState> GetStates() { return drone_states_; }
     void SetRenderer(std::shared_ptr<SDL_Renderer> renderer) { renderer_ = TextureRenderer(std::move(renderer), "../assets/drone.png"); }
     void SetRenderer2(std::shared_ptr<SDL_Renderer> renderer) { renderer2_ = TextureRenderer(std::move(renderer), "../assets/Xmarksthespot.png"); }
-    void UpdateStates(const std::shared_ptr<GridMap>& grid_map, std::pair<double, double> velocity_vector, const std::vector<std::vector<std::vector<int>>>& drone_view, int water_dispense);
+    void UpdateStates(const std::shared_ptr<GridMap>& grid_map, std::pair<double, double> velocity_vector, int water_dispense);
     std::pair<double, double> MovementStep(double netout_x, double netout_y);
     bool DispenseWaterCertain(const std::shared_ptr<GridMap>& grid_map);
     void DispenseWater(const std::shared_ptr<GridMap>& grid_map, int water_dispense);
@@ -83,6 +83,9 @@ public:
     void SetDispenedWater(bool dispensed) { dispensed_water_ = dispensed; }
     void SetExploreDifference(int explore_difference) { explore_difference_ = explore_difference; }
     void SetReward(double reward) { rewards_.put(static_cast<float>(reward));}
+    void ModifyReward(double reward) {
+        reward_components_["Intrinsic Reward"] = reward;
+        rewards_.ModifyLast(static_cast<float>(reward)); }
     void SetDroneDidHierachyAction(bool did_hierachy_step) { drone_did_hierachy_step_ = did_hierachy_step; }
     bool GetDroneDidHierachyAction() const { return drone_did_hierachy_step_; }
     void PushEpisodeReward();

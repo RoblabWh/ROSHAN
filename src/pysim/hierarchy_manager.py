@@ -9,7 +9,7 @@ class HierarchyManager:
         self.hierarchy = {}
         self.hierarchy_keys = list(self.hierarchy.keys())
         self.build_hierarchy(status, agent_handler)
-        self.low_level_steps = 100
+        self.low_level_steps = 150
 
     def initial_observation(self, observations_):
         for key in self.hierarchy_keys:
@@ -50,6 +50,7 @@ class HierarchyManager:
         # Construct a low level agent if the current agent is a medium level agent
         if agent_handler.hierachy_level == "medium":
             vision_range = agent_handler.algorithm.vision_range
+            map_size = agent_handler.algorithm.map_size
             time_steps = agent_handler.algorithm.time_steps
             status_ = copy.copy(status)
             status_["agent_type"] = "FlyAgent"

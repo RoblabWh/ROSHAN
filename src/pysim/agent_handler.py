@@ -9,7 +9,7 @@ from flying_agent import FlyAgent
 
 
 class AgentHandler:
-    def __init__(self, status, algorithm: str = 'ppo', vision_range=21, time_steps=4, logdir='./logs'):
+    def __init__(self, status, algorithm: str = 'ppo', vision_range=21, map_size=50, time_steps=4, logdir='./logs'):
         self.algorithm_name = algorithm
         self.eval_steps = 0
         self.env_step = 0
@@ -23,11 +23,11 @@ class AgentHandler:
         self.hierachy_level = self.agent_type.get_hierachy_level()
         self.use_intrinsic_reward = self.agent_type.use_intrinsic_reward
         if self.use_intrinsic_reward:
-            self.agent_type.initialize_rnd_model(vision_range, time_steps)
+            self.agent_type.initialize_rnd_model(vision_range, map_size, time_steps)
         self.memory = SwarmMemory(num_agents=status["num_agents"], action_dim=2, max_size=status["horizon"])
         self.next_obs = None
         if algorithm == 'ppo':
-            self.algorithm = PPO(network=self.agent_type.get_network(), vision_range=vision_range, time_steps=time_steps, lr=3e-4, betas=(0.9, 0.999), gamma=0.99, _lambda=0.96, K_epochs=status["K_epochs"], eps_clip=0.2, model_path=status["model_path"], model_name=status["model_name"])
+            self.algorithm = PPO(network=self.agent_type.get_network(), vision_range=vision_range, map_size=map_size, time_steps=time_steps, lr=3e-4, betas=(0.9, 0.999), gamma=0.99, _lambda=0.96, K_epochs=status["K_epochs"], eps_clip=0.2, model_path=status["model_path"], model_name=status["model_name"])
             self.initialized = True
             status["console"] += "PPO agent initialized\n"
         status["console"] += f"{status['num_agents']} agents of Type: {self.agent_type.name} initialized\n"
@@ -120,6 +120,11 @@ class AgentHandler:
         intrinsic_reward = None
         if self.use_intrinsic_reward:
             intrinsic_reward = self.agent_type.get_intrinsic_reward(self.next_obs)
+            # The environment has not been reset so we can send the intrinsic reward to the model (only for displaying purposes)
+            if not any(all_terminals):
+                status["intrinsic_reward"] = intrinsic_reward.detach().cpu().numpy().tolist()
+                engine.SendRLStatusToModel(status)
+                engine.UpdateReward()
         # Memory Adding
         self.add_memory_entry(self.next_obs, actions, action_logprobs, rewards, all_terminals, intrinsic_rewards=intrinsic_reward)
         # Logging

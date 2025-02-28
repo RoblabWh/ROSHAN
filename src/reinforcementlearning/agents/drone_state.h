@@ -33,6 +33,7 @@ public:
     explicit DroneState(std::pair<double, double> velocity_vector,
                         std::pair<double, double> max_speed,
                         std::vector<std::vector<std::vector<int>>> drone_view,
+                        std::vector<std::vector<double>> total_drone_view,
                         std::vector<std::vector<int>> exploration_map,
                         std::vector<std::vector<double>> fire_map,
                         std::pair<double, double> map_dimensions,
@@ -154,9 +155,12 @@ public:
     //* @return std::pair<double, double> The Position of the Agent in the Exploration Map.
     [[nodiscard]] std::pair<double, double> GetPositionInExplorationMap() const;
 
+    std::vector<std::vector<double>> GetTotalDroneView() { return total_drone_view_; }
+
     //** These functions are only for Python Debugger Visibility **//
     [[nodiscard]] std::pair<double, double> get_velocity() const { return velocity_; }
     [[nodiscard]] std::vector<std::vector<std::vector<int>>> get_drone_view() const { return drone_view_; }
+    [[nodiscard]] std::vector<std::vector<double>> get_total_drone_view() const { return total_drone_view_; }
     [[nodiscard]] std::vector<std::vector<int>> get_map() const { return exploration_map_; }
     [[nodiscard]] std::vector<std::vector<double>> get_fire_map() const { return fire_map_; }
     [[nodiscard]] std::pair<int, int> get_position() const { return position_; }
@@ -173,6 +177,7 @@ private:
     std::pair<double, double> position_; // x, y
     std::pair<double, double> goal_position_;
     std::vector<std::vector<std::vector<int>>> drone_view_; // terrain, fire_status split at the first dimension
+    std::vector<std::vector<double>> total_drone_view_;
     std::vector<std::vector<int>> exploration_map_;
     std::vector<std::vector<double>> fire_map_;
     std::pair<double, double> orientation_vector_; // x, y

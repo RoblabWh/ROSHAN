@@ -9,17 +9,21 @@ class SwarmMemory(object):
         self.memory = [Memory(action_dim=action_dim, max_size=max_size) for _ in range(num_agents)]
 
     @staticmethod
+    # TODO WATCH THIS!! DOES THIS EVEN WORK AS INTENDED???
     def get_agent_state(state, agent_id):
-        tuple_state = tuple()
-        for state_ in state:
-            if isinstance(state_[agent_id], np.ndarray):
-                tuple_state += (np.expand_dims(state_[agent_id], axis=0),)
-            elif isinstance(state_[agent_id], torch.Tensor):
-                tuple_state += (state_[agent_id].unsqueeze(0),)
-            else:
-                import warnings
-                warnings.warn("State type not recognized")
-        return tuple_state
+        if isinstance(state, tuple):
+            tuple_state = tuple()
+            for state_ in state:
+                if isinstance(state_[agent_id], np.ndarray):
+                    tuple_state += (np.expand_dims(state_[agent_id], axis=0),)
+                elif isinstance(state_[agent_id], torch.Tensor):
+                    tuple_state += (state_[agent_id].unsqueeze(0),)
+                else:
+                    import warnings
+                    warnings.warn("State type not recognized")
+            return tuple_state
+        else:
+            return np.expand_dims(state[agent_id], axis=0)
 
     @staticmethod
     def rearrange_states(states):

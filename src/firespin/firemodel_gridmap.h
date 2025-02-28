@@ -29,8 +29,8 @@ public:
     GridMap(std::shared_ptr<Wind> wind, FireModelParameters &parameters, std::vector<std::vector<int>>* rasterData = nullptr);
     ~GridMap();
 
-    int GetRows() const { return rows_; }
-    int GetCols() const { return cols_; }
+    int GetRows() const { return rows_; } // (x)
+    int GetCols() const { return cols_; } // (y)
     FireModelParameters &GetParameters() { return parameters_; }
     void IgniteCell(int x, int y);
     bool WaterDispension(int x, int y);
@@ -40,6 +40,7 @@ public:
     void UpdateParticles();
     void UpdateCells();
     double PercentageBurned() const;
+    std::vector<std::vector<double>> GetInterpolatedDroneView(const std::shared_ptr<DroneAgent>& droneAgent, int size=0, bool interpolated=true);
     std::vector<std::vector<int>> GetExploredMap(int size=0, bool interpolated=true);
     std::vector<std::vector<double>> GetFireMap(int size=0, bool interpolated=true);
     int GetNumExploredFires() const;
@@ -64,6 +65,7 @@ public:
     std::vector<Point> GetChangedCells() const { return changed_cells_; }
     void ResetChangedCells() { changed_cells_.clear(); }
     std::vector<std::vector<std::vector<int>>> GetDroneView(std::shared_ptr<DroneAgent> drone);
+    std::vector<std::vector<int>> GetTotalDroneView(const std::shared_ptr<DroneAgent>& drone) const;
     void SetGroundstation();
     std::shared_ptr<Groundstation> GetGroundstation() { return groundstation_; }
     void SetGroundstationRenderer(std::shared_ptr<SDL_Renderer> renderer) {groundstation_->SetRenderer(std::move(renderer));};
@@ -106,8 +108,8 @@ public:
 private:
     FireModelParameters &parameters_;
     std::shared_ptr<Wind> wind_;
-    int rows_; // Number of rows in the grid
-    int cols_; // Number of columns in the grid
+    int cols_; // Number of columns in the grid (y)
+    int rows_; // Number of rows in the grid (x)
     std::vector<std::vector<std::shared_ptr<FireCell>>> cells_;
     std::vector<std::vector<int>> explored_map_;
     std::vector<std::vector<int>> fire_map_;

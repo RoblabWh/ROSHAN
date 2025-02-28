@@ -4,19 +4,20 @@
 
 #include "firemodel_gridmap.h"
 
+#include <utility>
+
 GridMap::GridMap(std::shared_ptr<Wind> wind, FireModelParameters &parameters,
                  std::vector<std::vector<int>>* rasterData) :
                  parameters_(parameters),
-                 buffer_( rasterData->size() * ((rasterData->empty()) ? 0 : (*rasterData)[0].size()) * 30){
-    int cols = rasterData->size(); //x
-    int rows = (rasterData->empty()) ? 0 : (*rasterData)[0].size(); //y
+                 buffer_(rasterData->size() * ((rasterData->empty()) ? 0 : (*rasterData)[0].size()) * 30){
+    int cols = static_cast<int>(rasterData->size()); //x NO IT'S Y
+    int rows = (rasterData->empty()) ? 0 : static_cast<int>((*rasterData)[0].size()); //y NO IT'S X (this confusion stems from the map being transposed in memory)
     // Cols and Rows are swapped in Renderer to match GEO representation
-    wind_ = wind;
+    wind_ = std::move(wind);
 
     // Generate a normally-distributed random number for phi_r
     gen_ = std::mt19937(rd_());
 
-    //cells_ = std::vector<std::vector<std::shared_ptr<FireCell>>>(cols_, std::vector<std::shared_ptr<FireCell>>(rows_));
     cells_ = std::vector<std::vector<std::shared_ptr<FireCell>>>(rows, std::vector<std::shared_ptr<FireCell>>(cols));
     explored_map_ = std::vector<std::vector<int>>(rows, std::vector<int>(cols, 0));
     fire_map_ = std::vector<std::vector<int>>(rows, std::vector<int>(cols, 0));
@@ -30,9 +31,9 @@ GridMap::GridMap(std::shared_ptr<Wind> wind, FireModelParameters &parameters,
     cols_ = cols;
     rows_ = rows;
     num_cells_ = cols_ * rows_;
-    parameters_.SetGridNxNy(cols_, rows_);
-    x_off_ = 2 * (1 - ((cols_ - 0.5) / cols_));
-    y_off_ = 2 * (1 - ((rows_ - 0.5) / rows_));
+    parameters_.SetGridNxNy(rows_, cols_);
+    y_off_ = 2 * (1 - ((cols_ - 0.5) / cols_));
+    x_off_ = 2 * (1 - ((rows_ - 0.5) / rows_));
     num_burned_cells_ = 0;
     num_unburnable_ = this->GetNumUnburnableCells();
     virtual_particles_.reserve(100000);
@@ -458,6 +459,42 @@ std::vector<std::pair<int, int>> GridMap::GetMooreNeighborhood(int x, int y) con
         }
     }
     return neighborhood;
+}
+
+std::vector<std::vector<int>> GridMap::GetTotalDroneView(const std::shared_ptr<DroneAgent>& drone) const {
+    int drone_view_radius = drone->GetViewRange();
+    std::pair<int, int> drone_position = drone->GetGridPosition();
+    int size = drone_view_radius + 1;
+
+    std::vector<std::vector<int>> view = std::vector<std::vector<int>>(rows_, std::vector<int>(cols_, -1));
+
+    int drone_view_radius_2 = drone_view_radius / 2;
+    for (int x = drone_position.first - drone_view_radius_2; x <= drone_position.first + drone_view_radius_2; ++x) {
+        for (int y = drone_position.second - drone_view_radius_2;
+             y <= drone_position.second + drone_view_radius_2; ++y) {
+            if (IsPointInGrid(x, y)) {
+                view[x][y] = 1;
+            }
+        }
+    }
+    return view;
+}
+
+std::vector<std::vector<double>> GridMap::GetInterpolatedDroneView(const std::shared_ptr<DroneAgent>& droneAgent, int size, bool interpolated) {
+    auto total_drone_view = this->GetTotalDroneView(droneAgent);
+    if(size == 0) {
+        size = parameters_.GetExplorationMapSize();
+    }
+    if (!interpolated) {
+        std::vector<std::vector<double>> doubleMatrix(total_drone_view.size(), std::vector<double>(total_drone_view[0].size()));
+        for (size_t i = 0; i < total_drone_view.size(); ++i) {
+            for (size_t j = 0; j < total_drone_view[0].size(); ++j) {
+                doubleMatrix[i][j] = static_cast<double>(total_drone_view[i][j]);
+            }
+        }
+        return doubleMatrix;
+    }
+    return BilinearInterpolation(total_drone_view, size, size);
 }
 
 std::vector<std::vector<int>> GridMap::GetExploredMap(int size, bool interpolated) {

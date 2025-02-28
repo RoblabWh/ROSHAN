@@ -364,26 +364,9 @@ void ImguiHandler::PyConfig(std::string &user_input,
             if (ImGui::BeginTabItem("Drone Information")){
                 ImVec4 color = ImVec4(0.33f, 0.67f, 0.86f, 1.0f);
                 static bool show_exploration_map = false;
-                ImGui::Checkbox("Show Exploration Map", &show_exploration_map);
-                ImGui::Checkbox("Show Drone View", &show_input_images_);
-
-                if (show_exploration_map){
-                    if (ImGui::Begin("Exploration & Fire Map")) {
-                        static bool show_explored_map = true;
-                        static bool interpolated = true;
-                        ImGui::SliderInt("##size_slider", &parameters_.exploration_map_show_size_, 5, 200);
-                        if(ImGui::Button(show_explored_map ? "GetFireMap" : "GetExploredMap")){
-                            show_explored_map = !show_explored_map;
-                        }
-                        ImGui::Checkbox("Interpolated", &interpolated);
-                        if (show_explored_map)
-                            DrawGrid(gridmap->GetExploredMap(parameters_.exploration_map_show_size_, interpolated), 5.0f, false, true);
-                        else
-                            DrawGrid(gridmap->GetFireMap(parameters_.exploration_map_show_size_, interpolated), 5.0f, true, true);
-
-                        ImGui::End();
-                    }
-                }
+                static bool show_input_images = false;
+                ImGui::Checkbox("Show View Maps", &show_exploration_map);
+                ImGui::Checkbox("Show Drone View", &show_input_images);
 
                 ImGui::BeginChild("scrolling", ImVec2(0, ImGui::GetTextLineHeightWithSpacing() * 40),
                                   true, ImGuiWindowFlags_HorizontalScrollbar);
@@ -409,6 +392,51 @@ void ImguiHandler::PyConfig(std::string &user_input,
                     // Get the currently selected drone
                     auto &selected_drone = (*drones)[current_drone_index];
                     selected_drone->SetActive(true);
+
+                    if (show_exploration_map){
+                        if (ImGui::Begin("Exploration & Fire Map")) {
+                            static bool show_explored_map = true;
+                            static bool show_fire_map = false;
+                            static bool show_total_drone_view = false;
+                            static bool interpolated = true;
+                            ImGui::SliderInt("##size_slider", &parameters_.exploration_map_show_size_, 5, 200);
+                            ImGui::Checkbox("Interpolated", &interpolated);
+                            ImGui::Checkbox("TotalDroneView", &show_total_drone_view);
+                            ImGui::Checkbox("ExploredMap", &show_explored_map);
+                            ImGui::Checkbox("FireMap", &show_fire_map);
+                            ImGui::Spacing();
+                            ImGui::Separator();
+                            ImGui::Spacing();
+                            if (ImGui::BeginTable("ViewTable", 1, ImGuiTableFlags_NoBordersInBody)){
+                                if (show_total_drone_view){
+                                    ImGui::TableNextRow(ImGuiTableRowFlags_None, 5.0f * static_cast<float>(parameters_.exploration_map_show_size_));
+                                    DrawGrid(gridmap->GetInterpolatedDroneView(selected_drone, parameters_.exploration_map_show_size_, interpolated), 5.0f, "total_view");
+                                    ImGui::TableNextRow();
+                                    ImGui::Spacing();
+                                    ImGui::Separator();
+                                    ImGui::Spacing();
+                                }
+                                if (show_explored_map) {
+                                    ImGui::TableNextRow(ImGuiTableRowFlags_None, 5.0f * static_cast<float>(parameters_.exploration_map_show_size_));
+                                    DrawGrid(gridmap->GetExploredMap(parameters_.exploration_map_show_size_, interpolated), 5.0f, "exploration_interpolated");
+                                    ImGui::TableNextRow();
+                                    ImGui::Spacing();
+                                    ImGui::Separator();
+                                    ImGui::Spacing();
+                                }
+                                if (show_fire_map) {
+                                    ImGui::TableNextRow(ImGuiTableRowFlags_None, 5.0f * static_cast<float>(parameters_.exploration_map_show_size_));
+                                    DrawGrid(gridmap->GetFireMap(parameters_.exploration_map_show_size_, interpolated), 5.0f, "fire_interpolated");
+                                    ImGui::TableNextRow();
+                                    ImGui::Spacing();
+                                    ImGui::Separator();
+                                    ImGui::Spacing();
+                                }
+                                ImGui::EndTable();
+                            }
+                            ImGui::End();
+                        }
+                    }
 
                     // Display Drone Information
                     ImGui::TextColored(color, "Drone State Information");
@@ -501,20 +529,20 @@ void ImguiHandler::PyConfig(std::string &user_input,
                     ImGui::Spacing();
                     ImGui::Separator();
                     ImGui::Spacing();
-                    if (show_input_images_){
+                    if (show_input_images){
                         if (ImGui::BeginTable("MapsTable", 2, ImGuiTableFlags_Borders))
                         {
                             ImGui::TableNextColumn();
                             ImGui::Text("GetTerrainView");
-                            DrawGrid(selected_drone->GetLastState().GetTerrainView(), 5.0f);
+                            DrawGrid(selected_drone->GetLastState().GetTerrainView(), 5.0f, "terrain");
 
                             ImGui::TableNextColumn();
                             ImGui::Text("GetFireView");
-                            DrawGrid(selected_drone->GetLastState().GetFireView(), 5.0f, true);
+                            DrawGrid(selected_drone->GetLastState().GetFireView(), 5.0f, "fire");
 
                             ImGui::EndTable();
                         }
-                        ImGui::Dummy(ImVec2(0.0f, 40.0f)); // Adds vertical spacing
+                        ImGui::Dummy(ImVec2(0.0f, static_cast<float>(parameters_.GetViewRange()) * 5.0f)); // Adds vertical spacing
                         ImGui::Spacing();
                         ImGui::Separator();
                         ImGui::Spacing();
@@ -1174,22 +1202,26 @@ void ImguiHandler::DrawBuffer(std::vector<float> buffer, int buffer_pos) {
 }
 
 template<typename T>
-void ImguiHandler::DrawGrid(const std::vector<std::vector<T>>& grid, float cell_size, bool is_fire_status, bool is_exploration_map) {
+void ImguiHandler::DrawGrid(const std::vector<std::vector<T>>& grid, float cell_size, const std::string color_status) {
     ImVec2 cursor_pos = ImGui::GetCursorScreenPos();
 
     // Function to map a value to a color
     float max_exploration_time = static_cast<float>(parameters_.GetExplorationTime());
     std::function<ImVec4(double)> value_to_color;
-    if (!is_fire_status) {
+    if (color_status == "exploration_interpolated") {
         value_to_color = [&max_exploration_time](double value) -> ImVec4 {
             float normalized_value = std::clamp(static_cast<float>(value) / max_exploration_time, 0.0f, 0.6f);
             return {0.6f - normalized_value, 0.6f - normalized_value, 0.3f, 1.0f};
         };
-    } else {
+    } else if (color_status == "fire_interpolated") {
         value_to_color = [](double value) -> ImVec4 {
             return {0.0f + static_cast<float>(value), 1.0f - static_cast<float>(value), 0.0f, 1.0f};
         };
-
+    } else if (color_status == "total_view") {
+        value_to_color = [](double value) -> ImVec4 {
+            float normalized_value = std::clamp(static_cast<float>(value), 0.0f, 1.0f);
+            return {0.6f - normalized_value, 0.6f - normalized_value, 0.3f, 1.0f};
+        };
     }
 
     for (int y = 0; y < grid.size(); ++y) {
@@ -1197,12 +1229,18 @@ void ImguiHandler::DrawGrid(const std::vector<std::vector<T>>& grid, float cell_
             ImVec4 color;
             ImVec2 p_min;
             ImVec2 p_max;
-            if (!is_exploration_map) {
-                color = is_fire_status
-                               ? (grid[y][x] > 0 ? ImVec4(1.0f, 0.0f, 0.0f, 1.0f) : ImVec4(0.0f, 1.0f, 0.0f, 1.0f))
-                               : FireModelRenderer::GetMappedColor(grid[y][x]);
-            } else {
+            if (color_status == "exploration_interpolated"
+                || color_status == "fire_interpolated"
+                || color_status == "total_view") {
                 color = value_to_color(grid[y][x]);
+            } else {
+                if (color_status == "fire") {
+                    color = grid[y][x] > 0 ? ImVec4(1.0f, 0.0f, 0.0f, 1.0f) : ImVec4(0.0f, 1.0f, 0.0f, 1.0f);
+                } else if (color_status == "terrain") {
+                    color = FireModelRenderer::GetMappedColor(grid[y][x]);
+                } else {
+                    color = ImVec4(1.0f, 1.0f, 1.0f, 1.0f);
+                }
             }
             p_min = ImVec2(cursor_pos.x + x * cell_size, cursor_pos.y + y * cell_size);
             p_max = ImVec2(cursor_pos.x + (x + 1) * cell_size, cursor_pos.y + (y + 1) * cell_size);

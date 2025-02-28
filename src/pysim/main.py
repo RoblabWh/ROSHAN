@@ -103,10 +103,11 @@ if __name__ == '__main__':
     # Now get the view range and time steps from the engine, these parameters are currently set in the model_params
     # TODO Keep this in the model_params as soft hidden param since it meddles with the model structure?
     view_range = engine.GetViewRange() + 1
+    map_size = engine.GetMapSize()
     time_steps = engine.GetTimeSteps()
 
     # Create the Agent Object, this is used by the hierachy manager which might spawn other low_level agents
-    agent = AgentHandler(status=status, algorithm='ppo', vision_range=view_range, time_steps=time_steps, logdir=config['log_directory'])
+    agent = AgentHandler(status=status, algorithm='ppo', vision_range=view_range, map_size=map_size, time_steps=time_steps, logdir=config['log_directory'])
     status["console"] += agent.load_model(status=status)
 
     hierarchy_manager = HierarchyManager(status, agent)
@@ -122,10 +123,10 @@ if __name__ == '__main__':
         status = engine.GetRLStatusFromModel()
         hierarchy_manager.update_status(status)
 
-        # Initial Observation
-        hierarchy_manager.initial_observation(engine.GetObservations())
-
         if engine.AgentIsRunning() and status["agent_online"]:
+            # Initial Observation
+            hierarchy_manager.initial_observation(engine.GetObservations())
+
             if status["rl_mode"] == "train":
                 hierarchy_manager.train(status, engine, steps)
             else:

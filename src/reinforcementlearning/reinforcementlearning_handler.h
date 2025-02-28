@@ -10,6 +10,7 @@
 #include <utility>
 #include <vector>
 #include "externals/pybind11/include/pybind11/embed.h"
+#include "externals/pybind11/include/pybind11/stl.h"
 #include "state.h"
 #include "firespin/rendering/firemodel_renderer.h"
 #include "src/reinforcementlearning/agents/drone_agent.h"
@@ -41,6 +42,7 @@ public:
     void SetModelRenderer(std::shared_ptr<FireModelRenderer> model_renderer) { model_renderer_ = std::move(model_renderer); }
     void SetGridMap(std::shared_ptr<GridMap> gridmap) { gridmap_ = std::move(gridmap); }
     void SetRLStatus(py::dict status);
+    void UpdateReward();
     py::dict GetRLStatus() { return rl_status_; }
     std::shared_ptr<std::vector<std::shared_ptr<DroneAgent>>> GetDrones() { return drones_; }
     std::function<void(float)> startFires;

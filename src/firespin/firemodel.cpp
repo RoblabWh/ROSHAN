@@ -227,6 +227,10 @@ void FireModel::GetData(std::string data) {
     model_output_ = data;
 }
 
+void FireModel::UpdateReward() {
+    rl_handler_->UpdateReward();
+}
+
 void FireModel::SetRLStatus(pybind11::dict status) {
     rl_handler_->SetRLStatus(status);
 }
@@ -332,4 +336,8 @@ int FireModel::GetTimeSteps() {
 
 bool FireModel::InitialModeSelectionDone() {
     return parameters_.InitialModeSelectionDone();
+}
+
+int FireModel::GetMapSize() {
+    return parameters_.GetExplorationMapSize();
 }

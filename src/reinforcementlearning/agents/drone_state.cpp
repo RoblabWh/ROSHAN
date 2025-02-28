@@ -7,6 +7,7 @@
 DroneState::DroneState(std::pair<double, double> velocity_vector,
                        std::pair<double, double> max_speed,
                        std::vector<std::vector<std::vector<int>>> drone_view,
+                       std::vector<std::vector<double>> total_drone_view,
                        std::vector<std::vector<int>> exploration_map,
                        std::vector<std::vector<double>> fire_map,
                        std::pair<double, double> map_dimensions,
@@ -16,6 +17,7 @@ DroneState::DroneState(std::pair<double, double> velocity_vector,
                        double cell_size) {
     velocity_ = velocity_vector;
     drone_view_ = std::move(drone_view);
+    total_drone_view_ = std::move(total_drone_view);
     exploration_map_ = std::move(exploration_map);
     fire_map_ = std::move(fire_map);
     max_speed_ = max_speed;

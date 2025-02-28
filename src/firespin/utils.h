@@ -64,6 +64,14 @@ public:
         full = head == tail;
     }
 
+    void ModifyLast(T newValue) {
+        if (isEmpty()) {
+            throw std::runtime_error("Buffer is empty, no last element to modify");
+        }
+        size_t lastIndex = (head == 0 ? max_size : head) - 1;
+        buffer[lastIndex] = newValue;
+    }
+
     T get() {
         if (isEmpty()) {
             throw std::runtime_error("Buffer is empty");
@@ -80,19 +88,19 @@ public:
         full = false;
     }
 
-    bool isEmpty() const {
+    [[nodiscard]] bool isEmpty() const {
         return (!full && (head == tail));
     }
 
-    size_t getHead() const {
+    [[nodiscard]] size_t getHead() const {
         return head;
     }
 
-    size_t getTail() const {
+    [[nodiscard]] size_t getTail() const {
         return tail;
     }
 
-    size_t size() const {
+    [[nodiscard]] size_t size() const {
         size_t size = max_size;
 
         if (!full) {
