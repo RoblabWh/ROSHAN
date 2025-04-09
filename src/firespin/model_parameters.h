@@ -180,7 +180,7 @@ public:
         return view_range_;
     }
     int time_steps_ = 3; // 16 //32
-    int GetTimeSteps() const {return time_steps_;}
+    [[nodiscard]] int GetTimeSteps() const {return time_steps_;}
     // std::pair<double, double> min_velocity_ = std::make_pair(-5.0, -5.0);
     // std::pair<double, double> GetMinVelocity() const {return min_velocity_;}
     std::pair<double, double> max_velocity_ = std::make_pair(10, 10); // X and Y Speed

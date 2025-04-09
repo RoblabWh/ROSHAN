@@ -23,7 +23,7 @@
 #include "wind.h"
 #include "corine/dataset_handler.h"
 #include "reinforcementlearning/agents/drone_agent.h"
-#include "reinforcementlearning/agents/fly_action.h"
+#include "reinforcementlearning/actions/fly_action.h"
 #include "reinforcementlearning/reinforcementlearning_handler.h"
 #include "src/utils.h"
 
@@ -42,8 +42,8 @@ public:
     ~FireModel() override;
 
     void Update() override;
-    std::tuple<std::vector<std::deque<std::shared_ptr<State>>>, std::vector<double>, std::vector<bool>, std::pair<bool, bool>, double> Step(std::vector<std::shared_ptr<Action>> actions) override;
-    std::vector<std::deque<std::shared_ptr<State>>> GetObservations() override;
+    std::tuple<std::unordered_map<std::string, std::vector<std::deque<std::shared_ptr<State>>>>, std::vector<double>, std::vector<bool>, std::vector<bool>, double> Step(const std::string& agent_type, std::vector<std::shared_ptr<Action>> actions) override;
+    std::unordered_map<std::string, std::vector<std::deque<std::shared_ptr<State>>>> GetObservations() override;
     void Render() override;
     void SetRenderer(std::shared_ptr<SDL_Renderer> renderer) override;
     bool AgentIsRunning() override;

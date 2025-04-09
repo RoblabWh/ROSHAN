@@ -46,6 +46,7 @@ FireModel::FireModel(Mode mode, const std::string& map_path) : mode_(mode)
         parameters_.SetAgentIsRunning(true);
         parameters_.initial_mode_selection_done_ = true;
     }
+    std::cout << "Created FireModel" << std::endl;
 }
 
 void FireModel::ResetGridMap(std::vector<std::vector<int>>* rasterData) {
@@ -126,11 +127,11 @@ void FireModel::Update() {
     //this->Test();
 }
 
-std::vector<std::deque<std::shared_ptr<State>>> FireModel::GetObservations() {
+std::unordered_map<std::string, std::vector<std::deque<std::shared_ptr<State>>>> FireModel::GetObservations() {
     return rl_handler_->GetObservations();
 }
 
-std::tuple<std::vector<std::deque<std::shared_ptr<State>>>, std::vector<double>, std::vector<bool>, std::pair<bool, bool>, double> FireModel::Step(std::vector<std::shared_ptr<Action>> actions){
+std::tuple<std::unordered_map<std::string, std::vector<std::deque<std::shared_ptr<State>>>>, std::vector<double>, std::vector<bool>, std::vector<bool>, double> FireModel::Step(const std::string& agent_type, std::vector<std::shared_ptr<Action>> actions){
 #ifdef SPEEDTEST
     // Construct a new action for each drone with 0, 0
     std::vector<std::shared_ptr<Action>> actions2;
@@ -139,15 +140,15 @@ std::tuple<std::vector<std::deque<std::shared_ptr<State>>>, std::vector<double>,
     }
     actions = actions2;
 #endif
-    std::tuple<std::vector<std::deque<std::shared_ptr<State>>>, std::vector<double>, std::vector<bool>, std::pair<bool, bool>, double>  result;
-    result = rl_handler_->Step(actions);
+    std::tuple<std::unordered_map<std::string, std::vector<std::deque<std::shared_ptr<State>>>>, std::vector<double>, std::vector<bool>, std::vector<bool>, double>  result;
+    result = rl_handler_->Step(agent_type, std::move(actions));
 #ifndef SPEEDTEST
     // Check if any element in terminals is true, if so some agent reached a terminal state
-    if (std::get<3>(result).first) {
+    if (std::get<3>(result)[0]) {
         ResetGridMap(&current_raster_data_);
         // Check if died or reached goal
         if (mode_ == Mode::GUI_RL) {
-            if (std::get<3>(result).second){
+            if (std::get<3>(result)[1]){
                 model_renderer_->ShowRedFlash();
             } else {
                 model_renderer_->ShowGreenFlash();
@@ -185,6 +186,7 @@ void FireModel::LoadMap(std::string path) {
 
 void FireModel::setupRLHandler() {
     rl_handler_ = ReinforcementLearningHandler::GetInstance(parameters_);
+    std::cout << "Created ReinforcementLearning Handler" << std::endl;
     rl_handler_->startFires = [this](float percentage) {StartFires(percentage);};
 }
 

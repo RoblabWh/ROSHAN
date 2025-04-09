@@ -26,8 +26,8 @@ class FlyAgent:
     @staticmethod
     def restructure_data(observations_):
         all_velocities, all_delta_goals = [], []
-
-        for deque in observations_:
+        obs = observations_["FlyAgent"]
+        for deque in obs:
             drone_states = np.array([state for state in deque if isinstance(state, firesim.DroneState)])
             if len(drone_states) == 0:
                 continue

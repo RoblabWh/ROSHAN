@@ -17,7 +17,7 @@
 #include <chrono>
 #include <SDL_image.h>
 #include <memory>
-#include "reinforcementlearning/agents/drone_agent.h"
+#include "reinforcementlearning/agents/fly_agent.h"
 #include "reinforcementlearning/groundstation.h"
 
 #include "firespin/cell_classes/cell_generic_burned.h"
@@ -36,6 +36,8 @@
 #include "firespin/cell_classes/cell_woody_broadleaved_evergreen_trees.h"
 #include "firespin/cell_classes/cell_woody_needle_leaved_trees.h"
 
+class FlyAgent;
+
 class FireModelRenderer {
 public:
     //only one instance of this class is allowed
@@ -45,7 +47,7 @@ public:
         }
         return instance_;    }
 
-    void Render(std::shared_ptr<std::vector<std::shared_ptr<DroneAgent>>> drones);
+    void Render(const std::shared_ptr<std::vector<std::shared_ptr<FlyAgent>>>& drones);
     void SetScreenResolution();
     void SetGridMap(std::shared_ptr<GridMap> gridmap) { gridmap_ = std::move(gridmap); SetFullRedraw(); }
     std::shared_ptr<SDL_Renderer> GetRenderer() { return renderer_; }
@@ -110,7 +112,7 @@ private:
 
     void ResizePixelBuffer();
     void ResizeTexture();
-    void DrawDrones(std::shared_ptr<std::vector<std::shared_ptr<DroneAgent>>> drones);
+    void DrawDrones(const std::shared_ptr<std::vector<std::shared_ptr<FlyAgent>>>& drones);
     void DrawGroundstation(const std::shared_ptr<Groundstation>& groundstation);
 
     void FlashScreen();

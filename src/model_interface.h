@@ -11,7 +11,7 @@
 #include <functional>
 #include <deque>
 #include "state.h"
-#include "action.h"
+#include "reinforcementlearning/actions/action.h"
 #include <memory>
 #include "externals/pybind11/include/pybind11/pybind11.h"
 
@@ -20,8 +20,8 @@ public:
     virtual ~IModel() = default;
 
     virtual void Update() = 0;
-    virtual std::tuple<std::vector<std::deque<std::shared_ptr<State>>>, std::vector<double>, std::vector<bool>, std::pair<bool, bool>, double> Step(std::vector<std::shared_ptr<Action>> actions) = 0;
-    virtual std::vector<std::deque<std::shared_ptr<State>>> GetObservations() = 0;
+    virtual std::tuple<std::unordered_map<std::string, std::vector<std::deque<std::shared_ptr<State>>>>, std::vector<double>, std::vector<bool>, std::vector<bool>, double> Step(const std::string& agent_type, std::vector<std::shared_ptr<Action>> actions) = 0;
+    virtual std::unordered_map<std::string, std::vector<std::deque<std::shared_ptr<State>>>> GetObservations() = 0;
     virtual void Render() = 0;
     virtual bool AgentIsRunning() = 0;
     virtual void HandleEvents(SDL_Event event, ImGuiIO* io) = 0;

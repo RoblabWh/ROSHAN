@@ -13,9 +13,10 @@
 #include "externals/pybind11/include/pybind11/stl.h"
 #include "state.h"
 #include "firespin/rendering/firemodel_renderer.h"
+#include "agents/agent_factory.h"
 #include "src/reinforcementlearning/agents/drone_agent.h"
 #include "src/reinforcementlearning/agents/drone_state.h"
-#include "src/reinforcementlearning/agents/fly_action.h"
+#include "reinforcementlearning/actions/fly_action.h"
 #include "src/utils.h"
 
 namespace py = pybind11;
@@ -33,18 +34,34 @@ public:
     }
 
     ~ReinforcementLearningHandler() = default;
-    std::vector<std::deque<std::shared_ptr<State>>> GetObservations();
+    std::unordered_map<std::string, std::vector<std::deque<std::shared_ptr<State>>>> GetObservations();
     void StepDroneManual(int drone_idx, double speed_x, double speed_y, int water_dispense);
     void ResetEnvironment(Mode mode);
     void InitFires() const;
-    std::tuple<std::vector<std::deque<std::shared_ptr<State>>>, std::vector<double>, std::vector<bool>, std::pair<bool, bool>, double> Step(std::vector<std::shared_ptr<Action>> actions);
-
+    std::tuple<std::unordered_map<std::string, std::vector<std::deque<std::shared_ptr<State>>>>, std::vector<double>, std::vector<bool>, std::vector<bool>, double> Step(const std::string& agent_type, std::vector<std::shared_ptr<Action>> actions);
     void SetModelRenderer(std::shared_ptr<FireModelRenderer> model_renderer) { model_renderer_ = std::move(model_renderer); }
     void SetGridMap(std::shared_ptr<GridMap> gridmap) { gridmap_ = std::move(gridmap); }
     void SetRLStatus(py::dict status);
     void UpdateReward();
     py::dict GetRLStatus() { return rl_status_; }
-    std::shared_ptr<std::vector<std::shared_ptr<DroneAgent>>> GetDrones() { return drones_; }
+    std::shared_ptr<std::vector<std::shared_ptr<FlyAgent>>> GetDrones() {
+        if (agents_by_type_.find("FlyAgent") == agents_by_type_.end()) {
+            return std::make_shared<std::vector<std::shared_ptr<FlyAgent>>>();
+        }
+
+        auto& agents = agents_by_type_["FlyAgent"];
+        auto fly_agents = std::make_shared<std::vector<std::shared_ptr<FlyAgent>>>();
+
+        for(const auto& agent : agents) {
+            auto fly_agent = std::dynamic_pointer_cast<FlyAgent>(agent);
+            if (fly_agent){
+                fly_agents->push_back(std::shared_ptr<FlyAgent>(fly_agent));
+            } else {
+                std::cerr << "Non-FlyAgent is not a FlyAgent!\n";
+            }
+        }
+        return fly_agents;
+    }
     std::function<void(float)> startFires;
 private:
     static std::shared_ptr<ReinforcementLearningHandler> instance_;
@@ -54,7 +71,7 @@ private:
     std::shared_ptr<GridMap> gridmap_;
     std::shared_ptr<FireModelRenderer> model_renderer_;
     FireModelParameters& parameters_;
-    std::shared_ptr<std::vector<std::shared_ptr<DroneAgent>>> drones_;
+    std::unordered_map<std::string, std::vector<std::shared_ptr<Agent>>> agents_by_type_;
 
     //Flags
     bool agent_is_running_;

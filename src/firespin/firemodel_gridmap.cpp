@@ -108,8 +108,7 @@ void GridMap::UpdateParticles() {
 GridMap::~GridMap() {
 }
 
-std::pair<double, double> GridMap::GetNextFire(const std::shared_ptr<DroneAgent>& drone) {
-    auto drone_position = drone->GetGridPosition();
+std::pair<double, double> GridMap::GetNextFire(std::pair<int, int> drone_position) {
     double min_distance = std::numeric_limits<double>::max();
     std::pair<double, double> next_fire = std::make_pair(-1, -1);
     for (auto cell : burning_cells_) {
@@ -255,12 +254,10 @@ void GridMap::ExtinguishCell(int x, int y) {
 
     EraseParticles(x, y);
 
-    changed_cells_.push_back(Point(x, y));
+    changed_cells_.emplace_back(x, y);
 }
 
-std::vector<std::vector<std::vector<int>>> GridMap::GetDroneView(std::shared_ptr<DroneAgent> drone) {
-    int drone_view_radius = drone->GetViewRange();
-    std::pair<int, int> drone_position = drone->GetGridPosition();
+std::vector<std::vector<std::vector<int>>> GridMap::GetDroneView(std::pair<int, int> drone_position, int drone_view_radius) {
     int size = drone_view_radius + 1;
 
     // Initialisiere eine 3D-Matrix: [status_type][x][y]
@@ -306,9 +303,7 @@ void GridMap::UpdateCellDiminishing() {
     }
 }
 
-void GridMap::UpdateExploredAreaFromDrone(const std::shared_ptr<DroneAgent>& drone) {
-    std::pair<int, int> drone_position = drone->GetGridPosition();
-    int drone_view_radius = drone->GetViewRange();
+int GridMap::UpdateExploredAreaFromDrone(std::pair<int, int> drone_position, int drone_view_radius) {
     int drone_view_radius_2 = drone_view_radius / 2;
     int combined_difference = 0;
 
@@ -320,8 +315,7 @@ void GridMap::UpdateExploredAreaFromDrone(const std::shared_ptr<DroneAgent>& dro
             }
         }
     }
-    auto old_difference = drone->GetExploreDifference();
-    drone->SetExploreDifference(old_difference + combined_difference);
+    return combined_difference;
 }
 
 // Calculates the number of unburnable cells
@@ -461,14 +455,10 @@ std::vector<std::pair<int, int>> GridMap::GetMooreNeighborhood(int x, int y) con
     return neighborhood;
 }
 
-std::vector<std::vector<int>> GridMap::GetTotalDroneView(const std::shared_ptr<DroneAgent>& drone) const {
-    int drone_view_radius = drone->GetViewRange();
-    std::pair<int, int> drone_position = drone->GetGridPosition();
-    int size = drone_view_radius + 1;
-
+std::vector<std::vector<int>> GridMap::GetTotalDroneView(std::pair<int, int> drone_position, int view_radius) const {
     std::vector<std::vector<int>> view = std::vector<std::vector<int>>(rows_, std::vector<int>(cols_, -1));
 
-    int drone_view_radius_2 = drone_view_radius / 2;
+    int drone_view_radius_2 = view_radius / 2;
     for (int x = drone_position.first - drone_view_radius_2; x <= drone_position.first + drone_view_radius_2; ++x) {
         for (int y = drone_position.second - drone_view_radius_2;
              y <= drone_position.second + drone_view_radius_2; ++y) {
@@ -480,8 +470,8 @@ std::vector<std::vector<int>> GridMap::GetTotalDroneView(const std::shared_ptr<D
     return view;
 }
 
-std::vector<std::vector<double>> GridMap::GetInterpolatedDroneView(const std::shared_ptr<DroneAgent>& droneAgent, int size, bool interpolated) {
-    auto total_drone_view = this->GetTotalDroneView(droneAgent);
+std::vector<std::vector<double>> GridMap::GetInterpolatedDroneView(std::pair<int, int> drone_position, int view_radius, int size, bool interpolated) {
+    auto total_drone_view = this->GetTotalDroneView(drone_position, view_radius);
     if(size == 0) {
         size = parameters_.GetExplorationMapSize();
     }

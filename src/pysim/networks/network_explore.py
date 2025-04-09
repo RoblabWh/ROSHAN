@@ -20,25 +20,28 @@ class Inputspace(nn.Module):
         self.vision_range = vision_range
         self.map_size = map_size
         self.time_steps = time_steps
+        self.map_dim = 3
 
         # EXPLORE VIEW CONVOLUTION LAYERS
         # d_in, h_in, w_in
         layers_dict = [
-            {'padding': (0, 0, 0), 'dilation': (1, 1, 1), 'kernel_size': (1, 3, 3), 'stride': (2, 2, 2),
+            {'padding': (0, 0, 0), 'dilation': (1, 1, 1), 'kernel_size': (1, 3, 3), 'stride': (1, 2, 2),
              'in_channels': self.time_steps, 'out_channels': 4},
-            {'padding': (0, 0, 0), 'dilation': (1, 1, 1), 'kernel_size': (1, 2, 2), 'stride': (1, 1, 1), 'in_channels': 4,
-             'out_channels': 8},
+            {'padding': (0, 0, 0), 'dilation': (1, 1, 1), 'kernel_size': (1, 2, 2), 'stride': (1, 1, 1),
+             'in_channels': 4, 'out_channels': 8},
         ]
         self.explore_conv1 = nn.Conv3d(in_channels=layers_dict[0]['in_channels'],
                                        out_channels=layers_dict[0]['out_channels'],
-                                       kernel_size=layers_dict[0]['kernel_size'], stride=layers_dict[0]['stride'],
+                                       kernel_size=layers_dict[0]['kernel_size'],
+                                       stride=layers_dict[0]['stride'],
                                        padding=layers_dict[0]['padding'])
         self.explore_conv2 = nn.Conv3d(in_channels=layers_dict[1]['in_channels'],
                                        out_channels=layers_dict[1]['out_channels'],
-                                       kernel_size=layers_dict[1]['kernel_size'], stride=layers_dict[1]['stride'],
+                                       kernel_size=layers_dict[1]['kernel_size'],
+                                       stride=layers_dict[1]['stride'],
                                        padding=layers_dict[1]['padding'])
 
-        in_f = get_in_features_3d(h_in=self.map_size, w_in=self.map_size, d_in=self.time_steps, layers_dict=layers_dict)
+        in_f = get_in_features_3d(h_in=self.map_size, w_in=self.map_size, d_in=self.map_dim, layers_dict=layers_dict)
 
         features_explore = in_f * layers_dict[1]['out_channels']
 

@@ -4,6 +4,8 @@
 
 #include "engine_core.h"
 
+#include <utility>
+
 std::shared_ptr<EngineCore> EngineCore::instance_ = nullptr;
 
 
@@ -107,8 +109,9 @@ void EngineCore::HandleEvents() {
                 is_running_ = false;
             if (event.type == SDL_WINDOWEVENT && event.window.event == SDL_WINDOWEVENT_CLOSE && event.window.windowID == SDL_GetWindowID(window_.get()))
                 is_running_ = false;
-            if (model_ != nullptr)
+            if (model_ != nullptr){
                 model_->HandleEvents(event, io_.get());
+            }
         }
     }
 }
@@ -175,7 +178,7 @@ void EngineCore::StopServer() {
 }
 
 
-std::vector<std::deque<std::shared_ptr<State>>> EngineCore::GetObservations() {
+std::unordered_map<std::string, std::vector<std::deque<std::shared_ptr<State>>>> EngineCore::GetObservations() {
     return model_->GetObservations();
 }
 
@@ -187,14 +190,14 @@ bool EngineCore::AgentIsRunning() {
     }
 }
 
-std::tuple<std::vector<std::deque<std::shared_ptr<State>>>, std::vector<double>, std::vector<bool>, std::pair<bool, bool>, double>
-EngineCore::Step(std::vector<std::shared_ptr<Action>> actions) {
-    return model_->Step(actions);
+std::tuple<std::unordered_map<std::string, std::vector<std::deque<std::shared_ptr<State>>>>, std::vector<double>, std::vector<bool>, std::vector<bool>, double>
+EngineCore::Step(const std::string& agent_type, std::vector<std::shared_ptr<Action>> actions) {
+    return model_->Step(agent_type, std::move(actions));
 }
 
 void EngineCore::SendDataToModel(std::string data) {
     if(model_ != nullptr){
-        model_->GetData(data);
+        model_->GetData(std::move(data));
     }
 }
 

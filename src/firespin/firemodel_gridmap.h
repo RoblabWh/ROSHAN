@@ -18,11 +18,8 @@
 #include <mutex>
 #include <omp.h>
 #include <memory>
-#include "src/reinforcementlearning/agents/drone_agent.h"
 #include "src/reinforcementlearning/groundstation.h"
 
-// TODO Remove circular dependency
-class DroneAgent;
 
 class GridMap {
 public:
@@ -40,7 +37,7 @@ public:
     void UpdateParticles();
     void UpdateCells();
     double PercentageBurned() const;
-    std::vector<std::vector<double>> GetInterpolatedDroneView(const std::shared_ptr<DroneAgent>& droneAgent, int size=0, bool interpolated=true);
+    std::vector<std::vector<double>> GetInterpolatedDroneView(std::pair<int, int> drone_position, int view_radius, int size=0, bool interpolated=true);
     std::vector<std::vector<int>> GetExploredMap(int size=0, bool interpolated=true);
     std::vector<std::vector<double>> GetFireMap(int size=0, bool interpolated=true);
     int GetNumExploredFires() const;
@@ -52,7 +49,7 @@ public:
     std::unordered_set<Point> GetBurningCells() const { return burning_cells_; }
     int GetNumBurningCells() const { return static_cast<int>(burning_cells_.size()); }
     int GetNumBurnedCells() const { return num_burned_cells_; }
-    std::pair<double, double> GetNextFire(const std::shared_ptr<DroneAgent>& drone);
+    std::pair<double, double> GetNextFire(std::pair<int, int> drone_position);
     int GetNumUnburnable() const { return num_unburnable_; }
     bool CanStartFires(int num_fires) const;
     bool IsBurning() const;
@@ -64,8 +61,8 @@ public:
     const std::vector<RadiationParticle>& GetRadiationParticles() const { return radiation_particles_; }
     std::vector<Point> GetChangedCells() const { return changed_cells_; }
     void ResetChangedCells() { changed_cells_.clear(); }
-    std::vector<std::vector<std::vector<int>>> GetDroneView(std::shared_ptr<DroneAgent> drone);
-    std::vector<std::vector<int>> GetTotalDroneView(const std::shared_ptr<DroneAgent>& drone) const;
+    std::vector<std::vector<std::vector<int>>> GetDroneView(std::pair<int, int> drone_position, int drone_view_radius);
+    std::vector<std::vector<int>> GetTotalDroneView(std::pair<int, int> drone_position, int view_radius) const;
     void SetGroundstation();
     std::shared_ptr<Groundstation> GetGroundstation() { return groundstation_; }
     void SetGroundstationRenderer(std::shared_ptr<SDL_Renderer> renderer) {groundstation_->SetRenderer(std::move(renderer));};
@@ -93,7 +90,7 @@ public:
     }
 
     std::vector<std::pair<int, int>> GetMooreNeighborhood(int x, int y) const;
-    void UpdateExploredAreaFromDrone(const std::shared_ptr<DroneAgent>& drone);
+    int UpdateExploredAreaFromDrone(std::pair<int, int> drone_position, int drone_view_radius);
     void UpdateCellDiminishing();
     std::pair<int, int> GetRandomCorner();
 

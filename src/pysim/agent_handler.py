@@ -9,7 +9,9 @@ from flying_agent import FlyAgent
 
 
 class AgentHandler:
-    def __init__(self, status, algorithm: str = 'ppo', vision_range=21, map_size=50, time_steps=4, logdir='./logs'):
+    def __init__(self, status, algorithm: str = 'ppo', vision_range=21, map_size=50, time_steps=None, logdir='./logs'):
+        if time_steps is None:
+            time_steps = [3, 32]
         self.algorithm_name = algorithm
         self.eval_steps = 0
         self.env_step = 0
@@ -21,6 +23,8 @@ class AgentHandler:
         self.initialized = False
         self.agent_type = self.get_agent_type(status["agent_type"])
         self.hierachy_level = self.agent_type.get_hierachy_level()
+        self.hierachy_steps = 0
+        self.hierachy_early_stop = False
         self.use_intrinsic_reward = self.agent_type.use_intrinsic_reward
         if self.use_intrinsic_reward:
             self.agent_type.initialize_rnd_model(vision_range, map_size, time_steps)
@@ -143,10 +147,11 @@ class AgentHandler:
         obs, rewards, all_terminals, terminal_result, percent_burned = self.step_agent(status, engine, actions)
         if evaluate: self.evaluate(status, rewards, all_terminals, terminal_result, percent_burned)
         self.next_obs = obs
+        return terminal_result[2] # True if drone reached goal
 
     def step_agent(self, status, engine, actions):
         agent_actions = self.get_action(actions)
-        observations, rewards, all_terminals, terminal_result, percent_burned = engine.Step(agent_actions)
+        observations, rewards, all_terminals, terminal_result, percent_burned = engine.Step(self.agent_type.name, agent_actions)
         obs = self.restructure_data(observations)
         if terminal_result[0]: status["current_episode"] += 1
         self.env_step += 1

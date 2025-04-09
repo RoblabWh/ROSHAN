@@ -292,7 +292,7 @@ void ImguiHandler::RLStatusParser(py::dict rl_status) {
 void ImguiHandler::PyConfig(std::string &user_input,
                             std::string &model_output,
                             const std::shared_ptr<GridMap>& gridmap,
-                            const std::shared_ptr<std::vector<std::shared_ptr<DroneAgent>>>& drones,
+                            const std::shared_ptr<std::vector<std::shared_ptr<FlyAgent>>>& drones,
                             const std::shared_ptr<FireModelRenderer>& model_renderer) {
     if (show_rl_status_ && mode_ == Mode::GUI_RL && model_startup_) {
         py::dict rl_status = onGetRLStatus();
@@ -410,7 +410,7 @@ void ImguiHandler::PyConfig(std::string &user_input,
                             if (ImGui::BeginTable("ViewTable", 1, ImGuiTableFlags_NoBordersInBody)){
                                 if (show_total_drone_view){
                                     ImGui::TableNextRow(ImGuiTableRowFlags_None, 5.0f * static_cast<float>(parameters_.exploration_map_show_size_));
-                                    DrawGrid(gridmap->GetInterpolatedDroneView(selected_drone, parameters_.exploration_map_show_size_, interpolated), 5.0f, "total_view");
+                                    DrawGrid(gridmap->GetInterpolatedDroneView(selected_drone->GetGridPosition(), selected_drone->GetViewRange(), parameters_.exploration_map_show_size_, interpolated), 5.0f, "total_view");
                                     ImGui::TableNextRow();
                                     ImGui::Spacing();
                                     ImGui::Separator();
@@ -1121,14 +1121,16 @@ void ImguiHandler::HandleEvents(SDL_Event event, ImGuiIO *io, const std::shared_
         {
             model_renderer->ApplyZoom(0.9);
         }
-    } else if (event.type == SDL_MOUSEMOTION && !io->WantCaptureMouse) {
+    }
+    else if (event.type == SDL_MOUSEMOTION && !io->WantCaptureMouse) {
         int x, y;
         Uint32 mouseState = SDL_GetMouseState(&x, &y);
         if (mouseState & SDL_BUTTON(SDL_BUTTON_RIGHT)) // Middle mouse button is pressed
         {
             model_renderer->ChangeCameraPosition(-event.motion.xrel, -event.motion.yrel);
         }
-    } else if (event.type == SDL_MOUSEBUTTONDOWN && event.button.button == SDL_BUTTON_MIDDLE && !io->WantCaptureMouse) {
+    }
+    else if (event.type == SDL_MOUSEBUTTONDOWN && event.button.button == SDL_BUTTON_MIDDLE && !io->WantCaptureMouse) {
         int x, y;
         SDL_GetMouseState(&x, &y);
         std::pair<int, int> cell_pos = model_renderer->ScreenToGridPosition(x, y);
@@ -1136,11 +1138,13 @@ void ImguiHandler::HandleEvents(SDL_Event event, ImGuiIO *io, const std::shared_
             popups_.insert(cell_pos);
             popup_has_been_opened_.insert({cell_pos, false});
         }
-    } else if (event.type == SDL_WINDOWEVENT) {
+    }
+    else if (event.type == SDL_WINDOWEVENT) {
         if (event.window.event == SDL_WINDOWEVENT_SIZE_CHANGED) {
             model_renderer->ResizeEvent();
         }
-    } else if (event.type == SDL_KEYDOWN && parameters_.GetNumberOfDrones() == 1 && !agent_is_running && !io->WantTextInput) {
+    }
+    else if (event.type == SDL_KEYDOWN && parameters_.GetNumberOfDrones() == 1 && !agent_is_running && !io->WantTextInput) {
         if (event.key.keysym.sym == SDLK_w)
             onMoveDrone(0, -1, 0, 0);
         // MoveDroneByAngle(0, 0.25, 0, 0);

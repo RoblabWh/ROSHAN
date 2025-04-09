@@ -9,19 +9,24 @@ class HierarchyManager:
         self.hierarchy = {}
         self.hierarchy_keys = list(self.hierarchy.keys())
         self.build_hierarchy(status, agent_handler)
-        self.low_level_steps = 150
+        self.max_low_level_steps = 750
 
     def initial_observation(self, observations_):
         for key in self.hierarchy_keys:
             self.hierarchy[key].initial_observation(observations_)
 
-    def train(self, status, engine, steps):
+    def train(self, status, engine):
 
         if "medium" in self.hierarchy_keys:
             # Train Loop for medium level agent
-            if steps % self.low_level_steps == 0:
+            if self.hierarchy["medium"].hierachy_steps % self.max_low_level_steps == 0 or \
+                self.hierarchy["medium"].hierachy_early_stop:
                 self.hierarchy["medium"].train_loop(status, engine)
-            self.hierarchy["low"].eval_loop(status, engine, evaluate=False)
+                self.hierarchy["medium"].hierachy_steps = 0
+                self.hierarchy["medium"].hierachy_early_stop = False
+            else:
+                self.hierarchy["medium"].hierachy_early_stop = self.hierarchy["low"].eval_loop(status, engine, evaluate=False)
+            self.hierarchy["medium"].hierachy_steps += 1
         else:
             # Train Loop for low level agent
             self.hierarchy["low"].train_loop(status, engine)
@@ -51,8 +56,8 @@ class HierarchyManager:
         if agent_handler.hierachy_level == "medium":
             vision_range = agent_handler.algorithm.vision_range
             map_size = agent_handler.algorithm.map_size
-            time_steps = agent_handler.algorithm.time_steps
             status_ = copy.copy(status)
+            time_steps = status_["flyAgentTimesteps"]
             status_["agent_type"] = "FlyAgent"
             status_["model_name"] = "my_model_obj_v1.pt"
             status_["model_path"] = "/home/nex/Dokumente/Code/ROSHAN/models/Solved.100/"

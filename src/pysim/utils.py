@@ -29,6 +29,9 @@ def get_in_features_3d(h_in, w_in, d_in, layers_dict):
         h_in = ((h_in + 2 * padding[1] - dilation[1] * (kernel_size[1] - 1) - 1) // stride[1]) + 1
         w_in = ((w_in + 2 * padding[2] - dilation[2] * (kernel_size[2] - 1) - 1) // stride[2]) + 1
 
+        if d_in <= 0 or h_in <= 0 or w_in <= 0:
+            raise ValueError(f"Invalid dimensions after layer: {d_in}x{h_in}x{w_in}")
+
     return d_in * h_in * w_in
 
 

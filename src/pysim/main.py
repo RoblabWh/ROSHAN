@@ -65,6 +65,8 @@ if __name__ == '__main__':
               "obs_collected": 0,
               "num_agents": 1,
               "n_steps": 1024, #128 #TODO: Deprecated
+              "flyAgentTimesteps": 3,
+              "exploreAgentTimesteps": 7,
               "horizon": 1024,#12800,
               "batch_size": 512,
               "auto_train": False, # If True, the agent will train several episodes and then evaluate
@@ -104,7 +106,7 @@ if __name__ == '__main__':
     # TODO Keep this in the model_params as soft hidden param since it meddles with the model structure?
     view_range = engine.GetViewRange() + 1
     map_size = engine.GetMapSize()
-    time_steps = engine.GetTimeSteps()
+    time_steps = status["flyAgentTimesteps"] if status["agent_type"] == "FlyAgent" else status["exploreAgentTimesteps"]
 
     # Create the Agent Object, this is used by the hierachy manager which might spawn other low_level agents
     agent = AgentHandler(status=status, algorithm='ppo', vision_range=view_range, map_size=map_size, time_steps=time_steps, logdir=config['log_directory'])
@@ -128,7 +130,7 @@ if __name__ == '__main__':
             hierarchy_manager.initial_observation(engine.GetObservations())
 
             if status["rl_mode"] == "train":
-                hierarchy_manager.train(status, engine, steps)
+                hierarchy_manager.train(status, engine)
             else:
                 hierarchy_manager.eval(status, engine)
             steps += 1

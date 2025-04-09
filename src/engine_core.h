@@ -23,8 +23,8 @@
 #include "model_interface.h"
 #include "firespin/firemodel.h"
 #include "corine/dataset_handler.h"
-#include "agent.h"
-#include "action.h"
+#include "reinforcementlearning/agents/agent.h"
+#include "reinforcementlearning/actions/action.h"
 #include "src/utils.h"
 #include "externals/pybind11/include/pybind11/pybind11.h"
 
@@ -61,9 +61,9 @@ public:
     // Observe the current state of the environment
     bool AgentIsRunning();
     std::string GetUserInput();
-    std::vector<std::deque<std::shared_ptr<State>>> GetObservations();
-    std::tuple<std::vector<std::deque<std::shared_ptr<State>>>, std::vector<double>, std::vector<bool>, std::pair<bool, bool>, double>
-    Step(std::vector<std::shared_ptr<Action>> actions);
+    std::unordered_map<std::string, std::vector<std::deque<std::shared_ptr<State>>>> GetObservations();
+    std::tuple<std::unordered_map<std::string, std::vector<std::deque<std::shared_ptr<State>>>>, std::vector<double>, std::vector<bool>, std::vector<bool>, double>
+    Step(const std::string& agent_type, std::vector<std::shared_ptr<Action>> actions);
 
     inline bool IsRunning() { return is_running_; }
     bool InitialModeSelectionDone();

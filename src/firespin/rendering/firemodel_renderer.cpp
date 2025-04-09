@@ -15,7 +15,7 @@ FireModelRenderer::FireModelRenderer(std::shared_ptr<SDL_Renderer> renderer, Fir
 
     // Load the arrow texture
     SDL_Surface *arrow_surface = IMG_Load("../assets/arrow.png");
-    if (arrow_surface == NULL) {
+    if (arrow_surface == nullptr) {
         SDL_Log("Unable to load image: %s", SDL_GetError());
         return;
     }
@@ -66,9 +66,10 @@ void FireModelRenderer::CheckCamera() {
     camera_.Update(width_, height_, gridmap_->GetCols(), gridmap_->GetRows());
 }
 
-void FireModelRenderer::Render(std::shared_ptr<std::vector<std::shared_ptr<DroneAgent>>> drones) {
+void FireModelRenderer::Render(const std::shared_ptr<std::vector<std::shared_ptr<FlyAgent>>>& drones) {
     SDL_RenderClear(renderer_.get());
     if (gridmap_ != nullptr) {
+        std::cout << "Im here\n";
         camera_.Update(width_, height_, gridmap_->GetCols(), gridmap_->GetRows());
         if (this->needs_init_cell_noise_) {
             gridmap_->GenerateNoiseMap();
@@ -77,7 +78,7 @@ void FireModelRenderer::Render(std::shared_ptr<std::vector<std::shared_ptr<Drone
         DrawCells();
         DrawGroundstation(gridmap_->GetGroundstation());
         DrawParticles();
-        DrawDrones(std::move(drones));
+        DrawDrones(drones);
         FlashScreen();
     }
 }
@@ -274,7 +275,10 @@ FireModelRenderer::~FireModelRenderer() {
     SDL_FreeFormat(pixel_format_);
 }
 
-void FireModelRenderer::DrawDrones(std::shared_ptr<std::vector<std::shared_ptr<DroneAgent>>> drones) {
+void FireModelRenderer::DrawDrones(const std::shared_ptr<std::vector<std::shared_ptr<FlyAgent>>>& drones) {
+    if (drones->empty()) {
+        return;
+    }
     double size = static_cast<int>(camera_.GetCellSize());
 
     for (auto &agent : *drones) {

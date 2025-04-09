@@ -30,7 +30,7 @@ public:
     void FileHandling(const std::shared_ptr<DatasetHandler>& dataset_handler, std::vector<std::vector<int>> &current_raster_data);
     void PyConfig(std::string &user_input, std::string &model_output,
                   const std::shared_ptr<GridMap>& gridmap,
-                  const std::shared_ptr<std::vector<std::shared_ptr<DroneAgent>>>& drones,
+                  const std::shared_ptr<std::vector<std::shared_ptr<FlyAgent>>>& drones,
                   const std::shared_ptr<FireModelRenderer>& model_renderer);
     void ImGuiModelMenu(std::vector<std::vector<int>> &current_raster_data);
     void ShowPopups(const std::shared_ptr<GridMap>& gridmap, std::vector<std::vector<int>> &current_raster_data);
