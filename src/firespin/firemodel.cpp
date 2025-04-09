@@ -6,8 +6,6 @@
 
 #include <utility>
 
-std::shared_ptr<FireModel> FireModel::instance_ = nullptr;
-
 FireModel::FireModel(Mode mode, const std::string& map_path) : mode_(mode)
 {
     running_time_ = 0;
@@ -49,6 +47,15 @@ FireModel::FireModel(Mode mode, const std::string& map_path) : mode_(mode)
     std::cout << "Created FireModel" << std::endl;
 }
 
+FireModel::~FireModel(){
+    gridmap_.reset();
+    rl_handler_.reset();
+    dataset_handler_.reset();
+    model_renderer_.reset();
+    wind_.reset();
+    std::cout << "FireModel destroyed" << std::endl;
+}
+
 void FireModel::ResetGridMap(std::vector<std::vector<int>>* rasterData) {
     gridmap_ = std::make_shared<GridMap>(wind_, parameters_, rasterData);
     wind_->SetRandomAngle();
@@ -78,8 +85,8 @@ void FireModel::ResetGridMap(std::vector<std::vector<int>>* rasterData) {
     running_time_ = 0;
 }
 
-void FireModel::SetRenderer(std::shared_ptr<SDL_Renderer> renderer) {
-    model_renderer_ = FireModelRenderer::GetInstance(renderer, parameters_);
+void FireModel::SetRenderer(SDL_Renderer* renderer) {
+    model_renderer_ = FireModelRenderer::Create(renderer, parameters_);
 }
 
 void FireModel::SetUniformRasterData() {
@@ -173,8 +180,6 @@ void FireModel::Render() {
 //   ######################################################################
 // **//
 
-FireModel::~FireModel() = default;
-
 void FireModel::LoadMap(std::string path) {
     dataset_handler_->LoadMap(std::move(path));
     std::vector<std::vector<int>> rasterData;
@@ -185,7 +190,7 @@ void FireModel::LoadMap(std::string path) {
 }
 
 void FireModel::setupRLHandler() {
-    rl_handler_ = ReinforcementLearningHandler::GetInstance(parameters_);
+    rl_handler_ = ReinforcementLearningHandler::Create(parameters_);
     std::cout << "Created ReinforcementLearning Handler" << std::endl;
     rl_handler_->startFires = [this](float percentage) {StartFires(percentage);};
 }
@@ -286,11 +291,6 @@ void FireModel::StartFires(float percentage) {
             }
         }
     }
-
-//    for (auto cell : gridmap_->GetBurningCells()) {
-//        std::cout << "Burning cell: " << cell.x_ << ", " << cell.y_ << std::endl;
-//    }
-    //std::cout << "Fires started: " << fires << std::endl;
 }
 
 void FireModel::IgniteFireCluster(int fires) {

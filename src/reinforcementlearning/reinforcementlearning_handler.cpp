@@ -6,8 +6,6 @@
 
 #include <utility>
 
-std::shared_ptr<ReinforcementLearningHandler> ReinforcementLearningHandler::instance_ = nullptr;
-
 ReinforcementLearningHandler::ReinforcementLearningHandler(FireModelParameters &parameters) : parameters_(parameters){
 
     AgentFactory::GetInstance().RegisterAgent("FlyAgent",
@@ -23,22 +21,22 @@ ReinforcementLearningHandler::ReinforcementLearningHandler(FireModelParameters &
     total_env_steps_ = parameters_.GetTotalEnvSteps();
 }
 
-std::unordered_map<std::string, std::vector<std::deque<std::shared_ptr<State>>>> ReinforcementLearningHandler::GetObservations() {
-    // Get Keys from agents_by_type_
-    std::vector<std::string> keys(agents_by_type_.size());
-    std::transform(agents_by_type_.begin(), agents_by_type_.end(), keys.begin(),
-                   [](const auto& pair) { return pair.first; });
-    // Construct new unordered_map
+std::unordered_map<std::string, std::vector<std::deque<std::shared_ptr<State>>>>
+ReinforcementLearningHandler::GetObservations() {
     std::unordered_map<std::string, std::vector<std::deque<std::shared_ptr<State>>>> observations;
-    for (const auto& key : keys) {
-        auto& agents = agents_by_type_[key];
+    observations.reserve(agents_by_type_.size());
+
+    for (const auto& [key, agents] : agents_by_type_) {
         std::vector<std::deque<std::shared_ptr<State>>> agent_states;
+        agent_states.reserve(agents.size());
+
         for (const auto& agent : agents) {
-            auto states = agent->GetObservations();
-            agent_states.push_back(states);
+            agent_states.push_back(agent->GetObservations());
         }
-        observations[key] = agent_states;
+
+        observations.emplace(key, std::move(agent_states));
     }
+
     return observations;
 }
 
@@ -67,7 +65,6 @@ void ReinforcementLearningHandler::ResetEnvironment(Mode mode) {
             std::cerr << "Failed to create FlyAgent\n";
             continue;
         }
-        std::cout << "Created FlyAgent with ID" << fly_agent->GetId() << "\n";
         // Initialize FlyAgent TODO make this member function
         double rng_number = dist(gen);
         auto rl_mode = rl_status_["rl_mode"].cast<std::string>();

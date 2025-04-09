@@ -43,15 +43,14 @@ public:
 
     CellState GetIgnitionState();
     CellState GetCellState() { return cell_state_; }
-    CellState GetCellInitialState() { return cell_initial_state_; }
     bool IsBurning() { return GetIgnitionState() == CellState::GENERIC_BURNING; }
     bool FloodTick();
     bool IsFlooded();
 
     bool CanIgnite();
-    bool IsBurning() const { return cell_state_ == CellState::GENERIC_BURNING; }
+    [[nodiscard]] bool IsBurning() const { return cell_state_ == CellState::GENERIC_BURNING; }
     void Ignite();
-    std::pair<bool, bool> ShouldEmitNextParticles();
+    std::pair<bool, bool> ShouldEmitNextParticles() const;
     VirtualParticle EmitConvectionParticle();
     RadiationParticle EmitRadiationParticle();
     Uint32 GetMappedColor();
@@ -61,7 +60,7 @@ public:
     void burn();
     bool ShouldIgnite();
     void Flood();
-    bool WasFlooded() { return was_flooded_; };
+    [[nodiscard]] bool WasFlooded() const { return was_flooded_; };
     void Extinguish();
     void ShowInfo(int rows, int cols);
 
@@ -70,7 +69,6 @@ public:
     bool HasNoise();
     int GetNoiseLevel();
     int GetNoiseSize();
-    void SetDefaultNoise(int noise_level, int noise_size);
 
 private:
     FireModelParameters &parameters_;
@@ -79,7 +77,7 @@ private:
     double ticking_duration_;
     double burning_tick_;
     bool has_burned_down_;
-    int last_burning_duration_;
+    int last_burning_duration_{};
     double flood_duration_;
     double flood_timer_;
     double tau_ign_;

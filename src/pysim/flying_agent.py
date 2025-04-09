@@ -1,4 +1,4 @@
-from networks.network_fly import Inputspace, Actor, Critic
+from networks.network_fly import Actor, Critic
 import numpy as np
 import firesim
 

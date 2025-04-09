@@ -10,16 +10,19 @@
 
 int main(int argc, char** argv)
 {
-    Mode mode = Mode::GUI;
-    EngineCore::GetInstance()->Init(static_cast<int>(mode));
+    py::scoped_interpreter guard{};  // LIVES until the very end
 
-    while(EngineCore::GetInstance()->IsRunning()) {
-        EngineCore::GetInstance()->HandleEvents();
-        EngineCore::GetInstance()->Update();
-        EngineCore::GetInstance()->Render();
+    Mode mode = Mode::GUI;
+    auto engine = std::make_unique<EngineCore>();
+    engine->Init(static_cast<int>(mode));
+
+    while(engine->IsRunning()) {
+        engine->HandleEvents();
+        engine->Update();
+        engine->Render();
     }
 
-    EngineCore::GetInstance()->Clean();
+    engine.reset();
 
     return 0;
 }

@@ -14,7 +14,6 @@
 #include <algorithm>
 #include "firespin/utils.h"
 #include "state.h"
-#include "reinforcementlearning/utils.h"
 
 
 class DroneState : public State{
@@ -91,7 +90,7 @@ public:
     //* @return std::vector<std::vector<double>> The ExplorationMap of the whole Environment of the Agent.
     [[nodiscard]] std::vector<std::vector<double>> GetExplorationMapNorm() const;
 
-    double GetExplorationMapScalar() const;
+    [[nodiscard]] double GetExplorationMapScalar() const;
 
     //* Returns the Position of this State
     //* The Position is normalized by the map dimensions and cell_size. It is in the range of [-1, 1]

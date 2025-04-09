@@ -144,4 +144,4 @@ if __name__ == '__main__':
             # TODO DEPRECATED
             llm(engine, user_input, 0, 0)
 
-    engine.Clean()
+    engine.reset()

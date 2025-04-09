@@ -105,8 +105,17 @@ void GridMap::UpdateParticles() {
     }
 }
 
-GridMap::~GridMap() {
-}
+GridMap::~GridMap(){
+    cells_.clear();
+    virtual_particles_.clear();
+    radiation_particles_.clear();
+    burning_cells_.clear();
+    ticking_cells_.clear();
+    flooded_cells_.clear();
+    changed_cells_.clear();
+    explored_map_.clear();
+    fire_map_.clear();
+};
 
 std::pair<double, double> GridMap::GetNextFire(std::pair<int, int> drone_position) {
     double min_distance = std::numeric_limits<double>::max();
@@ -201,7 +210,7 @@ bool GridMap::WaterDispension(int x, int y) {
     if (GetCellState(x, y) == CellState::GENERIC_BURNING) {
         burning_cells_.erase(Point(x, y));
         EraseParticles(x, y);
-        changed_cells_.push_back(Point(x, y));
+        changed_cells_.emplace_back(x, y);
         
         flooded_cells_.insert(Point(x, y));
         cells_[x][y]->Flood();
@@ -215,37 +224,35 @@ bool GridMap::WaterDispension(int x, int y) {
         }
         cells_[x][y]->Flood();
         EraseParticles(x, y);
-        changed_cells_.emplace_back(Point(x, y));
+        changed_cells_.emplace_back(x, y);
         // There was no fire in the cell so flood the cell and return false
         return false;
     }
 }
 
 void GridMap::EraseParticles(int x, int y) {
+    auto should_erase = [&](const auto& particle) {
+        double px, py;
+        particle.GetPosition(px, py);
+        int i, j;
+        parameters_.ConvertRealToGridCoordinates(px, py, i, j);
+        return i == x && j == y;
+    };
+
+    auto erase_swap_pop = [&](auto& particles) {
+        for (size_t i = 0; i < particles.size(); ) {
+            if (should_erase(particles[i])) {
+                std::swap(particles[i], particles.back());
+                particles.pop_back();
+            } else {
+                ++i;
+            }
+        }
+    };
+
+    erase_swap_pop(virtual_particles_);
+    erase_swap_pop(radiation_particles_);
     ticking_cells_.erase(Point(x, y));
-    //Erase all particles that are on that cell
-    std::function<void(double&, double&, int&, int&)> convertr =
-            std::bind(&FireModelParameters::ConvertRealToGridCoordinates, &parameters_, std::placeholders::_1, std::placeholders::_2, std::placeholders::_3, std::placeholders::_4);
-    virtual_particles_.erase(
-            std::remove_if(virtual_particles_.begin(), virtual_particles_.end(),
-                           [x, y, &convertr](const VirtualParticle& particle) {
-                               double particle_x, particle_y;
-                               particle.GetPosition(particle_x, particle_y);
-                               int i, j;
-                               convertr(particle_x, particle_y, i, j);
-                               return i == x && j == y;
-                           }),
-            virtual_particles_.end());
-    radiation_particles_.erase(
-            std::remove_if(radiation_particles_.begin(), radiation_particles_.end(),
-                           [x, y, &convertr](const RadiationParticle& particle) {
-                               double particle_x, particle_y;
-                               particle.GetPosition(particle_x, particle_y);
-                               int i, j;
-                               convertr(particle_x, particle_y, i, j);
-                               return i == x && j == y;
-                           }),
-            radiation_particles_.end());
 }
 
 void GridMap::ExtinguishCell(int x, int y) {
@@ -293,7 +300,7 @@ int GridMap::UpdateLastSeenTime(int x, int y) {
     return difference;
 }
 
-void GridMap::UpdateCellDiminishing() {
+[[maybe_unused]] void GridMap::UpdateCellDiminishing() {
     for (int x = 0; x < rows_; ++x) {
         for (int y = 0; y < cols_; ++y) {
             if (explored_map_[x][y] > 0) {
@@ -331,7 +338,7 @@ int GridMap::GetNumUnburnableCells() const {
     return num_unburnable_cells;
 }
 
-double GridMap::PercentageUnburnable() const {
+[[maybe_unused]] double GridMap::PercentageUnburnable() const {
     return (double)num_unburnable_ / (double)num_cells_;
 }
 
@@ -346,7 +353,7 @@ bool GridMap::IsBurning() const {
 }
 
 // Calculates the percentage of burning cells
-double GridMap::PercentageBurning() const {
+[[maybe_unused]] double GridMap::PercentageBurning() const {
     return (double)(burning_cells_.size()) / (double)num_cells_;
 }
 
@@ -427,8 +434,8 @@ void GridMap::SetCellNoise(CellState state, int noise_level, int noise_size) {
 
 void GridMap::GenerateNoiseMap() {
     if (!this->noise_generated_ && parameters_.has_noise_){
-        for(auto cell_row : cells_) {
-            for(auto cell : cell_row) {
+        for(const auto& cell_row : cells_) {
+            for(const auto& cell : cell_row) {
                 if(cell->HasNoise()){
                     cell->GenerateNoiseMap();
                 }
@@ -527,7 +534,7 @@ void GridMap::SetGroundstation() {
     groundstation_ = std::make_shared<Groundstation>(corner, parameters_);
 }
 
-int GridMap::GetNumExploredFires() const {
+[[maybe_unused]] int GridMap::GetNumExploredFires() const {
     // Returns the number of fires that have been seen by the drone
     int num_fires = 0;
     for (auto& row : fire_map_) {
@@ -536,7 +543,7 @@ int GridMap::GetNumExploredFires() const {
     return num_fires;
 }
 
-bool GridMap::ExploredFiresEqualsActualFires() const {
+[[maybe_unused]] bool GridMap::ExploredFiresEqualsActualFires() const {
     // Returns true if the fires seen by the drone are the same as the actual fires. This is needed because the explored
     // map may contain fires that are burned out
 

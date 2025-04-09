@@ -23,10 +23,10 @@ namespace py = pybind11;
 class __attribute__((visibility("default"))) ImguiHandler {
 public:
     ImguiHandler(Mode mode, FireModelParameters &parameters);
-    void ImGuiSimulationControls(std::shared_ptr<GridMap> gridmap, std::vector<std::vector<int>> &current_raster_data,
-                                 std::shared_ptr<FireModelRenderer> model_renderer, bool &update_simulation,
+    void ImGuiSimulationControls(const std::shared_ptr<GridMap>& gridmap, std::vector<std::vector<int>> &current_raster_data,
+                                 const std::shared_ptr<FireModelRenderer>& model_renderer, bool &update_simulation,
                                  bool &render_simulation, int &delay, float framerate, double running_time);
-    void Config(std::shared_ptr<FireModelRenderer> model_renderer, std::vector<std::vector<int>> &current_raster_data, std::shared_ptr<Wind> wind);
+    void Config(const std::shared_ptr<FireModelRenderer>& model_renderer, std::vector<std::vector<int>> &current_raster_data, const std::shared_ptr<Wind>& wind);
     void FileHandling(const std::shared_ptr<DatasetHandler>& dataset_handler, std::vector<std::vector<int>> &current_raster_data);
     void PyConfig(std::string &user_input, std::string &model_output,
                   const std::shared_ptr<GridMap>& gridmap,
@@ -69,7 +69,6 @@ private:
     bool model_mode_selection_ = false;
     bool model_load_selection_ = false;
     bool train_mode_selected_ = false;
-    bool episode_termination_indicator_ = false;
     std::string path_key_;
     Mode mode_;
 
@@ -81,10 +80,10 @@ private:
 
     //Helper
     template<typename T>
-    void DrawGrid(const std::vector<std::vector<T>>& grid, float cell_size, const std::string color_status);
+    void DrawGrid(const std::vector<std::vector<T>> &grid, const std::string color_status);
     static void DrawBuffer(std::vector<float> buffer, int buffer_pos);
 
-    void RLStatusParser(py::dict rl_status);
+    void RLStatusParser(const py::dict& rl_status);
 };
 
 #endif //ROSHAN_FIREMODEL_IMGUI_H

@@ -1,11 +1,10 @@
 #include "engine_core.h"
 #include "externals/pybind11/include/pybind11/pybind11.h"
-#include "externals/pybind11/include/pybind11/stl.h"
 
 namespace py = pybind11;
 
 PYBIND11_MODULE(firesim, m) {
-    py::class_<Action, std::shared_ptr<Action>>(m, "Action");
+    py::class_<Action, std::shared_ptr<Action>> BaseAction(m, "Action");
 
     py::class_<FlyAction, Action, std::shared_ptr<FlyAction>>(m, "DroneAction")
             .def(py::init<>())
@@ -20,7 +19,7 @@ PYBIND11_MODULE(firesim, m) {
             .def("GetGoalX", &ExploreAction::GetGoalX)
             .def("GetGoalY", &ExploreAction::GetGoalY);
 
-    py::class_<State, std::shared_ptr<State>>(m, "State");
+    py::class_<State, std::shared_ptr<State>> BaseState(m, "State");
 
     py::class_<DroneState, State, std::shared_ptr<DroneState>>(m, "DroneState")
             .def(py::init<std::pair<double, double>,
@@ -61,10 +60,8 @@ PYBIND11_MODULE(firesim, m) {
             .def_property_readonly("orientation_vector", &DroneState::get_orientation_vector);
 
     py::class_<EngineCore>(m, "EngineCore")
-            .def_static("GetInstance", &EngineCore::GetInstance)
             .def(py::init<>())
             .def("Init", &EngineCore::Init, py::arg("mode"), py::arg("map_path") = "")
-            .def("Clean", &EngineCore::Clean)
             .def("Render", &EngineCore::Render)
             .def("Update", &EngineCore::Update)
             .def("HandleEvents", &EngineCore::HandleEvents)

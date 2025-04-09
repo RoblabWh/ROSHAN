@@ -64,60 +64,60 @@ CellState FireCell::GetIgnitionState() {
 
 ICell *FireCell::GetCell() {
     // Create switch statement for each cell state in CellState enum
-    ICell *cell_;
+    ICell *l_cell_;
     switch (cell_state_) {
         case GENERIC_UNBURNED:
-            cell_ = new CellGenericUnburned(surface_->format);
+            l_cell_ = new CellGenericUnburned(surface_->format);
             break;
         case GENERIC_BURNING:
-            cell_ = new CellGenericBurning(surface_->format);
+            l_cell_ = new CellGenericBurning(surface_->format);
             break;
         case GENERIC_BURNED:
-            cell_ = new CellGenericBurned(surface_->format);
+            l_cell_ = new CellGenericBurned(surface_->format);
             break;
         case LICHENS_AND_MOSSES:
-            cell_ = new CellLichensAndMosses(surface_->format);
+            l_cell_ = new CellLichensAndMosses(surface_->format);
             break;
         case LOW_GROWING_WOODY_PLANTS:
-            cell_ = new CellLowGrowingWoodyPlants(surface_->format);
+            l_cell_ = new CellLowGrowingWoodyPlants(surface_->format);
             break;
         case NON_AND_SPARSLEY_VEGETATED:
-            cell_ = new CellNonAndSparsleyVegetated(surface_->format);
+            l_cell_ = new CellNonAndSparsleyVegetated(surface_->format);
             break;
         case OUTSIDE_AREA:
-            cell_ = new CellOutsideArea(surface_->format);
+            l_cell_ = new CellOutsideArea(surface_->format);
             break;
         case PERIODICALLY_HERBACEOUS:
-            cell_ = new CellPeriodicallyHerbaceous(surface_->format);
+            l_cell_ = new CellPeriodicallyHerbaceous(surface_->format);
             break;
         case PERMANENT_HERBACEOUS:
-            cell_ = new CellPermanentHerbaceous(surface_->format);
+            l_cell_ = new CellPermanentHerbaceous(surface_->format);
             break;
         case SEALED:
-            cell_ = new CellSealed(surface_->format);
+            l_cell_ = new CellSealed(surface_->format);
             break;
         case SNOW_AND_ICE:
-            cell_ = new CellSnowAndIce(surface_->format);
+            l_cell_ = new CellSnowAndIce(surface_->format);
             break;
         case WATER:
-            cell_ = new CellWater(surface_->format);
+            l_cell_ = new CellWater(surface_->format);
             break;
         case WOODY_BROADLEAVED_DECIDUOUS_TREES:
-            cell_ = new CellWoodyBroadleavedDeciduousTrees(surface_->format);
+            l_cell_ = new CellWoodyBroadleavedDeciduousTrees(surface_->format);
             break;
         case WOODY_BROADLEAVED_EVERGREEN_TREES:
-            cell_ = new CellWoodyBroadleavedEvergreenTrees(surface_->format);
+            l_cell_ = new CellWoodyBroadleavedEvergreenTrees(surface_->format);
             break;
         case WOODY_NEEDLE_LEAVED_TREES:
-            cell_ = new CellWoodyNeedleLeavedTrees(surface_->format);
+            l_cell_ = new CellWoodyNeedleLeavedTrees(surface_->format);
             break;
         case GENERIC_FLOODED:
-            cell_ = new CellGenericFlooded(surface_->format);
+            l_cell_ = new CellGenericFlooded(surface_->format);
             break;
         default:
             throw std::runtime_error("FireCell::GetCell() called on a celltype that is not defined");
     }
-    return cell_;
+    return l_cell_;
 }
 
 void FireCell::Ignite() {
@@ -165,7 +165,7 @@ void FireCell::Tick() {
     }
 }
 
-std::pair<bool, bool> FireCell::ShouldEmitNextParticles() {
+std::pair<bool, bool> FireCell::ShouldEmitNextParticles() const {
     // Converting the burning_tick_ to an int before the modulo operation
     int burning_tick_int = static_cast<int>(burning_tick_);
 
@@ -345,5 +345,8 @@ std::vector<std::vector<int>>& FireCell::GetNoiseMap() {
 
 FireCell::~FireCell() {
     delete cell_;
-    SDL_FreeSurface(surface_);
+    if (surface_) {
+        SDL_FreeSurface(surface_);
+        surface_ = nullptr;
+    }
 }

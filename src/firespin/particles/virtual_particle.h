@@ -20,8 +20,8 @@ public:
                     double Y_lim, double Fl, double C0, double Lt);
     void UpdateState(Wind& wind, double dt, RandomBuffer& buffer);
     void GetPosition(double& x1, double& x2) const { x1 = X_[0]; x2 = X_[1];}
-    double GetIntensity() const { return Y_st_; }
-    bool IsCapableOfIgnition() const { return Y_st_ >= Y_lim_; }
+    [[nodiscard]] double GetIntensity() const { return Y_st_; }
+    [[nodiscard]] bool IsCapableOfIgnition() const { return Y_st_ >= Y_lim_; }
 
     // Delete copy constructor and copy assignment operator
     VirtualParticle(const VirtualParticle&) = delete;
@@ -56,13 +56,13 @@ public:
 
 private:
     double X_[2]{};      //Position
-    double U_[2]{};      //Belocity
+    double U_[2]{};      //Velocity
     double Y_st_{};        //Burning status
     double tau_mem_{};     // Memory timescale
     double Y_lim_{};       // Ignition limit
     double Fl_{};          // Scaling factor for new position
     double C0_{};          // A constant close to 2
-    double Lt_{};          // I dont really know what this is
+    double Lt_{};          // I don't really know what this is
     std::vector<double> Uw_i_; // Wind velocity
     double u_prime_{};
     double N_i_{};

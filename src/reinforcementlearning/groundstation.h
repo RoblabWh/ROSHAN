@@ -17,7 +17,7 @@ public:
     explicit Groundstation(std::pair<int, int> point, FireModelParameters &parameters);
     std::pair<int, int> GetGridPosition();
     std::pair<double, double> GetGridPositionDouble();
-    void SetRenderer(std::shared_ptr<SDL_Renderer> renderer) { renderer_ = TextureRenderer(std::move(renderer), "../assets/groundstation.png"); }
+    void SetRenderer(SDL_Renderer* renderer) { renderer_ = TextureRenderer(renderer, "../assets/groundstation.png"); }
     void Render(std::pair<int, int> position, int size);
 private:
     TextureRenderer renderer_;

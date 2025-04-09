@@ -25,7 +25,7 @@ VirtualParticle::VirtualParticle(int x, int y, double tau_mem, double Y_st,
 void VirtualParticle::UpdateState(Wind& wind, double dt, RandomBuffer& buffer) {
     // Update Y_st
     Y_st_ -= Y_st_ / tau_mem_ * dt;
-    u_prime_ = wind.GetCurrentTurbulece();
+    u_prime_ = wind.GetCurrentTurbulence();
     Uw_i_ = {wind.getWindSpeedComponent1(), wind.getWindSpeedComponent2()};
 
     fac1 = ((2.0 + 3.0 * C0_) / 4.0) * (u_prime_ / Lt_);

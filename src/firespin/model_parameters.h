@@ -5,7 +5,7 @@
 #ifndef ROSHAN_MODEL_PARAMETERS_H
 #define ROSHAN_MODEL_PARAMETERS_H
 
-#include <math.h>
+#include <cmath>
 #include <random>
 #include <utility>
 #include <SDL.h>
@@ -26,13 +26,13 @@ public:
     bool corine_loaded_ = false;
     bool initial_mode_selection_done_ = false;
     bool episode_termination_indicator_ = true;
-    bool InitialModeSelectionDone() {return initial_mode_selection_done_;}
+    [[nodiscard]] bool InitialModeSelectionDone() const {return initial_mode_selection_done_;}
     void SetCorineLoaded(bool loaded) {corine_loaded_ = loaded;}
-    bool GetCorineLoaded() {return corine_loaded_;}
+    [[nodiscard]] bool GetCorineLoaded() const {return corine_loaded_;}
 
     // Simulation parameters
     double dt_ = 0.1; // in seconds (s)
-    double GetDt() const {return dt_;}
+    [[nodiscard]] double GetDt() const {return dt_;}
     // Minimum and maximum values for the ImGui Sliders for the simulation parameters
     double min_dt_ = 0.0001; // in seconds (s)
     double max_dt_ = 5.0; // in seconds (s)
@@ -49,17 +49,17 @@ public:
     // Parameters for the virtual particles
     bool emit_convective_ = true;
     double virtualparticle_y_st_ = 1.0; // Hotness of the Particle (no real world unit yet)
-    double GetYStVirt() const {return virtualparticle_y_st_;}
+    [[nodiscard]] double GetYStVirt() const {return virtualparticle_y_st_;}
     double virtualparticle_y_lim_ = 0.2;  // How long the Particle is able to cause ignition (no real world unit yet)
-    double GetYLimVirt() const {return virtualparticle_y_lim_;}
+    [[nodiscard]] double GetYLimVirt() const {return virtualparticle_y_lim_;}
     double virtualparticle_fl_ = 0.15;  // Scaling factor for new position (need to calibrate)
-    double GetFlVirt() const {return virtualparticle_fl_;}
+    [[nodiscard]] double GetFlVirt() const {return virtualparticle_fl_;}
     double virtualparticle_c0_ = 1.98; // A constant close to 2
-    double GetC0Virt() const {return virtualparticle_c0_;}
+    [[nodiscard]] double GetC0Virt() const {return virtualparticle_c0_;}
     double virtualparticle_tau_mem_ = 10.0; // A few tens of seconds
-    double GetTauMemVirt() const {return virtualparticle_tau_mem_;}
+    [[nodiscard]] double GetTauMemVirt() const {return virtualparticle_tau_mem_;}
     double Lt_ = 80.0; // Height of emitting source (m)
-    double GetLt() const {return Lt_;}
+    [[nodiscard]] double GetLt() const {return Lt_;}
     // Minimum and maximum values for the ImGui Sliders for the virtual particles
     double tau_min = 0.1;
     double tau_max = 100.0;
@@ -78,41 +78,41 @@ public:
     // Parameters for the radiation particles
     bool emit_radiation_ = true;
     double radiationparticle_y_st_ = 1.0;
-    double GetYStRad() const {return radiationparticle_y_st_;}
+    [[nodiscard]] double GetYStRad() const {return radiationparticle_y_st_;}
     double radiationparticle_y_lim_ = 0.165;
-    double GetYLimRad() const {return radiationparticle_y_lim_;}
+    [[nodiscard]] double GetYLimRad() const {return radiationparticle_y_lim_;}
 
     // Parameter for the Grid
     // Number of cells in the x direction (rows)
     const int std_grid_nx_ = 80;
     int grid_nx_ = std_grid_nx_;
-    int GetGridNx() const {return grid_nx_;}
+    [[nodiscard]] int GetGridNx() const {return grid_nx_;}
     // Number of cells in the y direction (cols)
     const int std_grid_ny_ = 80;
     int grid_ny_ = std_grid_ny_;
     void SetGridNxNy(int nx, int ny) {grid_nx_ = nx; grid_ny_ = ny;}
     void SetGridNxNyStd() {grid_nx_ = std_grid_nx_; grid_ny_ = std_grid_ny_;}
-    int GetGridNy() const {return grid_ny_;}
-    int GetExplorationTime() const {return grid_nx_ * grid_ny_;}
+    [[nodiscard]] int GetGridNy() const {return grid_ny_;}
+    [[nodiscard]] int GetExplorationTime() const {return grid_nx_ * grid_ny_;}
     int exploration_map_size_ = 50;
     int exploration_map_show_size_ = exploration_map_size_;
-    int GetExplorationMapSize() const {return exploration_map_size_;}
-    int GetFireMapSize() const {return exploration_map_size_;}
+    [[nodiscard]] int GetExplorationMapSize() const {return exploration_map_size_;}
+    [[nodiscard]] int GetFireMapSize() const {return exploration_map_size_;}
 
 
     // Parameters for the Cells
 
     // Time that the cell needs to be visited by a particle to be ignited
     double cell_ignition_threshold_ = 100; // in seconds (s)
-    double GetIgnitionDelayTime() const {return cell_ignition_threshold_;}
+    [[nodiscard]] double GetIgnitionDelayTime() const {return cell_ignition_threshold_;}
     // Time the cell is capable of burning
     double cell_burning_duration_ = 120; // in seconds (s)
-    double GetCellBurningDuration() const {return cell_burning_duration_;}
+    [[nodiscard]] double GetCellBurningDuration() const {return cell_burning_duration_;}
     // We assume quadratic cells and this is the length of the side of the cell
     double cell_size_ = 10.0; // in meters (m)
-    double GetCellSize() const {return cell_size_;} // in meters (m)
+    [[nodiscard]] double GetCellSize() const {return cell_size_;} // in meters (m)
     double flood_duration_ = 5.0; // in seconds (s)
-    double GetFloodDuration() {return flood_duration_;}
+    [[nodiscard]] double GetFloodDuration() const {return flood_duration_;}
     // Minimum and maximum values for the ImGui Sliders for the cells
     double min_burning_duration_ = 1.0;
     double max_burning_duration_ = 200.0;
@@ -125,13 +125,13 @@ public:
     // Parameters for the wind
 
     double wind_uw_ = 10.0; // The 10-m wind speed in m/s
-    double GetWindSpeed() const {return wind_uw_;}
+    [[nodiscard]] double GetWindSpeed() const {return wind_uw_;}
     // random number between 0 and 2pi
     double wind_angle_ = random() * 2 * M_PI / RAND_MAX;
-    double GetAngle() const {return wind_angle_;}
+    [[nodiscard]] double GetAngle() const {return wind_angle_;}
     void SetWindAngle(double angle) {wind_angle_ = angle;}
     double wind_a_ = 0.314; // The component of the wind speed in the 1st direction
-    double GetA() const {return wind_a_;}
+    [[nodiscard]] double GetA() const {return wind_a_;}
     // Minimum and maximum values for the ImGui Sliders for the wind
     const double min_Uw_ = 0.0;
     const double max_Uw_ = 35.0; // Hurricane
@@ -152,7 +152,7 @@ public:
     }
 
     // Deprecated (USE WITH CAUTON!)
-    void ConvertRealToGridCoordinatesDrone(double x, double y, int &i, int &j) {
+    [[maybe_unused]] void ConvertRealToGridCoordinatesDrone(double x, double y, int &i, int &j) const {
         // round x and y to get the cell coordinates
         i = int(round(x / GetCellSize()));
         j = int(round(y / GetCellSize()));
@@ -163,14 +163,14 @@ public:
     void SetAgentType(std::string type) {agent_type = std::move(type);}
     bool agent_is_running_ = false;
     void SetAgentIsRunning(bool running) {agent_is_running_ = running;}
-    bool GetAgentIsRunning() const {return agent_is_running_;}
+    [[nodiscard]] bool GetAgentIsRunning() const {return agent_is_running_;}
     int number_of_drones_ = 1;
-    int total_env_steps_ = 200;
+//    int total_env_steps_ = 200;
     int current_env_steps_ = 0;
-    int GetCurrentEnvSteps() const {return current_env_steps_;}
+    [[nodiscard]] int GetCurrentEnvSteps() const {return current_env_steps_;}
     void SetCurrentEnvSteps(int steps) {current_env_steps_ = steps;}
 //    int GetTotalEnvSteps() const {return (int)((grid_nx_ * grid_ny_ * (0.1 / dt_)) + 80);}
-    int GetTotalEnvSteps() const {
+    [[nodiscard]] int GetTotalEnvSteps() const {
         int agent_factor = agent_type == "FlyAgent" ? 1 : agent_type == "ExploreAgent" ? 2 : 0;
         return (int)(agent_factor * sqrt(grid_nx_ * grid_nx_ + grid_ny_ * grid_ny_) * (20 / (max_velocity_.first * dt_)));
     }
@@ -185,12 +185,12 @@ public:
     // std::pair<double, double> GetMinVelocity() const {return min_velocity_;}
     std::pair<double, double> max_velocity_ = std::make_pair(10, 10); // X and Y Speed
     // std::pair<double, double> max_velocity_ = std::make_pair(5.0, 2 * M_PI); // Max Speed and Angle
-    std::pair<double, double> GetMaxVelocity() const {return max_velocity_;}
-    int GetNumberOfDrones() const {return number_of_drones_;}
+    [[nodiscard]] std::pair<double, double> GetMaxVelocity() const {return max_velocity_;}
+    [[nodiscard]] int GetNumberOfDrones() const {return number_of_drones_;}
     void SetNumberOfDrones(int number) {number_of_drones_ = number;}
     int water_capacity_ = 10;
-    int GetWaterCapacity() const {return water_capacity_;}
-    double GetWaterRefillDt() const {return GetWaterCapacity() / (5 * 60 / GetDt());}
+    [[nodiscard]] int GetWaterCapacity() const {return water_capacity_;}
+    [[nodiscard]] double GetWaterRefillDt() const {return GetWaterCapacity() / (5 * 60 / GetDt());}
 
     // Parameters for the groundstation
     bool only_corner_start_ = false;
@@ -199,7 +199,7 @@ public:
 
     //Parameters for ImGui
     int RewardsBufferSize = 300;
-    int GetRewardsBufferSize() const {return RewardsBufferSize;}
+    [[nodiscard]] int GetRewardsBufferSize() const {return RewardsBufferSize;}
 
 };
 

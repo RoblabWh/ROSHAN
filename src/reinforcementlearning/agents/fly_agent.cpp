@@ -144,9 +144,12 @@ double FlyAgent::CalculateReward() {
 
 std::deque<std::shared_ptr<State>> FlyAgent::GetObservations() {
     std::deque<std::shared_ptr<State>> states;
-    for (auto &state : drone_states_) {
-        states.push_back(std::make_shared<DroneState>(state));
+    states.resize(drone_states_.size());
+
+    for (size_t i = 0; i < drone_states_.size(); ++i) {
+        states[i] = std::make_shared<DroneState>(drone_states_[i]);
     }
+
     return states;
 }
 

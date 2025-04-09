@@ -27,20 +27,20 @@ public:
         time_steps_ -= 1;
     }
 
-    double GetDurationInMilliseconds() const {
+    [[nodiscard]] double GetDurationInMilliseconds() const {
         std::chrono::duration<double, std::milli> duration = end_ - start_;
         return duration.count();
     }
-    int GetTimeSteps() const {
+    [[nodiscard]] int GetTimeSteps() const {
         return time_steps_;
     }
     void AppendDuration(double duration) {
         durations_.push_back(duration);
     }
-    std::vector<double> GetDurations() const {
+    [[nodiscard]] std::vector<double> GetDurations() const {
         return durations_;
     }
-    double GetAverageDuration() const {
+    [[nodiscard]] double GetAverageDuration() const {
         double sum = 0;
         for (double duration : durations_) {
             sum += duration;

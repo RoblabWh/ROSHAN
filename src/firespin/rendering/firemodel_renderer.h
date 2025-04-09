@@ -17,6 +17,7 @@
 #include <chrono>
 #include <SDL_image.h>
 #include <memory>
+#include <utility>
 #include "reinforcementlearning/agents/fly_agent.h"
 #include "reinforcementlearning/groundstation.h"
 
@@ -40,25 +41,23 @@ class FlyAgent;
 
 class FireModelRenderer {
 public:
+    FireModelRenderer(SDL_Renderer* renderer, FireModelParameters& parameters);
+
     //only one instance of this class is allowed
-    static std::shared_ptr<FireModelRenderer> GetInstance(std::shared_ptr<SDL_Renderer> renderer, FireModelParameters& parameters) {
-        if (instance_ == nullptr) {
-            instance_ = std::shared_ptr<FireModelRenderer>(new FireModelRenderer(renderer, parameters));
-        }
-        return instance_;    }
+    static std::shared_ptr<FireModelRenderer> Create(SDL_Renderer* renderer, FireModelParameters& parameters) {
+        return std::make_shared<FireModelRenderer>(renderer, parameters);
+    }
 
     void Render(const std::shared_ptr<std::vector<std::shared_ptr<FlyAgent>>>& drones);
     void SetScreenResolution();
     void SetGridMap(std::shared_ptr<GridMap> gridmap) { gridmap_ = std::move(gridmap); SetFullRedraw(); }
-    std::shared_ptr<SDL_Renderer> GetRenderer() { return renderer_; }
-    std::shared_ptr<GridMap> GetGridMap() { return gridmap_; }
+    SDL_Renderer* GetRenderer() { return renderer_; }
 
     // Converter Functions
     std::pair<int, int> ScreenToGridPosition(int x, int y);
     static ImVec4 GetMappedColor(int cell_type);
 
     // Camera functions
-    void CheckCamera();
     void ChangeCameraPosition(double x, double y) { camera_.Move(x, y); SetFullRedraw();}
     void ApplyZoom(double z) { camera_.Zoom(z); SetFullRedraw();}
 
@@ -76,15 +75,13 @@ public:
     ~FireModelRenderer();
 
 private:
-    FireModelRenderer(std::shared_ptr<SDL_Renderer> renderer, FireModelParameters& parameters);
-
     void DrawCells();
     void DrawCircle(int x, int y, int min_radius, double intensity);
     void DrawParticles();
 
     FireModelParameters& parameters_;
     FireModelCamera camera_;
-    std::shared_ptr<SDL_Renderer> renderer_;
+    SDL_Renderer* renderer_;
     SDL_Texture* texture_;
     PixelBuffer* pixel_buffer_;
     SDL_PixelFormat* pixel_format_;
@@ -93,8 +90,6 @@ private:
     std::shared_ptr<GridMap> gridmap_;
     int width_{};
     int height_{};
-
-    static std::shared_ptr<FireModelRenderer> instance_;
 
     bool needs_full_redraw_;
     bool needs_init_cell_noise_;

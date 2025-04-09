@@ -24,16 +24,19 @@ namespace py = pybind11;
 class __attribute__((visibility("default"))) ReinforcementLearningHandler {
 
 public:
+    explicit ReinforcementLearningHandler(FireModelParameters &parameters);
     //only one instance of this class can be created
-    static std::shared_ptr<ReinforcementLearningHandler> GetInstance(FireModelParameters &parameters) {
-        if (instance_ == nullptr) {
-            instance_ = std::shared_ptr<ReinforcementLearningHandler>(new ReinforcementLearningHandler(parameters));
-        }
 
-        return instance_;
+    static std::shared_ptr<ReinforcementLearningHandler> Create(FireModelParameters &parameters) {
+        return std::make_shared<ReinforcementLearningHandler>(parameters);
     }
 
-    ~ReinforcementLearningHandler() = default;
+    ~ReinforcementLearningHandler(){
+        if (rl_status_) {
+            rl_status_.attr("clear")();
+        }
+    }
+
     std::unordered_map<std::string, std::vector<std::deque<std::shared_ptr<State>>>> GetObservations();
     void StepDroneManual(int drone_idx, double speed_x, double speed_y, int water_dispense);
     void ResetEnvironment(Mode mode);
@@ -64,10 +67,6 @@ public:
     }
     std::function<void(float)> startFires;
 private:
-    static std::shared_ptr<ReinforcementLearningHandler> instance_;
-
-    explicit ReinforcementLearningHandler(FireModelParameters &parameters);
-
     std::shared_ptr<GridMap> gridmap_;
     std::shared_ptr<FireModelRenderer> model_renderer_;
     FireModelParameters& parameters_;

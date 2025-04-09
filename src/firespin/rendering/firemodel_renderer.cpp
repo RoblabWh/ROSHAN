@@ -6,12 +6,10 @@
 #include <utility>
 #include "firemodel_renderer.h"
 
-std::shared_ptr<FireModelRenderer> FireModelRenderer::instance_ = nullptr;
-
-FireModelRenderer::FireModelRenderer(std::shared_ptr<SDL_Renderer> renderer, FireModelParameters& parameters)
-    : parameters_(parameters), renderer_(std::move(renderer)), camera_(FireModelCamera()) {
+FireModelRenderer::FireModelRenderer(SDL_Renderer* renderer, FireModelParameters& parameters)
+    : parameters_(parameters), renderer_(renderer), camera_(FireModelCamera()) {
     SetScreenResolution();
-    texture_ = SDL_CreateTexture(renderer_.get(),SDL_PIXELFORMAT_ARGB8888,SDL_TEXTUREACCESS_STREAMING,width_,height_);
+    texture_ = SDL_CreateTexture(renderer_,SDL_PIXELFORMAT_ARGB8888,SDL_TEXTUREACCESS_STREAMING,width_,height_);
 
     // Load the arrow texture
     SDL_Surface *arrow_surface = IMG_Load("../assets/arrow.png");
@@ -19,7 +17,7 @@ FireModelRenderer::FireModelRenderer(std::shared_ptr<SDL_Renderer> renderer, Fir
         SDL_Log("Unable to load image: %s", SDL_GetError());
         return;
     }
-    arrow_texture_ = SDL_CreateTextureFromSurface(renderer_.get(), arrow_surface);
+    arrow_texture_ = SDL_CreateTextureFromSurface(renderer_, arrow_surface);
     SDL_FreeSurface(arrow_surface);
 
     // Set blend mode to the texture for transparency
@@ -42,14 +40,14 @@ FireModelRenderer::FireModelRenderer(std::shared_ptr<SDL_Renderer> renderer, Fir
     pixel_buffer_ = new PixelBuffer(width_, height_, parameters_.background_color_, pixel_format_);
     needs_full_redraw_ = true;
     needs_init_cell_noise_ = false;
-    if (texture_ == NULL) {
+    if (texture_ == nullptr) {
         SDL_Log("Unable to create texture from surface: %s", SDL_GetError());
         return;
     }
 }
 
 std::vector<std::vector<int>> ScaleNoiseMap(const std::vector<std::vector<int>>& noise_map, int new_size) {
-    int original_size = noise_map.size();
+    int original_size = static_cast<int>(noise_map.size());
     std::vector<std::vector<int>> scaled_noise_map(new_size, std::vector<int>(new_size));
 
     for (int y = 0; y < new_size; ++y) {
@@ -62,15 +60,10 @@ std::vector<std::vector<int>> ScaleNoiseMap(const std::vector<std::vector<int>>&
     return scaled_noise_map;
 }
 
-void FireModelRenderer::CheckCamera() {
-    camera_.Update(width_, height_, gridmap_->GetCols(), gridmap_->GetRows());
-}
-
 void FireModelRenderer::Render(const std::shared_ptr<std::vector<std::shared_ptr<FlyAgent>>>& drones) {
-    SDL_RenderClear(renderer_.get());
+    SDL_RenderClear(renderer_);
     if (gridmap_ != nullptr) {
-        std::cout << "Im here\n";
-        camera_.Update(width_, height_, gridmap_->GetCols(), gridmap_->GetRows());
+        camera_.Update(width_, height_, gridmap_->GetRows(), gridmap_->GetCols());
         if (this->needs_init_cell_noise_) {
             gridmap_->GenerateNoiseMap();
             this->needs_init_cell_noise_ = false;
@@ -91,7 +84,7 @@ void FireModelRenderer::ResizePixelBuffer() {
 void FireModelRenderer::ResizeTexture() {
     if (texture_ != nullptr)
         SDL_DestroyTexture(texture_);
-    texture_ = SDL_CreateTexture(renderer_.get(),SDL_PIXELFORMAT_ARGB8888,SDL_TEXTUREACCESS_STREAMING,width_,height_);
+    texture_ = SDL_CreateTexture(renderer_,SDL_PIXELFORMAT_ARGB8888,SDL_TEXTUREACCESS_STREAMING,width_,height_);
 }
 
 void FireModelRenderer::ResizeEvent() {
@@ -102,7 +95,7 @@ void FireModelRenderer::ResizeEvent() {
 }
 
 void FireModelRenderer::SetScreenResolution() {
-    SDL_GetRendererOutputSize(renderer_.get(), &width_, &height_);
+    SDL_GetRendererOutputSize(renderer_, &width_, &height_);
     camera_.SetViewport(width_, height_);
 }
 
@@ -122,13 +115,13 @@ void FireModelRenderer::DrawCells() {
         pixel_buffer_->Reset();
         DrawAllCells(gridLeft, gridRight, gridTop, gridBottom);
         needs_full_redraw_ = false;
-        SDL_UpdateTexture(texture_, NULL, pixel_buffer_->GetData(), pixel_buffer_->GetPitch());
+        SDL_UpdateTexture(texture_, nullptr, pixel_buffer_->GetData(), pixel_buffer_->GetPitch());
     } else {
         DrawChangesCells();
     }
 
     // Render the texture to the screen
-    SDL_RenderCopy(renderer_.get(), texture_, NULL, NULL);
+    SDL_RenderCopy(renderer_, texture_, nullptr, nullptr);
 }
 
 void FireModelRenderer::DrawAllCells(int grid_left, int grid_right, int grid_top, int grid_bottom) {
@@ -207,13 +200,13 @@ void FireModelRenderer::DrawCircle(int x, int y, int min_radius, double intensit
     unsigned char g = static_cast<int>(255 * ((intensity - 0.2) / (1.0 - 0.2)));
     SDL_Color color = {255, g, 0, 255};
 
-    SDL_SetRenderDrawColor(renderer_.get(), color.r, color.g, color.b, color.a);
+    SDL_SetRenderDrawColor(renderer_, color.r, color.g, color.b, color.a);
     for(int w = 0; w < radius * 2; w++) {
         for(int h = 0; h < radius * 2; h++) {
             int dx = radius - w; // horizontal offset
             int dy = radius - h; // vertical offset
             if((dx*dx + dy*dy) <= (radius * radius)) {
-                SDL_RenderDrawPoint(renderer_.get(), x + dx, y + dy);
+                SDL_RenderDrawPoint(renderer_, x + dx, y + dy);
             }
         }
     }
@@ -259,7 +252,7 @@ void FireModelRenderer::DrawParticles() {
 void FireModelRenderer::DrawArrow(double angle) {
     // Render the arrow
     SDL_Rect destRect = {width_ - 100, height_ - 100, 50, 50}; // x, y, width and height of the arrow
-    SDL_RenderCopyEx(renderer_.get(), arrow_texture_, NULL, &destRect, angle, NULL, SDL_FLIP_NONE);
+    SDL_RenderCopyEx(renderer_, arrow_texture_, nullptr, &destRect, angle, nullptr, SDL_FLIP_NONE);
 }
 
 std::pair<int, int> FireModelRenderer::ScreenToGridPosition(int x, int y) {
@@ -272,6 +265,7 @@ FireModelRenderer::~FireModelRenderer() {
     //Destroy Backbuffer
     delete pixel_buffer_;
     SDL_DestroyTexture(arrow_texture_);
+    SDL_DestroyTexture(texture_);
     SDL_FreeFormat(pixel_format_);
 }
 
@@ -354,13 +348,13 @@ void FireModelRenderer::FlashScreen() {
         Uint32 elapsed_time = current_time - flash_start_time_;
         if (elapsed_time < flash_duration_){
             if (show_green_flash_) {
-                SDL_SetRenderDrawColor(renderer_.get(), 0, 255, 0, 128);
+                SDL_SetRenderDrawColor(renderer_, 0, 255, 0, 128);
             } else {
-                SDL_SetRenderDrawColor(renderer_.get(), 255, 0, 0, 128);
+                SDL_SetRenderDrawColor(renderer_, 255, 0, 0, 128);
             }
             auto [gridLeft, gridTop] = camera_.GridToScreenPosition(0, 0);
             SDL_Rect fullscreen_rect{gridLeft, gridTop, static_cast<int>(camera_.GetCellSize()) * gridmap_->GetCols(), static_cast<int>(camera_.GetCellSize()) * gridmap_->GetRows()};
-            SDL_RenderFillRect(renderer_.get(), &fullscreen_rect);
+            SDL_RenderFillRect(renderer_, &fullscreen_rect);
         } else {
             show_green_flash_ = false;
             show_red_flash_ = false;

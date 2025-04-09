@@ -28,7 +28,6 @@ public:
 
     int GetRows() const { return rows_; } // (x)
     int GetCols() const { return cols_; } // (y)
-    FireModelParameters &GetParameters() { return parameters_; }
     void IgniteCell(int x, int y);
     bool WaterDispension(int x, int y);
     void ExtinguishCell(int x, int y);
@@ -40,20 +39,27 @@ public:
     std::vector<std::vector<double>> GetInterpolatedDroneView(std::pair<int, int> drone_position, int view_radius, int size=0, bool interpolated=true);
     std::vector<std::vector<int>> GetExploredMap(int size=0, bool interpolated=true);
     std::vector<std::vector<double>> GetFireMap(int size=0, bool interpolated=true);
-    int GetNumExploredFires() const;
-    bool ExploredFiresEqualsActualFires() const;
 
-    double PercentageBurning() const;
-    double PercentageUnburnable() const;
-    int GetNumOfCells() const { return num_cells_; }
-    std::unordered_set<Point> GetBurningCells() const { return burning_cells_; }
+    [[maybe_unused]] int GetNumExploredFires() const;
+
+    [[maybe_unused]] bool ExploredFiresEqualsActualFires() const;
+
+    [[maybe_unused]] double PercentageBurning() const;
+
+    [[maybe_unused]] double PercentageUnburnable() const;
+
+    [[maybe_unused]] int GetNumOfCells() const { return num_cells_; }
+
+    [[maybe_unused]] std::unordered_set<Point> GetBurningCells() const { return burning_cells_; }
     int GetNumBurningCells() const { return static_cast<int>(burning_cells_.size()); }
-    int GetNumBurnedCells() const { return num_burned_cells_; }
+
+    [[maybe_unused]] int GetNumBurnedCells() const { return num_burned_cells_; }
     std::pair<double, double> GetNextFire(std::pair<int, int> drone_position);
-    int GetNumUnburnable() const { return num_unburnable_; }
+
+    [[maybe_unused]] int GetNumUnburnable() const { return num_unburnable_; }
     bool CanStartFires(int num_fires) const;
     bool IsBurning() const;
-    int GetNumParticles() { return virtual_particles_.size() + radiation_particles_.size();}
+    int GetNumParticles() { return static_cast<int>(virtual_particles_.size() + radiation_particles_.size());}
     bool CellCanIgnite(int x, int y) const { return cells_[x][y]->CanIgnite(); }
     void ShowCellInfo(int x, int y) { cells_[x][y]->ShowInfo(this->GetRows(), this->GetCols()); }
     int GetNumCells() const { return rows_ * cols_; }
@@ -65,7 +71,7 @@ public:
     std::vector<std::vector<int>> GetTotalDroneView(std::pair<int, int> drone_position, int view_radius) const;
     void SetGroundstation();
     std::shared_ptr<Groundstation> GetGroundstation() { return groundstation_; }
-    void SetGroundstationRenderer(std::shared_ptr<SDL_Renderer> renderer) {groundstation_->SetRenderer(std::move(renderer));};
+    void SetGroundstationRenderer(SDL_Renderer* renderer) {groundstation_->SetRenderer(renderer);};
 
     std::pair<int, int> GetRandomPointInGrid() {
         std::uniform_int_distribution<> dis_x(0, rows_ - 1);
@@ -91,16 +97,19 @@ public:
 
     std::vector<std::pair<int, int>> GetMooreNeighborhood(int x, int y) const;
     int UpdateExploredAreaFromDrone(std::pair<int, int> drone_position, int drone_view_radius);
-    void UpdateCellDiminishing();
+
+    [[maybe_unused]] void UpdateCellDiminishing();
     std::pair<int, int> GetRandomCorner();
 
     // For Rendering Only
     void GenerateNoiseMap();
-    void SetCellNoise(CellState state, int noise_level, int noise_size);
+    static void SetCellNoise(CellState state, int noise_level, int noise_size);
     void SetNoiseGenerated(bool noise_generated) { noise_generated_ = noise_generated; }
     bool HasNoiseGenerated() const { return noise_generated_; }
-    double GetXOff() const { return x_off_; }
-    double GetYOff() const { return y_off_; }
+
+    [[maybe_unused]] double GetXOff() const { return x_off_; }
+
+    [[maybe_unused]] double GetYOff() const { return y_off_; }
 
 private:
     FireModelParameters &parameters_;

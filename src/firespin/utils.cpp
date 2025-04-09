@@ -49,7 +49,7 @@ std::string formatTime(int total_seconds) {
     int minutes = (total_seconds / seconds_per_minute) % minutes_per_hour;
 //    int seconds = total_seconds % seconds_per_minute;
 
-    std::string formatted_time = "";
+    std::string formatted_time;
 
     if (days > 0) {
         formatted_time += std::to_string(days) + " day(s) ";
@@ -81,7 +81,7 @@ std::optional<std::filesystem::path> find_project_root(const std::filesystem::pa
     return std::nullopt;
 }
 
-std::vector<std::vector<int>> PoolingResize(const std::vector<std::vector<int>>& input_map, int new_width, int new_height) {
+[[maybe_unused]] std::vector<std::vector<int>> PoolingResize(const std::vector<std::vector<int>>& input_map, int new_width, int new_height) {
     int old_width = input_map.size();
     int old_height = input_map[0].size();
 
@@ -155,7 +155,7 @@ std::vector<std::vector<int>> InterpolationResize(const std::vector<std::vector<
     return resized_map;
 }
 
-std::vector<std::vector<int>> ResizeFire(const std::vector<std::vector<int>>& input_map, int new_width, int new_height) {
+[[maybe_unused]] std::vector<std::vector<int>> ResizeFire(const std::vector<std::vector<int>>& input_map, int new_width, int new_height) {
     int old_width = input_map.size();
     int old_height = input_map[0].size();
 

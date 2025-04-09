@@ -12,14 +12,15 @@ class Wind {
 
 public:
 
-    Wind(FireModelParameters &parameters);
+    explicit Wind(FireModelParameters &parameters);
 
-    double GetCurrentWindSpeed() const {return Uw_;}
-    double getWindSpeedComponent1() const { return Uw_i1_; }
-    double getWindSpeedComponent2() const { return Uw_i2_; }
-    double GetCurrentA() const {return A_;}
-    double GetCurrentTurbulece() const {return u_prime_;}
-    double GetCurrentAngle() const {return angle_;}
+    [[maybe_unused]] [[nodiscard]] double GetCurrentWindSpeed() const {return Uw_;}
+    [[nodiscard]] double getWindSpeedComponent1() const { return Uw_i1_; }
+    [[nodiscard]] double getWindSpeedComponent2() const { return Uw_i2_; }
+
+    [[maybe_unused]] [[nodiscard]] double GetCurrentA() const {return A_;}
+    [[nodiscard]] double GetCurrentTurbulence() const {return u_prime_;}
+    [[nodiscard]] double GetCurrentAngle() const {return angle_;}
     void SetRandomAngle();
 
     void UpdateWind();

@@ -49,8 +49,8 @@ public:
 
     // TODO Tidy UP !!!
     std::deque<DroneState> GetStates() { return drone_states_; }
-    void SetRenderer(std::shared_ptr<SDL_Renderer> renderer) { renderer_ = TextureRenderer(std::move(renderer), "../assets/drone.png"); }
-    void SetRenderer2(std::shared_ptr<SDL_Renderer> renderer) { renderer2_ = TextureRenderer(std::move(renderer), "../assets/Xmarksthespot.png"); }
+    void SetRenderer(SDL_Renderer* renderer) { renderer_ = TextureRenderer(renderer, "../assets/drone.png"); }
+    void SetRenderer2(SDL_Renderer* renderer) { renderer2_ = TextureRenderer(renderer, "../assets/Xmarksthespot.png"); }
     void UpdateStates(const std::shared_ptr<GridMap>& grid_map, std::pair<double, double> velocity_vector, int water_dispense);
     std::pair<double, double> MovementStep(double netout_x, double netout_y);
     bool DispenseWaterCertain(const std::shared_ptr<GridMap>& grid_map);

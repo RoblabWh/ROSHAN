@@ -39,15 +39,17 @@ enum CellState { OUTSIDE_GRID = 0,
 
 std::string CellStateToString(CellState cell_state);
 std::optional<std::filesystem::path> find_project_root(const std::filesystem::path& start);
-std::vector<std::vector<int>> PoolingResize(const std::vector<std::vector<int>>& input_map, int new_width, int new_height);
+
+[[maybe_unused]] std::vector<std::vector<int>> PoolingResize(const std::vector<std::vector<int>>& input_map, int new_width, int new_height);
 std::vector<std::vector<int>> InterpolationResize(const std::vector<std::vector<int>>& input_map, int new_width, int new_height);
-std::vector<std::vector<int>> ResizeFire(const std::vector<std::vector<int>>& input_map, int new_width, int new_height);
+
+[[maybe_unused]] std::vector<std::vector<int>> ResizeFire(const std::vector<std::vector<int>>& input_map, int new_width, int new_height);
 std::vector<std::vector<double>> BilinearInterpolation(const std::vector<std::vector<int>>& input_map, int new_width, int new_height);
 
 template <typename T>
 class CircularBuffer {
 public:
-    explicit CircularBuffer(size_t size)
+    [[maybe_unused]] explicit CircularBuffer(size_t size)
             : buffer(size), max_size(size), head(0), tail(0), full(false) {}
 
     void put(T item) {
@@ -96,7 +98,7 @@ public:
         return head;
     }
 
-    [[nodiscard]] size_t getTail() const {
+    [[maybe_unused]] [[nodiscard]] size_t getTail() const {
         return tail;
     }
 
@@ -114,7 +116,7 @@ public:
         return size;
     }
 
-    const std::vector<T> getBuffer() const {
+    std::vector<T> getBuffer() const {
         std::vector<T> data(size());
         if (isEmpty()) {
             return data;
@@ -144,7 +146,7 @@ private:
 
 class RandomBuffer {
 public:
-    RandomBuffer(size_t size) : index_(0) {
+    explicit RandomBuffer(size_t size) : index_(0) {
         buffer_.resize(size);
 
         fillBuffer();
@@ -164,7 +166,7 @@ public:
     }
 
     // Check if there are enough numbers from the current index to the end of the buffer
-    bool hasEnough(size_t n) {
+    [[maybe_unused]] bool hasEnough(size_t n) {
         return buffer_.size() - index_ > n;
     }
 

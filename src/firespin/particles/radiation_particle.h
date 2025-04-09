@@ -15,8 +15,8 @@ public:
     RadiationParticle(double x, double y, double Lr_min, double Lr_max, double Sf_0_mean, double Sf_0_std, double Y_st, double Y_lim, std::mt19937& gen);
     void UpdateState(double dt, RandomBuffer& buffer);
     void GetPosition(double &x1, double &x2) const { x1 = X_[0]; x2 = X_[1];}
-    double GetIntensity() const { return Y_st_; }
-    bool IsCapableOfIgnition() const { return Y_st_ >= Y_lim_; }
+    [[nodiscard]] double GetIntensity() const { return Y_st_; }
+    [[nodiscard]] bool IsCapableOfIgnition() const { return Y_st_ >= Y_lim_; }
     // Delete copy constructor and copy assignment operator
     RadiationParticle(const RadiationParticle&) = delete;
     RadiationParticle& operator=(const RadiationParticle&) = delete;
@@ -24,8 +24,8 @@ public:
     // Define move constructor
     RadiationParticle(RadiationParticle&& other) noexcept
             : gen_(other.gen_),
-              uniform_dist_(std::move(other.uniform_dist_)),
-              normal_dist_sf_(std::move(other.normal_dist_sf_)) {
+              uniform_dist_(other.uniform_dist_),
+              normal_dist_sf_(other.normal_dist_sf_) {
         *this = std::move(other);
     }
 

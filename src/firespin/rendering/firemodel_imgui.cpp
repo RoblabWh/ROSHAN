@@ -8,8 +8,8 @@ ImguiHandler::ImguiHandler(Mode mode, FireModelParameters &parameters) : paramet
 
 }
 
-void ImguiHandler::ImGuiSimulationControls(std::shared_ptr<GridMap> gridmap, std::vector<std::vector<int>> &current_raster_data,
-                                           std::shared_ptr<FireModelRenderer> model_renderer, bool &update_simulation,
+void ImguiHandler::ImGuiSimulationControls(const std::shared_ptr<GridMap>& gridmap, std::vector<std::vector<int>> &current_raster_data,
+                                           const std::shared_ptr<FireModelRenderer>& model_renderer, bool &update_simulation,
                                            bool &render_simulation, int &delay, float framerate, double running_time) {
     if (show_controls_) {
         ImGuiWindowFlags window_flags =
@@ -133,21 +133,21 @@ void ImguiHandler::ImGuiModelMenu(std::vector<std::vector<int>> &current_raster_
                 ImGui::EndMenu();
             }
             if (ImGui::BeginMenu("Model Particles")) {
-                ImGui::MenuItem("Emit Convective Particles", NULL, &parameters_.emit_convective_);
-                ImGui::MenuItem("Emit Radiation Particles", NULL, &parameters_.emit_radiation_);
+                ImGui::MenuItem("Emit Convective Particles", nullptr, &parameters_.emit_convective_);
+                ImGui::MenuItem("Emit Radiation Particles", nullptr, &parameters_.emit_radiation_);
                 ImGui::EndMenu();
             }
             if (ImGui::BeginMenu("View")) {
-                ImGui::MenuItem("Show Controls", NULL, &show_controls_);
+                ImGui::MenuItem("Show Controls", nullptr, &show_controls_);
                 if (mode_ == Mode::GUI_RL)
-                    ImGui::MenuItem("Show RL Controls", NULL, &show_rl_status_);
-                ImGui::MenuItem("Show Parameter Config", NULL, &show_model_parameter_config_);
+                    ImGui::MenuItem("Show RL Controls", nullptr, &show_rl_status_);
+                ImGui::MenuItem("Show Parameter Config", nullptr, &show_model_parameter_config_);
                 if(parameters_.has_noise_)
-                    ImGui::MenuItem("Show Noise Config", NULL, &show_noise_config_);
+                    ImGui::MenuItem("Show Noise Config", nullptr, &show_noise_config_);
                 ImGui::EndMenu();
             }
             if (ImGui::BeginMenu("Help")) {
-                ImGui::MenuItem("ImGui Help", NULL, &show_demo_window_);
+                ImGui::MenuItem("ImGui Help", nullptr, &show_demo_window_);
                 ImGui::EndMenu();
             }
             ImGui::EndMainMenuBar();
@@ -155,9 +155,9 @@ void ImguiHandler::ImGuiModelMenu(std::vector<std::vector<int>> &current_raster_
     }
 }
 
-void ImguiHandler::Config(std::shared_ptr<FireModelRenderer> model_renderer,
+void ImguiHandler::Config(const std::shared_ptr<FireModelRenderer>& model_renderer,
                           std::vector<std::vector<int>> &current_raster_data,
-                          std::shared_ptr<Wind> wind) {
+                          const std::shared_ptr<Wind>& wind) {
     if (show_demo_window_)
         ImGui::ShowDemoWindow(&show_demo_window_);
 
@@ -172,11 +172,11 @@ void ImguiHandler::Config(std::shared_ptr<FireModelRenderer> model_renderer,
     }
 }
 
-void ImguiHandler::RLStatusParser(py::dict rl_status) {
+void ImguiHandler::RLStatusParser(const py::dict& rl_status) {
     auto rl_mode = rl_status["rl_mode"].cast<std::string>();
     auto model_path = rl_status["model_path"].cast<std::string>();
     auto model_name = rl_status["model_name"].cast<std::string>();
-    auto agent_online = rl_status["agent_online"].cast<bool>();
+//    auto agent_online = rl_status["agent_online"].cast<bool>();
     auto horizon = rl_status["horizon"].cast<int>();
     auto obs_collected = rl_status["obs_collected"].cast<int>();
     auto n_steps = rl_status["n_steps"].cast<int>();
@@ -197,7 +197,7 @@ void ImguiHandler::RLStatusParser(py::dict rl_status) {
     ImGui::SetWindowFontScale(1.0f);
     ImGui::PopStyleColor();
 
-    if (ImGui::BeginPopupModal("Warning RL Mode", NULL, ImGuiWindowFlags_AlwaysAutoResize)) {
+    if (ImGui::BeginPopupModal("Warning RL Mode", nullptr, ImGuiWindowFlags_AlwaysAutoResize)) {
         ImGui::Text("You are about to switch to %s mode.", rl_mode == "train" ? "eval" : "train");
         ImGui::Separator();
 
@@ -410,7 +410,10 @@ void ImguiHandler::PyConfig(std::string &user_input,
                             if (ImGui::BeginTable("ViewTable", 1, ImGuiTableFlags_NoBordersInBody)){
                                 if (show_total_drone_view){
                                     ImGui::TableNextRow(ImGuiTableRowFlags_None, 5.0f * static_cast<float>(parameters_.exploration_map_show_size_));
-                                    DrawGrid(gridmap->GetInterpolatedDroneView(selected_drone->GetGridPosition(), selected_drone->GetViewRange(), parameters_.exploration_map_show_size_, interpolated), 5.0f, "total_view");
+                                    DrawGrid(gridmap->GetInterpolatedDroneView(selected_drone->GetGridPosition(),
+                                                                               selected_drone->GetViewRange(),
+                                                                               parameters_.exploration_map_show_size_,
+                                                                               interpolated), "total_view");
                                     ImGui::TableNextRow();
                                     ImGui::Spacing();
                                     ImGui::Separator();
@@ -418,7 +421,8 @@ void ImguiHandler::PyConfig(std::string &user_input,
                                 }
                                 if (show_explored_map) {
                                     ImGui::TableNextRow(ImGuiTableRowFlags_None, 5.0f * static_cast<float>(parameters_.exploration_map_show_size_));
-                                    DrawGrid(gridmap->GetExploredMap(parameters_.exploration_map_show_size_, interpolated), 5.0f, "exploration_interpolated");
+                                    DrawGrid(gridmap->GetExploredMap(parameters_.exploration_map_show_size_,
+                                                                     interpolated), "exploration_interpolated");
                                     ImGui::TableNextRow();
                                     ImGui::Spacing();
                                     ImGui::Separator();
@@ -426,7 +430,8 @@ void ImguiHandler::PyConfig(std::string &user_input,
                                 }
                                 if (show_fire_map) {
                                     ImGui::TableNextRow(ImGuiTableRowFlags_None, 5.0f * static_cast<float>(parameters_.exploration_map_show_size_));
-                                    DrawGrid(gridmap->GetFireMap(parameters_.exploration_map_show_size_, interpolated), 5.0f, "fire_interpolated");
+                                    DrawGrid(gridmap->GetFireMap(parameters_.exploration_map_show_size_, interpolated),
+                                             "fire_interpolated");
                                     ImGui::TableNextRow();
                                     ImGui::Spacing();
                                     ImGui::Separator();
@@ -534,11 +539,11 @@ void ImguiHandler::PyConfig(std::string &user_input,
                         {
                             ImGui::TableNextColumn();
                             ImGui::Text("GetTerrainView");
-                            DrawGrid(selected_drone->GetLastState().GetTerrainView(), 5.0f, "terrain");
+                            DrawGrid(selected_drone->GetLastState().GetTerrainView(), "terrain");
 
                             ImGui::TableNextColumn();
                             ImGui::Text("GetFireView");
-                            DrawGrid(selected_drone->GetLastState().GetFireView(), 5.0f, "fire");
+                            DrawGrid(selected_drone->GetLastState().GetFireView(), "fire");
 
                             ImGui::EndTable();
                         }
@@ -797,7 +802,7 @@ void ImguiHandler::FileHandling(const std::shared_ptr<DatasetHandler>& dataset_h
 bool ImguiHandler::ImGuiOnStartup(const std::shared_ptr<FireModelRenderer>& model_renderer, std::vector<std::vector<int>> &current_raster_data) {
     if (!model_startup_) {
         int width, height;
-        SDL_GetRendererOutputSize(model_renderer->GetRenderer().get(), &width, &height);
+        SDL_GetRendererOutputSize(model_renderer->GetRenderer(), &width, &height);
 //        ImVec2 window_size = ImVec2(400, 160);
 //        ImGui::SetNextWindowSize(window_size);
 //        ImVec2 appWindowPos = ImVec2((width - window_size.x) * 0.5f, (height - window_size.y) * 0.5f);
@@ -805,8 +810,8 @@ bool ImguiHandler::ImGuiOnStartup(const std::shared_ptr<FireModelRenderer>& mode
         if(!model_mode_selection_ && mode_ == Mode::GUI_RL){
             ImGui::Begin("Select Mode", nullptr, ImGuiWindowFlags_NoResize | ImGuiWindowFlags_NoCollapse | ImGuiWindowFlags_NoMove | ImGuiWindowFlags_AlwaysAutoResize);
             ImVec2 window_size = ImGui::GetWindowSize(); // Actual size after auto-resizing
-            ImGui::SetWindowPos(ImVec2((width - window_size.x) * 0.5f,
-                                       (height - window_size.y) * 0.5f));
+            ImGui::SetWindowPos(ImVec2((static_cast<float>(width) - window_size.x) * 0.5f,
+                                       (static_cast<float>(height) - window_size.y) * 0.5f));
             ImGui::Spacing();
             ImGui::PushStyleColor(ImGuiCol_Button, ImVec4(0.45f, 0.6f, 0.85f, 1.0f));
             ImGui::PushStyleColor(ImGuiCol_ButtonHovered, ImVec4(0.45f, 0.7f, 0.95f, 1.0f));
@@ -869,8 +874,8 @@ bool ImguiHandler::ImGuiOnStartup(const std::shared_ptr<FireModelRenderer>& mode
             ImGui::PushStyleColor(ImGuiCol_ButtonActive, ImVec4(0.45f, 0.5f, 0.75f, 1.0f));
             ImGui::Begin("Training Setup", nullptr, ImGuiWindowFlags_NoResize | ImGuiWindowFlags_NoCollapse | ImGuiWindowFlags_NoMove | ImGuiWindowFlags_AlwaysAutoResize);
             ImVec2 window_size = ImGui::GetWindowSize(); // Actual size after auto-resizing
-            ImGui::SetWindowPos(ImVec2((width - window_size.x) * 0.5f,
-                                       (height - window_size.y) * 0.5f));
+            ImGui::SetWindowPos(ImVec2((static_cast<float>(width) - window_size.x) * 0.5f,
+                                       (static_cast<float>(height) - window_size.y) * 0.5f));
             ImGui::Spacing();
             ImGui::Text("Choose Initial Training Parameters");
             ImGui::Spacing();
@@ -936,8 +941,8 @@ bool ImguiHandler::ImGuiOnStartup(const std::shared_ptr<FireModelRenderer>& mode
             ImGui::PushStyleColor(ImGuiCol_ButtonHovered, ImVec4(0.45f, 0.7f, 0.95f, 1.0f));
             ImGui::PushStyleColor(ImGuiCol_ButtonActive, ImVec4(0.45f, 0.5f, 0.75f, 1.0f));
             ImVec2 window_size = ImGui::GetWindowSize(); // Actual size after auto-resizing
-            ImGui::SetWindowPos(ImVec2((width - window_size.x) * 0.5f,
-                                       (height - window_size.y) * 0.5f));
+            ImGui::SetWindowPos(ImVec2((static_cast<float>(width) - window_size.x) * 0.5f,
+                                       (static_cast<float>(height) - window_size.y) * 0.5f));
             bool still_no_init = true;
             if (ImGui::Button("Uniform Vegetation")) {
                 onSetUniformRasterData();
@@ -1206,11 +1211,11 @@ void ImguiHandler::DrawBuffer(std::vector<float> buffer, int buffer_pos) {
 }
 
 template<typename T>
-void ImguiHandler::DrawGrid(const std::vector<std::vector<T>>& grid, float cell_size, const std::string color_status) {
+void ImguiHandler::DrawGrid(const std::vector<std::vector<T>> &grid, const std::string color_status) {
     ImVec2 cursor_pos = ImGui::GetCursorScreenPos();
 
     // Function to map a value to a color
-    float max_exploration_time = static_cast<float>(parameters_.GetExplorationTime());
+    auto max_exploration_time = static_cast<float>(parameters_.GetExplorationTime());
     std::function<ImVec4(double)> value_to_color;
     if (color_status == "exploration_interpolated") {
         value_to_color = [&max_exploration_time](double value) -> ImVec4 {
@@ -1246,8 +1251,8 @@ void ImguiHandler::DrawGrid(const std::vector<std::vector<T>>& grid, float cell_
                     color = ImVec4(1.0f, 1.0f, 1.0f, 1.0f);
                 }
             }
-            p_min = ImVec2(cursor_pos.x + x * cell_size, cursor_pos.y + y * cell_size);
-            p_max = ImVec2(cursor_pos.x + (x + 1) * cell_size, cursor_pos.y + (y + 1) * cell_size);
+            p_min = ImVec2(cursor_pos.x + x * 5.0, cursor_pos.y + y * 5.0);
+            p_max = ImVec2(cursor_pos.x + (x + 1) * 5.0, cursor_pos.y + (y + 1) * 5.0);
 
             ImGui::GetWindowDrawList()->AddRectFilled(p_min, p_max, IM_COL32(color.x * 255, color.y * 255, color.z * 255, color.w * 255));
         }

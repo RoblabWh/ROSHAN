@@ -31,21 +31,19 @@ namespace py = pybind11;
 
 class FireModel : public IModel{
 public:
-    //only one instance of this class can be created
-    static std::shared_ptr<FireModel> GetInstance(Mode mode, const std::string& map_path="") {
-        if (instance_ == nullptr) {
-            instance_ = std::shared_ptr<FireModel>(new FireModel(mode, map_path));
-        }
+    explicit FireModel(Mode mode, const std::string& map_path);
 
-        return instance_;
+    static std::shared_ptr<FireModel> Create(Mode mode, const std::string& map_path="") {
+        return std::make_shared<FireModel>(mode, map_path);
     }
+
     ~FireModel() override;
 
     void Update() override;
     std::tuple<std::unordered_map<std::string, std::vector<std::deque<std::shared_ptr<State>>>>, std::vector<double>, std::vector<bool>, std::vector<bool>, double> Step(const std::string& agent_type, std::vector<std::shared_ptr<Action>> actions) override;
     std::unordered_map<std::string, std::vector<std::deque<std::shared_ptr<State>>>> GetObservations() override;
     void Render() override;
-    void SetRenderer(std::shared_ptr<SDL_Renderer> renderer) override;
+    void SetRenderer(SDL_Renderer* renderer) override;
     bool AgentIsRunning() override;
     void HandleEvents(SDL_Event event, ImGuiIO* io) override;
     void ImGuiRendering(bool &update_simulation, bool &render_simulation, int &delay, float framerate) override;
@@ -61,7 +59,6 @@ public:
     bool InitialModeSelectionDone() override;
 
 private:
-    explicit FireModel(Mode mode, const std::string& map_path);
 
     // GridMap for the FireModel
     std::shared_ptr<GridMap> gridmap_;

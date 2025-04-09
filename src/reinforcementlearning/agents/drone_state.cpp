@@ -62,9 +62,9 @@ std::vector<std::vector<std::vector<int>>> DroneState::GetDroneViewNorm() {
 
 int DroneState::CountOutsideArea() {
     int outside_area = 0;
-    for (size_t i = 0; i < drone_view_[0].size(); ++i) {
-        for (size_t j = 0; j < drone_view_[0][i].size(); ++j) {
-            if (drone_view_[0][i][j] == OUTSIDE_GRID) {
+    for (auto & i : drone_view_[0]) {
+        for (int j : i) {
+            if (j == OUTSIDE_GRID) {
                 outside_area++;
             }
         }
@@ -160,14 +160,14 @@ std::vector<std::vector<double>> DroneState::GetExplorationMapNorm() const {
 }
 
 double DroneState::GetExplorationMapScalar() const {
-    auto explore_norm_ = this->GetExplorationMapNorm();
     double scalar = 0;
-    int max = explore_norm_.size() * explore_norm_[0].size();
-    for (size_t i = 0; i < explore_norm_.size(); i++) {
-        for(size_t j = 0; j < explore_norm_[i].size(); j++) {
-            scalar += explore_norm_[i][j];
+    double max_value = map_dimensions_.first * map_dimensions_.second;
+    for (const auto& row : exploration_map_) {
+        for (int value : row) {
+            scalar += static_cast<double>(value);
         }
     }
+    double max = static_cast<double>(exploration_map_.size() * exploration_map_[0].size()) * max_value;
     return scalar / max;
 }
 

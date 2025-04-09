@@ -13,16 +13,15 @@
 class PixelBuffer {
 public:
     PixelBuffer(int width, int height, SDL_Color background_color, SDL_PixelFormat* format);
-    ~PixelBuffer() {}
+    ~PixelBuffer() = default;
 
-    void Draw(const SDL_Rect rect, Uint32 base_color, int grid_offset = 0);
-    void Draw(const SDL_Rect rect, Uint32 base_color, const std::vector<std::vector<int>>& noise_map, int grid_offset = 0);
-    void DrawGrid(const SDL_Rect rect, Uint32 color);
+    void Draw(SDL_Rect rect, Uint32 base_color, int grid_offset = 0);
+    void Draw(SDL_Rect rect, Uint32 base_color, const std::vector<std::vector<int>>& noise_map, int grid_offset = 0);
     void Reset();
     void Resize(int width, int height);
-    int GetPitch() const { return width_ * sizeof(Uint32); }
-    int GetWidth() const { return width_; }
-    int GetHeight() const { return height_; }
+    [[nodiscard]] int GetPitch() const { return static_cast<int>(width_ * sizeof(Uint32)); }
+    [[nodiscard]] int GetWidth() const { return width_; }
+    [[nodiscard]] int GetHeight() const { return height_; }
     Uint32* GetData() { return pixels_.data(); }
 private:
     int width_;
@@ -31,7 +30,7 @@ private:
     SDL_PixelFormat* format_;
     Uint32 background_color_;
 
-    Uint32 SDLColorToUint32(const SDL_Color color);
+    Uint32 SDLColorToUint32(SDL_Color color);
 };
 
 

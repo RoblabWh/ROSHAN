@@ -7,7 +7,7 @@
 
 #include <utility>
 #include <algorithm>
-#include <math.h>
+#include <cmath>
 
 class FireModelCamera {
 public:
