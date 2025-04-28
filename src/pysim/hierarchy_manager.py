@@ -11,22 +11,23 @@ class HierarchyManager:
         self.build_hierarchy(status, agent_handler)
         self.max_low_level_steps = 750
 
-    def initial_observation(self, observations_):
+    def restruct_current_obs(self, observations_):
         for key in self.hierarchy_keys:
-            self.hierarchy[key].initial_observation(observations_)
+            self.hierarchy[key].restruct_current_obs(observations_)
 
     def train(self, status, engine):
 
         if "medium" in self.hierarchy_keys:
             # Train Loop for medium level agent
-            if self.hierarchy["medium"].hierachy_steps % self.max_low_level_steps == 0 or \
-                self.hierarchy["medium"].hierachy_early_stop:
+            if self.hierarchy["medium"].hierarchy_steps % self.max_low_level_steps == 0 or \
+                self.hierarchy["medium"].hierarchy_early_stop or status["env_reset"]:
                 self.hierarchy["medium"].train_loop(status, engine)
-                self.hierarchy["medium"].hierachy_steps = 0
-                self.hierarchy["medium"].hierachy_early_stop = False
+                status["env_reset"] = False
+                self.hierarchy["medium"].hierarchy_steps = 0
+                self.hierarchy["medium"].hierarchy_early_stop = False
             else:
-                self.hierarchy["medium"].hierachy_early_stop = self.hierarchy["low"].eval_loop(status, engine, evaluate=False)
-            self.hierarchy["medium"].hierachy_steps += 1
+                self.hierarchy["medium"].hierarchy_early_stop = self.hierarchy["low"].eval_loop(status, engine, evaluate=False)
+            self.hierarchy["medium"].hierarchy_steps += 1
         else:
             # Train Loop for low level agent
             self.hierarchy["low"].train_loop(status, engine)
@@ -50,22 +51,23 @@ class HierarchyManager:
             self.hierarchy["low"].update_status(status)
 
     def build_hierarchy(self, status, agent_handler: AgentHandler):
-        self.hierarchy[agent_handler.hierachy_level] = agent_handler
+        self.hierarchy[agent_handler.hierarchy_level] = agent_handler
 
         # Construct a low level agent if the current agent is a medium level agent
-        if agent_handler.hierachy_level == "medium":
+        if agent_handler.hierarchy_level == "medium":
             vision_range = agent_handler.algorithm.vision_range
             map_size = agent_handler.algorithm.map_size
             status_ = copy.copy(status)
             time_steps = status_["flyAgentTimesteps"]
-            status_["agent_type"] = "FlyAgent"
+            status_["hierarchy_type"] = "FlyAgent"
             status_["model_name"] = "my_model_obj_v1.pt"
-            status_["model_path"] = "/home/nex/Dokumente/Code/ROSHAN/models/Solved.100/"
+            status_["model_path"] = "/home/nex/Dokumente/Code/ROSHAN/models/new_solved/"
             status_["rl_mode"] = "eval"
             status_["console"] = ""
-            low_level_agent = AgentHandler(status_, algorithm="ppo", vision_range=vision_range, time_steps=time_steps, logdir='./logs')
+            low_level_agent = AgentHandler(status_, algorithm="ppo", vision_range=vision_range, map_size=map_size, time_steps=time_steps, logdir='./logs')
             status["console"] += "Hierarchy: Medium Level & Low Level\n"
-            status["console"] = low_level_agent.load_model(status_)
+            status["console"] += "Loading Low Level Model...\n"
+            low_level_agent.load_model(status_)
             self.hierarchy["low"] = low_level_agent
         else:
             status["console"] += "Hierarchy: Low Level\n"

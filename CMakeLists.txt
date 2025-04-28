@@ -109,16 +109,14 @@ set(CORE_SOURCES
 #src/reinforcementlearning/drone_agent/rendering/DroneRenderer.cpp src/reinforcementlearning/drone_agent/rendering/DroneRenderer.h
 set(AGENT_SOURCES
         src/state.h
-        src/reinforcementlearning/agents/agent.h
+        src/reinforcementlearning/agents/agent.h src/reinforcementlearning/agents/agent.cpp
         src/reinforcementlearning/agents/agent_factory.h
         src/reinforcementlearning/agents/fly_agent.h src/reinforcementlearning/agents/fly_agent.cpp
         src/reinforcementlearning/agents/explore_agent.h src/reinforcementlearning/agents/explore_agent.cpp
         src/reinforcementlearning/actions/action.h
         src/reinforcementlearning/actions/fly_action.h src/reinforcementlearning/actions/fly_action.cpp
         src/reinforcementlearning/actions/explore_action.h src/reinforcementlearning/actions/explore_action.cpp
-        src/reinforcementlearning/utils.h src/reinforcementlearning/utils.cpp
-        src/reinforcementlearning/agents/drone_state.cpp src/reinforcementlearning/agents/drone_state.h
-        src/reinforcementlearning/agents/drone_agent.cpp src/reinforcementlearning/agents/drone_agent.h
+        src/reinforcementlearning/agents/agent_state.cpp src/reinforcementlearning/agents/agent_state.h
         src/reinforcementlearning/texturerenderer.cpp src/reinforcementlearning/texturerenderer.h
         src/reinforcementlearning/groundstation.h src/reinforcementlearning/groundstation.cpp
         src/reinforcementlearning/reinforcementlearning_handler.cpp

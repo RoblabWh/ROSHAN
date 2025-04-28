@@ -41,6 +41,7 @@ public:
     ~EngineCore();
 
     bool Init(int mode, const std::string& map_path = "");
+    void Clean();
 
     void Update();
     void Render();
@@ -55,12 +56,16 @@ public:
     bool AgentIsRunning();
     std::string GetUserInput();
     std::unordered_map<std::string, std::vector<std::deque<std::shared_ptr<State>>>> GetObservations();
-    std::tuple<std::unordered_map<std::string, std::vector<std::deque<std::shared_ptr<State>>>>, std::vector<double>, std::vector<bool>, std::vector<bool>, double>
+    std::tuple<std::unordered_map<std::string, std::vector<std::deque<std::shared_ptr<State>>>>,
+            std::vector<double>,
+            std::vector<bool>,
+            std::unordered_map<std::string, bool>,
+            double>
     Step(const std::string& agent_type, std::vector<std::shared_ptr<Action>> actions);
 
     [[nodiscard]] inline bool IsRunning() const { return is_running_; }
     bool InitialModeSelectionDone();
-    int GetViewRange();
+    int GetViewRange(const std::string& agent_type);
     int GetTimeSteps();
     int GetMapSize();
 

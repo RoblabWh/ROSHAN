@@ -20,6 +20,7 @@ GridMap::GridMap(std::shared_ptr<Wind> wind, FireModelParameters &parameters,
 
     cells_ = std::vector<std::vector<std::shared_ptr<FireCell>>>(rows, std::vector<std::shared_ptr<FireCell>>(cols));
     explored_map_ = std::vector<std::vector<int>>(rows, std::vector<int>(cols, 0));
+    step_explored_map_ = std::vector<std::vector<int>>(rows, std::vector<int>(cols, 0));
     fire_map_ = std::vector<std::vector<int>>(rows, std::vector<int>(cols, 0));
 //    std::cout << "GridMap: " << rows << " " << cols << std::endl;
 
@@ -114,6 +115,7 @@ GridMap::~GridMap(){
     flooded_cells_.clear();
     changed_cells_.clear();
     explored_map_.clear();
+    step_explored_map_.clear();
     fire_map_.clear();
 };
 
@@ -264,7 +266,7 @@ void GridMap::ExtinguishCell(int x, int y) {
     changed_cells_.emplace_back(x, y);
 }
 
-std::vector<std::vector<std::vector<int>>> GridMap::GetDroneView(std::pair<int, int> drone_position, int drone_view_radius) {
+std::shared_ptr<const std::vector<std::vector<std::vector<int>>>> GridMap::GetDroneView(std::pair<int, int> drone_position, int drone_view_radius) {
     int size = drone_view_radius + 1;
 
     // Initialisiere eine 3D-Matrix: [status_type][x][y]
@@ -288,16 +290,16 @@ std::vector<std::vector<std::vector<int>>> GridMap::GetDroneView(std::pair<int, 
         }
     }
 
-    return view;
+    return std::make_shared<const std::vector<std::vector<std::vector<int>>>>(view);
 }
 
-int GridMap::UpdateLastSeenTime(int x, int y) {
+int GridMap::UpdateExplorationMap(int x, int y) {
 //    int difference = parameters_.GetExplorationTime() - explored_map_[x][y];
 //    explored_map_[x][y] = parameters_.GetExplorationTime();
     // If this part of the map was previously not seen by the drone, return 1
-    auto difference = explored_map_[x][y] > 0 ? 0 : 1;
-    explored_map_[x][y] = parameters_.GetExplorationTime();
-    return difference;
+    auto newly_visited = explored_map_[x][y] > 0 ? 0 : 1;
+    explored_map_[x][y] = 1; //parameters_.GetExplorationTime();
+    return newly_visited;
 }
 
 [[maybe_unused]] void GridMap::UpdateCellDiminishing() {
@@ -312,17 +314,19 @@ int GridMap::UpdateLastSeenTime(int x, int y) {
 
 int GridMap::UpdateExploredAreaFromDrone(std::pair<int, int> drone_position, int drone_view_radius) {
     int drone_view_radius_2 = drone_view_radius / 2;
-    int combined_difference = 0;
-
+    int newly_visited_cells = 0;
     for (int x = drone_position.first - drone_view_radius_2; x <= drone_position.first + drone_view_radius_2; ++x) {
         for (int y = drone_position.second - drone_view_radius_2; y <= drone_position.second + drone_view_radius_2; ++y) {
             if (IsPointInGrid(x, y)) {
-                combined_difference += UpdateLastSeenTime(x, y);
                 fire_map_[x][y] = cells_[x][y]->IsBurning() ? 1 : 0;
+                if (step_explored_map_[x][y] == 0) {
+                    newly_visited_cells++;
+                    step_explored_map_[x][y] = 1;
+                }
             }
         }
     }
-    return combined_difference;
+    return newly_visited_cells;
 }
 
 // Calculates the number of unburnable cells
@@ -477,7 +481,7 @@ std::vector<std::vector<int>> GridMap::GetTotalDroneView(std::pair<int, int> dro
     return view;
 }
 
-std::vector<std::vector<double>> GridMap::GetInterpolatedDroneView(std::pair<int, int> drone_position, int view_radius, int size, bool interpolated) {
+std::shared_ptr<const std::vector<std::vector<double>>> GridMap::GetInterpolatedDroneView(std::pair<int, int> drone_position, int view_radius, int size, bool interpolated) {
     auto total_drone_view = this->GetTotalDroneView(drone_position, view_radius);
     if(size == 0) {
         size = parameters_.GetExplorationMapSize();
@@ -489,22 +493,32 @@ std::vector<std::vector<double>> GridMap::GetInterpolatedDroneView(std::pair<int
                 doubleMatrix[i][j] = static_cast<double>(total_drone_view[i][j]);
             }
         }
-        return doubleMatrix;
+        return std::make_shared<const std::vector<std::vector<double>>>(doubleMatrix);
     }
-    return BilinearInterpolation(total_drone_view, size, size);
+    return std::make_shared<const std::vector<std::vector<double>>>(BilinearInterpolation(total_drone_view, size, size));
 }
 
-std::vector<std::vector<int>> GridMap::GetExploredMap(int size, bool interpolated) {
+std::shared_ptr<const std::vector<std::vector<int>>> GridMap::GetExploredMap(int size, bool interpolated) {
     if(size == 0) {
         size = parameters_.GetExplorationMapSize();
     }
     if (!interpolated) {
-        return explored_map_;
+        return std::make_shared<const std::vector<std::vector<int>>>(explored_map_);
     }
-    return InterpolationResize(explored_map_, size, size);
+    return std::make_shared<const std::vector<std::vector<int>>>(InterpolationResize(explored_map_, size, size));
 }
 
-std::vector<std::vector<double>> GridMap::GetFireMap(int size, bool interpolated) {
+std::shared_ptr<const std::vector<std::vector<int>>> GridMap::GetStepExploredMap(int size, bool interpolated) {
+    if(size == 0) {
+        size = parameters_.GetExplorationMapSize();
+    }
+    if (!interpolated) {
+        return std::make_shared<const std::vector<std::vector<int>>>(step_explored_map_);
+    }
+    return std::make_shared<const std::vector<std::vector<int>>>(InterpolationResize(step_explored_map_, size, size));
+}
+
+std::shared_ptr<const std::vector<std::vector<double>>> GridMap::GetFireMap(int size, bool interpolated) {
     if(size == 0) {
         size = parameters_.GetFireMapSize();
     }
@@ -515,9 +529,9 @@ std::vector<std::vector<double>> GridMap::GetFireMap(int size, bool interpolated
                 doubleMatrix[i][j] = static_cast<double>(fire_map_[i][j]);
             }
         }
-        return doubleMatrix;
+        return std::make_shared<const std::vector<std::vector<double>>>(doubleMatrix);
     }
-    return BilinearInterpolation(fire_map_, size, size);
+    return std::make_shared<const std::vector<std::vector<double>>>(BilinearInterpolation(fire_map_, size, size));
 }
 
 std::pair<int, int> GridMap::GetRandomCorner() {
@@ -556,4 +570,21 @@ void GridMap::SetGroundstation() {
     }
 
     return explored_fires_equal_actual_fires;
+}
+
+int GridMap::GetRevisitedCells() {
+    int revisited_cells = 0;
+    for (int x = 0; x < rows_; ++x) {
+        for (int y = 0; y < cols_; ++y) {
+            if (step_explored_map_[x][y] > 0) {
+                if (explored_map_[x][y] <= 0) {
+                    explored_map_[x][y] = 1;
+                } else {
+                    revisited_cells++;
+                }
+            }
+        }
+    }
+    this->ResetStepExploreMap();
+    return revisited_cells;
 }

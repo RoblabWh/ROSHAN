@@ -138,7 +138,11 @@ std::unordered_map<std::string, std::vector<std::deque<std::shared_ptr<State>>>>
     return rl_handler_->GetObservations();
 }
 
-std::tuple<std::unordered_map<std::string, std::vector<std::deque<std::shared_ptr<State>>>>, std::vector<double>, std::vector<bool>, std::vector<bool>, double> FireModel::Step(const std::string& agent_type, std::vector<std::shared_ptr<Action>> actions){
+std::tuple<std::unordered_map<std::string, std::vector<std::deque<std::shared_ptr<State>>>>,
+        std::vector<double>,
+        std::vector<bool>,
+        std::unordered_map<std::string, bool>,
+        double> FireModel::Step(const std::string& agent_type, std::vector<std::shared_ptr<Action>> actions){
 #ifdef SPEEDTEST
     // Construct a new action for each drone with 0, 0
     std::vector<std::shared_ptr<Action>> actions2;
@@ -147,15 +151,14 @@ std::tuple<std::unordered_map<std::string, std::vector<std::deque<std::shared_pt
     }
     actions = actions2;
 #endif
-    std::tuple<std::unordered_map<std::string, std::vector<std::deque<std::shared_ptr<State>>>>, std::vector<double>, std::vector<bool>, std::vector<bool>, double>  result;
-    result = rl_handler_->Step(agent_type, std::move(actions));
+    auto result = rl_handler_->Step(agent_type, std::move(actions));
 #ifndef SPEEDTEST
     // Check if any element in terminals is true, if so some agent reached a terminal state
-    if (std::get<3>(result)[0]) {
+    if (std::get<3>(result)["EnvReset"]) {
         ResetGridMap(&current_raster_data_);
         // Check if died or reached goal
         if (mode_ == Mode::GUI_RL) {
-            if (std::get<3>(result)[1]){
+            if (std::get<3>(result)["OneAgentDied"]){
                 model_renderer_->ShowRedFlash();
             } else {
                 model_renderer_->ShowGreenFlash();
@@ -328,8 +331,8 @@ void FireModel::IgniteFireCluster(int fires) {
     }
 }
 
-int FireModel::GetViewRange() {
-    return parameters_.GetViewRange();
+int FireModel::GetViewRange(const std::string& agent_type) {
+    return FireModelParameters::GetViewRange(agent_type);
 }
 
 int FireModel::GetTimeSteps() {

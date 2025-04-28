@@ -9,13 +9,13 @@
 ReinforcementLearningHandler::ReinforcementLearningHandler(FireModelParameters &parameters) : parameters_(parameters){
 
     AgentFactory::GetInstance().RegisterAgent("FlyAgent",
-                                              [](auto gridmap, auto& parameters, int drone_id, int time_steps) {
-                                                  return std::make_shared<FlyAgent>(gridmap, parameters, drone_id, time_steps);
+                                              [](auto& parameters, int drone_id, int time_steps) {
+                                                  return std::make_shared<FlyAgent>(parameters, drone_id, time_steps);
                                               });
-//    AgentFactory::GetInstance().RegisterAgent("ExploreAgent",
-//                                              [](auto gridmap, auto& parameters, int drone_id, int time_steps) {
-//                                                  return std::make_shared<ExploreAgent>(gridmap, parameters, drone_id, time_steps);
-//                                              });
+    AgentFactory::GetInstance().RegisterAgent("ExploreAgent",
+                                              [](auto& parameters, int drone_id, int time_steps) {
+                                                  return std::make_shared<ExploreAgent>(parameters, drone_id, time_steps);
+                                              });
 
     agent_is_running_ = false;
     total_env_steps_ = parameters_.GetTotalEnvSteps();
@@ -42,15 +42,13 @@ ReinforcementLearningHandler::GetObservations() {
 
 void ReinforcementLearningHandler::ResetEnvironment(Mode mode) {
     agents_by_type_.clear();
-    std::random_device rd;
-    std::mt19937 gen(rd());
-    std::uniform_real_distribution<double> dist(0.0, 1.0);
 
     if (mode == Mode::GUI_RL) {
         gridmap_->SetGroundstationRenderer(model_renderer_->GetRenderer());
     }
-    auto agent_type = rl_status_["agent_type"].cast<std::string>();
-    parameters_.SetAgentType(agent_type);
+    auto hierarchy_type = rl_status_["hierarchy_type"].cast<std::string>();
+    rl_status_["env_reset"] = true;
+    parameters_.SetHierarchyType(hierarchy_type);
     total_env_steps_ = parameters_.GetTotalEnvSteps();
 
     // Create FlyAgents [always present]
@@ -59,20 +57,31 @@ void ReinforcementLearningHandler::ResetEnvironment(Mode mode) {
 
     for (int i = 0; i < num_fly_agents; ++i){
         auto time_steps = rl_status_["flyAgentTimesteps"].cast<int>();
-        auto agent = AgentFactory::GetInstance().CreateAgent("FlyAgent", gridmap_, parameters_, i, time_steps);
+        auto agent = AgentFactory::GetInstance().CreateAgent("FlyAgent", parameters_, i, time_steps);
         auto fly_agent = std::dynamic_pointer_cast<FlyAgent>(agent);
         if (fly_agent == nullptr) {
             std::cerr << "Failed to create FlyAgent\n";
             continue;
         }
-        // Initialize FlyAgent TODO make this member function
-        double rng_number = dist(gen);
-        auto rl_mode = rl_status_["rl_mode"].cast<std::string>();
-        fly_agent->Initialize(mode, gridmap_, model_renderer_, rl_mode, rng_number);
+        // Initialize FlyAgent
+        fly_agent->Initialize(mode, gridmap_, model_renderer_, rl_status_["rl_mode"].cast<std::string>());
         agents_by_type_["FlyAgent"].push_back(fly_agent);
     }
 
     // Create ExploreAgents [only present in agent_type == "ExploreAgent"] TODO
+    if (parameters_.GetHierarchyType() == "ExploreAgent") {
+        auto time_steps = rl_status_["exploreAgentTimesteps"].cast<int>();
+        auto agent = AgentFactory::GetInstance().CreateAgent("ExploreAgent", parameters_, 0, time_steps);
+        auto explore_agent = std::dynamic_pointer_cast<ExploreAgent>(agent);
+        if (explore_agent == nullptr) {
+            std::cerr << "Failed to create ExploreAgent\n";
+            return;
+        }
+        // Initialize ExploreAgent
+        auto fly_agents = CastAgents<FlyAgent>(agents_by_type_["FlyAgent"]);
+        explore_agent->Initialize(fly_agents, gridmap_, rl_status_["rl_mode"].cast<std::string>());
+        agents_by_type_["ExploreAgent"].push_back(explore_agent);
+    }
 
 }
 
@@ -91,7 +100,12 @@ void ReinforcementLearningHandler::InitFires() const {
         this->startFires(parameters_.fire_percentage_);
 }
 
-std::tuple<std::unordered_map<std::string, std::vector<std::deque<std::shared_ptr<State>>>>, std::vector<double>, std::vector<bool>, std::vector<bool>, double> ReinforcementLearningHandler::Step(const std::string& agent_type, std::vector<std::shared_ptr<Action>> actions) {
+std::tuple<
+std::unordered_map<std::string, std::vector<std::deque<std::shared_ptr<State>>>>,
+std::vector<double>,
+std::vector<bool>,
+std::unordered_map<std::string, bool>,
+double> ReinforcementLearningHandler::Step(const std::string& agent_type, std::vector<std::shared_ptr<Action>> actions) {
     //TODO return std::unordered_map<std::string, std::vector<double>> instead of vector
     if (gridmap_ == nullptr || agents_by_type_.find(agent_type) == agents_by_type_.end()) {
         std::cerr << "No agents of type " << agent_type << " or invalid GridMap.\n";
@@ -100,41 +114,48 @@ std::tuple<std::unordered_map<std::string, std::vector<std::deque<std::shared_pt
 
     total_env_steps_ -= 1;
     parameters_.SetCurrentEnvSteps(parameters_.GetTotalEnvSteps() - total_env_steps_);
-    //init bool vector that is size of drones_ TODO make pretty
-    std::vector<bool> terminals, agent_died, agent_succeeded;
+    //init bool vector that is size of drones_
+    std::vector<bool> terminals, something_failed, something_succeeded;
     std::vector<double> rewards;
+    std::unordered_map<std::string, bool> agent_terminal_states;
+    agent_terminal_states["EnvReset"] = false;
 
     // Step through all the Agents and update their states, then calculate their reward
     auto& agents = agents_by_type_[agent_type];
-    auto hierarchy_type = rl_status_["agent_type"].cast<std::string>();
+    auto hierarchy_type = parameters_.GetHierarchyType();
 
     for (size_t i = 0; i < agents.size(); ++i) {
         agents[i]->ExecuteAction(actions[i], hierarchy_type, gridmap_);
 
-
         // Check for Agent Terminal States
         auto terminal_state = agents[i]->GetTerminalStates(eval_mode_, gridmap_, total_env_steps_);
         terminals.push_back(terminal_state[0]);
-        agent_died.push_back(terminal_state[1]);
-        agent_succeeded.push_back(terminal_state[2]);
+        something_failed.push_back(terminal_state[1]);
+        something_succeeded.push_back(terminal_state[2]);
 
-        // Confusing Logic to determine Hierarchy Steps TODO possibly make not as confusing
+        // Has the current agent performed a Hierarchy Action?
         if (agents[i]->GetPerformedHierarchyAction()) {
             double reward = agents[i]->CalculateReward();
             rewards.push_back(reward);
+            // Should the Environment Reset
+            agent_terminal_states["EnvReset"] = terminal_state[0];
             // Reset some values for the next step
             agents[i]->StepReset();
         }
     }
 
     // Build Terminal States
-    bool resetEnv = std::any_of(terminals.begin(), terminals.end(), [](bool t){ return t; });
-    bool drone_died = std::any_of(agent_died.begin(), agent_died.end(), [](bool d){ return d; });
-    bool drone_succeeded = std::any_of(agent_succeeded.begin(), agent_succeeded.end(), [](bool s){ return s; });
+    bool one_agent_died = std::any_of(something_failed.begin(), something_failed.end(), [](bool d){ return d; });
+    bool one_agent_succeeded = std::any_of(something_succeeded.begin(), something_succeeded.end(), [](bool s){ return s; });
+    bool all_agents_died = std::all_of(something_failed.begin(), something_failed.end(), [](bool d){ return d; });
+    bool all_agents_succeeded = std::all_of(something_succeeded.begin(), something_succeeded.end(), [](bool s){ return s; });
 
-    std::vector<bool> terminal_states{resetEnv, drone_died, drone_succeeded};
+    agent_terminal_states["OneAgentDied"] = one_agent_died;
+    agent_terminal_states["OneAgentSucceeded"] = one_agent_succeeded;
+    agent_terminal_states["AllAgentsDied"] = all_agents_died;
+    agent_terminal_states["AllAgentsSucceeded"] = all_agents_succeeded;
 
-    return {this->GetObservations(), rewards, terminals, terminal_states, gridmap_->PercentageBurned()};
+    return {this->GetObservations(), rewards, terminals, agent_terminal_states, gridmap_->PercentageBurned()};
 }
 
 void ReinforcementLearningHandler::SetRLStatus(py::dict status) {
@@ -145,7 +166,6 @@ void ReinforcementLearningHandler::SetRLStatus(py::dict status) {
 
 void ReinforcementLearningHandler::UpdateReward() {
     auto intrinsic_reward = rl_status_["intrinsic_reward"].cast<std::vector<double>>();
-
     // TODO this very ugly decide on how to display rewards in the GUI
     for (const auto& drone: agents_by_type_["FlyAgent"]) {
         std::dynamic_pointer_cast<FlyAgent>(drone)->ModifyReward(intrinsic_reward[std::dynamic_pointer_cast<FlyAgent>(drone)->GetId()]);

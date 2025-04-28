@@ -20,7 +20,11 @@ public:
     virtual ~IModel() = default;
 
     virtual void Update() = 0;
-    virtual std::tuple<std::unordered_map<std::string, std::vector<std::deque<std::shared_ptr<State>>>>, std::vector<double>, std::vector<bool>, std::vector<bool>, double> Step(const std::string& agent_type, std::vector<std::shared_ptr<Action>> actions) = 0;
+    virtual std::tuple<std::unordered_map<std::string,std::vector<std::deque<std::shared_ptr<State>>>>,
+    std::vector<double>,
+    std::vector<bool>,
+    std::unordered_map<std::string, bool>,
+    double> Step(const std::string& agent_type, std::vector<std::shared_ptr<Action>> actions) = 0;
     virtual std::unordered_map<std::string, std::vector<std::deque<std::shared_ptr<State>>>> GetObservations() = 0;
     virtual void Render() = 0;
     virtual bool AgentIsRunning() = 0;
@@ -32,7 +36,7 @@ public:
     virtual void SetRenderer(SDL_Renderer* renderer) = 0;
     virtual void ImGuiRendering(bool &update_simulation, bool &render_simulation, int &delay, float framerate) = 0;
     virtual std::string GetUserInput() = 0;
-    virtual int GetViewRange() = 0;
+    virtual int GetViewRange(const std::string& agent_type) = 0;
     virtual int GetTimeSteps() = 0;
     virtual int GetMapSize() = 0;
     virtual bool InitialModeSelectionDone() = 0;

@@ -2,8 +2,8 @@
 // Created by nex on 15.07.23.
 //
 
-#ifndef ROSHAN_DRONE_STATE_H
-#define ROSHAN_DRONE_STATE_H
+#ifndef ROSHAN_AGENT_STATE_H
+#define ROSHAN_AGENT_STATE_H
 
 #include <utility>
 #include <vector>
@@ -16,7 +16,7 @@
 #include "state.h"
 
 
-class DroneState : public State{
+class AgentState : public State{
 public:
     //* Constructor for the DroneState
     //* @param velocity_vector The velocity of the Agent
@@ -29,35 +29,35 @@ public:
     //* @param goal_position The goal position of the Agent
     //* @param water_dispense The water dispense Action of the Agent
     //* @param cell_size The size of the cells in the simulation (used for normalization)
-    explicit DroneState(std::pair<double, double> velocity_vector,
-                        std::pair<double, double> max_speed,
-                        std::vector<std::vector<std::vector<int>>> drone_view,
-                        std::vector<std::vector<double>> total_drone_view,
-                        std::vector<std::vector<int>> exploration_map,
-                        std::vector<std::vector<double>> fire_map,
-                        std::pair<double, double> map_dimensions,
-                        std::pair<double, double> position,
-                        std::pair<double, double> goal_position,
-                        int water_dispense,
-                        double cell_size);
+    explicit AgentState() = default;
 
-    //* Sets the velocity of the drone
-    //* @param speed_x The x velocity
-    //* @param speed_y The y velocity
-    void SetVelocity(double speed_x, double speed_y) { velocity_.first = speed_x; velocity_.second = speed_y; }
-
-    //* Computes the new velocity based on the netout of the neural network
-    //* and the internal logic how the velocity is updated, this function ensures max speed is not exceeded
-    //* @param speed_x The netout of the neural network for the x velocity
-    //* @param speed_y The netout of the neural network for the y velocity
-    //* @return std::pair<double, double> New Velocity
-    [[nodiscard]] std::pair<double, double> GetNewVelocity(double next_speed_x, double next_speed_y) const;
+    //** Setter Functions for the states (better readability, than a massive Constructor) **//
+    void SetVelocity(std::pair<double, double> velocity) { velocity_ = velocity; }
+    void SetDroneView(std::shared_ptr<const std::vector<std::vector<std::vector<int>>>> drone_view) { drone_view_ = std::move(drone_view); }
+    void SetTotalDroneView(std::shared_ptr<const std::vector<std::vector<double>>> total_drone_view) { total_drone_view_ = std::move(total_drone_view); }
+    void SetExplorationMap(std::shared_ptr<const std::vector<std::vector<int>>> exploration_map) { exploration_map_ = std::move(exploration_map); }
+    void SetFireMap(std::shared_ptr<const std::vector<std::vector<double>>> fire_map) { fire_map_ = std::move(fire_map); }
+    void SetPosition(std::pair<double, double> position) { position_ = position; }
+    void SetGoalPosition(std::pair<double, double> goal_position) { goal_position_ = goal_position; }
+    void SetWaterDispense(int water_dispense) { water_dispense_ = water_dispense; }
+    void SetMapDimensions(std::pair<double, double> map_dimensions) { map_dimensions_ = map_dimensions; }
+    void SetCellSize(double cell_size) { cell_size_ = cell_size; }
+    void SetMultipleTotalDroneView(std::vector<std::shared_ptr<const std::vector<std::vector<double>>>> total_drone_view) { multiple_total_drone_views_ = std::move(total_drone_view); }
 
     //** These functions are for the states **//
+    [[nodiscard]] std::vector<std::vector<std::vector<double>>> GetMultipleTotalDroneView() const {
+        std::vector<std::vector<std::vector<double>>> drone_views;
+        drone_views.reserve(multiple_total_drone_views_.size());
+        for (const auto& view : multiple_total_drone_views_) {
+            drone_views.push_back(*view);
+        }
+        return drone_views;
+    }
+
 
     //* Returns the velocity of the drone
     //* @return std::pair<double, double> The velocity of the drone
-    std::pair<double, double> GetVelocity() { return velocity_; }
+    [[nodiscard]] std::pair<double, double> GetVelocity() const { return velocity_; }
 
     //* Returns the normalized velocity of the drone. Normalized by the max speed.
     //* @return std::pair<double, double> The normalized velocity of the drone
@@ -65,21 +65,21 @@ public:
 
     //* Returns the Terrain of this State
     //* @return std::vector<std::vector<int>> TerrainView around the Agent.
-    std::vector<std::vector<int>> GetTerrainView() { return drone_view_[0]; }
+    [[nodiscard]] std::vector<std::vector<int>> GetTerrainView() const { return (*drone_view_)[0]; }
 
     //* Returns the Fire Status of this State. 1 indicates fire, 0 indicates no fire.
     //* @return std::vector<std::vector<int>> FireView around the Agent.
-    std::vector<std::vector<int>> GetFireView() { return drone_view_[1]; }
+    [[nodiscard]] std::vector<std::vector<int>> GetFireView() const { return (*drone_view_)[1]; }
 
     //* Returns the Fire Map of this State.
     //* The Fire Map is a 2D vector with all discovered fires on the whole map.
     //* @return std::vector<std::vector<double>> The FireMap of the whole Environment of the Agent.
-    std::vector<std::vector<double>> GetFireMap() { return fire_map_; }
+    [[nodiscard]] std::vector<std::vector<double>> GetFireMap() const { return *fire_map_; }
 
     //* Returns the Exploration Map of this State
     //* The Exploration Map is a 2D vector with all discovered cells on the whole map.
     //* @return std::vector<std::vector<int>> The ExplorationMap of the whole Environment of the Agent.
-    std::vector<std::vector<int>> GetExplorationMap() { return exploration_map_; }
+    [[nodiscard]] std::vector<std::vector<int>> GetExplorationMap() const { return *exploration_map_; }
 
     //* Returns the WaterDispense Action of this State
     //* @return int The WaterDispense Action of the Agent.
@@ -90,6 +90,9 @@ public:
     //* @return std::vector<std::vector<double>> The ExplorationMap of the whole Environment of the Agent.
     [[nodiscard]] std::vector<std::vector<double>> GetExplorationMapNorm() const;
 
+    //* Returns the Exploration Map Scalar of this State.
+    //* The Exploration Map Scalar is the sum of all values in the Exploration Map.
+    //* @return double The ExplorationMap Scalar of the whole Environment of the Agent.
     [[nodiscard]] double GetExplorationMapScalar() const;
 
     //* Returns the Position of this State
@@ -154,32 +157,32 @@ public:
     //* @return std::pair<double, double> The Position of the Agent in the Exploration Map.
     [[nodiscard]] std::pair<double, double> GetPositionInExplorationMap() const;
 
-    std::vector<std::vector<double>> GetTotalDroneView() { return total_drone_view_; }
+    [[nodiscard]] std::vector<std::vector<double>> GetTotalDroneView() const { return *total_drone_view_; }
+    [[nodiscard]] std::shared_ptr<const std::vector<std::vector<double>>> GetTotalDroneViewPtr() const { return total_drone_view_; }
 
     //** These functions are only for Python Debugger Visibility **//
     [[nodiscard]] std::pair<double, double> get_velocity() const { return velocity_; }
-    [[nodiscard]] std::vector<std::vector<std::vector<int>>> get_drone_view() const { return drone_view_; }
-    [[nodiscard]] std::vector<std::vector<double>> get_total_drone_view() const { return total_drone_view_; }
-    [[nodiscard]] std::vector<std::vector<int>> get_map() const { return exploration_map_; }
-    [[nodiscard]] std::vector<std::vector<double>> get_fire_map() const { return fire_map_; }
+    [[nodiscard]] std::vector<std::vector<std::vector<int>>> get_drone_view() const { return *drone_view_; }
+    [[nodiscard]] std::vector<std::vector<double>> get_total_drone_view() const { return *total_drone_view_; }
+    [[nodiscard]] std::vector<std::vector<int>> get_map() const { return *exploration_map_; }
+    [[nodiscard]] std::vector<std::vector<double>> get_fire_map() const { return *fire_map_; }
     [[nodiscard]] std::pair<int, int> get_position() const { return position_; }
     [[nodiscard]] std::pair<double, double> get_orientation_vector() const { return orientation_vector_; }
 private:
     //* State Value for the velocity of an Agent in x and y direction
     std::pair<double, double> velocity_;
-    //* State Value for the maximum velocity of an Agent in x and y direction
-    std::pair<double, double> max_speed_;
     //* State Value weather the Agent dispensed water
     int water_dispense_;
     std::pair<double, double> map_dimensions_;
     double cell_size_;
     std::pair<double, double> position_; // x, y
     std::pair<double, double> goal_position_;
-    std::vector<std::vector<std::vector<int>>> drone_view_; // terrain, fire_status split at the first dimension
-    std::vector<std::vector<double>> total_drone_view_;
-    std::vector<std::vector<int>> exploration_map_;
-    std::vector<std::vector<double>> fire_map_;
     std::pair<double, double> orientation_vector_; // x, y
+    std::shared_ptr<const std::vector<std::vector<std::vector<int>>>> drone_view_;
+    std::vector<std::shared_ptr<const std::vector<std::vector<double>>>> multiple_total_drone_views_;
+    std::shared_ptr<const std::vector<std::vector<double>>> total_drone_view_;
+    std::shared_ptr<const std::vector<std::vector<int>>> exploration_map_;
+    std::shared_ptr<const std::vector<std::vector<double>>> fire_map_;
 };
 
-#endif //ROSHAN_DRONE_STATE_H
+#endif //ROSHAN_AGENT_STATE_H

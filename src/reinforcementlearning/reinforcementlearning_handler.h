@@ -14,8 +14,7 @@
 #include "state.h"
 #include "firespin/rendering/firemodel_renderer.h"
 #include "agents/agent_factory.h"
-#include "src/reinforcementlearning/agents/drone_agent.h"
-#include "src/reinforcementlearning/agents/drone_state.h"
+#include "src/reinforcementlearning/agents/agent_state.h"
 #include "reinforcementlearning/actions/fly_action.h"
 #include "src/utils.h"
 
@@ -41,7 +40,11 @@ public:
     void StepDroneManual(int drone_idx, double speed_x, double speed_y, int water_dispense);
     void ResetEnvironment(Mode mode);
     void InitFires() const;
-    std::tuple<std::unordered_map<std::string, std::vector<std::deque<std::shared_ptr<State>>>>, std::vector<double>, std::vector<bool>, std::vector<bool>, double> Step(const std::string& agent_type, std::vector<std::shared_ptr<Action>> actions);
+    std::tuple<std::unordered_map<std::string, std::vector<std::deque<std::shared_ptr<State>>>>,
+            std::vector<double>,
+            std::vector<bool>,
+            std::unordered_map<std::string, bool>,
+            double> Step(const std::string& agent_type, std::vector<std::shared_ptr<Action>> actions);
     void SetModelRenderer(std::shared_ptr<FireModelRenderer> model_renderer) { model_renderer_ = std::move(model_renderer); }
     void SetGridMap(std::shared_ptr<GridMap> gridmap) { gridmap_ = std::move(gridmap); }
     void SetRLStatus(py::dict status);
@@ -51,7 +54,6 @@ public:
         if (agents_by_type_.find("FlyAgent") == agents_by_type_.end()) {
             return std::make_shared<std::vector<std::shared_ptr<FlyAgent>>>();
         }
-
         auto& agents = agents_by_type_["FlyAgent"];
         auto fly_agents = std::make_shared<std::vector<std::shared_ptr<FlyAgent>>>();
 

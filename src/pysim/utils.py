@@ -179,11 +179,11 @@ class Logger:
     def log_episode(self, terminal_result):
         """Logs metrics at each step and handles episode completion."""
         self.current_steps += 1
-        env_done = terminal_result[0]
+        env_done = terminal_result["EnvReset"]
         
         if env_done:
             self.current_episode += 1
-            objective_reached = not terminal_result[1]
+            objective_reached = not terminal_result["OneAgentDied"]
             self.objectives.append(objective_reached)
             self.agent_steps.append(self.current_steps)
             self.episode_finished = True
@@ -255,15 +255,15 @@ class Logger:
         self.writer.add_scalar(f'{self.tag}/Explained Variance (AVG)', np.mean(self.explained_variances), t)
 
         # Log histogram metrics
-        self.writer.add_histogram(f'{self.tag}/Rewards', np.array(self.rewards), t)
+        if self.rewards: self.writer.add_histogram(f'{self.tag}/Rewards', np.array(self.rewards), t)
         # self.writer.add_histogram(f'{self.tag}/Rewards Scaled', np.array(self.rewards_scaled), t)
-        self.writer.add_histogram(f'{self.tag}/Returns', np.array(self.returns), t)
-        self.writer.add_histogram(f'{self.tag}/Values', np.array(self.values), t)
-        self.writer.add_histogram(f'{self.tag}/Std X', np.array(self.std_xs), t)
-        self.writer.add_histogram(f'{self.tag}/Std Y', np.array(self.std_ys), t)
+        if self.returns: self.writer.add_histogram(f'{self.tag}/Returns', np.array(self.returns), t)
+        if self.values: self.writer.add_histogram(f'{self.tag}/Values', np.array(self.values), t)
+        if self.std_xs: self.writer.add_histogram(f'{self.tag}/Std X', np.array(self.std_xs), t)
+        if self.std_ys: self.writer.add_histogram(f'{self.tag}/Std Y', np.array(self.std_ys), t)
         # self.writer.add_histogram(f'{self.tag}/Velocities', np.array(self.velocities), t)
         # self.writer.add_histogram(f'{self.tag}/Positions', np.array(self.positions), t)
-        self.writer.add_histogram(f'{self.tag}/Explained Variances', np.array(self.explained_variances), t)
+        if self.explained_variances: self.writer.add_histogram(f'{self.tag}/Explained Variances', np.array(self.explained_variances), t)
 
         self.summarize_steps += 1
         self.tag = "run" + str(status["train_episode"])

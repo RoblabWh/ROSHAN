@@ -66,9 +66,9 @@ if __name__ == '__main__':
               "num_agents": 1,
               "n_steps": 1024, #128 #TODO: Deprecated
               "flyAgentTimesteps": 3,
-              "exploreAgentTimesteps": 7,
-              "horizon": 1024,#12800,
-              "batch_size": 512,
+              "exploreAgentTimesteps": 3,
+              "horizon": 512,#12800,
+              "batch_size": 32,
               "auto_train": False, # If True, the agent will train several episodes and then evaluate
               "objective": 0, # Tracking the Percentage of the Objective
               "best_objective": 0, # Best Objective so far
@@ -79,8 +79,9 @@ if __name__ == '__main__':
               "max_train": 1000, # Number of Updates to perform before stopping training
               "K_epochs": 18,
               "current_episode": 0,
-              "agent_type": "FlyAgent", # Either FlyAgent, ExplorationAgent
+              "hierarchy_type": "ExploreAgent", # Either FlyAgent, ExplorationAgent
               "resume": False, # If True, the agent will resume training from the last checkpoint
+              "env_reset": False, # Flag that the environment was reset by the Simulation
               }
 
     if llm_support:
@@ -104,12 +105,12 @@ if __name__ == '__main__':
 
     # Now get the view range and time steps from the engine, these parameters are currently set in the model_params
     # TODO Keep this in the model_params as soft hidden param since it meddles with the model structure?
-    view_range = engine.GetViewRange() + 1
+    view_range = engine.GetViewRange(status["hierarchy_type"]) + 1
     map_size = engine.GetMapSize()
-    time_steps = status["flyAgentTimesteps"] if status["agent_type"] == "FlyAgent" else status["exploreAgentTimesteps"]
+    time_steps = status["flyAgentTimesteps"] if status["hierarchy_type"] == "FlyAgent" else status["exploreAgentTimesteps"]
 
     # Create the Agent Object, this is used by the hierachy manager which might spawn other low_level agents
-    agent = AgentHandler(status=status, algorithm='ppo', vision_range=view_range, map_size=map_size, time_steps=time_steps, logdir=config['log_directory'])
+    agent = AgentHandler(status=status, algorithm='iql', vision_range=view_range, map_size=map_size, time_steps=time_steps, logdir=config['log_directory'])
     status["console"] += agent.load_model(status=status)
 
     hierarchy_manager = HierarchyManager(status, agent)
@@ -127,7 +128,7 @@ if __name__ == '__main__':
 
         if engine.AgentIsRunning() and status["agent_online"]:
             # Initial Observation
-            hierarchy_manager.initial_observation(engine.GetObservations())
+            hierarchy_manager.restruct_current_obs(engine.GetObservations())
 
             if status["rl_mode"] == "train":
                 hierarchy_manager.train(status, engine)
@@ -144,4 +145,4 @@ if __name__ == '__main__':
             # TODO DEPRECATED
             llm(engine, user_input, 0, 0)
 
-    engine.reset()
+    engine.Clean()

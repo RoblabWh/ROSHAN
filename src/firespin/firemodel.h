@@ -22,7 +22,6 @@
 #include "model_parameters.h"
 #include "wind.h"
 #include "corine/dataset_handler.h"
-#include "reinforcementlearning/agents/drone_agent.h"
 #include "reinforcementlearning/actions/fly_action.h"
 #include "reinforcementlearning/reinforcementlearning_handler.h"
 #include "src/utils.h"
@@ -40,7 +39,11 @@ public:
     ~FireModel() override;
 
     void Update() override;
-    std::tuple<std::unordered_map<std::string, std::vector<std::deque<std::shared_ptr<State>>>>, std::vector<double>, std::vector<bool>, std::vector<bool>, double> Step(const std::string& agent_type, std::vector<std::shared_ptr<Action>> actions) override;
+    std::tuple<std::unordered_map<std::string,std::vector<std::deque<std::shared_ptr<State>>>>,
+    std::vector<double>,
+    std::vector<bool>,
+    std::unordered_map<std::string, bool>,
+    double> Step(const std::string& agent_type, std::vector<std::shared_ptr<Action>> actions) override;
     std::unordered_map<std::string, std::vector<std::deque<std::shared_ptr<State>>>> GetObservations() override;
     void Render() override;
     void SetRenderer(SDL_Renderer* renderer) override;
@@ -52,7 +55,7 @@ public:
     void SetRLStatus(pybind11::dict status) override;
     void UpdateReward() override;
     pybind11::dict GetRLStatus() override;
-    int GetViewRange() override;
+    int GetViewRange(const std::string& agent_type) override;
     int GetTimeSteps() override;
     int GetMapSize() override;
     void LoadMap(std::string path);

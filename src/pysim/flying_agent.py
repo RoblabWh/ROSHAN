@@ -1,4 +1,4 @@
-from networks.network_fly import Actor, Critic
+from networks.network_fly import Actor, CriticPPO, CriticIQL, Value
 import numpy as np
 import firesim
 
@@ -7,13 +7,20 @@ class FlyAgent:
         self.name = "FlyAgent"
         self.hierachy_level = "low"
         self.use_intrinsic_reward = False
+        self.action_dim = 2
 
     def get_hierachy_level(self):
         return self.hierachy_level
 
     @staticmethod
-    def get_network():
-        return Actor, Critic
+    def get_network(algorithm : str):
+        if algorithm == "ppo":
+            return Actor, CriticPPO
+        elif algorithm == "iql":
+            return Actor, CriticIQL, Value
+        else:
+            raise ValueError(f"Unknown algorithm: {algorithm}")
+
 
     @staticmethod
     def get_action(actions):

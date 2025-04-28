@@ -67,11 +67,13 @@ public:
     }
 
     void ModifyLast(T newValue) {
+        size_t lastIndex;
         if (isEmpty()) {
-            throw std::runtime_error("Buffer is empty, no last element to modify");
+            lastIndex = head;
+        } else {
+            lastIndex = (head == 0 ? max_size : head) - 1;
         }
-        size_t lastIndex = (head == 0 ? max_size : head) - 1;
-        buffer[lastIndex] = newValue;
+        buffer[lastIndex] += newValue;
     }
 
     T get() {

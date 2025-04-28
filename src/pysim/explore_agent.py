@@ -1,4 +1,4 @@
-from networks.network_explore import Actor, Critic, RNDModel
+from networks.network_explore import Actor, CriticPPO, CriticIQL, RNDModel, Value
 from torch.utils.data.sampler import BatchSampler, SubsetRandomSampler
 import numpy as np
 import torch.nn as nn
@@ -10,21 +10,29 @@ class ExploreAgent:
         self.name = "ExploreAgent"
         self.hierachy_level = "medium"
         self.low_level_steps = 200
-        self.use_intrinsic_reward = True
+        self.use_intrinsic_reward = False
         self.rnd_model = None
         self.optimizer = None
         self.MSE_loss = nn.MSELoss()
+        self.action_dim = 2
 
     def get_hierachy_level(self):
         return self.hierachy_level
 
     @staticmethod
-    def get_network():
-        return Actor, Critic
+    def get_network(algorithm : str):
+        if algorithm == "ppo":
+            return Actor, CriticPPO
+        elif algorithm == "iql":
+            return Actor, CriticIQL, Value
+        else:
+            raise ValueError(f"Unknown algorithm: {algorithm}")
 
-    def initialize_rnd_model(self, vision_range, map_size, time_steps, lr=1e-4, betas=(0.9, 0.999)):
+        return Actor, critic
+
+    def initialize_rnd_model(self, vision_range, drone_count, map_size, time_steps, lr=1e-4, betas=(0.9, 0.999)):
         device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
-        self.rnd_model = RNDModel(vision_range, map_size, time_steps).to(device)
+        self.rnd_model = RNDModel(vision_range, drone_count, map_size, time_steps).to(device)
         self.optimizer = torch.optim.Adam(self.rnd_model.parameters(), lr=lr, betas=betas, eps=1e-5)
 
     def get_intrinsic_reward(self, obs):
@@ -54,19 +62,18 @@ class ExploreAgent:
 
     @staticmethod
     def restructure_data(observations_):
-        all_explore_maps, all_fire_maps, all_total_views = [], [], []
+        all_explore_maps, all_total_views = [], []
 
-        for deque in observations_:
+        obs = observations_["ExploreAgent"]
+        for deque in obs:
             drone_states = np.array([state for state in deque if isinstance(state, firesim.DroneState)])
             if len(drone_states) == 0:
                 continue
 
-            exploration_map = np.array([state.GetExplorationMapNorm() for state in drone_states])
-            fire_map = np.array([state.GetFireMap() for state in drone_states])
-            total_view = np.array([state.GetTotalDroneView() for state in drone_states])
+            multi_total_drone_view = np.array([state.GetMultipleTotalDroneView() for state in drone_states])
+            exploration_map = np.array([state.GetExplorationMap() for state in drone_states])
 
             all_explore_maps.append(exploration_map)
-            all_fire_maps.append(fire_map)
-            all_total_views.append(total_view)
+            all_total_views.append(multi_total_drone_view)
 
-        return np.stack([all_total_views, all_explore_maps, all_fire_maps], axis=2)
+        return np.array(all_total_views), np.array(all_explore_maps)

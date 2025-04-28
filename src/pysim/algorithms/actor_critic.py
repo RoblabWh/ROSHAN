@@ -7,13 +7,12 @@ class ActorCritic(nn.Module):
     """
     A PyTorch Module that represents the actor-critic network of a PPO agent.
     """
-    def __init__(self, Actor, Critic, vision_range, map_size, time_steps):
+    def __init__(self, Actor, Critic, vision_range, drone_count, map_size, time_steps):
         super(ActorCritic, self).__init__()
         self.actor_cnt = 0
         self.critic_cnt = 0
         self.device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
-        self.actor = Actor(vision_range, map_size, time_steps).to(self.device)
-        self.critic = Critic(vision_range, map_size, time_steps).to(self.device)
+        self.actor = Actor(vision_range, drone_count, map_size, time_steps).to(self.device)
 
     def act(self, state):
         """
@@ -65,6 +64,15 @@ class ActorCritic(nn.Module):
 
         return action_mean.detach().cpu().numpy()
 
+class ActorCriticPPO(ActorCritic):
+    """
+    A PyTorch Module that represents the actor-critic network of a PPO agent.
+    """
+    def __init__(self, Actor, Critic, vision_range, drone_count, map_size, time_steps):
+        super(ActorCriticPPO, self).__init__(Actor, Critic, vision_range, drone_count, map_size, time_steps)
+
+        self.critic = Critic(vision_range, drone_count, map_size, time_steps).to(self.device)
+
     def evaluate(self, state, action):
         """
         Returns the log probability of the given action, the value of the given state, and the entropy of the actor's
@@ -102,3 +110,32 @@ class ActorCritic(nn.Module):
         state_value = torch.squeeze(state_value)  # Shape: [batch_size]
 
         return action_logprob, state_value, dist_entropy
+
+class ActorCriticIQL(ActorCritic):
+    """
+    A PyTorch Module that represents the actor-critic network of an IQL agent.
+    """
+    def __init__(self, Actor, Critic, Value, action_dim, vision_range, drone_count, map_size, time_steps):
+        super(ActorCriticIQL, self).__init__(Actor, Critic, vision_range, drone_count, map_size, time_steps)
+
+        self.critic = Critic(vision_range, drone_count, map_size, time_steps, action_dim).to(self.device)
+        self.value = Value(vision_range, drone_count, map_size, time_steps).to(self.device)
+
+    def get_logprobs(self, states, actions):
+        # Get action means and variances from the actor network
+        action_mean, action_var = self.actor(states)  # action_mean: [batch_size, action_size], action_var: [action_size, ]
+
+        # Expand action_var to match action_mean
+        batch_size = action_mean.size(0)
+        action_size = action_mean.size(1)
+        action_var = action_var.unsqueeze(0).expand(batch_size, action_size)  # Shape: [batch_size, action_size]
+        action_std = torch.sqrt(action_var)  # Shape: [batch_size, action_size]
+
+        # Create independent normal distributions for each action dimension
+        dist = Normal(action_mean, action_std)  # Shape: [batch_size, action_size]
+        dist = Independent(dist, 1)  # Treat the last dimension as the event dimension
+
+        # Compute log probabilities of the taken actions
+        action_logprob = dist.log_prob(actions)  # action: [batch_size, action_size], action_logprob: [batch_size]
+
+        return action_logprob

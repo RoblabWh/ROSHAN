@@ -8,6 +8,7 @@
 #include <chrono>
 #include <unordered_set>
 #include <functional>
+#include <memory>
 
 enum Mode {
     GUI_RL = 0,
@@ -70,6 +71,17 @@ public:
     int x_;
     int y_;
 };
+
+template <typename Derived, typename Base>
+std::vector<std::shared_ptr<Derived>> CastAgents(const std::vector<std::shared_ptr<Base>>& base_agents) {
+    std::vector<std::shared_ptr<Derived>> result;
+    for (const auto& base : base_agents) {
+        if (auto derived = std::dynamic_pointer_cast<Derived>(base)) {
+            result.push_back(derived);
+        }
+    }
+    return result;
+}
 
 namespace std {
     template <>

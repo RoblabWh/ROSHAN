@@ -159,8 +159,9 @@ public:
     }
 
     // Parameters for the agent
-    std::string agent_type;
-    void SetAgentType(std::string type) {agent_type = std::move(type);}
+    std::string hierarchy_type;
+    void SetHierarchyType(std::string type) { hierarchy_type = std::move(type);}
+    [[nodiscard]] std::string GetHierarchyType() const {return hierarchy_type;}
     bool agent_is_running_ = false;
     void SetAgentIsRunning(bool running) {agent_is_running_ = running;}
     [[nodiscard]] bool GetAgentIsRunning() const {return agent_is_running_;}
@@ -171,11 +172,11 @@ public:
     void SetCurrentEnvSteps(int steps) {current_env_steps_ = steps;}
 //    int GetTotalEnvSteps() const {return (int)((grid_nx_ * grid_ny_ * (0.1 / dt_)) + 80);}
     [[nodiscard]] int GetTotalEnvSteps() const {
-        int agent_factor = agent_type == "FlyAgent" ? 1 : agent_type == "ExploreAgent" ? 2 : 0;
+        int agent_factor = hierarchy_type == "FlyAgent" ? 1 : hierarchy_type == "ExploreAgent" ? 4 : 0;
         return (int)(agent_factor * sqrt(grid_nx_ * grid_nx_ + grid_ny_ * grid_ny_) * (20 / (max_velocity_.first * dt_)));
     }
 
-    [[nodiscard]] int GetViewRange() const {
+    [[nodiscard]] static int GetViewRange(const std::string& agent_type) {
         int view_range_ = agent_type == "FlyAgent" ? 8 : agent_type == "ExploreAgent" ? 12 : 2;
         return view_range_;
     }

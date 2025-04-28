@@ -22,7 +22,7 @@ int main(int argc, char** argv)
         engine->Render();
     }
 
+    engine->Clean();
     engine.reset();
-
     return 0;
 }

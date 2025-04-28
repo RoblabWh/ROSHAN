@@ -52,7 +52,9 @@ bool EngineCore::Init(int mode, const std::string& map_path){
     return is_running_ = init;
 }
 
-EngineCore::~EngineCore() {
+EngineCore::~EngineCore() = default;
+
+void EngineCore::Clean() {
     model_.reset();
     // Cleanup GUI stuff
     if (mode_ == Mode::GUI || mode_ == Mode::GUI_RL) {
@@ -128,10 +130,10 @@ void EngineCore::HandleEvents() {
 void EngineCore::StartServer() {
     int result = std::system("cd ../openstreetmap && npm start");
     if(result == -1){
-        std::cerr << "Failed to execute system command. Errno: " << errno << std::endl;
+        std::cerr << "Failed to start OSM-Server. System command Errno: " << errno << std::endl;
     } else {
         int exit_status = WEXITSTATUS(result);
-        std::cout << "System command executed with exit status: " << exit_status << std::endl;
+        std::cout << "Started OSM-Server with command status: " << exit_status << std::endl;
     }
 }
 
@@ -167,7 +169,11 @@ bool EngineCore::AgentIsRunning() {
     }
 }
 
-std::tuple<std::unordered_map<std::string, std::vector<std::deque<std::shared_ptr<State>>>>, std::vector<double>, std::vector<bool>, std::vector<bool>, double>
+std::tuple<std::unordered_map<std::string,std::vector<std::deque<std::shared_ptr<State>>>>,
+    std::vector<double>,
+    std::vector<bool>,
+        std::unordered_map<std::string, bool>,
+    double>
 EngineCore::Step(const std::string& agent_type, std::vector<std::shared_ptr<Action>> actions) {
     return model_->Step(agent_type, std::move(actions));
 }
@@ -209,9 +215,9 @@ bool EngineCore::InitialModeSelectionDone() {
     return model_->InitialModeSelectionDone();
 }
 
-int EngineCore::GetViewRange() {
+int EngineCore::GetViewRange(const std::string& agent_type) {
     if(model_ != nullptr){
-        return model_->GetViewRange();
+        return model_->GetViewRange(agent_type);
     }
     return 0;
 }

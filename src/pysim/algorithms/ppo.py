@@ -3,68 +3,44 @@ import torch.nn as nn
 import os
 import warnings
 import numpy as np
-from ActorCritic import ActorCritic
+from algorithms.actor_critic import ActorCriticPPO
 from memory import SwarmMemory
 from utils import RunningMeanStd
+from algorithms.rl_algorithm import RLAlgorithm
+from algorithms.rl_config import PPOConfig
 from torch.utils.data.sampler import BatchSampler, SubsetRandomSampler
 
 device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
 
-class PPO:
+class PPO(RLAlgorithm):
     """
     This class represents the PPO Algorithm. It is used to train an actor-critic network.
-
-    :param scan_size: The number of lidar scans in the input lidar scan.
-    :param action_std: The standard deviation of the action distribution.
-    :param input_style: The style of the input to the network.
-    :param lr: The learning rate of the network.
-    :param betas: The betas of the Adam optimizer.
-    :param gamma: The discount factor.
-    :param K_epochs: The number of epochs to train the network.
-    :param eps_clip: The epsilon value for clipping.
-    :param logger: The logger to log data to.
-    :param restore: Whether to restore the network from a checkpoint.
-    :param ckpt: The checkpoint to restore from.
     """
 
-    def __init__(self, network, vision_range, map_size, time_steps, lr, betas, gamma, _lambda, K_epochs, eps_clip, model_path, model_name):
+    def __init__(self, network, config : PPOConfig):
+        super().__init__(config)
 
-        # Algorithm parameters
-        self.entropy_coeff = 0.01 #0.001
-        self.value_loss_coef = 0.5
-        self.separate_optimizers = False
-        self.lr = lr
-        self.betas = betas
-        self.gamma = gamma
-        self._lambda = _lambda
-        self.eps_clip = eps_clip
-        self.K_epochs = K_epochs
-        self.vision_range = vision_range
-        self.map_size = map_size
-        self.time_steps = time_steps
+        for field in config.__dataclass_fields__:
+            setattr(self, field, getattr(config, field))
+
         self.actor = network[0]
         self.critic = network[1]
         self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
-        self.model_path = os.path.abspath(model_path)
-        self.model_name = model_name
-        self.version = 1
-        self.model_version_reward = model_name.split(".")[0] + "_reward_v" + str(self.version) + "." + model_name.split(".")[1]
-        self.model_version_obj = model_name.split(".")[0] + "_obj_v" + str(self.version) + "." + model_name.split(".")[1]
-        self.model_latest = model_name.split(".")[0] + "_latest." + model_name.split(".")[1]
+        self.use_next_obs = False
 
         # Current Policy
-        self.policy = ActorCritic(Actor=self.actor, Critic=self.critic, vision_range=self.vision_range, map_size=map_size, time_steps=self.time_steps)
+        self.policy = ActorCriticPPO(Actor=self.actor, Critic=self.critic, vision_range=self.vision_range, drone_count=self.drone_count, map_size=self.map_size, time_steps=self.time_steps)
 
         self.actor_params = self.policy.actor.parameters()
         self.critic_params = self.policy.critic.parameters()
 
         if self.separate_optimizers:
-            self.optimizer_a = torch.optim.Adam(self.actor_params, lr=lr, betas=betas, eps=1e-5)
-            self.optimizer_c = torch.optim.Adam(self.critic_params, lr=lr, betas=betas, eps=1e-5)
+            self.optimizer_a = torch.optim.Adam(self.actor_params, lr=self.lr, betas=self.betas, eps=1e-5)
+            self.optimizer_c = torch.optim.Adam(self.critic_params, lr=self.lr, betas=self.betas, eps=1e-5)
         else:
             params = list(self.actor_params) + list(self.critic_params)
-            self.optimizer_a = torch.optim.Adam(params, lr=lr, betas=betas, eps=1e-5)
+            self.optimizer_a = torch.optim.Adam(params, lr=self.lr, betas=self.betas, eps=1e-5)
             self.optimizer_c = None
 
         self.MSE_loss = nn.MSELoss()
@@ -76,20 +52,14 @@ class PPO:
         self.version += 1
         self.model_version_reward = self.model_name.split(".")[0] + "_reward_v" + str(self.version) + "." + self.model_name.split(".")[1]
         self.model_version_obj = self.model_name.split(".")[0] + "_obj_v" + str(self.version) + "." + self.model_name.split(".")[1]
-        self.policy = ActorCritic(Actor=self.actor, Critic=self.critic, vision_range=self.vision_range, time_steps=self.time_steps)
+        self.policy = ActorCriticPPO(Actor=self.actor, Critic=self.critic, vision_range=self.vision_range,
+                                  drone_count=self.drone_count, map_size=self.map_size, time_steps=self.time_steps)
         self.optimizer_a = torch.optim.Adam(self.policy.actor.parameters(), lr=self.lr, betas=self.betas, eps=1e-5)
         self.optimizer_c = torch.optim.Adam(self.policy.critic.parameters(), lr=self.lr, betas=self.betas, eps=1e-5)
         self.MSE_loss = nn.MSELoss()
         self.reward_rms = RunningMeanStd()
         self.int_reward_rms = RunningMeanStd()
         self.set_train()
-
-    def set_paths(self, model_path, model_name):
-        self.model_path = os.path.abspath(model_path)
-        self.model_name = model_name
-        self.model_version_reward = model_name.split(".")[0] + "_reward_v" + str(self.version) + "." + model_name.split(".")[1]
-        self.model_version_obj = model_name.split(".")[0] + "_obj_v" + str(self.version) + "." + model_name.split(".")[1]
-        self.model_latest = model_name.split(".")[0] + "_latest." + model_name.split(".")[1]
 
     def set_eval(self):
         self.policy.eval()
@@ -98,8 +68,8 @@ class PPO:
         self.policy.train()
 
     def load(self):
+        path: str = os.path.join(self.model_path, self.model_name).__str__()
         try:
-            path: str = os.path.join(self.model_path, self.model_name).__str__()
             # self.policy.load_state_dict(torch.load(path, map_location=lambda storage, loc: storage))
             self.policy.load_state_dict(torch.load(path, map_location=self.device))
             self.policy.to(self.device)
@@ -153,7 +123,8 @@ class PPO:
 
         return advantages, torch.FloatTensor(returns).to(self.device)
 
-    def calculate_explained_variance(self, values, returns):
+    @staticmethod
+    def calculate_explained_variance(values, returns):
         """
         Calculates the explained variance of the prediction and target.
 

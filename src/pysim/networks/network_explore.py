@@ -8,90 +8,169 @@ torch.autograd.set_detect_anomaly(True)
 
 device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
 
+class CNNSpatialEncoder(nn.Module):
+    def __init__(self, in_channels, out_features):
+        super().__init__()
+        self.conv_net = nn.Sequential(
+            nn.Conv2d(in_channels, 16, kernel_size=3, padding=1),
+            nn.ReLU(),
+            nn.Conv2d(16, 32, kernel_size=3, padding=1),
+            nn.ReLU(),
+            nn.Conv2d(32, 64, kernel_size=3, padding=1),
+            nn.ReLU(),
+            nn.AdaptiveAvgPool2d((4, 4)),
+            nn.Flatten(),
+            nn.Linear(64 * 4 * 4, out_features),
+            nn.ReLU()
+        )
+
+    def forward(self, x):
+        # x: (batch_size, channels, height, width)
+        return self.conv_net(x)
+
+class TemporalEncoder(nn.Module):
+    def __init__(self, in_features, hidden_size):
+        super().__init__()
+        self.gru = nn.GRU(input_size=in_features, hidden_size=hidden_size, batch_first=True)
+
+    def forward(self, x):
+        # x: (batch_size, time_steps, features)
+        _, h_n = self.gru(x)
+        return h_n.squeeze(0)  # final hidden state
 
 class Inputspace(nn.Module):
 
-    def __init__(self, vision_range, map_size, time_steps):
+    def __init__(self, drone_count, map_size, time_steps):
         """
         A PyTorch Module that represents the input space of a neural network.
         """
         super(Inputspace, self).__init__()
 
-        self.vision_range = vision_range
-        self.map_size = map_size
+        self.drone_count = drone_count
         self.time_steps = time_steps
-        self.map_dim = 3
+        spatial_feature_size = 128
+        temporal_feature_size = 128
 
-        # EXPLORE VIEW CONVOLUTION LAYERS
-        # d_in, h_in, w_in
-        layers_dict = [
-            {'padding': (0, 0, 0), 'dilation': (1, 1, 1), 'kernel_size': (1, 3, 3), 'stride': (1, 2, 2),
-             'in_channels': self.time_steps, 'out_channels': 4},
-            {'padding': (0, 0, 0), 'dilation': (1, 1, 1), 'kernel_size': (1, 2, 2), 'stride': (1, 1, 1),
-             'in_channels': 4, 'out_channels': 8},
-        ]
-        self.explore_conv1 = nn.Conv3d(in_channels=layers_dict[0]['in_channels'],
-                                       out_channels=layers_dict[0]['out_channels'],
-                                       kernel_size=layers_dict[0]['kernel_size'],
-                                       stride=layers_dict[0]['stride'],
-                                       padding=layers_dict[0]['padding'])
-        self.explore_conv2 = nn.Conv3d(in_channels=layers_dict[1]['in_channels'],
-                                       out_channels=layers_dict[1]['out_channels'],
-                                       kernel_size=layers_dict[1]['kernel_size'],
-                                       stride=layers_dict[1]['stride'],
-                                       padding=layers_dict[1]['padding'])
+        # CNN Encoders
+        self.agent_position_encoder = CNNSpatialEncoder(drone_count, spatial_feature_size)
+        self.exploration_map_encoder = CNNSpatialEncoder(1, spatial_feature_size)
 
-        in_f = get_in_features_3d(h_in=self.map_size, w_in=self.map_size, d_in=self.map_dim, layers_dict=layers_dict)
+        # Temporal Encoders
+        self.agent_temporal_encoder = TemporalEncoder(spatial_feature_size, temporal_feature_size)
+        self.map_temporal_encoder = TemporalEncoder(spatial_feature_size, temporal_feature_size)
 
-        features_explore = in_f * layers_dict[1]['out_channels']
+        # Final linear layer to merge features
+        self.final_feature_size = temporal_feature_size * 2
+        self.merge_layer = nn.Sequential(
+            nn.Linear(self.final_feature_size, 256),
+            nn.ReLU(),
+        )
 
-        self.flatten = nn.Flatten()
-
-        input_features = features_explore
-        self.out_features = 32
-        mid_features = 64
-
-        self.input_dense1 = nn.Linear(in_features=input_features, out_features=mid_features)
-        initialize_output_weights(self.input_dense1, 'hidden')
-        self.input_dense2 = nn.Linear(in_features=mid_features, out_features=self.out_features)
-        initialize_output_weights(self.input_dense2, 'hidden')
+        self.out_features = 256
 
     @staticmethod
     def prepare_tensor(states):
-        all_maps = states
+        agent_positions, exploration_maps = states
 
-        if isinstance(all_maps, tuple):
-            all_maps = all_maps[0]
+        if isinstance(agent_positions, np.ndarray):
+            agent_positions = torch.tensor(agent_positions, dtype=torch.float32).to(device)
 
-        if isinstance(all_maps, np.ndarray):
-            all_maps = torch.tensor(all_maps, dtype=torch.float32).to(device)
+        if isinstance(exploration_maps, np.ndarray):
+            exploration_maps = torch.tensor(exploration_maps, dtype=torch.float32).to(device)
 
-        return all_maps
+        return agent_positions, exploration_maps
 
     def forward(self, states):
-        all_maps = self.prepare_tensor(states)
+        agent_positions, exploration_maps = self.prepare_tensor(states)
+        batch_size = agent_positions.size(0)
 
-        explore = F.relu(self.explore_conv1(all_maps))
-        explore = F.relu(self.explore_conv2(explore))
-        explore = self.flatten(explore)
+        # Encode spatial per timestep
+        agent_feats = []
+        map_feats = []
+        for t in range(self.time_steps):
+            # Agent positions at t: (batch, drone_count, H, W)
+            agent_t = agent_positions[:, t, :, :, :]
+            agent_feat_t = self.agent_position_encoder(agent_t)
+            agent_feats.append(agent_feat_t.unsqueeze(1))  # (batch, 1, feat)
 
-        explore = F.relu(self.input_dense1(explore))
-        explore = F.relu(self.input_dense2(explore))
-        output_vision = torch.flatten(explore, start_dim=1)
+            # Exploration map at t: (batch, 1, H, W)
+            map_t = exploration_maps[:, t, :, :].unsqueeze(1)
+            map_feat_t = self.exploration_map_encoder(map_t)
+            map_feats.append(map_feat_t.unsqueeze(1))
 
-        return output_vision
+        # Stack over time
+        agent_feats = torch.cat(agent_feats, dim=1)  # (batch, time_steps, feat)
+        map_feats = torch.cat(map_feats, dim=1)  # (batch, time_steps, feat)
+
+        # Temporal encoding
+        agent_temporal_feat = self.agent_temporal_encoder(agent_feats)  # (batch, temporal_feat)
+        map_temporal_feat = self.map_temporal_encoder(map_feats)  # (batch, temporal_feat)
+
+        # Concatenate and merge
+        combined = torch.cat([agent_temporal_feat, map_temporal_feat], dim=-1)
+        out = self.merge_layer(combined)
+
+        return out  # (batch, out_features)
+        # self.drone_count = drone_count
+        # self.map_size = map_size
+        # self.time_steps = time_steps
+        #
+        # # EXPLORE VIEW CONVOLUTION LAYERS
+        # # d_in, h_in, w_in
+        # layers_dict = [
+        #     {'padding': (0, 0, 0), 'dilation': (1, 1, 1), 'kernel_size': (1, 3, 3), 'stride': (1, 2, 2),
+        #      'in_channels': self.time_steps, 'out_channels': 4},
+        #     {'padding': (0, 0, 0), 'dilation': (1, 1, 1), 'kernel_size': (1, 2, 2), 'stride': (1, 1, 1),
+        #      'in_channels': 4, 'out_channels': 8},
+        # ]
+        # self.drone_view_conv1 = nn.Conv3d(in_channels=layers_dict[0]['in_channels'],
+        #                                out_channels=layers_dict[0]['out_channels'],
+        #                                kernel_size=layers_dict[0]['kernel_size'],
+        #                                stride=layers_dict[0]['stride'],
+        #                                padding=layers_dict[0]['padding'])
+        # self.drone_view_conv2 = nn.Conv3d(in_channels=layers_dict[1]['in_channels'],
+        #                                out_channels=layers_dict[1]['out_channels'],
+        #                                kernel_size=layers_dict[1]['kernel_size'],
+        #                                stride=layers_dict[1]['stride'],
+        #                                padding=layers_dict[1]['padding'])
+        #
+        # in_f = get_in_features_3d(h_in=self.map_size, w_in=self.map_size, d_in=self.drone_count, layers_dict=layers_dict)
+        #
+        # features_explore = in_f * layers_dict[1]['out_channels']
+        #
+        # self.flatten = nn.Flatten()
+        #
+        # input_features = features_explore
+        # self.out_features = 32
+        # mid_features = 64
+        #
+        # self.input_dense1 = nn.Linear(in_features=input_features, out_features=mid_features)
+        # initialize_output_weights(self.input_dense1, 'hidden')
+        # self.input_dense2 = nn.Linear(in_features=mid_features, out_features=self.out_features)
+        # initialize_output_weights(self.input_dense2, 'hidden')
+
+    # def forward(self, states):
+    #     all_total_views, all_explore_maps = self.prepare_tensor(states)
+    #
+    #     explore = F.relu(self.explore_conv1(all_maps))
+    #     explore = F.relu(self.explore_conv2(explore))
+    #     explore = self.flatten(explore)
+    #
+    #     explore = F.relu(self.input_dense1(explore))
+    #     explore = F.relu(self.input_dense2(explore))
+    #     output_vision = torch.flatten(explore, start_dim=1)
+    #
+    #     return output_vision
 
 
 class Actor(nn.Module):
     """
     A PyTorch Module that represents the actor network of a PPO agent.
     """
-    def __init__(self, vision_range, map_size, time_steps):
+    def __init__(self, vision_range, drone_count, map_size, time_steps):
         super(Actor, self).__init__()
-        self.Inputspace = Inputspace(vision_range, map_size, time_steps=time_steps)
-        self.in_features = self.Inputspace.out_features
-        # Mu
-        self.mu_goal = nn.Linear(in_features=self.in_features, out_features=2)
+        self.Inputspace = Inputspace(drone_count=drone_count, map_size=map_size, time_steps=time_steps)
+        self.mu_goal = nn.Linear(in_features=self.Inputspace.out_features, out_features=2)
         initialize_output_weights(self.mu_goal, 'actor')
 
         # Logstd
@@ -105,15 +184,24 @@ class Actor(nn.Module):
 
         return mu_goal, var
 
-
 class Critic(nn.Module):
     """
     A PyTorch Module that represents the critic network of a PPO agent.
     """
-    def __init__(self, vision_range, map_size, time_steps):
+    def __init__(self, vision_range, drone_count, map_size, time_steps):
         super(Critic, self).__init__()
-        self.Inputspace = Inputspace(vision_range, map_size, time_steps=time_steps)
+        self.Inputspace = Inputspace(drone_count=drone_count, map_size=map_size, time_steps=time_steps)
         self.in_features = self.Inputspace.out_features
+
+    def forward(self, *args, **kwargs):
+        raise NotImplementedError("Subclasses must implement forward.")
+
+class CriticPPO(Critic):
+    """
+    A PyTorch Module that represents the critic network of a PPO agent.
+    """
+    def __init__(self, vision_range, drone_count, map_size, time_steps):
+        super(CriticPPO, self).__init__(vision_range, drone_count, map_size, time_steps)
 
         # Value
         self.value = nn.Linear(in_features=self.in_features, out_features=1)
@@ -124,12 +212,33 @@ class Critic(nn.Module):
         value = self.value(x)
         return value
 
+class CriticIQL(Critic):
+    """
+    A PyTorch Module that represents the critic network of an IQL agent.
+    """
+    def __init__(self, vision_range, drone_count, map_size, time_steps, action_dim):
+        super(CriticIQL, self).__init__(vision_range, drone_count, map_size, time_steps)
+
+        # Value
+        self.fc1 = nn.Linear(self.in_features + action_dim, 256)
+        self.fc2 = nn.Linear(256, 256)
+        self.q_value = nn.Linear(256, 1)
+        initialize_output_weights(self.q_value, 'critic')
+
+    def forward(self, state, action):
+        x = self.Inputspace(state)
+        x = torch.cat([x, action], dim=1)
+        x = torch.relu(self.fc1(x))
+        x = torch.relu(self.fc2(x))
+        q = self.q_value(x)
+        return q
+
 class RNDModel(nn.Module):
-    def __init__(self, vision_range, map_size, time_steps):
+    def __init__(self, vision_range, drone_count, map_size, time_steps):
         super(RNDModel, self).__init__()
 
-        self.predictor = Inputspace(vision_range, map_size, time_steps)
-        self.target = Inputspace(vision_range, map_size, time_steps)
+        self.predictor = Inputspace(drone_count, map_size, time_steps)
+        self.target = Inputspace(drone_count, map_size, time_steps)
 
         # Set parameters in target network to be non-trainable
         for param in self.target.parameters():
@@ -147,3 +256,27 @@ class RNDModel(nn.Module):
         predictor_features = self.predictor(states)
 
         return target_features, predictor_features
+
+class Value(nn.Module):
+    """
+    A PyTorch Module that represents the value network of an IQL agent.
+    It estimates V(s), the state value.
+    """
+    def __init__(self, vision_range, drone_count, map_size, time_steps):
+        super(Value, self).__init__()
+        self.Inputspace = Inputspace(drone_count=drone_count, map_size=map_size, time_steps=time_steps)
+        self.in_features = self.Inputspace.out_features
+
+        # Simple MLP head for value estimation
+        self.fc1 = nn.Linear(self.in_features, 256)
+        self.fc2 = nn.Linear(256, 256)
+        self.v_value = nn.Linear(256, 1)
+
+        initialize_output_weights(self.v_value, 'value')
+
+    def forward(self, state):
+        x = self.Inputspace(state)
+        x = torch.relu(self.fc1(x))
+        x = torch.relu(self.fc2(x))
+        v = self.v_value(x)
+        return v
