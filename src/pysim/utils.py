@@ -124,7 +124,7 @@ class Logger:
     :param horizon: The number of steps per episode or training horizon.
     """
 
-    def __init__(self, log_dir, horizon):
+    def __init__(self, log_dir):
         self.current_steps = None
         self.episode_finished = None
         self.writer = SummaryWriter(log_dir)
@@ -132,7 +132,6 @@ class Logger:
         self.tag = 'run0'
         self.total_steps = 0  # Total steps across all epochs
         self.summarize_steps = 0
-        self.horizon = horizon
 
         # Initialize storage for metrics
         self.reset_metrics()
@@ -243,16 +242,16 @@ class Logger:
             self.agent_steps.clear()
 
         # Log scalar metrics
-        self.writer.add_scalar(f'{self.tag}/Critic Loss', np.mean(self.critic_losses), t)
-        self.writer.add_scalar(f'{self.tag}/Actor Loss', np.mean(self.actor_losses), t)
+        if self.critic_losses: self.writer.add_scalar(f'{self.tag}/Critic Loss', np.mean(self.critic_losses), t)
+        if self.actor_losses: self.writer.add_scalar(f'{self.tag}/Actor Loss', np.mean(self.actor_losses), t)
         # self.writer.add_scalar(f'{self.tag}/Entropy', np.mean(self.entropies), t)
-        self.writer.add_scalar(f'{self.tag}/Reward (Avg)', np.mean(self.rewards), t)
-        self.writer.add_scalar(f'{self.tag}/Reward Scaled (Avg)', np.mean(self.rewards_scaled), t)
-        self.writer.add_scalar(f'{self.tag}/Return (Avg)', np.mean(self.returns), t)
-        self.writer.add_scalar(f'{self.tag}/Value (Avg)', np.mean(self.values), t)
-        self.writer.add_scalar(f'{self.tag}/Std X (Avg)', np.mean(self.std_xs), t)
-        self.writer.add_scalar(f'{self.tag}/Std Y (Avg)', np.mean(self.std_ys), t)
-        self.writer.add_scalar(f'{self.tag}/Explained Variance (AVG)', np.mean(self.explained_variances), t)
+        if self.rewards: self.writer.add_scalar(f'{self.tag}/Reward (Avg)', np.mean(self.rewards), t)
+        if self.rewards_scaled: self.writer.add_scalar(f'{self.tag}/Reward Scaled (Avg)', np.mean(self.rewards_scaled), t)
+        if self.returns: self.writer.add_scalar(f'{self.tag}/Return (Avg)', np.mean(self.returns), t)
+        if self.values: self.writer.add_scalar(f'{self.tag}/Value (Avg)', np.mean(self.values), t)
+        if self.std_xs: self.writer.add_scalar(f'{self.tag}/Std X (Avg)', np.mean(self.std_xs), t)
+        if self.std_ys: self.writer.add_scalar(f'{self.tag}/Std Y (Avg)', np.mean(self.std_ys), t)
+        if self.explained_variances: self.writer.add_scalar(f'{self.tag}/Explained Variance (AVG)', np.mean(self.explained_variances), t)
 
         # Log histogram metrics
         if self.rewards: self.writer.add_histogram(f'{self.tag}/Rewards', np.array(self.rewards), t)
@@ -270,6 +269,11 @@ class Logger:
 
         # Clear metrics after logging
         self.reset_metrics()
+
+    def reset_bests(self):
+        """Resets the best recorded reward and objective."""
+        self.best_reward = float('-inf')
+        self.best_objective = float('-inf')
 
     def is_better_reward(self):
         """Checks if the current reward is better than the best recorded reward."""

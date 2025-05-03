@@ -2,6 +2,8 @@ import numpy as np
 import torch.nn as nn
 import torch.nn.functional as F
 import torch
+
+from networks.network_fly import DeterministicActor
 from utils import initialize_output_weights, get_in_features_2d, get_in_features_3d
 
 torch.autograd.set_detect_anomaly(True)
@@ -82,19 +84,18 @@ class Inputspace(nn.Module):
 
     def forward(self, states):
         agent_positions, exploration_maps = self.prepare_tensor(states)
-        batch_size = agent_positions.size(0)
 
         # Encode spatial per timestep
         agent_feats = []
         map_feats = []
         for t in range(self.time_steps):
             # Agent positions at t: (batch, drone_count, H, W)
-            agent_t = agent_positions[:, t, :, :, :]
+            agent_t = agent_positions[:, :, t, :, :].permute(1,0,2,3)
             agent_feat_t = self.agent_position_encoder(agent_t)
             agent_feats.append(agent_feat_t.unsqueeze(1))  # (batch, 1, feat)
 
             # Exploration map at t: (batch, 1, H, W)
-            map_t = exploration_maps[:, t, :, :].unsqueeze(1)
+            map_t = exploration_maps[:, :, t, :][0:1]
             map_feat_t = self.exploration_map_encoder(map_t)
             map_feats.append(map_feat_t.unsqueeze(1))
 
@@ -184,6 +185,31 @@ class Actor(nn.Module):
 
         return mu_goal, var
 
+class DeterministicActor(nn.Module):
+    """
+    A PyTorch Module that represents the actor network of a deterministic agent.
+    """
+    def __init__(self, vision_range, drone_count, map_size, time_steps):
+        super(DeterministicActor, self).__init__()
+        self.Inputspace = Inputspace(drone_count=drone_count, map_size=map_size, time_steps=time_steps)
+        self.in_features = self.Inputspace.out_features
+
+        # Mu
+        self.l1 = nn.Linear(in_features=self.in_features, out_features=400)
+        initialize_output_weights(self.l1, 'actor')
+        self.l2 = nn.Linear(in_features=400, out_features=300)
+        initialize_output_weights(self.l2, 'actor')
+        self.l3 = nn.Linear(in_features=300, out_features=2)
+        initialize_output_weights(self.l3, 'actor')
+
+    def forward(self, states):
+        x = self.Inputspace(states)
+        mu_goal = torch.tanh(self.l1(x))
+        mu_goal = torch.tanh(self.l2(mu_goal))
+        mu_goal = torch.tanh(self.l3(mu_goal))
+
+        return mu_goal
+
 class Critic(nn.Module):
     """
     A PyTorch Module that represents the critic network of a PPO agent.
@@ -212,12 +238,12 @@ class CriticPPO(Critic):
         value = self.value(x)
         return value
 
-class CriticIQL(Critic):
+class OffPolicyCritic(Critic):
     """
     A PyTorch Module that represents the critic network of an IQL agent.
     """
     def __init__(self, vision_range, drone_count, map_size, time_steps, action_dim):
-        super(CriticIQL, self).__init__(vision_range, drone_count, map_size, time_steps)
+        super(OffPolicyCritic, self).__init__(vision_range, drone_count, map_size, time_steps)
 
         # Value
         self.fc1 = nn.Linear(self.in_features + action_dim, 256)

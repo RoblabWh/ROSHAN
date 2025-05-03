@@ -6,7 +6,7 @@
 
 #include <utility>
 
-bool EngineCore::Init(int mode, const std::string& map_path){
+bool EngineCore::Init(int mode){
     mode_ = static_cast<Mode>(mode);
     // Switch case for every mode and print the mode
     switch (mode_) {
@@ -43,7 +43,7 @@ bool EngineCore::Init(int mode, const std::string& map_path){
         ImGui::PopStyleColor(3);
     } else if (mode_ == Mode::NoGUI || mode_ == Mode::NoGUI_RL) {
         std::cout << "Loading Firemodel without GUI\n";
-        model_ = FireModel::Create(mode_, map_path);
+        model_ = FireModel::Create(mode_);
         update_simulation_ = true;
         std::cout << "Firemodel loaded\n";
 
@@ -53,6 +53,12 @@ bool EngineCore::Init(int mode, const std::string& map_path){
 }
 
 EngineCore::~EngineCore() = default;
+
+void EngineCore::InitializeMap(const std::string& map_path) {
+    if (mode_ == Mode::NoGUI || mode_ == Mode::NoGUI_RL) {
+        model_->InitializeMap(map_path);
+    }
+}
 
 void EngineCore::Clean() {
     model_.reset();
@@ -352,4 +358,10 @@ bool EngineCore::ImGuiInit() {
         return false;
     }
     return true;
+}
+
+void EngineCore::SimStep(std::vector<std::shared_ptr<Action>> actions) {
+    if(model_ != nullptr){
+        model_->SimStep(std::move(actions));
+    }
 }

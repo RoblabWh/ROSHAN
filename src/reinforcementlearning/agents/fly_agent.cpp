@@ -12,40 +12,19 @@ FlyAgent::FlyAgent(FireModelParameters &parameters, int id, int time_steps) : Ag
     water_capacity_ = parameters_.GetWaterCapacity();
     max_speed_ = parameters_.GetMaxVelocity();
     out_of_area_counter_ = 0;
-//    if (agent_type_ == "FlyAgent") {
-//        if (rng_number <= parameters_.corner_start_percentage_) {
-//            point = grid_map->GetNonGroundStationCorner();
-//        }
-//        else if (rng_number <= parameters_.groundstation_start_percentage_) {
-//            point = grid_map->GetGroundstation()->GetGridPosition();
-//        }
-//        else {
-//            point = grid_map->GetRandomPointInGrid();
-//        }
-//    } else {
-//        int view_range_off = view_range_ / 2;
-//        point = grid_map->GetGroundstation()->GetGridPosition();
-//        int off_x = point.first <= grid_map->GetRows() / 2 ? view_range_off - 1 : -view_range_off + 1;
-//        int off_y = point.second <= grid_map->GetCols() / 2 ? view_range_off - 1: -view_range_off + 1;
-//        point.first += off_x;
-//        point.second += off_y;
-//    }
-//
-//    double x = (point.first + 0.5); // position in grid + offset to center
-//    double y = (point.second + 0.5); // position in grid + offset to center
-//    position_ = std::make_pair(x * parameters_.GetCellSize(), y * parameters_.GetCellSize());
-//    goal_position_ = std::make_pair(0, 0);
-//    view_range_ = FireModelParameters::GetViewRange(agent_type_);
-//    water_capacity_ = parameters_.GetWaterCapacity();
-//    out_of_area_counter_ = 0;
 }
 
-void FlyAgent::Initialize(int mode, const std::shared_ptr<GridMap>& grid_map, const std::shared_ptr<FireModelRenderer>& model_renderer, const std::string& rl_mode) {
+void FlyAgent::Initialize(int mode,
+                          const int frame_skips,
+                          const std::shared_ptr<GridMap>& grid_map,
+                          const std::shared_ptr<FireModelRenderer>& model_renderer,
+                          const std::string& rl_mode) {
     if (mode == Mode::GUI_RL) {
         this->SetDroneTextureRenderer(model_renderer->GetRenderer());
         this->SetGoalTextureRenderer(model_renderer->GetRenderer());
     }
 
+    frame_skips_ = frame_skips;
     std::random_device rd;
     std::mt19937 gen(rd());
     std::uniform_real_distribution<double> dist(0.0, 1.0);
@@ -89,7 +68,8 @@ std::shared_ptr<AgentState> FlyAgent::BuildAgentState(const std::shared_ptr<Grid
                                                       std::pair<double, double> velocity,
                                                       int water_dispense) {
     auto state = std::make_shared<AgentState>();
-
+    velocity.first *= frame_skips_;
+    velocity.second *= frame_skips_;
     state->SetVelocity(velocity);
     state->SetWaterDispense(water_dispense);
     state->SetDroneView(grid_map->GetDroneView(GetGridPosition(), GetViewRange()));
@@ -125,11 +105,15 @@ void FlyAgent::PerformFly(FlyAction* action, const std::string& hierarchy_type, 
     // Get the speed and water dispense from the action
     double speed_x = action->GetSpeedX(); // change this to "real" speed
     double speed_y = action->GetSpeedY();
-    this->Step(speed_x, speed_y, gridMap);
+    if (hierarchy_type == "Stepper") {
+        this->MovementStep(speed_x, speed_y);
+    } else {
+        this->Step(speed_x, speed_y, gridMap);
+    }
     if (hierarchy_type == "FlyAgent") {
         this->FlyPolicy(gridMap);
         did_hierarchy_step = true;
-    } else {
+    } else if (hierarchy_type == "ExploreAgent") {
         objective_reached_ = false;
         if (this->almostEqual(this->GetGoalPosition(), this->GetGridPositionDouble())) {
             objective_reached_ = true;
@@ -380,34 +364,36 @@ std::vector<bool> FlyAgent::GetTerminalStates(bool eval_mode, const std::shared_
     // If the drone has reached the goal and it is not in evaluation mode
     // the goal is reached because the fly agent is trained that way
     if (objective_reached_) {
-        if (!eval_mode){
-            terminal_state = true;
-        }
+        // TODO lustiges loeschverhalten
+//        if (!eval_mode){
+//            terminal_state = true;
+//        }
+        terminal_state = true;
         drone_succeeded = true;
     }
     // If the agent has taken too long it has reached a terminal state and died
-    if (env_steps_remaining <= 0 && !eval_mode) {
+    if (env_steps_remaining <= 0) {
         terminal_state = true;
         drone_died = true;
     }
 
     // TODO CHANGE LATER
-    // Terminals only for evaluation
-    if (eval_mode){
-        if (grid_map->PercentageBurned() > 0.30) {
-            terminal_state = true;
-            drone_died = true;
-        }
-        if (extinguished_last_fire_) {
-            //  Don't use gridmap_->IsBurning() because it is not reliable since it returns false when there
-            //  are particles in the air. Instead, check if the drone has extinguished the last fire on the map.
-            //  This also makes sure that only the drone that actually extinguished the fire gets the reward
-            terminal_state = true;
-        }
-        if (!grid_map->IsBurning()) {
-            terminal_state = true;
-        }
-    }
+    // Terminals only for evaluation lustiges loeschverhalten
+//    if (eval_mode){
+//        if (grid_map->PercentageBurned() > 0.30) {
+//            terminal_state = true;
+//            drone_died = true;
+//        }
+//        if (extinguished_last_fire_) {
+//            //  Don't use gridmap_->IsBurning() because it is not reliable since it returns false when there
+//            //  are particles in the air. Instead, check if the drone has extinguished the last fire on the map.
+//            //  This also makes sure that only the drone that actually extinguished the fire gets the reward
+//            terminal_state = true;
+//        }
+//        if (!grid_map->IsBurning()) {
+//            terminal_state = true;
+//        }
+//    }
 
     terminal_states.push_back(terminal_state);
     terminal_states.push_back(drone_died);

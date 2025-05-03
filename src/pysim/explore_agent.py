@@ -1,4 +1,4 @@
-from networks.network_explore import Actor, CriticPPO, CriticIQL, RNDModel, Value
+from networks.network_explore import Actor, CriticPPO, OffPolicyCritic, DeterministicActor, RNDModel, Value
 from torch.utils.data.sampler import BatchSampler, SubsetRandomSampler
 import numpy as np
 import torch.nn as nn
@@ -21,14 +21,14 @@ class ExploreAgent:
 
     @staticmethod
     def get_network(algorithm : str):
-        if algorithm == "ppo":
+        if algorithm == "PPO":
             return Actor, CriticPPO
-        elif algorithm == "iql":
-            return Actor, CriticIQL, Value
+        elif algorithm == "IQL":
+            return Actor, OffPolicyCritic, Value
+        elif algorithm == "TD3":
+            return DeterministicActor, OffPolicyCritic
         else:
             raise ValueError(f"Unknown algorithm: {algorithm}")
-
-        return Actor, critic
 
     def initialize_rnd_model(self, vision_range, drone_count, map_size, time_steps, lr=1e-4, betas=(0.9, 0.999)):
         device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
@@ -76,4 +76,6 @@ class ExploreAgent:
             all_explore_maps.append(exploration_map)
             all_total_views.append(multi_total_drone_view)
 
-        return np.array(all_total_views), np.array(all_explore_maps)
+        aemaps = np.repeat(np.array(all_explore_maps), 2, axis=0)
+        aemaps = np.expand_dims(aemaps, axis=1)
+        return np.transpose(np.array(all_total_views), (2,0,1,3,4)), aemaps

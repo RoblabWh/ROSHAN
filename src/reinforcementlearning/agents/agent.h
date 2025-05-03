@@ -5,6 +5,8 @@
 #ifndef ROSHAN_AGENT_H
 #define ROSHAN_AGENT_H
 
+#define DEBUG_REWARD_NO
+
 #include <string>
 #include <memory>
 #include <vector>

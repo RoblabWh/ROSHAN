@@ -36,7 +36,7 @@ class Inputspace(nn.Module):
         if not torch.is_tensor(position):
             position = torch.as_tensor(position, dtype=torch.float32)
 
-        # Only move if needed (avoids copy)
+        # Only move if needed
         if velocity.device != self.device:
             velocity = velocity.to(self.device)
         if position.device != self.device:
@@ -45,9 +45,9 @@ class Inputspace(nn.Module):
         return velocity, position
 
     def forward(self, states):
-        velocity, goal = self.prepare_tensor(states)
+        velocity, delta_goal = self.prepare_tensor(states)
 
-        delta_position = goal - velocity
+        delta_position = delta_goal - velocity
         x = torch.cat((velocity, delta_position), dim=-1)
         # x = x.permute(0, 2, 1)  # Change shape to (batch_size, channels, time_steps)
         # x = self.temporal_conv(x)
@@ -82,6 +82,30 @@ class Actor(nn.Module):
 
         return mu_move, var
 
+class DeterministicActor(nn.Module):
+    """
+    A PyTorch Module that represents the actor network of a deterministic agent.
+    """
+    def __init__(self, vision_range, drone_count, map_size, time_steps):
+        super(DeterministicActor, self).__init__()
+        self.Inputspace = Inputspace(vision_range, time_steps=time_steps)
+        self.in_features = self.Inputspace.out_features
+
+        # Mu
+        self.l1 = nn.Linear(in_features=self.in_features, out_features=400)
+        initialize_output_weights(self.l1, 'actor')
+        self.l2 = nn.Linear(in_features=400, out_features=300)
+        initialize_output_weights(self.l2, 'actor')
+        self.l3 = nn.Linear(in_features=300, out_features=2)
+        initialize_output_weights(self.l3, 'actor')
+
+    def forward(self, states):
+        x = self.Inputspace(states)
+        x = F.relu(self.l1(x))
+        x = F.relu(self.l2(x))
+        movement = torch.tanh(self.l3(x))
+        return movement
+
 
 class Critic(nn.Module):
     """
@@ -111,12 +135,12 @@ class CriticPPO(Critic):
         value = self.value(x)
         return value
 
-class CriticIQL(Critic):
+class OffPolicyCritic(Critic):
     """
     A PyTorch Module that represents the critic network of an IQL agent.
     """
     def __init__(self, vision_range, drone_count, map_size, time_steps, action_dim):
-        super(CriticIQL, self).__init__(vision_range, drone_count, map_size, time_steps)
+        super(OffPolicyCritic, self).__init__(vision_range, drone_count, map_size, time_steps)
 
         # Q1 architecture
         self.l1 = nn.Linear(self.in_features + action_dim, 256)

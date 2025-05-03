@@ -35,7 +35,11 @@ public:
     }
     std::vector<bool> GetTerminalStates(bool eval_mode, const std::shared_ptr<GridMap>& grid_map, int env_steps_remaining) override;
 
-    void Initialize(int mode, const std::shared_ptr<GridMap>& grid_map, const std::shared_ptr<FireModelRenderer>& model_renderer, const std::string& rl_mode);
+    void Initialize(int mode,
+                    int frame_skips,
+                    const std::shared_ptr<GridMap>& grid_map,
+                    const std::shared_ptr<FireModelRenderer>& model_renderer,
+                    const std::string& rl_mode);
     void InitializeFlyAgentStates(const std::shared_ptr<GridMap>& grid_map);
 
     void PerformFly(FlyAction* action, const std::string& hierarchy_type, const std::shared_ptr<GridMap>& gridMap);
@@ -98,6 +102,7 @@ private:
     double last_distance_to_goal_{};
     bool drone_in_grid_ = true; //* Is the Drone in the Grid?
     int view_range_; //* View Range of the Agent in Grid Cells (10m each)
+    int frame_skips_; //* Number of frames the simulation repeates a low level action
     std::pair<double, double> max_speed_; //* Value for the maximum velocity of an Agent in x and y direction
 
     // Possibly Deprecated

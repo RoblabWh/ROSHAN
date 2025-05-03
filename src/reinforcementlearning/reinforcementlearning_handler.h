@@ -40,6 +40,7 @@ public:
     void StepDroneManual(int drone_idx, double speed_x, double speed_y, int water_dispense);
     void ResetEnvironment(Mode mode);
     void InitFires() const;
+    void SimStep(std::vector<std::shared_ptr<Action>> actions);
     std::tuple<std::unordered_map<std::string, std::vector<std::deque<std::shared_ptr<State>>>>,
             std::vector<double>,
             std::vector<bool>,

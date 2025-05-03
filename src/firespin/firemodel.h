@@ -30,15 +30,16 @@ namespace py = pybind11;
 
 class FireModel : public IModel{
 public:
-    explicit FireModel(Mode mode, const std::string& map_path);
+    explicit FireModel(Mode mode);
 
-    static std::shared_ptr<FireModel> Create(Mode mode, const std::string& map_path="") {
-        return std::make_shared<FireModel>(mode, map_path);
+    static std::shared_ptr<FireModel> Create(Mode mode) {
+        return std::make_shared<FireModel>(mode);
     }
 
     ~FireModel() override;
 
     void Update() override;
+    void SimStep(std::vector<std::shared_ptr<Action>> actions);
     std::tuple<std::unordered_map<std::string,std::vector<std::deque<std::shared_ptr<State>>>>,
     std::vector<double>,
     std::vector<bool>,
@@ -58,6 +59,7 @@ public:
     int GetViewRange(const std::string& agent_type) override;
     int GetTimeSteps() override;
     int GetMapSize() override;
+    void InitializeMap(const std::string &map_path) override;
     void LoadMap(std::string path);
     bool InitialModeSelectionDone() override;
 

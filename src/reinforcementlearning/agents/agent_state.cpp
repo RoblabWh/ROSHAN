@@ -48,14 +48,15 @@ std::pair<double, double> AgentState::GetDeltaGoal() const {
     auto position = GetGridPositionDouble();
     auto largest_side = std::max(map_dimensions_.first, map_dimensions_.second);
 //    auto diagonal = sqrt(map_dimensions_.first * map_dimensions_.first + map_dimensions_.second * map_dimensions_.second);
-    double x = ((position.first - goal_position_.first) / largest_side) * 1;
-    double y = ((position.second - goal_position_.second) / largest_side) * 1;
+    double x = ((position.first - goal_position_.first) / largest_side);
+    double y = ((position.second - goal_position_.second) / largest_side);
     return std::make_pair(x, y);
 }
 
 [[nodiscard]] std::pair<double, double> AgentState::GetVelocityNorm() const {
     auto largest_side = std::max(map_dimensions_.first, map_dimensions_.second);
-    return std::make_pair(velocity_.first / (largest_side * cell_size_), velocity_.second / (largest_side * cell_size_));
+    // Multiply by 100 to make the feature more significant for the neural network
+    return std::make_pair((velocity_.first / (largest_side * cell_size_)), (velocity_.second / (largest_side * cell_size_)));
     //{ return std::make_pair(velocity_.first / max_speed_.first, velocity_.second / max_speed_.second); }
 }
 

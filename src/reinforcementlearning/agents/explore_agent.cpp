@@ -16,7 +16,6 @@ void ExploreAgent::Initialize(std::vector<std::shared_ptr<FlyAgent>> fly_agents,
     InitializeExploreAgentStates(grid_map);
     for (const auto& fly_agent : fly_agents_) {
         fly_agent->SetGoalPosition(std::make_pair(grid_map->GetRows() / 2, grid_map->GetCols() / 2));
-        fly_agent->SetPosition(std::make_pair(0, 0));
     }
 }
 

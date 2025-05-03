@@ -41,10 +41,11 @@ class SwarmMemory(object):
         for i in range(self.num_agents):
             int_reward = intrinsic_reward[i] if intrinsic_reward is not None else None
             n_obs_ = self.get_agent_state(next_obs, agent_id=i) if next_obs is not None else None
+            action_logprobs_ = action_logprobs[i] if action_logprobs is not None else None
             self.memory[i].add(
                 self.get_agent_state(state, agent_id=i),
                 action[i],
-                action_logprobs[i],
+                action_logprobs_,
                 reward[i],
                 done[i],
                 next_obs=n_obs_,

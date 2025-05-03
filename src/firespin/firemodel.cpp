@@ -6,7 +6,7 @@
 
 #include <utility>
 
-FireModel::FireModel(Mode mode, const std::string& map_path) : mode_(mode)
+FireModel::FireModel(Mode mode) : mode_(mode)
 {
     running_time_ = 0;
     timer_.Start();
@@ -29,16 +29,6 @@ FireModel::FireModel(Mode mode, const std::string& map_path) : mode_(mode)
     if (mode_ == Mode::GUI || mode_ == Mode::NoGUI){
         parameters_.SetNumberOfDrones(0);
     }
-    if ((mode_ == Mode::NoGUI_RL || mode_ == Mode::NoGUI)){
-        if (!map_path.empty()){
-            std::cout << "Loading map from: " << map_path << std::endl;
-            this->LoadMap(map_path);
-        } else {
-            std::cout << "No map path provided, using default map." << std::endl;
-            this->SetUniformRasterData();
-        }
-        this->StartFires(parameters_.fire_percentage_);
-    }
     if (mode_ == Mode::NoGUI_RL) {
         parameters_.SetNumberOfDrones(1);
         parameters_.SetAgentIsRunning(true);
@@ -54,6 +44,19 @@ FireModel::~FireModel(){
     model_renderer_.reset();
     wind_.reset();
     std::cout << "FireModel destroyed" << std::endl;
+}
+
+void FireModel::InitializeMap(const std::string& map_path) {
+    if ((mode_ == Mode::NoGUI_RL || mode_ == Mode::NoGUI)){
+        if (!map_path.empty()){
+            std::cout << "Loading map from: " << map_path << std::endl;
+            this->LoadMap(map_path);
+        } else {
+            std::cout << "No map path provided, using default map." << std::endl;
+            this->SetUniformRasterData();
+        }
+        this->StartFires(parameters_.fire_percentage_);
+    }
 }
 
 void FireModel::ResetGridMap(std::vector<std::vector<int>>* rasterData) {
@@ -136,6 +139,10 @@ void FireModel::Update() {
 
 std::unordered_map<std::string, std::vector<std::deque<std::shared_ptr<State>>>> FireModel::GetObservations() {
     return rl_handler_->GetObservations();
+}
+
+void FireModel::SimStep(std::vector<std::shared_ptr<Action>> actions){
+    rl_handler_->SimStep(std::move(actions));
 }
 
 std::tuple<std::unordered_map<std::string, std::vector<std::deque<std::shared_ptr<State>>>>,

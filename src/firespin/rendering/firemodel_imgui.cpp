@@ -176,14 +176,11 @@ void ImguiHandler::RLStatusParser(const py::dict& rl_status) {
     auto rl_mode = rl_status["rl_mode"].cast<std::string>();
     auto model_path = rl_status["model_path"].cast<std::string>();
     auto model_name = rl_status["model_name"].cast<std::string>();
-//    auto agent_online = rl_status["agent_online"].cast<bool>();
-    auto horizon = rl_status["horizon"].cast<int>();
     auto obs_collected = rl_status["obs_collected"].cast<int>();
-    auto n_steps = rl_status["n_steps"].cast<int>();
+    auto min_update = rl_status["min_update"].cast<int>();
     auto auto_train = rl_status["auto_train"].cast<bool>();
-    auto batch_size = rl_status["batch_size"].cast<int>();
     auto train_step = rl_status["train_step"].cast<int>();
-    auto k_epochs = rl_status["K_epochs"].cast<int>();
+    auto policy_updates = rl_status["policy_updates"].cast<int>();
     auto objective = rl_status["objective"].cast<double>();
     auto best_objective = rl_status["best_objective"].cast<double>();
     auto current_episode = rl_status["current_episode"].cast<int>();
@@ -255,10 +252,8 @@ void ImguiHandler::RLStatusParser(const py::dict& rl_status) {
     ImGui::Text("Hyperparameter");
     ImGui::SetWindowFontScale(1.0f);
     ImGui::PopStyleColor();
-    ImGui::Text("Train Step(Policy Updates): %d(%d)", (int)(train_step / k_epochs / (horizon / batch_size)), train_step);
-    ImGui::Text("Horizon: %d/%d", obs_collected, horizon);
-    ImGui::Text("Batch Size: %d", batch_size);
-    ImGui::Text("n_steps: %d", n_steps);
+    ImGui::Text("Train Step(Policy Updates): %d(%d)", train_step, policy_updates);
+    ImGui::Text("Horizon: %d/%d", obs_collected, min_update);
     ImGui::Text("Auto Train: %s", auto_train ? "true" : "false");
     ImGui::Separator();
     ImGui::SetWindowFontScale(1.5f);
@@ -845,20 +840,39 @@ bool ImguiHandler::ImGuiOnStartup(const std::shared_ptr<FireModelRenderer>& mode
             parameters_.SetNumberOfDrones(num_agents);
 
             // Combo Box for selecting the Agent Types
-            static int current_hierarchy_type = 0;
-            const char* agent_types[] = {"FlyAgent", "ExploreAgent"};
+            auto hierarchy_type = rl_status["hierarchy_type"].cast<std::string>();
+            const char* hierarchy_types[] = {"FlyAgent", "ExploreAgent"};
+            static int current_hierarchy_type = hierarchy_type == "FlyAgent" ? 0 : hierarchy_type == "ExploreAgent" ? 1 : 2;
             ImGui::Text("Select Agent Type");
-            if (ImGui::BeginCombo("##Hierarchy Type", agent_types[current_hierarchy_type])) {
-                for (int n = 0; n < IM_ARRAYSIZE(agent_types); n++) {
+            if (ImGui::BeginCombo("##Hierarchy Type", hierarchy_types[current_hierarchy_type])) {
+                for (int n = 0; n < IM_ARRAYSIZE(hierarchy_types); n++) {
                     const bool is_selected = (current_hierarchy_type == n);
-                    if (ImGui::Selectable(agent_types[n], is_selected))
+                    if (ImGui::Selectable(hierarchy_types[n], is_selected))
                         current_hierarchy_type = n;
                     if (is_selected)
                         ImGui::SetItemDefaultFocus();
                 }
                 ImGui::EndCombo();
             }
-            rl_status[py::str("hierarchy_type")] = agent_types[current_hierarchy_type];
+            rl_status[py::str("hierarchy_type")] = hierarchy_types[current_hierarchy_type];
+            ImGui::Spacing();
+
+            // Combo Box for selecting the RL Algorithm
+            auto rl_algorithm = rl_status["rl_algorithm"].cast<std::string>();
+            const char* rl_algorithms[] = {"PPO", "TD3", "IQL"};
+            static int current_rl_algorithm = rl_algorithm == "PPO" ? 0 : rl_algorithm == "TD3" ? 1 : rl_algorithm == "IQL" ? 2 : 3;
+            ImGui::Text("Select RL Algorithm");
+            if (ImGui::BeginCombo("##RL Algorithm", rl_algorithms[current_rl_algorithm])) {
+                for (int n = 0; n < IM_ARRAYSIZE(rl_algorithms); n++) {
+                    const bool is_selected = (current_rl_algorithm == n);
+                    if (ImGui::Selectable(rl_algorithms[n], is_selected))
+                        current_rl_algorithm = n;
+                    if (is_selected)
+                        ImGui::SetItemDefaultFocus();
+                }
+                ImGui::EndCombo();
+            }
+            rl_status[py::str("rl_algorithm")] = rl_algorithms[current_rl_algorithm];
             ImGui::Spacing();
 
             if (ImGui::Button("Train Model", ImVec2(-1, 0))) {
@@ -897,34 +911,13 @@ bool ImguiHandler::ImGuiOnStartup(const std::shared_ptr<FireModelRenderer>& mode
             ImGui::SetWindowPos(ImVec2((static_cast<float>(width) - window_size.x) * 0.5f,
                                        (static_cast<float>(height) - window_size.y) * 0.5f));
             ImGui::Spacing();
-            ImGui::Text("Choose Initial Training Parameters");
+            ImGui::Text("Algorithm specific parameters must be changed in their Config files.");
             ImGui::Spacing();
             py::dict rl_status = onGetRLStatus();
-            static bool n_steps_auto = false;
-            ImGui::SetTooltip("WARNING: Experimental feature. Divides the horizon into n_steps and resets the discount after each step. "
-                              "This is not according to the original paper and might not work as intended.");
-            auto n_steps = rl_status["n_steps"].cast<int>();
-            static int new_horizon = rl_status["horizon"].cast<int>();
             auto auto_train = rl_status["auto_train"].cast<bool>();
             auto train_episodes = rl_status["train_episodes"].cast<int>();
             auto max_eval = rl_status["max_eval"].cast<int>();
             auto max_train = rl_status["max_train"].cast<int>();
-            auto batch_size = rl_status["batch_size"].cast<int>();
-            ImGui::InputInt("Horizon", &new_horizon, 1, 10, ImGuiInputTextFlags_CharsDecimal);
-            if(ImGui::IsItemHovered())
-                ImGui::SetTooltip("The Horizon is the number of steps the agent will take before updating the model.");
-            ImGui::InputInt("Batch Size", &batch_size, 1, 10, ImGuiInputTextFlags_CharsDecimal);
-            if(ImGui::IsItemHovered())
-                ImGui::SetTooltip("The Batch Size is the number of observations collected from the horizon with which the model will be updated.");
-            ImGui::Checkbox("Use n_steps", &n_steps_auto);
-            if (n_steps_auto) {
-                ImGui::InputInt("n_steps", &n_steps, 1, 10, ImGuiInputTextFlags_CharsDecimal);
-                if(ImGui::IsItemHovered())
-                    ImGui::SetTooltip("Number of steps the discount function takes before resetting.");
-            }
-            else {
-                n_steps = new_horizon;
-            }
             if (auto_train) {
                 ImGui::InputInt("Train X Models", &train_episodes, 1, 10, ImGuiInputTextFlags_CharsDecimal);
                 if(ImGui::IsItemHovered())
@@ -942,10 +935,7 @@ bool ImguiHandler::ImGuiOnStartup(const std::shared_ptr<FireModelRenderer>& mode
             ImGui::Checkbox("Auto Train/Eval", &auto_train);
             if(ImGui::IsItemHovered())
                 ImGui::SetTooltip("Automatically train and evaluate models.");
-            rl_status[py::str("horizon")] = new_horizon;
-            rl_status[py::str("batch_size")] = batch_size;
             rl_status[py::str("auto_train")] = auto_train;
-            rl_status[py::str("n_steps")] = n_steps;
             onSetRLStatus(rl_status);
             if (ImGui::Button("Proceed to Map Selection", ImVec2(-1, 0))) {
                 train_mode_selected_ = false;

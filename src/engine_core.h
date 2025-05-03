@@ -40,7 +40,7 @@ public:
     EngineCore()= default;
     ~EngineCore();
 
-    bool Init(int mode, const std::string& map_path = "");
+    bool Init(int mode);
     void Clean();
 
     void Update();
@@ -55,6 +55,7 @@ public:
     // Observe the current state of the environment
     bool AgentIsRunning();
     std::string GetUserInput();
+    void SimStep(std::vector<std::shared_ptr<Action>> actions);
     std::unordered_map<std::string, std::vector<std::deque<std::shared_ptr<State>>>> GetObservations();
     std::tuple<std::unordered_map<std::string, std::vector<std::deque<std::shared_ptr<State>>>>,
             std::vector<double>,
@@ -68,6 +69,7 @@ public:
     int GetViewRange(const std::string& agent_type);
     int GetTimeSteps();
     int GetMapSize();
+    void InitializeMap(const std::string &map_path);
 
 private:
 
@@ -103,6 +105,7 @@ private:
     Mode mode_;
 
     static void StyleColorsEnemyMouse(ImGuiStyle *dst);
+
 };
 
 

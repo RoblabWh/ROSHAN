@@ -15,18 +15,21 @@ class HierarchyManager:
         for key in self.hierarchy_keys:
             self.hierarchy[key].restruct_current_obs(observations_)
 
+    def sim_step(self, engine):
+        self.hierarchy["low"].sim_step(engine)
+
     def train(self, status, engine):
 
         if "medium" in self.hierarchy_keys:
             # Train Loop for medium level agent
             if self.hierarchy["medium"].hierarchy_steps % self.max_low_level_steps == 0 or \
-                self.hierarchy["medium"].hierarchy_early_stop or status["env_reset"]:
+                self.hierarchy["medium"].hierarchy_early_stop or self.hierarchy["medium"].env_reset or status["env_reset"]:
                 self.hierarchy["medium"].train_loop(status, engine)
-                status["env_reset"] = False
+                status["env_reset"] = False # This is needed because the User can reset the environment at any time !
                 self.hierarchy["medium"].hierarchy_steps = 0
                 self.hierarchy["medium"].hierarchy_early_stop = False
             else:
-                self.hierarchy["medium"].hierarchy_early_stop = self.hierarchy["low"].eval_loop(status, engine, evaluate=False)
+                self.hierarchy["medium"].hierarchy_early_stop, _ = self.hierarchy["low"].eval_loop(status, engine, evaluate=False)
             self.hierarchy["medium"].hierarchy_steps += 1
         else:
             # Train Loop for low level agent
@@ -64,7 +67,7 @@ class HierarchyManager:
             status_["model_path"] = "/home/nex/Dokumente/Code/ROSHAN/models/new_solved/"
             status_["rl_mode"] = "eval"
             status_["console"] = ""
-            low_level_agent = AgentHandler(status_, algorithm="ppo", vision_range=vision_range, map_size=map_size, time_steps=time_steps, logdir='./logs')
+            low_level_agent = AgentHandler(status_, algorithm='PPO', vision_range=vision_range, map_size=map_size, time_steps=time_steps, logdir='./logs')
             status["console"] += "Hierarchy: Medium Level & Low Level\n"
             status["console"] += "Loading Low Level Model...\n"
             low_level_agent.load_model(status_)

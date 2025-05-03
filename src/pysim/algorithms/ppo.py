@@ -27,8 +27,6 @@ class PPO(RLAlgorithm):
         self.critic = network[1]
         self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
-        self.use_next_obs = False
-
         # Current Policy
         self.policy = ActorCriticPPO(Actor=self.actor, Critic=self.critic, vision_range=self.vision_range, drone_count=self.drone_count, map_size=self.map_size, time_steps=self.time_steps)
 
@@ -136,7 +134,7 @@ class PPO(RLAlgorithm):
         var_returns = returns.var()
         return 0 if var_returns == 0 else 1 - (returns - values).var() / var_returns
 
-    def update(self, memory: SwarmMemory, horizon, mini_batch_size, n_steps, next_obs, logger):
+    def update(self, memory: SwarmMemory, mini_batch_size, next_obs, logger):
         """
         This function implements the update step of the Proximal Policy Optimization (PPO) algorithm for a swarm of
         robots. It takes in the memory buffer containing the experiences of the swarm, as well as the number of batches
@@ -149,7 +147,6 @@ class PPO(RLAlgorithm):
         Finally, the function copies the updated weights to the old policy for future use in the next update step.
 
         :param memory: The memory to update the network with.
-        :param horizon: The size of all data gathered before training
         """
 
         t_dict = memory.to_tensor()
@@ -192,35 +189,35 @@ class PPO(RLAlgorithm):
             advantages = []
             returns = []
             for i in range(memory.num_agents):
-                # _, values_, _ = self.policy.evaluate(states[i], actions[i])
-                # if masks[i][-1] == 1:
-                #     last_state = tuple(torch.FloatTensor(np.array(state)).to(self.device) for state in memory.get_agent_state(next_obs, i))
-                #     bootstrapped_value = self.policy.critic(last_state).detach()
-                #     values_ = torch.cat((values_, bootstrapped_value[0]), dim=0)
-                # adv, ret = self.get_advantages(values_.detach(), masks[i], rewards[i].detach())
+                _, values_, _ = self.policy.evaluate(states[i], actions[i])
+                if masks[i][-1] == 1:
+                    last_state = tuple(torch.FloatTensor(np.array(state)).to(self.device) for state in memory.get_agent_state(next_obs, i))
+                    bootstrapped_value = self.policy.critic(last_state).detach()
+                    values_ = torch.cat((values_, bootstrapped_value[0]), dim=0)
+                adv, ret = self.get_advantages(values_.detach(), masks[i], rewards[i].detach())
+
+                advantages.append(adv)
+                returns.append(ret)
+
+                # step_indices = list(np.arange(0, len(states[0][0]), 1))
+                # if step_indices[-1] != len(states[0][0]):
+                #     step_indices.append(len(states[0][0]))
                 #
-                # advantages.append(adv)
-                # returns.append(ret)
-
-                step_indices = list(np.arange(0, len(states[0][0]), n_steps))
-                if step_indices[-1] != len(states[0][0]):
-                    step_indices.append(len(states[0][0]))
-
-                for idx in range(len(step_indices) - 1):
-                    begin = step_indices[idx]
-                    end = step_indices[idx + 1]
-                    batch_states = tuple(state[begin:end] for state in states[i])
-                    batch_actions = actions[i][begin:end]
-                    batch_rewards = rewards[i][begin:end]
-                    batch_masks = masks[i][begin:end]
-                    _, values_, _ = self.policy.evaluate(batch_states, batch_actions)
-                    if batch_masks[-1] == 1:
-                        last_state = tuple(torch.FloatTensor(np.array(state)).to(self.device) for state in memory.get_agent_state(next_obs, i)) if isinstance(next_obs, tuple) else next_obs
-                        bootstrapped_value = self.policy.critic(last_state).detach()
-                        values_ = torch.cat((values_, bootstrapped_value[0]), dim=0)
-                    adv, ret = self.get_advantages(values_.detach(), batch_masks, batch_rewards.detach())
-                    advantages.append(adv)
-                    returns.append(ret)
+                # for idx in range(len(step_indices) - 1):
+                #     begin = step_indices[idx]
+                #     end = step_indices[idx + 1]
+                #     batch_states = tuple(state[begin:end] for state in states[i])
+                #     batch_actions = actions[i][begin:end]
+                #     batch_rewards = rewards[i][begin:end]
+                #     batch_masks = masks[i][begin:end]
+                #     _, values_, _ = self.policy.evaluate(batch_states, batch_actions)
+                #     if batch_masks[-1] == 1:
+                #         last_state = tuple(torch.FloatTensor(np.array(state)).to(self.device) for state in memory.get_agent_state(next_obs, i)) if isinstance(next_obs, tuple) else next_obs
+                #         bootstrapped_value = self.policy.critic(last_state).detach()
+                #         values_ = torch.cat((values_, bootstrapped_value[0]), dim=0)
+                #     adv, ret = self.get_advantages(values_.detach(), batch_masks, batch_rewards.detach())
+                #     advantages.append(adv)
+                #     returns.append(ret)
 
         # Merge all agent states, actions, rewards etc.
         advantages = torch.cat(advantages)
@@ -234,11 +231,11 @@ class PPO(RLAlgorithm):
         states = memory.rearrange_states(states)
 
         # Train policy for K epochs: sampling and updating
-        for _ in range(self.K_epochs):
+        for _ in range(self.k_epochs):
             epoch_values = []
             epoch_returns = []
             # Random sampling and no repetition. 'False' indicates that training will continue even if the number of samples in the last time is less than mini_batch_size
-            for index in BatchSampler(SubsetRandomSampler(range(horizon)), mini_batch_size, True):
+            for index in BatchSampler(SubsetRandomSampler(range(self.horizon)), mini_batch_size, True):
                 # Evaluate old actions and values using current policy
                 # batch_states = (
                 #     states[0][index], states[1][index], states[2][index], states[3][index], states[4][index])

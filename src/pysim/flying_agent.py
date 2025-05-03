@@ -1,4 +1,4 @@
-from networks.network_fly import Actor, CriticPPO, CriticIQL, Value
+from networks.network_fly import Actor, CriticPPO, OffPolicyCritic, DeterministicActor, Value
 import numpy as np
 import firesim
 
@@ -14,10 +14,12 @@ class FlyAgent:
 
     @staticmethod
     def get_network(algorithm : str):
-        if algorithm == "ppo":
+        if algorithm == "PPO":
             return Actor, CriticPPO
-        elif algorithm == "iql":
-            return Actor, CriticIQL, Value
+        elif algorithm == "IQL":
+            return Actor, OffPolicyCritic, Value
+        elif algorithm == "TD3":
+            return DeterministicActor, OffPolicyCritic
         else:
             raise ValueError(f"Unknown algorithm: {algorithm}")
 

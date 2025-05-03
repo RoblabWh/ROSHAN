@@ -1,16 +1,14 @@
 import torch
 import torch.nn as nn
+import numpy as np
 from torch.distributions import MultivariateNormal, Bernoulli, Normal, Independent
 
-
-class ActorCritic(nn.Module):
+class StochasticActorCritic(nn.Module):
     """
     A PyTorch Module that represents the actor-critic network of a PPO agent.
     """
     def __init__(self, Actor, Critic, vision_range, drone_count, map_size, time_steps):
-        super(ActorCritic, self).__init__()
-        self.actor_cnt = 0
-        self.critic_cnt = 0
+        super(StochasticActorCritic, self).__init__()
         self.device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
         self.actor = Actor(vision_range, drone_count, map_size, time_steps).to(self.device)
 
@@ -64,7 +62,46 @@ class ActorCritic(nn.Module):
 
         return action_mean.detach().cpu().numpy()
 
-class ActorCriticPPO(ActorCritic):
+class DeterministicActorCritic(nn.Module):
+    """
+    A PyTorch Module that represents the actor-critic network of a deterministic agent.
+    """
+    def __init__(self, Actor, Critic, action_dim, exploration_noise, vision_range, drone_count, map_size, time_steps):
+        super(DeterministicActorCritic, self).__init__()
+        self.device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
+        self.actor = Actor(vision_range, drone_count, map_size, time_steps).to(self.device)
+        self.critic = Critic(vision_range, drone_count, map_size, time_steps, action_dim).to(self.device)
+        self.exploration_noise = exploration_noise
+
+    def act(self, state):
+        """
+        Returns an action from the actor.
+
+        :param state: A tuple of the current state
+        :return: The action from the actor
+        """
+        with torch.no_grad():
+            action = self.actor(state).detach().cpu().numpy()
+            noise = np.random.normal(0, self.exploration_noise, size=action.shape)
+            action += noise
+            action = np.clip(action, -1, 1)
+
+        # No log probability for deterministic actions, therefore return None
+        return action, None
+
+    def act_certain(self, state):
+        """
+        Returns an action from the actor without noise.
+
+        :param state: A tuple of the current state
+        :return: The action from the actor
+        """
+        with torch.no_grad():
+            action = self.actor(state)
+
+        return action.detach().cpu().numpy()
+
+class ActorCriticPPO(StochasticActorCritic):
     """
     A PyTorch Module that represents the actor-critic network of a PPO agent.
     """
@@ -111,7 +148,7 @@ class ActorCriticPPO(ActorCritic):
 
         return action_logprob, state_value, dist_entropy
 
-class ActorCriticIQL(ActorCritic):
+class ActorCriticIQL(StochasticActorCritic):
     """
     A PyTorch Module that represents the actor-critic network of an IQL agent.
     """

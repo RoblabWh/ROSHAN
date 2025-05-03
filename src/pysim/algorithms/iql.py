@@ -3,15 +3,13 @@ import torch.nn as nn
 import os
 import warnings
 import numpy as np
-from algorithms.actor_critic import ActorCriticIQL  # you will need to slightly adjust this
+from algorithms.actor_critic import ActorCriticIQL
 from algorithms.rl_algorithm import RLAlgorithm
 from algorithms.rl_config import IQLConfig
 from memory import SwarmMemory
 from utils import RunningMeanStd
 from torch.utils.data.sampler import BatchSampler, SubsetRandomSampler
 import copy
-
-device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
 
 #from https://github.com/Manchery/iql-pytorch?tab=readme-ov-file
 
@@ -22,13 +20,13 @@ class IQL(RLAlgorithm):
         for field in config.__dataclass_fields__:
             setattr(self, field, getattr(config, field))
 
-        self.actor = network[0]
-        self.critic = network[1]
-        self.value = network[2]
+        self.actor_network = network[0]
+        self.critic_network = network[1]
+        self.value_network = network[2]
 
-        self.policy = ActorCriticIQL(Actor=self.actor, Critic=self.critic, Value=self.value, action_dim=self.action_dim,
-                                  vision_range=self.vision_range, drone_count=self.drone_count,
-                                  map_size=self.map_size, time_steps=self.time_steps)
+        self.policy = ActorCriticIQL(Actor=self.actor_network, Critic=self.critic_network, Value=self.value_network, action_dim=self.action_dim,
+                                     vision_range=self.vision_range, drone_count=self.drone_count,
+                                     map_size=self.map_size, time_steps=self.time_steps)
 
         self.actor_optimizer = torch.optim.Adam(self.policy.actor.parameters(), lr=self.lr, betas=self.betas, eps=1e-5)
         self.critic_optimizer = torch.optim.Adam(self.policy.critic.parameters(), lr=self.lr, betas=self.betas, eps=1e-5)
@@ -38,9 +36,7 @@ class IQL(RLAlgorithm):
 
 
         self.MSE_loss = nn.MSELoss()
-        self.device = device
-
-        self.use_next_obs = True
+        self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
         # Target Q network
         self.critic_target = copy.deepcopy(self.policy.critic)
@@ -133,7 +129,7 @@ class IQL(RLAlgorithm):
         # logger.log('train/actor_loss', actor_loss, self.total_it)
         # logger.log('train/adv', (q - v).mean(), self.total_it)
 
-    def update(self, memory: SwarmMemory, horizon, batch_size, n_steps, next_obs, logger):
+    def update(self, memory: SwarmMemory, batch_size, next_obs, logger):
 
         for _ in range(self.k_epochs):
             batch = memory.sample_batch(batch_size)
@@ -160,60 +156,3 @@ class IQL(RLAlgorithm):
             self.update_target()
 
         return ""
-
-    # def update(self, memory: SwarmMemory, horizon, batch_size, n_steps, next_obs, logger):
-    #     """
-    #     Update step for IQL.
-    #     """
-    #     console = ""
-    #     for _ in range(self.k_epochs):
-    #         batch = memory.sample_batch(batch_size)
-    #
-    #         states = batch['state']
-    #         actions = batch['action']
-    #         rewards = batch['reward']
-    #         next_states = batch['next_state']
-    #
-    #         # If your sampled states are still tuples, rearrange
-    #         states = memory.rearrange_states(states)
-    #         next_states = memory.rearrange_states(next_states)
-    #         actions = memory.rearrange_tensor(actions)
-    #         rewards = memory.rearrange_tensor(rewards)
-    #
-    #         # Critic Update
-    #         with torch.no_grad():
-    #             next_v = self.policy.value(next_states)
-    #             q_target = rewards + self.gamma * next_v.squeeze()
-    #
-    #         q_values = self.policy.critic(states, actions).squeeze()
-    #         critic_loss = self.MSE_loss(q_values, q_target)
-    #         self.optimizer_critic.zero_grad()
-    #         critic_loss.backward()
-    #         self.optimizer_critic.step()
-    #
-    #         # Value Update
-    #         with torch.no_grad():
-    #             q_estimate = self.policy.critic(states, actions)
-    #         v_values = self.policy.value(states)
-    #         v_target = torch.min(q_estimate, rewards.unsqueeze(1))
-    #         value_loss = self.MSE_loss(v_values, v_target)
-    #         self.optimizer_value.zero_grad()
-    #         value_loss.backward()
-    #         self.optimizer_value.step()
-    #
-    #         # Policy Update
-    #         with torch.no_grad():
-    #             adv = q_estimate - v_values
-    #
-    #         logprobs = self.policy.get_logprobs(states, actions)
-    #         weights = torch.exp(adv / self.temperature).clamp(max=100.0)
-    #         policy_loss = -(weights * logprobs).mean()
-    #         self.optimizer_actor.zero_grad()
-    #         policy_loss.backward()
-    #         self.optimizer_actor.step()
-    #
-    #         # Soft update target
-    #         for param, target_param in zip(self.policy.critic.parameters(), self.policy_target.critic.parameters()):
-    #             target_param.data.copy_(self.tau * param.data + (1 - self.tau) * target_param.data)
-    #
-    #     return console

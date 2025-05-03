@@ -57,6 +57,8 @@ void ReinforcementLearningHandler::ResetEnvironment(Mode mode) {
 
     for (int i = 0; i < num_fly_agents; ++i){
         auto time_steps = rl_status_["flyAgentTimesteps"].cast<int>();
+        auto frame_skips = rl_status_["frame_skips"].cast<int>();
+        auto rl_mode = rl_status_["rl_mode"].cast<std::string>();
         auto agent = AgentFactory::GetInstance().CreateAgent("FlyAgent", parameters_, i, time_steps);
         auto fly_agent = std::dynamic_pointer_cast<FlyAgent>(agent);
         if (fly_agent == nullptr) {
@@ -64,7 +66,7 @@ void ReinforcementLearningHandler::ResetEnvironment(Mode mode) {
             continue;
         }
         // Initialize FlyAgent
-        fly_agent->Initialize(mode, gridmap_, model_renderer_, rl_status_["rl_mode"].cast<std::string>());
+        fly_agent->Initialize(mode, frame_skips, gridmap_, model_renderer_, rl_mode);
         agents_by_type_["FlyAgent"].push_back(fly_agent);
     }
 
@@ -98,6 +100,19 @@ void ReinforcementLearningHandler::StepDroneManual(int drone_idx, double speed_x
 // TODO why is this in this class?
 void ReinforcementLearningHandler::InitFires() const {
         this->startFires(parameters_.fire_percentage_);
+}
+
+void ReinforcementLearningHandler::SimStep(std::vector<std::shared_ptr<Action>> actions){
+    if (gridmap_ == nullptr || agents_by_type_.find("FlyAgent") == agents_by_type_.end()) {
+        std::cerr << "No agents of type FlyAgent or invalid GridMap.\n";
+    }
+
+    auto& agents = agents_by_type_["FlyAgent"];
+    auto hierarchy_type = "Stepper";
+
+    for (size_t i = 0; i < agents.size(); ++i) {
+        agents[i]->ExecuteAction(actions[i], hierarchy_type, gridmap_);
+    }
 }
 
 std::tuple<
