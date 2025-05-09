@@ -603,21 +603,6 @@ void ImguiHandler::PyConfig(std::string &user_input,
                 ImGui::EndChild();
                 ImGui::EndTabItem();
             }
-//            if (ImGui::BeginTabItem("Exploration Map")) {
-//                static bool show_explored_map = true;
-//                static bool interpolated = true;
-//                ImGui::SliderInt("##size_slider", &parameters_.exploration_map_show_size_, 5, 200);
-//                if(ImGui::Button(show_explored_map ? "GetFireMap" : "GetExploredMap")){
-//                    show_explored_map = !show_explored_map;
-//                }
-//                ImGui::Checkbox("Interpolated", &interpolated);
-//                if (show_explored_map)
-//                    DrawGrid(gridmap->GetExploredMap(parameters_.exploration_map_show_size_, interpolated), 5.0f, false, true);
-//                else
-//                    DrawGrid(gridmap->GetFireMap(parameters_.exploration_map_show_size_, interpolated), 5.0f, true, true);
-//
-//                ImGui::EndTabItem();
-//            }
             if (ImGui::BeginTabItem("Env Controls")){
                 ImVec4 color = ImVec4(0.33f, 0.67f, 0.86f, 1.0f);
                 ImGui::SetWindowFontScale(1.5f);
@@ -674,12 +659,12 @@ void ImguiHandler::PyConfig(std::string &user_input,
                         }
                     }
                     if (ImGui::IsItemHovered())
-                        ImGui::SetTooltip("The percentage of goals that are set to a fire location, rather than a "
-                                          "ground station. Set this to 0 to disable fire goals or to 1 to disable all "
+                        ImGui::SetTooltip("The percentage of goals that are set to a fire location, rather than a \n"
+                                          "ground station. Set this to 0 to disable fire goals or to 1 to disable all \n"
                                           "groundstation goals.");
 
                     ImGui::TableNextRow();
-                    ImGui::TableNextColumn(); ImGui::Text("Groundstation Start Percentage");
+                    ImGui::TableNextColumn(); ImGui::Text("Groundstation Start \nPercentage");
                     ImGui::TableNextColumn(); ImGui::SetNextItemWidth(-1); if(ImGui::SliderFloat("##groundstation_start_perc", &parameters_.groundstation_start_percentage_, 0, 1)){
                         if(parameters_.groundstation_start_percentage_ != 0) {
                             parameters_.fire_goal_percentage_ = 1;
@@ -687,25 +672,44 @@ void ImguiHandler::PyConfig(std::string &user_input,
                     }
 
                     ImGui::TableNextRow();
-                    ImGui::TableNextColumn(); ImGui::Text("Non Groundstation Corner Start Percentage");
+                    ImGui::TableNextColumn(); ImGui::Text("Non Groundstation Corner \nStart Percentage");
                     ImGui::TableNextColumn(); ImGui::SetNextItemWidth(-1); ImGui::SliderFloat("##corner_start_perc", &parameters_.corner_start_percentage_, 0, 1);
 
+                    ImGui::EndTable();
+
+                }
+                ImGui::SetWindowFontScale(1.5f);
+                ImGui::PushStyleColor(ImGuiCol_Text, color);
+                ImGui::TextColored(color, "FlyAgent Behaviour");
+                ImGui::SetWindowFontScale(1.0f);
+                ImGui::PopStyleColor();
+                if (ImGui::BeginTable("##FlyAgentControl", 2, ImGuiTableFlags_Borders | ImGuiTableFlags_RowBg)) {
+                    ImGui::TableSetupColumn("Label", ImGuiTableColumnFlags_WidthFixed, 200.0f);
+                    ImGui::TableSetupColumn("Control", ImGuiTableColumnFlags_WidthStretch);
+                    ImGui::TableHeadersRow();
+
                     ImGui::TableNextRow();
-                    ImGui::TableNextColumn(); ImGui::Text("Use Only Groundstation Start");
+                    ImGui::TableNextColumn(); ImGui::Text("Extinguish all Fires");
                     ImGui::TableNextColumn(); ImGui::SetCursorPosX(ImGui::GetCursorPosX() + (ImGui::GetContentRegionAvail().x / 2) - 10);
-                    ImGui::Checkbox("##GroundstationStart", &parameters_.only_corner_start_);
+                    ImGui::Checkbox("##ExtinguishallFires", &parameters_.extinguish_all_fires_);
+
                     if (ImGui::IsItemHovered())
-                        ImGui::SetTooltip("If checked, the start position of all agents will always be set to the groundstation.");
+                        ImGui::SetTooltip("If checked the Agent doesn't stop at the first goal during evaluation \n"
+                                          "and only stops if the Map is burned down too much or he extinguished all fires.");
 
                     ImGui::TableNextRow();
                     ImGui::TableNextColumn(); ImGui::Text("Recharge Time");
                     ImGui::TableNextColumn(); ImGui::SetCursorPosX(ImGui::GetCursorPosX() + (ImGui::GetContentRegionAvail().x / 2) - 10);
                     ImGui::Checkbox("##RechargeTime", &parameters_.recharge_time_active_);
 
+                    if (ImGui::IsItemHovered())
+                        ImGui::SetTooltip("If checked the Extinguishing Agent must recharge \n"
+                                          "it's fire retardant at the Groundstation.");
+
+
                     ImGui::EndTable();
 
                 }
-
                 ImGui::SameLine();
                 ImGui::Spacing();
                 ImGui::EndTabItem();

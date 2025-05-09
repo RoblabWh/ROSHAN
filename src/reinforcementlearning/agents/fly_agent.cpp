@@ -32,11 +32,11 @@ void FlyAgent::Initialize(int mode,
     std::pair<int, int> point;
 
     if (parameters_.GetHierarchyType() == "FlyAgent") {
-        if (rng_number <= parameters_.corner_start_percentage_) {
-            point = grid_map->GetNonGroundStationCorner();
-        }
-        else if (rng_number <= parameters_.groundstation_start_percentage_) {
+        if (rng_number <= parameters_.groundstation_start_percentage_) {
             point = grid_map->GetGroundstation()->GetGridPosition();
+        }
+        else if (rng_number <= parameters_.corner_start_percentage_) {
+            point = grid_map->GetNonGroundStationCorner();
         }
         else {
             point = grid_map->GetRandomPointInGrid();
@@ -115,7 +115,7 @@ void FlyAgent::PerformFly(FlyAction* action, const std::string& hierarchy_type, 
         did_hierarchy_step = true;
     } else if (hierarchy_type == "ExploreAgent") {
         objective_reached_ = false;
-        if (this->almostEqual(this->GetGoalPosition(), this->GetGridPositionDouble())) {
+        if (FlyAgent::almostEqual(this->GetGoalPosition(), this->GetGridPositionDouble())) {
             objective_reached_ = true;
         }
     }
@@ -355,6 +355,7 @@ std::vector<bool> FlyAgent::GetTerminalStates(bool eval_mode, const std::shared_
     bool terminal_state = false;
     bool drone_died = false;
     bool drone_succeeded = false;
+    bool eval = eval_mode && parameters_.extinguish_all_fires_;
 
     // If the agent has flown out of the grid it has reached a terminal state and died
     if (GetOutOfAreaCounter() > 1) {
@@ -364,11 +365,9 @@ std::vector<bool> FlyAgent::GetTerminalStates(bool eval_mode, const std::shared_
     // If the drone has reached the goal and it is not in evaluation mode
     // the goal is reached because the fly agent is trained that way
     if (objective_reached_) {
-        // TODO lustiges loeschverhalten
-//        if (!eval_mode){
-//            terminal_state = true;
-//        }
-        terminal_state = true;
+        if (!eval){
+            terminal_state = true;
+        }
         drone_succeeded = true;
     }
     // If the agent has taken too long it has reached a terminal state and died
@@ -379,21 +378,21 @@ std::vector<bool> FlyAgent::GetTerminalStates(bool eval_mode, const std::shared_
 
     // TODO CHANGE LATER
     // Terminals only for evaluation lustiges loeschverhalten
-//    if (eval_mode){
-//        if (grid_map->PercentageBurned() > 0.30) {
-//            terminal_state = true;
-//            drone_died = true;
-//        }
-//        if (extinguished_last_fire_) {
-//            //  Don't use gridmap_->IsBurning() because it is not reliable since it returns false when there
-//            //  are particles in the air. Instead, check if the drone has extinguished the last fire on the map.
-//            //  This also makes sure that only the drone that actually extinguished the fire gets the reward
-//            terminal_state = true;
-//        }
-//        if (!grid_map->IsBurning()) {
-//            terminal_state = true;
-//        }
-//    }
+    if (eval){
+        if (grid_map->PercentageBurned() > 0.30) {
+            terminal_state = true;
+            drone_died = true;
+        }
+        if (extinguished_last_fire_) {
+            //  Don't use gridmap_->IsBurning() because it is not reliable since it returns false when there
+            //  are particles in the air. Instead, check if the drone has extinguished the last fire on the map.
+            //  This also makes sure that only the drone that actually extinguished the fire gets the reward
+            terminal_state = true;
+        }
+        if (!grid_map->IsBurning()) {
+            terminal_state = true;
+        }
+    }
 
     terminal_states.push_back(terminal_state);
     terminal_states.push_back(drone_died);

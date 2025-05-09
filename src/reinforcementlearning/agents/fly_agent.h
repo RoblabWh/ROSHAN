@@ -95,14 +95,14 @@ private:
     void FlyPolicy(const std::shared_ptr<GridMap> &gridmap);
     std::pair<double, double> MovementStep(double netout_x, double netout_y);
     void CalcMaxDistanceFromMap();
-    bool almostEqual(const std::pair<double, double>& p1, const std::pair<double, double>& p2, double epsilon = 1e-1) {
+    static bool almostEqual(const std::pair<double, double>& p1, const std::pair<double, double>& p2, double epsilon = 0.25) {
         return std::fabs(p1.first - p2.first) < epsilon && std::fabs(p1.second - p2.second) < epsilon;
     }
 
     double last_distance_to_goal_{};
     bool drone_in_grid_ = true; //* Is the Drone in the Grid?
     int view_range_; //* View Range of the Agent in Grid Cells (10m each)
-    int frame_skips_; //* Number of frames the simulation repeates a low level action
+    int frame_skips_{}; //* Number of frames the simulation repeates a low level action
     std::pair<double, double> max_speed_; //* Value for the maximum velocity of an Agent in x and y direction
 
     // Possibly Deprecated

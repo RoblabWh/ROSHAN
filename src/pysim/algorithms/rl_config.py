@@ -26,8 +26,8 @@ class RLConfig:
     use_next_obs: bool = True
 
     # Learning Parameters
-    lr: float = 3e-4
-    batch_size: int = 500
+    lr: float = 2.45e-05 #3e-4
+    batch_size: int = 64 #1024 #500
 
 @dataclass
 class PPOConfig(RLConfig):
@@ -36,15 +36,15 @@ class PPOConfig(RLConfig):
     """
     # PPO specific parameters
     horizon: int = 12800 # 12800 for FlyNetwork
-    k_epochs: int = 14 # 4
-    entropy_coeff: float = 0.001
+    k_epochs: int = 3 #14 # 4
+    entropy_coeff: float = 0.0006 #0.001
     value_loss_coef: int = 0.5
     separate_optimizers: bool = False
     betas: tuple[int, int] = (0.9, 0.999)
-    gamma: float = 0.99
+    gamma: float = 0.9635 #0.99
     _lambda: float = 0.96
-    eps_clip: float = 0.15 #0.2
-
+    eps_clip: float = 0.2783 #0.15 #0.2
+#Current Best: {'lr': 2.450621398427006e-05, 'gamma': 0.9635130394855251, 'clip_range': 0.2783066147446984, 'ent_coef': 0.0006194758615931694, 'k_epochs': 6, 'batch_size': 1024}
 @dataclass
 class IQLConfig(RLConfig):
     """

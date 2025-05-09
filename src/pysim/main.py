@@ -67,7 +67,7 @@ def main():
               "exploreAgentTimesteps": 3,
               "frame_skips": 1,
               "rl_algorithm": "PPO", # RL Algorithm to use, either PPO, IQL, TD3
-              "auto_train": True, # If True, the agent will train several episodes and then evaluate
+              "auto_train": False, # If True, the agent will train several episodes and then evaluate
               "objective": 0, # Tracking the Percentage of the Objective
               "best_objective": 0, # Best Objective so far
               "train_episodes": 1, # Number of total trainings containing each max_train steps
@@ -271,6 +271,6 @@ def optuna():
 
 # Press the green button in the gutter to run the script.
 if __name__ == '__main__':
-    #main()
-    optuna()
+    main()
+    #optuna()
 

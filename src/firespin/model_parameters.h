@@ -31,7 +31,7 @@ public:
     [[nodiscard]] bool GetCorineLoaded() const {return corine_loaded_;}
 
     // Simulation parameters
-    double dt_ = 0.1; // in seconds (s)
+    double dt_ = 0.3; // in seconds (s)
     [[nodiscard]] double GetDt() const {return dt_;}
     // Minimum and maximum values for the ImGui Sliders for the simulation parameters
     double min_dt_ = 0.0001; // in seconds (s)
@@ -39,11 +39,11 @@ public:
 
     // Environment Controls
     bool ignite_single_cells_ = false;
-    float fire_goal_percentage_ = 0.69 ; // in percent (%)
+    float fire_goal_percentage_ = 0.0 ; // in percent (%)
     float fire_percentage_ = 0.5; // in percent (%)
-    float fire_spread_prob_ = 0.5; // in percent (%)
-    float fire_noise_ = 0.1;
-    bool recharge_time_active_ = true;
+    float fire_spread_prob_ = 0.095; // in percent (%)
+    float fire_noise_ = 1;
+    bool recharge_time_active_ = false;
 
 
     // Parameters for the virtual particles
@@ -192,11 +192,11 @@ public:
     int water_capacity_ = 10;
     [[nodiscard]] int GetWaterCapacity() const {return water_capacity_;}
     [[nodiscard]] double GetWaterRefillDt() const {return GetWaterCapacity() / (5 * 60 / GetDt());}
+    bool extinguish_all_fires_ = false;
 
     // Parameters for the groundstation
-    bool only_corner_start_ = false;
     float groundstation_start_percentage_ = 0.0;
-    float corner_start_percentage_ = 0.8;
+    float corner_start_percentage_ = 0.9;
 
     //Parameters for ImGui
     int RewardsBufferSize = 300;
