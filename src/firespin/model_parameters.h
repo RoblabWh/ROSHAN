@@ -172,7 +172,7 @@ public:
     void SetCurrentEnvSteps(int steps) {current_env_steps_ = steps;}
 //    int GetTotalEnvSteps() const {return (int)((grid_nx_ * grid_ny_ * (0.1 / dt_)) + 80);}
     [[nodiscard]] int GetTotalEnvSteps() const {
-        int agent_factor = hierarchy_type == "FlyAgent" ? 1 : hierarchy_type == "ExploreAgent" ? 4 : 0;
+        int agent_factor = hierarchy_type == "FlyAgent" ? 1 : hierarchy_type == "ExploreAgent" ? 10 : 0;
         return (int)(agent_factor * sqrt(grid_nx_ * grid_nx_ + grid_ny_ * grid_ny_) * (20 / (max_velocity_.first * dt_)));
     }
 

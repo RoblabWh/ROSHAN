@@ -467,14 +467,14 @@ std::vector<std::pair<int, int>> GridMap::GetMooreNeighborhood(int x, int y) con
 }
 
 std::vector<std::vector<int>> GridMap::GetTotalDroneView(std::pair<int, int> drone_position, int view_radius) const {
-    std::vector<std::vector<int>> view = std::vector<std::vector<int>>(rows_, std::vector<int>(cols_, -1));
+    std::vector<std::vector<int>> view = std::vector<std::vector<int>>(rows_, std::vector<int>(cols_, 0));
 
     int drone_view_radius_2 = view_radius / 2;
     for (int x = drone_position.first - drone_view_radius_2; x <= drone_position.first + drone_view_radius_2; ++x) {
         for (int y = drone_position.second - drone_view_radius_2;
              y <= drone_position.second + drone_view_radius_2; ++y) {
             if (IsPointInGrid(x, y)) {
-                view[x][y] = 1;
+                view[x][y] = 255;
             }
         }
     }

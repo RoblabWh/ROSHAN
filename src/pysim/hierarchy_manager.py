@@ -37,7 +37,15 @@ class HierarchyManager:
 
     def eval(self, status, engine):
         if "medium" in self.hierarchy_keys:
-            self.hierarchy["medium"].eval_loop(status, engine, evaluate=True)
+            if self.hierarchy["medium"].hierarchy_steps % self.max_low_level_steps == 0 or \
+                    self.hierarchy["medium"].hierarchy_early_stop or self.hierarchy["medium"].env_reset or status["env_reset"]:
+                self.hierarchy["medium"].hierarchy_early_stop, _ = self.hierarchy["medium"].eval_loop(status, engine, evaluate=True)
+                status["env_reset"] = False # This is needed because the User can reset the environment at any time !
+                self.hierarchy["medium"].hierarchy_steps = 0
+                self.hierarchy["medium"].hierarchy_early_stop = False
+            else:
+                self.hierarchy["medium"].hierarchy_early_stop, _ = self.hierarchy["low"].eval_loop(status, engine, evaluate=False)
+            self.hierarchy["medium"].hierarchy_steps += 1
         else:
             self.hierarchy["low"].eval_loop(status, engine, evaluate=True)
 
@@ -63,8 +71,8 @@ class HierarchyManager:
             status_ = copy.copy(status)
             time_steps = status_["flyAgentTimesteps"]
             status_["hierarchy_type"] = "FlyAgent"
-            status_["model_name"] = "my_model_obj_v1.pt"
-            status_["model_path"] = "/home/nex/Dokumente/Code/ROSHAN/models/new_solved/"
+            status_["model_name"] = "my_model_latest.pt"
+            status_["model_path"] = "/home/roblabuser/julien/ROSHAN/models/solved/"
             status_["rl_mode"] = "eval"
             status_["console"] = ""
             low_level_agent = AgentHandler(status_, algorithm='PPO', vision_range=vision_range, map_size=map_size, time_steps=time_steps, logdir='./logs')

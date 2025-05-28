@@ -26,7 +26,7 @@ class RLConfig:
     use_next_obs: bool = True
 
     # Learning Parameters
-    lr: float = 2.45e-05 #3e-4
+    lr: float = 4e-4 #2.45e-05 #3e-4
     batch_size: int = 64 #1024 #500
 
 @dataclass
@@ -35,8 +35,8 @@ class PPOConfig(RLConfig):
     Configuration class for Proximal Policy Optimization (PPO) algorithm.
     """
     # PPO specific parameters
-    horizon: int = 12800 # 12800 for FlyNetwork
-    k_epochs: int = 3 #14 # 4
+    horizon: int = 3500 # 12800 for FlyNetwork
+    k_epochs: int = 14 #14 # 4
     entropy_coeff: float = 0.0006 #0.001
     value_loss_coef: int = 0.5
     separate_optimizers: bool = False

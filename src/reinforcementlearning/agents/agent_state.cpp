@@ -111,10 +111,10 @@ double AgentState::GetDistanceToNearestBoundaryNorm() const {
 
 std::vector<std::vector<double>> AgentState::GetExplorationMapNorm() const {
     std::vector<std::vector<double>> exploration_map_norm((*exploration_map_).size(), std::vector<double>((*exploration_map_)[0].size()));
-    double max_value = map_dimensions_.first * map_dimensions_.second;
+    double max_value = 255;//map_dimensions_.first * map_dimensions_.second;
     for (size_t i = 0; i < (*exploration_map_).size(); ++i) {
         for (size_t j = 0; j < (*exploration_map_)[i].size(); ++j) {
-            exploration_map_norm[i][j] = static_cast<double>((*exploration_map_)[i][j]) / max_value;
+            exploration_map_norm[i][j] = static_cast<double>((*exploration_map_)[i][j]) * max_value;
         }
     }
     return exploration_map_norm;

@@ -69,9 +69,7 @@ public:
 
     //* Returns the Fire Status of this State. 1 indicates fire, 0 indicates no fire.
     //* @return std::vector<std::vector<int>> FireView around the Agent.
-    [[nodiscard]] std::vector<std::vector<int>> GetFireView() const { return (*drone_view_)[1]; }
-
-    //* Returns the Fire Map of this State.
+    [[nodiscard]] std::vector<std::vector<int>> GetFireView() const { return (*drone_view_)[0]; }
     //* The Fire Map is a 2D vector with all discovered fires on the whole map.
     //* @return std::vector<std::vector<double>> The FireMap of the whole Environment of the Agent.
     [[nodiscard]] std::vector<std::vector<double>> GetFireMap() const { return *fire_map_; }

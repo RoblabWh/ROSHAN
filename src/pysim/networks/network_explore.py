@@ -90,12 +90,12 @@ class Inputspace(nn.Module):
         map_feats = []
         for t in range(self.time_steps):
             # Agent positions at t: (batch, drone_count, H, W)
-            agent_t = agent_positions[:, :, t, :, :].permute(1,0,2,3)
+            agent_t = agent_positions[:, :, t, :, :].permute(0,1,2,3)
             agent_feat_t = self.agent_position_encoder(agent_t)
             agent_feats.append(agent_feat_t.unsqueeze(1))  # (batch, 1, feat)
 
             # Exploration map at t: (batch, 1, H, W)
-            map_t = exploration_maps[:, :, t, :][0:1]
+            map_t = exploration_maps[:, t, :, :].unsqueeze(1)  # (batch, 1, H, W)
             map_feat_t = self.exploration_map_encoder(map_t)
             map_feats.append(map_feat_t.unsqueeze(1))
 

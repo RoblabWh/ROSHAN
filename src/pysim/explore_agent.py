@@ -71,11 +71,10 @@ class ExploreAgent:
                 continue
 
             multi_total_drone_view = np.array([state.GetMultipleTotalDroneView() for state in drone_states])
-            exploration_map = np.array([state.GetExplorationMap() for state in drone_states])
+            exploration_map = np.array([state.GetExplorationMapNorm() for state in drone_states])
 
             all_explore_maps.append(exploration_map)
             all_total_views.append(multi_total_drone_view)
 
-        aemaps = np.repeat(np.array(all_explore_maps), 2, axis=0)
-        aemaps = np.expand_dims(aemaps, axis=1)
-        return np.transpose(np.array(all_total_views), (2,0,1,3,4)), aemaps
+        aemaps = np.array(all_explore_maps)
+        return np.transpose(np.array(all_total_views), (0,2,1,3,4)), aemaps

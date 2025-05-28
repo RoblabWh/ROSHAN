@@ -104,7 +104,7 @@ double ExploreAgent::CalculateReward() {
     std::unordered_map<std::string, double> reward_components;
 
     reward_components["NewlyExploredCells"] = alpha * static_cast<double>(newlyExploredCells);
-    //reward_components["RevisitedCellsPenalty"] = beta * static_cast<double>(revisited_cells_);
+    reward_components["RevisitedCellsPenalty"] = beta * static_cast<double>(revisited_cells_);
 
     if (objective_reached_ && agent_terminal_state_){
         reward_components["MapExplored"] = 10;

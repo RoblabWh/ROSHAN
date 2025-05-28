@@ -106,7 +106,7 @@ void EngineCore::Render() {
             SDL_SetRenderDrawColor(renderer_, color.r, color.g, color.b, color.a);
             SDL_RenderClear(renderer_);
         }
-        ImGui_ImplSDLRenderer2_RenderDrawData(ImGui::GetDrawData());
+        ImGui_ImplSDLRenderer2_RenderDrawData(ImGui::GetDrawData(), renderer_);
         SDL_RenderPresent(renderer_);
     }
 }

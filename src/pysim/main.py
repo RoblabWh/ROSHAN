@@ -43,7 +43,7 @@ def main():
 
     # This map is used in NoGUI setup, if left empty("") the default map will be used. Has no impact on GUI Setup
     #init_map = "/home/nex/Dokumente/Code/ROSHAN/maps/21x21_Field.tif"
-    init_map = ""
+    init_map = "/home/roblabuser/julien/ROSHAN/maps/35x36_Woods.tif"
 
 
     # Folder the models are stored in
@@ -146,16 +146,17 @@ def main():
 def optimize(trial):
 
     # --- Sample hyperparameters
-    learning_rate = trial.suggest_loguniform("lr", 1e-5, 1e-3)
-    gamma = trial.suggest_uniform("gamma", 0.95, 0.999)
-    clip_range = trial.suggest_uniform("clip_range", 0.1, 0.3)
-    ent_coef = trial.suggest_loguniform("ent_coef", 1e-6, 1e-2)
-    k_epochs = trial.suggest_int("k_epochs", 3, 10)
-    batch_size = trial.suggest_categorical("batch_size", [64, 128, 256])
+    # learning_rate = trial.suggest_loguniform("lr", 1e-5, 1e-3)
+    # clip_range = trial.suggest_uniform("clip_range", 0.1, 0.3)
+    # ent_coef = trial.suggest_loguniform("ent_coef", 1e-6, 1e-2)
+    # gamma = trial.suggest_uniform("gamma", 0.95, 0.999)
+    k_epochs = trial.suggest_int("k_epochs", 3, 60)
+    batch_size = trial.suggest_categorical("batch_size", [64, 128, 256, 512, 1024, 2048, 4096])
+    # horizon = trial.suggest_int("horizon", 4096, 25600)
 
     config = {
-        "models_directory": f"./optuna_models/trial_{trial.number}/",
-        "log_directory": f"./optuna_logs/trial_{trial.number}/"
+        "models_directory": f"../models/optuna_models/trial_{trial.number}/",
+        "log_directory": f"../logs/optuna_logs/trial_{trial.number}/"
     }
 
     os.makedirs(config["models_directory"], exist_ok=True)
@@ -172,7 +173,7 @@ def optimize(trial):
               "min_update": 0,  # How many obs before updating the policy?
               "num_agents": 1,
               "flyAgentTimesteps": 3,
-              "exploreAgentTimesteps": 3,
+              "exploreAgentTimesteps": 20,
               "frame_skips": 1,
               "rl_algorithm": "PPO", # RL Algorithm to use, either PPO, IQL, TD3
               "auto_train": True, # If True, the agent will train several episodes and then evaluate
@@ -182,8 +183,8 @@ def optimize(trial):
               "train_episode": 0, # Current training episode
               "train_step": 0, # How often did you train?
               "policy_updates": 0, # How often did you update the policy?
-              "max_eval": 2, # Number of Environments to run before stopping evaluation
-              "max_train": 1, # Number of train_steps before stopping training
+              "max_eval": 100, # Number of Environments to run before stopping evaluation
+              "max_train": 30, # Number of train_steps before stopping training
               "current_episode": 0,
               "hierarchy_type": "FlyAgent", # Either FlyAgent, ExplorationAgent
               "resume": False, # If True, the agent will resume training from the last checkpoint
@@ -222,12 +223,13 @@ def optimize(trial):
 
     # Inject hyperparameters
     ppo = agent.algorithm
-    ppo.lr = learning_rate
-    ppo.gamma = gamma
-    ppo.clip_range = clip_range
-    ppo.entropy_coeff = ent_coef
+    # ppo.lr = learning_rate
+    # ppo.gamma = gamma
+    # ppo.clip_range = clip_range
+    # ppo.entropy_coeff = ent_coef
     ppo.k_epochs = k_epochs
     ppo.batch_size = batch_size
+    # ppo.horizon = horizon
 
     hierarchy_manager = HierarchyManager(status, agent)
 
@@ -265,7 +267,7 @@ def optimize(trial):
 def optuna():
     import optuna
     study = optuna.create_study(direction="maximize")
-    study.optimize(optimize, n_trials=10)
+    study.optimize(optimize, n_trials=100)
     print("Best trial:", study.best_trial.params)
     print("Best value:", study.best_trial.value)
 
