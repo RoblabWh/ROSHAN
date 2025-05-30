@@ -54,6 +54,8 @@ public:
         return drone_views;
     }
 
+    [[nodiscard]] std::pair<double, double> GetPosition() const { return position_; }
+    [[nodiscard]] double GetCellSize() const { return cell_size_; }
 
     //* Returns the velocity of the drone
     //* @return std::pair<double, double> The velocity of the drone

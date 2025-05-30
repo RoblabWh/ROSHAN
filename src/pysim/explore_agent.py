@@ -62,7 +62,8 @@ class ExploreAgent:
 
     @staticmethod
     def restructure_data(observations_):
-        all_explore_maps, all_total_views = [], []
+        #all_explore_maps, all_total_views = [], []
+        all_explore_maps, all_positions = [], []
 
         obs = observations_["ExploreAgent"]
         for deque in obs:
@@ -70,11 +71,15 @@ class ExploreAgent:
             if len(drone_states) == 0:
                 continue
 
-            multi_total_drone_view = np.array([state.GetMultipleTotalDroneView() for state in drone_states])
+            #multi_total_drone_view = np.array([state.GetMultipleTotalDroneView() for state in drone_states])
             exploration_map = np.array([state.GetExplorationMapNorm() for state in drone_states])
+            positions = [np.array([state.GetGridPositionDoubleNorm() for state in drone_states])]
 
             all_explore_maps.append(exploration_map)
-            all_total_views.append(multi_total_drone_view)
+            all_positions.append(positions)
 
-        aemaps = np.array(all_explore_maps)
-        return np.transpose(np.array(all_total_views), (0,2,1,3,4)), aemaps
+        all_explore_maps = np.array(all_explore_maps)
+        all_positions = np.array(all_positions)
+
+        return all_positions, all_explore_maps
+        #return np.transpose(np.array(all_total_views), (0,2,1,3,4)), all_explore_maps

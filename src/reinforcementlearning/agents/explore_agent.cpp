@@ -37,6 +37,8 @@ void ExploreAgent::PerformExplore(ExploreAction *action, const std::string& hier
     // Calc the grid position
     goal_x = ((goal_x + 1) / 2) * gridMap->GetRows();
     goal_y = ((goal_y + 1) / 2) * gridMap->GetCols();
+    std::cout << "ExploreAgent goal position (normalized): (" << action->GetGoalX() << ", " << action->GetGoalY() << ")" << std::endl;
+    std::cout << "ExploreAgent goal position: (" << goal_x << ", " << goal_y << ")" << std::endl;
 
     // Nudge goal so the view range is in the grid PROBABLY DON'T DO THIS
 //    int view_range_off = FireModelParameters::GetViewRange("FlyAgent") / 2;
@@ -47,7 +49,8 @@ void ExploreAgent::PerformExplore(ExploreAction *action, const std::string& hier
 
     //TODO Make it so that the network puts out multiple goals for multiple agents
     for (const auto& fly_agent : fly_agents_) {
-        auto local_goal = fly_agent->CalculateLocalGoal(goal_x, goal_y);
+        std::pair<double, double> local_goal = std::make_pair(goal_x, goal_y);
+//        auto local_goal = fly_agent->CalculateLocalGoal(goal_x, goal_y);
         fly_agent->SetGoalPosition({local_goal.first, local_goal.second});
         fly_agent->SetRevisitedCells(revisited_cells_);
 //        fly_agent->SetGoalPosition({goal_x, goal_y});
@@ -70,6 +73,10 @@ std::shared_ptr<AgentState> ExploreAgent::BuildAgentState(const std::shared_ptr<
     for (const auto& agent : fly_agents_) {
         const auto& latest_state = agent->GetLastState();
         views.push_back(latest_state.GetTotalDroneViewPtr());
+        // TODO Rewrite this; this is a hack to get other states from the drone
+        state->SetPosition(latest_state.GetPosition());
+        state->SetCellSize(latest_state.GetCellSize());
+        state->SetMapDimensions({grid_map->GetRows(), grid_map->GetCols()});
     }
     state->SetMultipleTotalDroneView(views);
     state->SetExplorationMap(grid_map->GetExploredMap());

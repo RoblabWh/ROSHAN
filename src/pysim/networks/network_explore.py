@@ -13,32 +13,37 @@ device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
 class CNNSpatialEncoder(nn.Module):
     def __init__(self, in_channels, out_features):
         super().__init__()
-        self.conv_net = nn.Sequential(
-            nn.Conv2d(in_channels, 16, kernel_size=3, padding=1),
-            nn.ReLU(),
-            nn.Conv2d(16, 32, kernel_size=3, padding=1),
+        self.cnn_layers = nn.Sequential(
+            nn.Conv2d(in_channels, 32, kernel_size=3, padding=1),
             nn.ReLU(),
             nn.Conv2d(32, 64, kernel_size=3, padding=1),
             nn.ReLU(),
-            nn.AdaptiveAvgPool2d((4, 4)),
-            nn.Flatten(),
-            nn.Linear(64 * 4 * 4, out_features),
+            nn.MaxPool2d(2),  # Downsample (W,H)/2
+
+            nn.Conv2d(64, 128, kernel_size=3, padding=1),
+            nn.ReLU(),
+            nn.Conv2d(128, 128, kernel_size=3, padding=1),
+            nn.ReLU(),
+            nn.MaxPool2d(2),  # Downsample again (W,H)/4
+
+            nn.Conv2d(128, 256, kernel_size=3, padding=1),
+            nn.ReLU(),
+            nn.AdaptiveAvgPool2d((4, 4))  # Fixed spatial dimension
+        )
+
+        self.flatten = nn.Flatten()
+        self.fc = nn.Sequential(
+            nn.Linear(256 * 4 * 4, 512),
+            nn.ReLU(),
+            nn.Linear(512, out_features),
             nn.ReLU()
         )
 
     def forward(self, x):
-        # x: (batch_size, channels, height, width)
-        return self.conv_net(x)
-
-class TemporalEncoder(nn.Module):
-    def __init__(self, in_features, hidden_size):
-        super().__init__()
-        self.gru = nn.GRU(input_size=in_features, hidden_size=hidden_size, batch_first=True)
-
-    def forward(self, x):
-        # x: (batch_size, time_steps, features)
-        _, h_n = self.gru(x)
-        return h_n.squeeze(0)  # final hidden state
+        x = self.cnn_layers(x)
+        x = self.flatten(x)
+        features = self.fc(x)
+        return features
 
 class Inputspace(nn.Module):
 
@@ -50,26 +55,24 @@ class Inputspace(nn.Module):
 
         self.drone_count = drone_count
         self.time_steps = time_steps
-        spatial_feature_size = 128
-        temporal_feature_size = 128
-
-        # CNN Encoders
-        self.agent_position_encoder = CNNSpatialEncoder(drone_count, spatial_feature_size)
-        self.exploration_map_encoder = CNNSpatialEncoder(1, spatial_feature_size)
-
-        # Temporal Encoders
-        self.agent_temporal_encoder = TemporalEncoder(spatial_feature_size, temporal_feature_size)
-        self.map_temporal_encoder = TemporalEncoder(spatial_feature_size, temporal_feature_size)
-
-        # Final linear layer to merge features
-        self.final_feature_size = temporal_feature_size * 2
-        self.merge_layer = nn.Sequential(
-            nn.Linear(self.final_feature_size, 256),
-            nn.ReLU(),
-        )
 
         self.out_features = 256
 
+        # CNN Encoders
+        spatial_outfeatures = 128
+        position_outfeatures = 128
+        in_features = self.drone_count * self.time_steps + self.time_steps
+        self.feature_extractor = CNNSpatialEncoder(self.time_steps, spatial_outfeatures)
+        self.mlp_pos = nn.Sequential(
+            nn.Linear(self.time_steps, 64),
+            nn.ReLU(),
+            nn.Linear(64, position_outfeatures)
+        )
+        # Final linear layer to merge features
+        self.merge_layer = nn.Sequential(
+            nn.Linear(spatial_outfeatures + position_outfeatures, self.out_features),
+            nn.ReLU(),
+        )
     @staticmethod
     def prepare_tensor(states):
         agent_positions, exploration_maps = states
@@ -84,84 +87,19 @@ class Inputspace(nn.Module):
 
     def forward(self, states):
         agent_positions, exploration_maps = self.prepare_tensor(states)
-
-        # Encode spatial per timestep
-        agent_feats = []
-        map_feats = []
-        for t in range(self.time_steps):
-            # Agent positions at t: (batch, drone_count, H, W)
-            agent_t = agent_positions[:, :, t, :, :].permute(0,1,2,3)
-            agent_feat_t = self.agent_position_encoder(agent_t)
-            agent_feats.append(agent_feat_t.unsqueeze(1))  # (batch, 1, feat)
-
-            # Exploration map at t: (batch, 1, H, W)
-            map_t = exploration_maps[:, t, :, :].unsqueeze(1)  # (batch, 1, H, W)
-            map_feat_t = self.exploration_map_encoder(map_t)
-            map_feats.append(map_feat_t.unsqueeze(1))
-
-        # Stack over time
-        agent_feats = torch.cat(agent_feats, dim=1)  # (batch, time_steps, feat)
-        map_feats = torch.cat(map_feats, dim=1)  # (batch, time_steps, feat)
-
-        # Temporal encoding
-        agent_temporal_feat = self.agent_temporal_encoder(agent_feats)  # (batch, temporal_feat)
-        map_temporal_feat = self.map_temporal_encoder(map_feats)  # (batch, temporal_feat)
-
-        # Concatenate and merge
-        combined = torch.cat([agent_temporal_feat, map_temporal_feat], dim=-1)
-        out = self.merge_layer(combined)
-
-        return out  # (batch, out_features)
-        # self.drone_count = drone_count
-        # self.map_size = map_size
-        # self.time_steps = time_steps
+        x = self.feature_extractor(exploration_maps)
+        B, D, T, F = agent_positions.shape
+        agent_positions_flat = agent_positions.reshape(B, D * T, F)  # Flatten the positions
+        position_emb = self.mlp_pos(agent_positions_flat)
+        x = torch.cat([position_emb, x], dim=1)
+        x = self.merge_layer(x)
+        # agent_positions_flat = agent_positions.reshape(B, D * T, W, H)
+        # exploration_map_flat = exploration_maps
+        # input_tensor = torch.cat([agent_positions_flat, exploration_map_flat], dim=1)  # (B, D*T + T, W, H)
         #
-        # # EXPLORE VIEW CONVOLUTION LAYERS
-        # # d_in, h_in, w_in
-        # layers_dict = [
-        #     {'padding': (0, 0, 0), 'dilation': (1, 1, 1), 'kernel_size': (1, 3, 3), 'stride': (1, 2, 2),
-        #      'in_channels': self.time_steps, 'out_channels': 4},
-        #     {'padding': (0, 0, 0), 'dilation': (1, 1, 1), 'kernel_size': (1, 2, 2), 'stride': (1, 1, 1),
-        #      'in_channels': 4, 'out_channels': 8},
-        # ]
-        # self.drone_view_conv1 = nn.Conv3d(in_channels=layers_dict[0]['in_channels'],
-        #                                out_channels=layers_dict[0]['out_channels'],
-        #                                kernel_size=layers_dict[0]['kernel_size'],
-        #                                stride=layers_dict[0]['stride'],
-        #                                padding=layers_dict[0]['padding'])
-        # self.drone_view_conv2 = nn.Conv3d(in_channels=layers_dict[1]['in_channels'],
-        #                                out_channels=layers_dict[1]['out_channels'],
-        #                                kernel_size=layers_dict[1]['kernel_size'],
-        #                                stride=layers_dict[1]['stride'],
-        #                                padding=layers_dict[1]['padding'])
-        #
-        # in_f = get_in_features_3d(h_in=self.map_size, w_in=self.map_size, d_in=self.drone_count, layers_dict=layers_dict)
-        #
-        # features_explore = in_f * layers_dict[1]['out_channels']
-        #
-        # self.flatten = nn.Flatten()
-        #
-        # input_features = features_explore
-        # self.out_features = 32
-        # mid_features = 64
-        #
-        # self.input_dense1 = nn.Linear(in_features=input_features, out_features=mid_features)
-        # initialize_output_weights(self.input_dense1, 'hidden')
-        # self.input_dense2 = nn.Linear(in_features=mid_features, out_features=self.out_features)
-        # initialize_output_weights(self.input_dense2, 'hidden')
-
-    # def forward(self, states):
-    #     all_total_views, all_explore_maps = self.prepare_tensor(states)
-    #
-    #     explore = F.relu(self.explore_conv1(all_maps))
-    #     explore = F.relu(self.explore_conv2(explore))
-    #     explore = self.flatten(explore)
-    #
-    #     explore = F.relu(self.input_dense1(explore))
-    #     explore = F.relu(self.input_dense2(explore))
-    #     output_vision = torch.flatten(explore, start_dim=1)
-    #
-    #     return output_vision
+        # x = self.feature_extractor(input_tensor)  # (B, spatial_outfeatures)
+        # x = self.merge_layer(x)  # (B, out_features)
+        return x  # (B, out_features)
 
 
 class Actor(nn.Module):

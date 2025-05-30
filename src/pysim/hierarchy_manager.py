@@ -9,7 +9,7 @@ class HierarchyManager:
         self.hierarchy = {}
         self.hierarchy_keys = list(self.hierarchy.keys())
         self.build_hierarchy(status, agent_handler)
-        self.max_low_level_steps = 750
+        self.max_low_level_steps = 128
 
     def restruct_current_obs(self, observations_):
         for key in self.hierarchy_keys:
@@ -72,7 +72,7 @@ class HierarchyManager:
             time_steps = status_["flyAgentTimesteps"]
             status_["hierarchy_type"] = "FlyAgent"
             status_["model_name"] = "my_model_latest.pt"
-            status_["model_path"] = "/home/roblabuser/julien/ROSHAN/models/solved/"
+            status_["model_path"] = "/home/nex/Dokumente/Code/ROSHAN/models/new_solved/"
             status_["rl_mode"] = "eval"
             status_["console"] = ""
             low_level_agent = AgentHandler(status_, algorithm='PPO', vision_range=vision_range, map_size=map_size, time_steps=time_steps, logdir='./logs')

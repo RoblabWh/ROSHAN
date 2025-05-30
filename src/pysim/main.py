@@ -64,7 +64,7 @@ def main():
               "min_update": 0,  # How many obs before updating the policy?
               "num_agents": 1,
               "flyAgentTimesteps": 3,
-              "exploreAgentTimesteps": 3,
+              "exploreAgentTimesteps": 16,
               "frame_skips": 1,
               "rl_algorithm": "PPO", # RL Algorithm to use, either PPO, IQL, TD3
               "auto_train": False, # If True, the agent will train several episodes and then evaluate
