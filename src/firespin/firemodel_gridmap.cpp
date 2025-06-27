@@ -270,7 +270,7 @@ std::shared_ptr<const std::vector<std::vector<std::vector<int>>>> GridMap::GetDr
     int size = drone_view_radius + 1;
 
     // Initialisiere eine 3D-Matrix: [status_type][x][y]
-    std::vector<std::vector<std::vector<int>>> view(2, std::vector<std::vector<int>>(size, std::vector<int>(size, -1)));
+    std::vector<std::vector<std::vector<int>>> view(2, std::vector<std::vector<int>>(size, std::vector<int>(size, 0)));
 
     int drone_view_radius_2 = drone_view_radius / 2;
     for (int x = drone_position.first - drone_view_radius_2; x <= drone_position.first + drone_view_radius_2; ++x) {
@@ -282,10 +282,11 @@ std::shared_ptr<const std::vector<std::vector<std::vector<int>>>> GridMap::GetDr
                 view[0][new_x][new_y] = cells_[x][y]->GetCellState();
 
                 // Setze Feuerstatus (Status 1)
-                if (cells_[x][y]->IsBurning())
+                if (cells_[x][y]->IsBurning()){
                     view[1][new_x][new_y] = 1;
-                else
+                } else {
                     view[1][new_x][new_y] = 0; // oder ein anderer Wert, der "kein Feuer" darstellt
+                }
             }
         }
     }
@@ -351,9 +352,13 @@ double GridMap::PercentageBurned() const {
     return (double)num_burned_cells_ / (double)num_cells_;
 }
 
-//Returns whether there are still burning fires on the map
+//Returns whether there are still burning fires on the map or particles!
 bool GridMap::IsBurning() const {
     return !(burning_cells_.empty() && virtual_particles_.empty() && radiation_particles_.empty());
+}
+
+bool GridMap::HasBurningFires() const {
+    return !burning_cells_.empty();
 }
 
 // Calculates the percentage of burning cells
@@ -577,8 +582,10 @@ int GridMap::GetRevisitedCells() {
     for (int x = 0; x < rows_; ++x) {
         for (int y = 0; y < cols_; ++y) {
             if (step_explored_map_[x][y] > 0) {
-                if (explored_map_[x][y] <= 0) {
-                    explored_map_[x][y] = 1;
+                // TODO maybe change the logic here? seems kinda random
+                // If the cell was not visited in the last 300 steps, count as newly explored
+                if (explored_map_[x][y] <= parameters_.GetExplorationTime() - 300) {
+                    explored_map_[x][y] = parameters_.GetExplorationTime(); //1;
                 } else {
                     revisited_cells++;
                 }
@@ -587,4 +594,26 @@ int GridMap::GetRevisitedCells() {
     }
     this->ResetStepExploreMap();
     return revisited_cells;
+}
+
+std::shared_ptr<const std::vector<std::pair<int, int>>> GridMap::GetExploredFires() {
+    std::vector<std::pair<int, int>> explored_fires;
+    for (int x = 0; x < rows_; ++x) {
+        for (int y = 0; y < cols_; ++y) {
+            if (fire_map_[x][y] == 1) {
+                explored_fires.emplace_back(x, y);
+            }
+        }
+    }
+    return std::make_shared<const std::vector<std::pair<int, int>>>(explored_fires);
+}
+
+std::shared_ptr<std::vector<std::pair<double, double>>> GridMap::GetFirePositionsFromBurningCells() {
+    std::shared_ptr<std::vector<std::pair<double, double>>> fire_positions = std::make_shared<std::vector<std::pair<double, double>>>();
+    auto groundstation_position = groundstation_->GetGridPositionDouble();
+    fire_positions->emplace_back(groundstation_position); // Add a dummy value to indicate no fire
+    for (const auto& cell : burning_cells_) {
+        fire_positions->emplace_back(cell.x_ + 0.5, cell.y_ + 0.5);
+    }
+    return fire_positions;
 }

@@ -40,6 +40,8 @@ public:
     std::shared_ptr<const std::vector<std::vector<int>>> GetExploredMap(int size=0, bool interpolated=true);
     std::shared_ptr<const std::vector<std::vector<int>>> GetStepExploredMap(int size=0, bool interpolated=true);
     std::shared_ptr<const std::vector<std::vector<double>>> GetFireMap(int size=0, bool interpolated=true);
+    std::shared_ptr<const std::vector<std::pair<int, int>>> GetExploredFires();
+    std::shared_ptr<std::vector<std::pair<double, double>>> GetFirePositionsFromBurningCells();
 
     [[maybe_unused]] int GetNumExploredFires() const;
 
@@ -60,6 +62,7 @@ public:
     [[maybe_unused]] int GetNumUnburnable() const { return num_unburnable_; }
     bool CanStartFires(int num_fires) const;
     bool IsBurning() const;
+    bool HasBurningFires() const;
     int GetNumParticles() { return static_cast<int>(virtual_particles_.size() + radiation_particles_.size());}
     bool CellCanIgnite(int x, int y) const { return cells_[x][y]->CanIgnite(); }
     void ShowCellInfo(int x, int y) { cells_[x][y]->ShowInfo(this->GetRows(), this->GetCols()); }
@@ -116,6 +119,11 @@ public:
     }
     [[maybe_unused]] void UpdateCellDiminishing();
     std::pair<int, int> GetRandomCorner();
+    std::pair<double, double> GetPointInGridFromNormalizedCoordinates(double x, double y) const {
+        int grid_x = static_cast<int>((x + 1) / 2 * rows_);
+        int grid_y = static_cast<int>((y + 1) / 2 * cols_);
+        return std::make_pair(grid_x, grid_y);
+    }
 
     // For Rendering Only
     void GenerateNoiseMap();

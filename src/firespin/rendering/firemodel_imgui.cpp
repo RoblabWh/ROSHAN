@@ -419,7 +419,7 @@ void ImguiHandler::PyConfig(std::string &user_input,
                                 if (show_explored_map) {
                                     ImGui::TableNextRow(ImGuiTableRowFlags_None, 5.0f * static_cast<float>(parameters_.exploration_map_show_size_));
                                     DrawGrid(*gridmap->GetExploredMap(parameters_.exploration_map_show_size_,
-                                                                     interpolated), "exploration_interpolated_2");
+                                                                     interpolated), "exploration_interpolated");
                                     ImGui::TableNextRow();
                                     ImGui::Spacing();
                                     ImGui::Separator();
@@ -456,6 +456,10 @@ void ImguiHandler::PyConfig(std::string &user_input,
                         ImGui::TableSetupColumn("Label", ImGuiTableColumnFlags_WidthFixed, 200.0f);
                         ImGui::TableSetupColumn("Value", ImGuiTableColumnFlags_WidthStretch);
                         ImGui::TableHeadersRow();
+
+                        ImGui::TableNextRow();
+                        ImGui::TableNextColumn(); ImGui::Text("Agent Type");
+                        ImGui::TableNextColumn(); ImGui::Text("%s", selected_drone->GetAgentType().c_str());
 
                         ImGui::TableNextRow();
                         ImGui::TableNextColumn(); ImGui::Text("GetOutOfAreaCounter");
@@ -836,16 +840,10 @@ bool ImguiHandler::ImGuiOnStartup(const std::shared_ptr<FireModelRenderer>& mode
             ImGui::PushStyleColor(ImGuiCol_ButtonHovered, ImVec4(0.45f, 0.7f, 0.95f, 1.0f));
             ImGui::PushStyleColor(ImGuiCol_ButtonActive, ImVec4(0.45f, 0.5f, 0.75f, 1.0f));
             auto rl_status = onGetRLStatus();
-            auto num_agents = rl_status["num_agents"].cast<int>();
-            ImGui::InputInt("Number of Agents", &num_agents, 1, 10, ImGuiInputTextFlags_CharsDecimal);
-            if(ImGui::IsItemHovered())
-                ImGui::SetTooltip("The Number of Agents is the number of drones present in the environment. Each drone collects observations and shares the same network.");
-            rl_status[py::str("num_agents")] = num_agents;
-            parameters_.SetNumberOfDrones(num_agents);
 
             // Combo Box for selecting the Agent Types
             auto hierarchy_type = rl_status["hierarchy_type"].cast<std::string>();
-            const char* hierarchy_types[] = {"FlyAgent", "ExploreAgent"};
+            const char* hierarchy_types[] = {"FlyAgent", "ExploreAgent", "PlannerAgent"};
             static int current_hierarchy_type = hierarchy_type == "FlyAgent" ? 0 : hierarchy_type == "ExploreAgent" ? 1 : 2;
             ImGui::Text("Select Agent Type");
             if (ImGui::BeginCombo("##Hierarchy Type", hierarchy_types[current_hierarchy_type])) {
@@ -858,8 +856,32 @@ bool ImguiHandler::ImGuiOnStartup(const std::shared_ptr<FireModelRenderer>& mode
                 }
                 ImGui::EndCombo();
             }
-            rl_status[py::str("hierarchy_type")] = hierarchy_types[current_hierarchy_type];
             ImGui::Spacing();
+            auto num_agents = rl_status["num_agents"].cast<int>();
+            ImGui::InputInt("Number of Agents", &num_agents, 1, 10, ImGuiInputTextFlags_CharsDecimal);
+            if(ImGui::IsItemHovered()){
+                // FlyAgent
+                if (current_hierarchy_type == 0) {
+                    ImGui::SetTooltip("The Number of Agents is the number of drones present in the environment. Each drone collects observations and shares the same network.");
+                } // ExploreAgent
+                else if (current_hierarchy_type == 1) {
+                    ImGui::SetTooltip("The Number of Agents is the number of Explorers the ExploreAgent deploys. Each Explorer collects observations and shares the same network.");
+                }
+            }
+            if (current_hierarchy_type == 0) {
+                parameters_.SetNumberOfDrones(num_agents);
+            }
+            else if (current_hierarchy_type == 1) {
+                parameters_.SetNumberOfExplorers(num_agents);
+            }
+            else {
+                parameters_.SetNumberOfExtinguishers(num_agents);
+            }
+            rl_status[py::str("num_agents")] = num_agents;
+            ImGui::Spacing();
+
+            rl_status[py::str("hierarchy_type")] = hierarchy_types[current_hierarchy_type];
+
 
             // Combo Box for selecting the RL Algorithm
             auto rl_algorithm = rl_status["rl_algorithm"].cast<std::string>();
@@ -1163,6 +1185,7 @@ void ImguiHandler::HandleEvents(SDL_Event event, ImGuiIO *io, const std::shared_
             model_renderer->ResizeEvent();
         }
     }
+    // TODO Manual Drone Control for exploration flyers
     else if (event.type == SDL_KEYDOWN && parameters_.GetNumberOfDrones() == 1 && !agent_is_running && !io->WantTextInput) {
         if (event.key.keysym.sym == SDLK_w)
             onMoveDrone(0, -1, 0, 0);

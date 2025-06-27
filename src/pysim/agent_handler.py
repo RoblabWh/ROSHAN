@@ -1,7 +1,8 @@
 from algorithms.ppo import PPO
 from algorithms.iql import IQL
+from algorithms.rl_algorithm import RLAlgorithm
 from algorithms.td3 import TD3
-from algorithms.rl_config import RLConfig, PPOConfig, IQLConfig, TD3Config
+from algorithms.rl_config import RLConfig, PPOConfig, IQLConfig, TD3Config, NoAlgorithmConfig
 import firesim
 from utils import Logger
 import numpy as np
@@ -9,17 +10,23 @@ import os
 from memory import SwarmMemory
 from explore_agent import ExploreAgent
 from flying_agent import FlyAgent
+from planner_agent import PlannerAgent
 
 
 class AgentHandler:
-    def __init__(self, status, algorithm: str = 'PPO', vision_range=21, map_size=50, time_steps=None, logdir='./logs'):
+    def __init__(self, status, algorithm: str = 'PPO', vision_range=21, map_size=50, time_steps=None, logdir=None):
 
         self.agent_actions = None
         if time_steps is None:
             print("Time steps not set, what are you doing!?")
             time_steps = [3, 32]
 
-        supported_algos = ['PPO', 'IQL', 'TD3']
+        self.original_algo = algorithm
+        if status["hierarchy_type"] == "ExploreAgent":
+            algorithm = 'no_algo'
+            status["console"] += "Using ExploreAgent, no algorithm needed\n"
+            status["console"] += "Training of ExploreAgents must be implemented first\n"
+        supported_algos = ['no_algo', 'PPO', 'IQL', 'TD3']
         assert algorithm in supported_algos, f"Algorithm {algorithm} not supported, only {supported_algos} are supported"
 
         self.algorithm_name = algorithm
@@ -29,12 +36,14 @@ class AgentHandler:
 
         # Used for Evaluation
         self.stats = {'died': [0], 'reached': [0], 'time': [0], 'reward': [0], 'episode': [0], 'perc_burn': [0]}
-        self.logger = Logger(log_dir=logdir)
+        if logdir is not None:
+            self.logger = Logger(log_dir=logdir)
         self.initialized = False #TODO Maybe Unused
         self.eval_steps = 0
 
         # Agent Type is either FlyAgent or ExploreAgent
-        self.agent_type = self.get_agent_from_type(status["hierarchy_type"])
+        self.agent_type = self.get_agent_from_type(status)
+        self.num_agents = self.agent_type.get_num_agents(status["num_agents"])
 
         # On which Level of the Hierarchy is the agent
         self.hierarchy_level = self.agent_type.get_hierachy_level()
@@ -48,7 +57,7 @@ class AgentHandler:
         self.env_step = 0
 
         if self.use_intrinsic_reward:
-            self.agent_type.initialize_rnd_model(vision_range, drone_count=status["num_agents"],
+            self.agent_type.initialize_rnd_model(vision_range, drone_count=self.num_agents,
                                                  map_size=map_size, time_steps=time_steps)
         self.current_obs = None
         if algorithm == 'PPO':
@@ -56,10 +65,12 @@ class AgentHandler:
                                model_path=status["model_path"],
                                model_name=status["model_name"],
                                vision_range=vision_range,
-                               drone_count=status["num_agents"],
+                               drone_count=self.num_agents,
                                map_size=map_size,
                                time_steps=time_steps,
-                               use_next_obs=False
+                               use_next_obs=False,
+                               use_categorical=status["hierarchy_type"] == "PlannerAgent",
+                               use_variable_state_masks=status["hierarchy_type"] == "PlannerAgent"
                                )
             self.algorithm = PPO(network=self.agent_type.get_network(algorithm=algorithm),
                                  config=config)
@@ -70,7 +81,7 @@ class AgentHandler:
                               model_path=status["model_path"],
                               model_name=status["model_name"],
                               vision_range=vision_range,
-                              drone_count=status["num_agents"],
+                              drone_count=self.num_agents,
                               map_size=map_size,
                               time_steps=time_steps,
                               action_dim=self.agent_type.action_dim,
@@ -85,7 +96,7 @@ class AgentHandler:
                                  model_path=status["model_path"],
                                  model_name=status["model_name"],
                                  vision_range=vision_range,
-                                 drone_count=status["num_agents"],
+                                 drone_count=self.num_agents,
                                  map_size=map_size,
                                  time_steps=time_steps,
                                  action_dim=self.agent_type.action_dim,
@@ -93,24 +104,42 @@ class AgentHandler:
                                  )
             self.algorithm = TD3(network=self.agent_type.get_network(algorithm=algorithm),
                                  config=config)
+        elif algorithm == 'no_algo':
+            config = NoAlgorithmConfig(algorithm=algorithm,
+                                               model_path=status["model_path"],
+                                               model_name=status["model_name"],
+                                               vision_range=vision_range,
+                                               drone_count=self.num_agents,
+                                               map_size=map_size,
+                                               time_steps=time_steps,
+                                               action_dim=self.agent_type.action_dim)
+            self.algorithm = RLAlgorithm(config)
         self.use_next_obs = self.algorithm.use_next_obs
         self.memory = SwarmMemory(max_size=self.algorithm.memory_size,
-                                  num_agents=status["num_agents"],
-                                  action_dim=self.algorithm.action_dim,
+                                  num_agents=self.num_agents,
+                                  action_dim=self.agent_type.action_dim,
                                   use_intrinsic_reward=self.use_intrinsic_reward,
                                   use_next_obs=self.use_next_obs)
         status["console"] += f"{status['num_agents']} agents of Type: {self.agent_type.name} initialized\n"
         status["console"] += f"Training with {self.algorithm_name} algorithm\n"
 
     @staticmethod
-    def get_agent_from_type(agent_type):
-        if agent_type not in ["FlyAgent", "ExploreAgent"]:
-            raise ValueError("Invalid agent type, must be either 'FlyAgent' "
-                             "or 'ExploreAgent', was: {}".format(agent_type))
+    def get_agent_from_type(status):
+        agent_type = status["hierarchy_type"]
+        num_drones = status["num_agents"]
+        allowed_types = ["FlyAgent", "ExploreAgent", "ExploreFlyAgent", "PlannerFlyAgent", "PlannerAgent"]
+        if agent_type not in allowed_types:
+            raise ValueError("Invalid agent type, must be either {}, was: {}".format(allowed_types, agent_type))
         if agent_type == "FlyAgent":
-            return FlyAgent()
+            return FlyAgent("FlyAgent")
+        if agent_type == "ExploreFlyAgent":
+            return FlyAgent("ExploreFlyAgent")
+        if agent_type == "PlannerFlyAgent":
+            return FlyAgent("PlannerFlyAgent")
         if agent_type == "ExploreAgent":
             return ExploreAgent()
+        if agent_type == "PlannerAgent":
+            return PlannerAgent(num_drones)
 
     def reset(self, status):
         if status["train_episode"] >= status["train_episodes"]:
@@ -141,6 +170,8 @@ class AgentHandler:
             raise NotImplementedError("Algorithm {} not implemented".format(self.algorithm_name))
 
     def load_model(self, status):
+        if self.algorithm_name == 'no_algo':
+            return "No algorithm used, no model to load\n"
         train = True if status["rl_mode"] == "train" else False
         # Load model, return True if successful and set model to evaluation mode
         if not train:
@@ -179,8 +210,10 @@ class AgentHandler:
         status["obs_collected"] = len(self.memory) + 1
         if self.algorithm_name == 'PPO':
             status['min_update'] = self.algorithm.horizon
-        else:
+        elif self.algorithm_name == 'IQL' or self.algorithm_name == 'TD3':
             status["min_update"] = self.algorithm.min_memory_size
+        elif self.algorithm_name == 'no_algo':
+            status["min_update"] = 0
         if status["rl_mode"] != self.mode:
             self.mode = status["rl_mode"]
             if self.mode == "train":
@@ -237,6 +270,12 @@ class AgentHandler:
         self.env_step += 1
         return obs, rewards, all_terminals, terminal_result, percent_burned
 
+    def step_without_network(self, status, engine):
+        agent_actions = self.get_action([[0,0] for _ in range(self.num_agents)])
+        _, _, _, terminal_result, _ = engine.Step(self.agent_type.name, agent_actions)
+        self.env_reset = terminal_result["EnvReset"]
+        self.handle_env_reset(status)
+
     def sim_step(self, engine):
         engine.SimStep(self.agent_actions)
 
@@ -262,7 +301,7 @@ class AgentHandler:
 
     def act(self, observations):
         actions, action_logprobs = self.algorithm.select_action(observations)
-        return actions, action_logprobs
+        return actions, action_logprobs.ravel()
 
     def get_action(self, actions):
         return self.agent_type.get_action(actions)

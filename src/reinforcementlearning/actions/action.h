@@ -7,17 +7,6 @@
 
 #include <memory>
 
-//class Agent;
-//class GridMap;
-//
-//class Action {
-//public:
-//    virtual ~Action() = default;
-//    virtual void Apply(const std::shared_ptr<Agent> &agent, std::shared_ptr<GridMap> gridMap) const = 0;
-//};
-
-#include <memory>
-
 class Agent;
 class GridMap;
 

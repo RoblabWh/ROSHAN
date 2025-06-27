@@ -131,4 +131,18 @@ double AgentState::GetExplorationMapScalar() const {
     return scalar / max_value;
 }
 
+std::shared_ptr<std::vector<std::pair<double, double>>> AgentState::GetFirePositionsFromFireMap() {
+    std::vector<std::pair<double, double>> fire_positions;
+    // Append Wait Token for the Network at (-1, -1)
+    fire_positions.emplace_back(-1, -1);
+        for (size_t i = 0; i < (*fire_map_).size(); ++i) {
+            for (size_t j = 0; j < (*fire_map_)[i].size(); ++j) {
+                if ((*fire_map_)[i][j] > 0) {
+                    fire_positions.emplace_back(i, j);
+                }
+            }
+        }
+    return std::make_shared<std::vector<std::pair<double, double>>>(fire_positions);
+}
+
 

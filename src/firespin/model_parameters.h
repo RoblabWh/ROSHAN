@@ -165,19 +165,18 @@ public:
     bool agent_is_running_ = false;
     void SetAgentIsRunning(bool running) {agent_is_running_ = running;}
     [[nodiscard]] bool GetAgentIsRunning() const {return agent_is_running_;}
-    int number_of_drones_ = 1;
 //    int total_env_steps_ = 200;
     int current_env_steps_ = 0;
     [[nodiscard]] int GetCurrentEnvSteps() const {return current_env_steps_;}
     void SetCurrentEnvSteps(int steps) {current_env_steps_ = steps;}
 //    int GetTotalEnvSteps() const {return (int)((grid_nx_ * grid_ny_ * (0.1 / dt_)) + 80);}
     [[nodiscard]] int GetTotalEnvSteps() const {
-        int agent_factor = hierarchy_type == "FlyAgent" ? 1 : hierarchy_type == "ExploreAgent" ? 10 : 0;
+        int agent_factor = hierarchy_type == "FlyAgent" ? 1 : hierarchy_type == "ExploreAgent" ? 10 : 10;
         return (int)(agent_factor * sqrt(grid_nx_ * grid_nx_ + grid_ny_ * grid_ny_) * (20 / (max_velocity_.first * dt_)));
     }
 
     [[nodiscard]] static int GetViewRange(const std::string& agent_type) {
-        int view_range_ = agent_type == "FlyAgent" ? 8 : agent_type == "ExploreAgent" ? 12 : 2;
+        int view_range_ = agent_type == "FlyAgent" ? 12 : agent_type == "ExploreAgent" ? 12 : 2;
         return view_range_;
     }
     int time_steps_ = 3; // 16 //32
@@ -187,8 +186,15 @@ public:
     std::pair<double, double> max_velocity_ = std::make_pair(10, 10); // X and Y Speed
     // std::pair<double, double> max_velocity_ = std::make_pair(5.0, 2 * M_PI); // Max Speed and Angle
     [[nodiscard]] std::pair<double, double> GetMaxVelocity() const {return max_velocity_;}
+    int number_of_drones_ = 1;
+    int number_of_explorers = 2;
+    int number_of_extinguishers = 4;
+    [[nodiscard]] int GetNumberOfExplorers() const {return number_of_explorers;}
     [[nodiscard]] int GetNumberOfDrones() const {return number_of_drones_;}
+    [[nodiscard]] int GetNumberOfExtinguishers() const {return number_of_extinguishers;}
     void SetNumberOfDrones(int number) {number_of_drones_ = number;}
+    void SetNumberOfExplorers(int number) {number_of_explorers = number;}
+    void SetNumberOfExtinguishers(int number) {number_of_extinguishers = number;}
     int water_capacity_ = 10;
     [[nodiscard]] int GetWaterCapacity() const {return water_capacity_;}
     [[nodiscard]] double GetWaterRefillDt() const {return GetWaterCapacity() / (5 * 60 / GetDt());}

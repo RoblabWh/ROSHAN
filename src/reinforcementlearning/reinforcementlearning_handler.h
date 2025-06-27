@@ -11,6 +11,7 @@
 #include <vector>
 #include "externals/pybind11/include/pybind11/embed.h"
 #include "externals/pybind11/include/pybind11/stl.h"
+#include "externals/pybind11/include/pybind11/complex.h"
 #include "state.h"
 #include "firespin/rendering/firemodel_renderer.h"
 #include "agents/agent_factory.h"
@@ -52,18 +53,42 @@ public:
     void UpdateReward();
     py::dict GetRLStatus() { return rl_status_; }
     std::shared_ptr<std::vector<std::shared_ptr<FlyAgent>>> GetDrones() {
-        if (agents_by_type_.find("FlyAgent") == agents_by_type_.end()) {
-            return std::make_shared<std::vector<std::shared_ptr<FlyAgent>>>();
-        }
-        auto& agents = agents_by_type_["FlyAgent"];
         auto fly_agents = std::make_shared<std::vector<std::shared_ptr<FlyAgent>>>();
 
-        for(const auto& agent : agents) {
-            auto fly_agent = std::dynamic_pointer_cast<FlyAgent>(agent);
-            if (fly_agent){
-                fly_agents->push_back(std::shared_ptr<FlyAgent>(fly_agent));
-            } else {
-                std::cerr << "Non-FlyAgent is not a FlyAgent!\n";
+        bool fly_agents_exist = agents_by_type_.find("FlyAgent") != agents_by_type_.end();
+        bool explore_fly_agents_exist = agents_by_type_.find("ExploreFlyAgent") != agents_by_type_.end();
+        bool planner_fly_agents_exist = agents_by_type_.find("PlannerFlyAgent") != agents_by_type_.end();
+        if (!fly_agents_exist && !explore_fly_agents_exist && !planner_fly_agents_exist) {
+            return std::make_shared<std::vector<std::shared_ptr<FlyAgent>>>();
+        }
+        if (fly_agents_exist) {
+            for(const auto& agent : agents_by_type_["FlyAgent"]) {
+                auto fly_agent = std::dynamic_pointer_cast<FlyAgent>(agent);
+                if (fly_agent){
+                    fly_agents->push_back(std::shared_ptr<FlyAgent>(fly_agent));
+                } else {
+                    std::cerr << "Non-FlyAgent is not a FlyAgent!\n";
+                }
+            }
+        }
+        if (explore_fly_agents_exist) {
+            for(const auto& agent : agents_by_type_["ExploreFlyAgent"]) {
+                auto fly_agent = std::dynamic_pointer_cast<FlyAgent>(agent);
+                if (fly_agent){
+                    fly_agents->push_back(std::shared_ptr<FlyAgent>(fly_agent));
+                } else {
+                    std::cerr << "Non-FlyAgent is not a FlyAgent!\n";
+                }
+            }
+        }
+        if (planner_fly_agents_exist) {
+            for(const auto& agent : agents_by_type_["PlannerFlyAgent"]) {
+                auto fly_agent = std::dynamic_pointer_cast<FlyAgent>(agent);
+                if (fly_agent){
+                    fly_agents->push_back(std::shared_ptr<FlyAgent>(fly_agent));
+                } else {
+                    std::cerr << "Non-FlyAgent is not a FlyAgent!\n";
+                }
             }
         }
         return fly_agents;

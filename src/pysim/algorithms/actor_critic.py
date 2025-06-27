@@ -3,6 +3,96 @@ import torch.nn as nn
 import numpy as np
 from torch.distributions import MultivariateNormal, Bernoulli, Normal, Independent
 
+class CategoricalActorCritic(nn.Module):
+    """
+    A PyTorch Module that represents the actor-critic network of a categorical agent.
+    """
+    def __init__(self, Actor, Critic, vision_range, drone_count, map_size, time_steps):
+        super(CategoricalActorCritic, self).__init__()
+        self.device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
+        self.actor = Actor(vision_range, drone_count, map_size, time_steps).to(self.device)
+        self.critic = Critic(vision_range, drone_count, map_size, time_steps).to(self.device)
+
+    def act(self, state):
+        """
+        Returns an action sampled from the actor's distribution and the log probability of that action.
+
+        :param states: A tuple of the current lidar scan, orientation to goal, distance to goal, and velocity.
+        :return: A tuple of the sampled action and the log probability of that action.
+        """
+        with torch.no_grad():
+            logits = self.actor(state)  # logits: [batch_size, num_drones, num_fires]
+            probs = torch.softmax(logits, dim=-1)  # [batch_size, num_drones, num_fires]
+            cat_dist = torch.distributions.Categorical(probs)
+
+            actions_idx = cat_dist.sample()  # [batch_size, num_drones]
+            action_logprob = cat_dist.log_prob(actions_idx)  # [batch_size, num_drones]
+
+            _, possible_goals = state
+            possible_goals = possible_goals.squeeze(1)
+
+            # TODO Check if needed
+            B, N_D = actions_idx.shape
+            batch_idx = torch.arange(B).unsqueeze(1).expand(-1, N_D)
+            actions = possible_goals[batch_idx, actions_idx.cpu()]
+
+            actions = actions.reshape(B, N_D, 2)
+
+            return actions, action_logprob.detach().cpu().numpy()
+
+    def act_certain(self, state):
+        """
+        Returns an action from the actor's distribution without sampling.
+
+        :param states: A tuple of the current lidar scan, orientation to goal, distance to goal, and velocity.
+        :return: The action from the actor's distribution.
+        """
+        with torch.no_grad():
+            action_logits = self.actor(state)
+            # Shape: [batch_size, action_size]
+            actions_idx = torch.argmax(action_logits, dim=-1)
+            _, possible_goals = state# [batch_size, num_drones]
+            possible_goals = possible_goals.squeeze(1)
+
+            # TODO Check if needed
+            B, N_D = actions_idx.shape
+            batch_idx = torch.arange(B).unsqueeze(1).expand(-1, N_D)
+            actions = possible_goals[batch_idx, actions_idx.cpu()]
+
+            actions = actions.reshape(B, N_D, 2)
+            return actions
+
+    def evaluate(self, state, actions, masks=None):
+        """
+        Returns the log probability of the given action, the value of the given state, and the entropy of the actor's
+        distribution.
+
+        :param state: A tuple of the current lidar scan, orientation to goal, distance to goal, and velocity.
+        :param action: The action to evaluate.
+        :return: A tuple of the log probability of the given action, the value of the given state, and the entropy of the
+        actor's distribution.
+        """
+
+        state_value = self.critic(state, masks)  # Shape: [batch_size, 1]
+        # state_value = torch.squeeze(state_value)
+
+        logits = self.actor(state, masks)  # logits: [batch_size, num_drones, num_fires]
+        # For each drone, create a Categorical distribution over fires
+        # Flatten batch and drone dims for easier handling:
+        probs = torch.softmax(logits, dim=-1)  # [batch_size, num_drones, num_fires]
+        cat_dist = torch.distributions.Categorical(probs)
+        # Sample action for each drone
+        actions = cat_dist.sample()  # [batch_size, num_drones]
+        # Log probability for each action (per drone)
+        action_logprob = cat_dist.log_prob(actions)  # [batch_size, num_drones]
+        dist_entropy = cat_dist.entropy()  # [B, D]
+
+        action_logprob = action_logprob.mean(dim=1)  # [B]
+        dist_entropy = dist_entropy.mean(dim=1)  # [B]
+        state_value = torch.squeeze(state_value.mean(dim=1))  # [B]
+
+        return action_logprob, state_value, dist_entropy
+
 class StochasticActorCritic(nn.Module):
     """
     A PyTorch Module that represents the actor-critic network of a PPO agent.
@@ -29,14 +119,9 @@ class StochasticActorCritic(nn.Module):
             action_mean = action_mean.cpu()
             action_var = action_var.cpu()
 
-            # Expand action_var to match batch size
-            batch_size = action_mean.size(0)
-            action_size = action_mean.size(1)
-            action_var = action_var.unsqueeze(0).expand(batch_size, action_size)
-            action_std = torch.sqrt(action_var)
-
             # Create independent normal distributions for each action dimension
-            dist = Normal(action_mean, action_std)  # Shape: [batch_size, action_size]
+            # dist = Normal(action_mean, action_std)  # Shape: [batch_size, action_size]
+            dist = Normal(action_mean, torch.sqrt(action_var))  # Shape: [batch_size, action_size] Use PyTorch's built-in broadcasting
             dist = Independent(dist, 1)  # Treat the last dimension as the event dimension
 
             # Sample actions from the distributions
@@ -110,7 +195,7 @@ class ActorCriticPPO(StochasticActorCritic):
 
         self.critic = Critic(vision_range, drone_count, map_size, time_steps).to(self.device)
 
-    def evaluate(self, state, action):
+    def evaluate(self, state, action, masks=None):
         """
         Returns the log probability of the given action, the value of the given state, and the entropy of the actor's
         distribution.
@@ -127,14 +212,8 @@ class ActorCriticPPO(StochasticActorCritic):
         # Get action means and variances from the actor network
         action_mean, action_var = self.actor(state)  # action_mean: [batch_size, action_size], action_var: [action_size, ]
 
-        # Expand action_var to match action_mean
-        batch_size = action_mean.size(0)
-        action_size = action_mean.size(1)
-        action_var = action_var.unsqueeze(0).expand(batch_size, action_size)  # Shape: [batch_size, action_size]
-        action_std = torch.sqrt(action_var)  # Shape: [batch_size, action_size]
-
         # Create independent normal distributions for each action dimension
-        dist = Normal(action_mean, action_std)  # Shape: [batch_size, action_size]
+        dist = Normal(action_mean, torch.sqrt(action_var))  # Shape: [batch_size, action_size] Use PyTorch's built-in broadcasting
         dist = Independent(dist, 1)  # Treat the last dimension as the event dimension
 
         # Compute log probabilities of the taken actions

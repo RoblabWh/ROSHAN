@@ -64,7 +64,7 @@ def main():
               "min_update": 0,  # How many obs before updating the policy?
               "num_agents": 1,
               "flyAgentTimesteps": 3,
-              "exploreAgentTimesteps": 16,
+              "exploreAgentTimesteps": 3,
               "frame_skips": 1,
               "rl_algorithm": "PPO", # RL Algorithm to use, either PPO, IQL, TD3
               "auto_train": False, # If True, the agent will train several episodes and then evaluate
@@ -77,7 +77,7 @@ def main():
               "max_eval": 3, # Number of Environments to run before stopping evaluation
               "max_train": 1, # Number of train_steps before stopping training
               "current_episode": 0,
-              "hierarchy_type": "FlyAgent", # Either FlyAgent, ExplorationAgent
+              "hierarchy_type": "PlannerAgent", # Either FlyAgent, ExplorationAgent
               "resume": False, # If True, the agent will resume training from the last checkpoint
               }
 
@@ -186,7 +186,7 @@ def optimize(trial):
               "max_eval": 100, # Number of Environments to run before stopping evaluation
               "max_train": 30, # Number of train_steps before stopping training
               "current_episode": 0,
-              "hierarchy_type": "FlyAgent", # Either FlyAgent, ExplorationAgent
+              "hierarchy_type": "ExploreAgent", # Either FlyAgent, ExplorationAgent
               "resume": False, # If True, the agent will resume training from the last checkpoint
               }
 
@@ -201,8 +201,8 @@ def optimize(trial):
     # Initialize the EngineCore and send the RL_Status
     engine = firesim.EngineCore()
     engine.Init(mode)
-    engine.SendRLStatusToModel(status)
     engine.InitializeMap(init_map)
+    engine.SendRLStatusToModel(status)
 
     # Wait for the initial mode selection from the user
     while not engine.InitialModeSelectionDone():

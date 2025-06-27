@@ -35,12 +35,16 @@ private:
 
     bool did_hierarchy_step = false;
     std::vector<std::shared_ptr<FlyAgent>> fly_agents_;
+    std::vector<std::deque<std::pair<double, double>>> perfect_goals_;
+    int goal_idx_ = 0;
     int revisited_cells_{};
 
     // Rewards Collection for Debugging!
     bool explored_fires_equals_actual_fires_ = false;
 
     void UpdateStates(const std::shared_ptr<GridMap> &grid_map);
+    static std::pair<double, double> GetGoalFromAction(const ExploreAction* action, const std::shared_ptr<GridMap> &grid_map);
+    std::pair<double, double> GetGoalFromCertain(std::deque<std::pair<double, double>> &goals, const std::shared_ptr<GridMap>& gridMap);
     void InitializeExploreAgentStates(const std::shared_ptr<GridMap> &grid_map);
     std::shared_ptr<AgentState> BuildAgentState(const std::shared_ptr<GridMap> &grid_map);
 };

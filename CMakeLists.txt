@@ -113,9 +113,11 @@ set(AGENT_SOURCES
         src/reinforcementlearning/agents/agent_factory.h
         src/reinforcementlearning/agents/fly_agent.h src/reinforcementlearning/agents/fly_agent.cpp
         src/reinforcementlearning/agents/explore_agent.h src/reinforcementlearning/agents/explore_agent.cpp
+        src/reinforcementlearning/agents/planner_agent.h src/reinforcementlearning/agents/planner_agent.cpp
         src/reinforcementlearning/actions/action.h
         src/reinforcementlearning/actions/fly_action.h src/reinforcementlearning/actions/fly_action.cpp
         src/reinforcementlearning/actions/explore_action.h src/reinforcementlearning/actions/explore_action.cpp
+        src/reinforcementlearning/actions/plan_action.h src/reinforcementlearning/actions/plan_action.cpp
         src/reinforcementlearning/agents/agent_state.cpp src/reinforcementlearning/agents/agent_state.h
         src/reinforcementlearning/texturerenderer.cpp src/reinforcementlearning/texturerenderer.h
         src/reinforcementlearning/groundstation.h src/reinforcementlearning/groundstation.cpp

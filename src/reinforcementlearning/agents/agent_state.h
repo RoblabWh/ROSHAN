@@ -29,13 +29,22 @@ public:
     //* @param goal_position The goal position of the Agent
     //* @param water_dispense The water dispense Action of the Agent
     //* @param cell_size The size of the cells in the simulation (used for normalization)
-    explicit AgentState() = default;
+    explicit AgentState() :
+            drone_view_(std::make_shared<std::vector<std::vector<std::vector<int>>>>()),
+            total_drone_view_(std::make_shared<std::vector<std::vector<double>>>()),
+            exploration_map_(std::make_shared<std::vector<std::vector<int>>>()),
+            fire_map_(std::make_shared<std::vector<std::vector<double>>>()),
+            explored_fires_(std::make_shared<std::vector<std::pair<int, int>>>()),
+            drone_positions_(std::make_shared<std::vector<std::pair<double, double>>>()),
+            fire_positions_(std::make_shared<std::vector<std::pair<double, double>>>())
+    {};
 
     //** Setter Functions for the states (better readability, than a massive Constructor) **//
     void SetVelocity(std::pair<double, double> velocity) { velocity_ = velocity; }
     void SetDroneView(std::shared_ptr<const std::vector<std::vector<std::vector<int>>>> drone_view) { drone_view_ = std::move(drone_view); }
     void SetTotalDroneView(std::shared_ptr<const std::vector<std::vector<double>>> total_drone_view) { total_drone_view_ = std::move(total_drone_view); }
     void SetExplorationMap(std::shared_ptr<const std::vector<std::vector<int>>> exploration_map) { exploration_map_ = std::move(exploration_map); }
+    void SetExploredFires(std::shared_ptr<const std::vector<std::pair<int, int>>> explored_fires) { explored_fires_ = std::move(explored_fires); }
     void SetFireMap(std::shared_ptr<const std::vector<std::vector<double>>> fire_map) { fire_map_ = std::move(fire_map); }
     void SetPosition(std::pair<double, double> position) { position_ = position; }
     void SetGoalPosition(std::pair<double, double> goal_position) { goal_position_ = goal_position; }
@@ -43,6 +52,9 @@ public:
     void SetMapDimensions(std::pair<double, double> map_dimensions) { map_dimensions_ = map_dimensions; }
     void SetCellSize(double cell_size) { cell_size_ = cell_size; }
     void SetMultipleTotalDroneView(std::vector<std::shared_ptr<const std::vector<std::vector<double>>>> total_drone_view) { multiple_total_drone_views_ = std::move(total_drone_view); }
+    void SetPerfectGoals(std::vector<std::deque<std::pair<double, double>>> perfect_goals) { perfect_goals_ = std::move(perfect_goals); }
+    void SetDronePositions(std::shared_ptr<std::vector<std::pair<double, double>>> drone_positions) { drone_positions_ = std::move(drone_positions); }
+    void SetFirePositions(std::shared_ptr<std::vector<std::pair<double, double>>> fire_positions) { fire_positions_ = std::move(fire_positions); }
 
     //** These functions are for the states **//
     [[nodiscard]] std::vector<std::vector<std::vector<double>>> GetMultipleTotalDroneView() const {
@@ -71,7 +83,7 @@ public:
 
     //* Returns the Fire Status of this State. 1 indicates fire, 0 indicates no fire.
     //* @return std::vector<std::vector<int>> FireView around the Agent.
-    [[nodiscard]] std::vector<std::vector<int>> GetFireView() const { return (*drone_view_)[0]; }
+    [[nodiscard]] std::vector<std::vector<int>> GetFireView() const { return (*drone_view_)[1]; }
     //* The Fire Map is a 2D vector with all discovered fires on the whole map.
     //* @return std::vector<std::vector<double>> The FireMap of the whole Environment of the Agent.
     [[nodiscard]] std::vector<std::vector<double>> GetFireMap() const { return *fire_map_; }
@@ -80,6 +92,11 @@ public:
     //* The Exploration Map is a 2D vector with all discovered cells on the whole map.
     //* @return std::vector<std::vector<int>> The ExplorationMap of the whole Environment of the Agent.
     [[nodiscard]] std::vector<std::vector<int>> GetExplorationMap() const { return *exploration_map_; }
+
+    //* Returns the Explored Fires as a List
+    //* The Explored Fires are a list of all discovered fires on the whole map.
+    //* @return std::vector<std::pair<int, int>> The ExploredFires of the whole Environment of the Agent.
+    [[nodiscard]] std::vector<std::pair<int, int>> GetExploredFires() const { return *explored_fires_; }
 
     //* Returns the WaterDispense Action of this State
     //* @return int The WaterDispense Action of the Agent.
@@ -157,24 +174,39 @@ public:
     //* @return std::pair<double, double> The Position of the Agent in the Exploration Map.
     [[nodiscard]] std::pair<double, double> GetPositionInExplorationMap() const;
 
+    [[nodiscard]] std::shared_ptr<std::vector<std::pair<double, double>>> GetFirePositionsFromFireMap();
+
     [[nodiscard]] std::vector<std::vector<double>> GetTotalDroneView() const { return *total_drone_view_; }
     [[nodiscard]] std::shared_ptr<const std::vector<std::vector<double>>> GetTotalDroneViewPtr() const { return total_drone_view_; }
+
+    [[nodiscard]] std::vector<std::pair<double, double>> GetDronePositions() const { return *drone_positions_; }
+    [[nodiscard]] std::vector<std::pair<double, double>> GetFirePositions() const { return *fire_positions_; }
+
 
     //** These functions are only for Python Debugger Visibility **//
     [[nodiscard]] std::pair<double, double> get_velocity() const { return velocity_; }
     [[nodiscard]] std::vector<std::vector<std::vector<int>>> get_drone_view() const { return *drone_view_; }
     [[nodiscard]] std::vector<std::vector<double>> get_total_drone_view() const { return *total_drone_view_; }
     [[nodiscard]] std::vector<std::vector<int>> get_map() const { return *exploration_map_; }
+    [[nodiscard]] std::vector<std::pair<int, int>> get_explored_fires() const { return *explored_fires_; }
     [[nodiscard]] std::vector<std::vector<double>> get_fire_map() const { return *fire_map_; }
     [[nodiscard]] std::pair<int, int> get_position() const { return position_; }
     [[nodiscard]] std::pair<double, double> get_orientation_vector() const { return orientation_vector_; }
+    [[nodiscard]] std::pair<double, double> get_goal_position() const { return goal_position_; }
+    [[nodiscard]] int get_water_dispense() const { return water_dispense_; }
+    [[nodiscard]] std::pair<double, double> get_map_dimensions() const { return map_dimensions_; }
+    [[nodiscard]] double get_cell_size() const { return cell_size_; }
+    [[nodiscard]] std::vector<std::deque<std::pair<double, double>>> get_perfect_goals() const { return perfect_goals_; }
+    [[nodiscard]] std::vector<std::shared_ptr<const std::vector<std::vector<double>>>> get_multiple_total_drone_view() const { return multiple_total_drone_views_; }
+    [[nodiscard]] std::vector<std::pair<double, double>> get_drone_positions() const { return *drone_positions_;}
+    [[nodiscard]] std::vector<std::pair<double, double>> get_fire_positions() const { return *fire_positions_;}
 private:
     //* State Value for the velocity of an Agent in x and y direction
     std::pair<double, double> velocity_;
     //* State Value weather the Agent dispensed water
-    int water_dispense_;
+    int water_dispense_{};
     std::pair<double, double> map_dimensions_;
-    double cell_size_;
+    double cell_size_{};
     std::pair<double, double> position_; // x, y
     std::pair<double, double> goal_position_;
     std::pair<double, double> orientation_vector_; // x, y
@@ -182,7 +214,13 @@ private:
     std::vector<std::shared_ptr<const std::vector<std::vector<double>>>> multiple_total_drone_views_;
     std::shared_ptr<const std::vector<std::vector<double>>> total_drone_view_;
     std::shared_ptr<const std::vector<std::vector<int>>> exploration_map_;
+    std::shared_ptr<const std::vector<std::pair<int, int>>> explored_fires_;
     std::shared_ptr<const std::vector<std::vector<double>>> fire_map_;
+    std::shared_ptr<const std::vector<std::pair<double, double>>> drone_positions_;
+    std::shared_ptr<const std::vector<std::pair<double, double>>> fire_positions_;
+
+    //TODO TEST Remove later
+    std::vector<std::deque<std::pair<double, double>>> perfect_goals_;
 };
 
 #endif //ROSHAN_AGENT_STATE_H

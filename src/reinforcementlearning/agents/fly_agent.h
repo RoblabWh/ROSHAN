@@ -63,6 +63,7 @@ public:
 
     //Fly Agent specific public
     void DispenseWater(const std::shared_ptr<GridMap>& grid_map, int water_dispense);
+    bool DispenseWaterCertain(const std::shared_ptr<GridMap>& grid_map);
     int GetViewRange() const { return view_range_; }
     int GetOutOfAreaCounter() const { return out_of_area_counter_; }
     std::pair<double, double> CalculateLocalGoal(double goal_x, double goal_y);
@@ -74,6 +75,7 @@ public:
     std::pair<double, double> GetGridPositionDouble() { return this->GetLastState().GetGridPositionDouble(); };
     std::pair<double, double> GetRealPosition() { return position_; };
     std::pair<double, double> GetGoalPosition() { return goal_position_; }
+    std::string GetAgentType() const { return agent_type_; }
 
     std::pair<int, int> GetGoalPositionInt() const { return std::make_pair((int)goal_position_.first, (int)goal_position_.second); }
     int GetNewlyExploredCells() const { return newly_explored_cells_; }
@@ -83,15 +85,16 @@ public:
         newly_explored_cells_ = 0;
         return nec;
     }
+    bool GetExtinguishedLastFire() const { return extinguished_last_fire_; }
     //** Setter **//
     void SetGoalPosition(std::pair<double, double> goal_position) { goal_position_ = goal_position; }
     void SetPosition(std::pair<int, int> point) { position_ = std::make_pair((point.first + 0.5) * parameters_.GetCellSize(), (point.second + 0.5) * parameters_.GetCellSize()); }
     void SetRevisitedCells(int revisited_cells) { last_step_total_revisited_cells_of_all_agents_ = revisited_cells; }
+    void SetAgentType(const std::string& agent_type) { agent_type_ = agent_type; }
 private:
     void UpdateStates(const std::shared_ptr<GridMap>& grid_map, std::pair<double, double> velocity_vector, int water_dispense);
 
     //Fly Agent specific
-    bool DispenseWaterCertain(const std::shared_ptr<GridMap>& grid_map);
     void FlyPolicy(const std::shared_ptr<GridMap> &gridmap);
     std::pair<double, double> MovementStep(double netout_x, double netout_y);
     void CalcMaxDistanceFromMap();
@@ -142,6 +145,7 @@ private:
 
     // Currently just for Debugging
     int last_step_total_revisited_cells_of_all_agents_{};
+    std::string agent_type_;
 };
 
 

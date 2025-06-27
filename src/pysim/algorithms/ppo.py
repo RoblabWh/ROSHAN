@@ -3,7 +3,7 @@ import torch.nn as nn
 import os
 import warnings
 import numpy as np
-from algorithms.actor_critic import ActorCriticPPO
+from algorithms.actor_critic import ActorCriticPPO, CategoricalActorCritic
 from memory import SwarmMemory
 from utils import RunningMeanStd
 from algorithms.rl_algorithm import RLAlgorithm
@@ -29,6 +29,7 @@ class PPO(RLAlgorithm):
 
         # Current Policy
         self.policy = ActorCriticPPO(Actor=self.actor, Critic=self.critic, vision_range=self.vision_range, drone_count=self.drone_count, map_size=self.map_size, time_steps=self.time_steps)
+        self.policy = CategoricalActorCritic(Actor=self.actor, Critic=self.critic, vision_range=self.vision_range, drone_count=self.drone_count, map_size=self.map_size, time_steps=self.time_steps) if self.use_categorical else self.policy
 
         self.actor_params = self.policy.actor.parameters()
         self.critic_params = self.policy.critic.parameters()
@@ -152,6 +153,7 @@ class PPO(RLAlgorithm):
         t_dict = memory.to_tensor()
 
         states = t_dict['state']
+        variable_state_masks = t_dict['masks']
         actions = t_dict['action']
         old_logprobs = t_dict['logprobs']
         ext_rewards = t_dict['reward']
@@ -189,35 +191,17 @@ class PPO(RLAlgorithm):
             advantages = []
             returns = []
             for i in range(memory.num_agents):
-                _, values_, _ = self.policy.evaluate(states[i], actions[i])
+                _, values_, _ = self.policy.evaluate(states[i], actions[i], variable_state_masks[0][1] if self.use_variable_state_masks and len(variable_state_masks[0][1]) > 0 else None)
                 if masks[i][-1] == 1:
                     last_state = tuple(torch.FloatTensor(np.array(state)).to(self.device) for state in memory.get_agent_state(next_obs, i))
                     bootstrapped_value = self.policy.critic(last_state).detach()
-                    values_ = torch.cat((values_, bootstrapped_value[0]), dim=0)
+                    if bootstrapped_value.dim() != 1:
+                        bootstrapped_value = bootstrapped_value.mean(dim=1)
+                    values_ = torch.cat((values_, bootstrapped_value.squeeze(0)), dim=0)
                 adv, ret = self.get_advantages(values_.detach(), masks[i], rewards[i].detach())
 
                 advantages.append(adv)
                 returns.append(ret)
-
-                # step_indices = list(np.arange(0, len(states[0][0]), 1))
-                # if step_indices[-1] != len(states[0][0]):
-                #     step_indices.append(len(states[0][0]))
-                #
-                # for idx in range(len(step_indices) - 1):
-                #     begin = step_indices[idx]
-                #     end = step_indices[idx + 1]
-                #     batch_states = tuple(state[begin:end] for state in states[i])
-                #     batch_actions = actions[i][begin:end]
-                #     batch_rewards = rewards[i][begin:end]
-                #     batch_masks = masks[i][begin:end]
-                #     _, values_, _ = self.policy.evaluate(batch_states, batch_actions)
-                #     if batch_masks[-1] == 1:
-                #         last_state = tuple(torch.FloatTensor(np.array(state)).to(self.device) for state in memory.get_agent_state(next_obs, i)) if isinstance(next_obs, tuple) else next_obs
-                #         bootstrapped_value = self.policy.critic(last_state).detach()
-                #         values_ = torch.cat((values_, bootstrapped_value[0]), dim=0)
-                #     adv, ret = self.get_advantages(values_.detach(), batch_masks, batch_rewards.detach())
-                #     advantages.append(adv)
-                #     returns.append(ret)
 
         # Merge all agent states, actions, rewards etc.
         advantages = torch.cat(advantages)
@@ -229,22 +213,19 @@ class PPO(RLAlgorithm):
         actions = torch.cat(actions)
         old_logprobs = torch.cat(old_logprobs)
         states = memory.rearrange_states(states)
+        #v_masks = memory.rearrange_masks(variable_state_masks) if self.use_variable_state_masks else None
 
         # Train policy for K epochs: sampling and updating
         for _ in range(self.k_epochs):
             epoch_values = []
             epoch_returns = []
             # Random sampling and no repetition. 'False' indicates that training will continue even if the number of samples in the last time is less than mini_batch_size
-            for index in BatchSampler(SubsetRandomSampler(range(self.horizon)), mini_batch_size, True):
+            for index in BatchSampler(SubsetRandomSampler(range(self.horizon)), mini_batch_size, False):
                 # Evaluate old actions and values using current policy
-                # batch_states = (
-                #     states[0][index], states[1][index], states[2][index], states[3][index], states[4][index])
-                # batch_states = (state[i][index] for state in states)
-                #batch_states = (states[0][index], states[1][index], states[2][index], states[3][index], states[4][index], states[5][index])
-                #batch_states = (states[0][index], states[1][index], states[2][index])
                 batch_states = tuple(state[index] for state in states)
                 batch_actions = actions[index]
-                logprobs, values, dist_entropy = self.policy.evaluate(batch_states, batch_actions)
+                batch_variable_masks = variable_state_masks[0][1][index] if self.use_variable_state_masks and len(variable_state_masks[0][1]) > 0 else None
+                logprobs, values, dist_entropy = self.policy.evaluate(batch_states, batch_actions, batch_variable_masks)
 
                 # Importance ratio: p/q
                 ratios = torch.exp(logprobs - old_logprobs[index].detach())

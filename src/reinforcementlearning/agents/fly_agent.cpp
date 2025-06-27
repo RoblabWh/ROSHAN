@@ -113,7 +113,7 @@ void FlyAgent::PerformFly(FlyAction* action, const std::string& hierarchy_type, 
     if (hierarchy_type == "FlyAgent") {
         this->FlyPolicy(gridMap);
         did_hierarchy_step = true;
-    } else if (hierarchy_type == "ExploreAgent") {
+    } else {
         objective_reached_ = false;
         if (FlyAgent::almostEqual(this->GetGoalPosition(), this->GetGridPositionDouble())) {
             objective_reached_ = true;

@@ -30,12 +30,21 @@ class RLConfig:
     batch_size: int = 32 #1024 #500
 
 @dataclass
+class NoAlgorithmConfig(RLConfig):
+    """
+    Configuration class for No Algorithm (NoOp) scenario.
+    This is used when no specific RL algorithm is applied.
+    """
+    # No specific parameters for No Algorithm
+    pass
+
+@dataclass
 class PPOConfig(RLConfig):
     """
     Configuration class for Proximal Policy Optimization (PPO) algorithm.
     """
     # PPO specific parameters
-    horizon: int = 128 # 12800 for FlyNetwork
+    horizon: int = 512 # 12800 for FlyNetwork
     k_epochs: int = 14 #14 # 4
     entropy_coeff: float = 0.0006 #0.001
     value_loss_coef: int = 0.5
@@ -44,6 +53,8 @@ class PPOConfig(RLConfig):
     gamma: float = 0.9635 #0.99
     _lambda: float = 0.96
     eps_clip: float = 0.2783 #0.15 #0.2
+    use_categorical: bool = False
+    use_variable_state_masks: bool = False
 #Current Best: {'lr': 2.450621398427006e-05, 'gamma': 0.9635130394855251, 'clip_range': 0.2783066147446984, 'ent_coef': 0.0006194758615931694, 'k_epochs': 6, 'batch_size': 1024}
 @dataclass
 class IQLConfig(RLConfig):

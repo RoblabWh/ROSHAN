@@ -6,6 +6,7 @@
 #define ROSHAN_UTILS_H
 
 #include <string>
+#include <deque>
 #include <filesystem>
 #include <optional>
 #include <vector>
@@ -15,6 +16,7 @@
 #include <random>
 #include <cmath>
 #include <limits>
+#include <cmath>
 
 std::string formatTime(int seconds);
 
@@ -45,6 +47,23 @@ std::vector<std::vector<int>> InterpolationResize(const std::vector<std::vector<
 
 [[maybe_unused]] std::vector<std::vector<int>> ResizeFire(const std::vector<std::vector<int>>& input_map, int new_width, int new_height);
 std::vector<std::vector<double>> BilinearInterpolation(const std::vector<std::vector<int>>& input_map, int new_width, int new_height);
+
+std::deque<std::pair<double, double>> GetPerfectTrajectory(int height, int width, std::pair<double, double> start, int view_range, bool horizontal);
+std::deque<std::pair<double, double>> GenerateLawnmowerPath(
+        double x_start, double x_end,
+        double y_start, double y_end,
+        double step_x, double step_y,
+        bool horizontal_sweep,
+        bool invert_major,
+        bool invert_minor
+) ;
+std::vector<std::deque<std::pair<double, double>>>
+GeneratePaths(
+        int width, int height,
+        int num_drones,
+        std::pair<double, double> start,
+        int view_range
+);
 
 template <typename T>
 class CircularBuffer {

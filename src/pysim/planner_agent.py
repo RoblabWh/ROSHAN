@@ -1,4 +1,4 @@
-from networks.network_explore import Actor, CriticPPO, OffPolicyCritic, DeterministicActor, RNDModel, Value
+from networks.network_planner import Actor, Critic
 from torch.utils.data.sampler import BatchSampler, SubsetRandomSampler
 import numpy as np
 import torch.nn as nn
@@ -6,26 +6,29 @@ import torch
 import firesim
 from agent import Agent
 
-class ExploreAgent(Agent):
-    def __init__(self):
+class PlannerAgent(Agent):
+    def __init__(self, num_drones):
         super().__init__()
-        self.name = "ExploreAgent"
-        self.hierachy_level = "medium"
+        self.name = "PlannerAgent"
+        self.hierachy_level = "high"
         self.low_level_steps = 200
         self.use_intrinsic_reward = False
         self.rnd_model = None
         self.optimizer = None
         self.MSE_loss = nn.MSELoss()
-        self.action_dim = 2
+        self.action_dim = (num_drones, 2)
+
+    def get_num_agents(self, num_agents):
+        return 1
 
     @staticmethod
     def get_network(algorithm : str):
         if algorithm == "PPO":
-            return Actor, CriticPPO
-        elif algorithm == "IQL":
-            return Actor, OffPolicyCritic, Value
-        elif algorithm == "TD3":
-            return DeterministicActor, OffPolicyCritic
+            return Actor, Critic
+        # elif algorithm == "IQL":
+        #     return Actor, OffPolicyCritic, Value
+        # elif algorithm == "TD3":
+        #     return DeterministicActor, OffPolicyCritic
         else:
             raise ValueError(f"Unknown algorithm: {algorithm}")
 
@@ -56,29 +59,26 @@ class ExploreAgent(Agent):
         drone_actions = []
         for activation in actions:
             drone_actions.append(
-                firesim.ExploreAction(activation[0], activation[1]))
+                firesim.PlanAction(activation))
         return drone_actions
 
     @staticmethod
     def restructure_data(observations_):
-        #all_explore_maps, all_total_views = [], []
-        all_explore_maps, all_positions = [], []
+        all_drone_states, all_fire_states  = [], []
 
-        obs = observations_["ExploreAgent"]
+        obs = observations_["PlannerAgent"]
         for deque in obs:
             drone_states = np.array([state for state in deque if isinstance(state, firesim.AgentState)])
             if len(drone_states) == 0:
                 continue
 
-            #multi_total_drone_view = np.array([state.GetMultipleTotalDroneView() for state in drone_states])
-            exploration_map = np.array([state.GetExplorationMapNorm() for state in drone_states])
-            positions = [np.array([state.GetGridPositionDoubleNorm() for state in drone_states])]
+            drone_states_ = np.array([state.GetDronePositions() for state in drone_states])
+            fire_states = np.array([state.GetFirePositions() for state in drone_states]) # Try GetExploredFires
 
-            all_explore_maps.append(exploration_map)
-            all_positions.append(positions)
+            all_drone_states.append(drone_states_)
+            all_fire_states.append(fire_states)
 
-        all_explore_maps = np.array(all_explore_maps)
-        all_positions = np.array(all_positions)
+        all_drone_states = np.array(all_drone_states)
+        all_fire_states = np.array(all_fire_states)
 
-        return all_positions, all_explore_maps
-        #return np.transpose(np.array(all_total_views), (0,2,1,3,4)), all_explore_maps
+        return all_drone_states, all_fire_states

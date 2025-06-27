@@ -7,9 +7,9 @@
 #include <iostream>
 
 void ExploreAction::ExecuteOn(std::shared_ptr<Agent> agent, std::string hierarchy_type, std::shared_ptr<GridMap> gridMap) {
-    if (auto fly_agent = std::dynamic_pointer_cast<ExploreAgent>(agent)) {
-        fly_agent->PerformExplore(this, hierarchy_type, gridMap);
+    if (auto explore_agent = std::dynamic_pointer_cast<ExploreAgent>(agent)) {
+        explore_agent->PerformExplore(this, hierarchy_type, gridMap);
     } else {
-        std::cerr << "FlyAction executed on non-FlyAgent!" << std::endl;
+        std::cerr << "ExploreAction executed on non-ExploreAgent!" << std::endl;
     }
 }

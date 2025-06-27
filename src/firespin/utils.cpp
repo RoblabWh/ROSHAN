@@ -224,3 +224,100 @@ std::vector<std::vector<double>> BilinearInterpolation(const std::vector<std::ve
     }
     return output_map;
 }
+
+std::vector<std::deque<std::pair<double, double>>>
+GeneratePaths(
+        int width, int height,
+        int num_drones,
+        std::pair<double, double> start,
+        int view_range
+) {
+    std::vector<std::deque<std::pair<double, double>>> paths(num_drones);
+
+    bool split_vertical = (width >= height);
+
+    bool x_inc = (start.first < static_cast<double>(width) / 2);   // Sweep right if true
+    bool y_inc = (start.second < static_cast<double>(height) / 2); // Sweep down if true
+
+    if (split_vertical) {
+        // Vertical stripes
+        int stripe_w = width / num_drones;
+        int remainder = width % num_drones;
+        int x0 = 0;
+
+        for (int i = 0; i < num_drones; ++i) {
+            int x1 = x0 + stripe_w + (i < remainder ? 1 : 0);
+            if (x1 > width) x1 = width;
+
+            int x_step = std::max(1, stripe_w / static_cast<int>(std::ceil((float)stripe_w / (static_cast<float>(view_range) - 1))));
+            int y_step = std::max(1, height / static_cast<int>(std::ceil((float)height / (static_cast<float>(view_range) - 1))));
+
+            int start_y = y_inc ? 0 : height;
+            int end_y = y_inc ? height : 0;
+            int y_step_dir = y_inc ? y_step : -y_step;
+
+            bool forward = x_inc;
+            for (int y = start_y; (y_inc ? y <= end_y : y >= end_y); y += y_step_dir) {
+                if (forward) {
+                    for (int x = x0; x <= x1; x += x_step) {
+                        paths[i].emplace_back(x, y);
+                    }
+                    if ((x1 - x0) % x_step != 0 && x1 - 1 >= x0) {
+                        paths[i].emplace_back(x1 - 1, y);  // Right edge
+                    }
+                } else {
+                    for (int x = x1; x >= x0; x -= x_step) {
+                        paths[i].emplace_back(x, y);
+                    }
+                    if ((x1 - x0) % x_step != 0 && x0 <= x1 - 1) {
+                        paths[i].emplace_back(x0, y);  // Left edge
+                    }
+                }
+                forward = !forward;
+            }
+
+            x0 = x1;
+        }
+    } else {
+        // Horizontal stripes
+        int stripe_h = height / num_drones;
+        int remainder = height % num_drones;
+        int y0 = 0;
+
+        for (int i = 0; i < num_drones; ++i) {
+            int y1 = y0 + stripe_h + (i < remainder ? 1 : 0);
+            if (y1 > height) y1 = height;
+
+            int y_step = std::max(1, stripe_h / static_cast<int>(std::ceil((float)stripe_h / (static_cast<float>(view_range) - 1))));
+            int x_step = std::max(1, width / static_cast<int>(std::ceil((float)width / (static_cast<float>(view_range) - 1))));
+
+            int start_x = x_inc ? 0 : width;
+            int end_x = x_inc ? width : 0;
+            int x_step_dir = x_inc ? x_step : -x_step;
+
+            bool forward = y_inc;
+            for (int x = start_x; (x_inc ? x <= end_x : x >= end_x); x += x_step_dir) {
+                if (forward) {
+                    for (int y = y0; y <= y1; y += y_step) {
+                        paths[i].emplace_back(x, y);
+                    }
+                    if ((y1 - y0) % y_step != 0 && y1 - 1 >= y0) {
+                        paths[i].emplace_back(x, y1 - 1);  // Bottom edge
+                    }
+                } else {
+                    for (int y = y1; y >= y0; y -= y_step) {
+                        paths[i].emplace_back(x, y);
+                    }
+                    if ((y1 - y0) % y_step != 0 && y0 <= y1 - 1) {
+                        paths[i].emplace_back(x, y0);  // Top edge
+                    }
+                }
+                forward = !forward;
+            }
+
+            y0 = y1;
+        }
+    }
+
+    return paths;
+}

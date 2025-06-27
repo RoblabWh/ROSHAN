@@ -1,16 +1,15 @@
 from networks.network_fly import Actor, CriticPPO, OffPolicyCritic, DeterministicActor, Value
 import numpy as np
 import firesim
+from agent import Agent
 
-class FlyAgent:
-    def __init__(self):
-        self.name = "FlyAgent"
+class FlyAgent(Agent):
+    def __init__(self, name):
+        super().__init__()
+        self.name = name
         self.hierachy_level = "low"
         self.use_intrinsic_reward = False
         self.action_dim = 2
-
-    def get_hierachy_level(self):
-        return self.hierachy_level
 
     @staticmethod
     def get_network(algorithm : str):
@@ -32,12 +31,11 @@ class FlyAgent:
                 firesim.DroneAction(activation[0], activation[1]))
         return drone_actions
 
-    @staticmethod
-    def restructure_data(observations_):
+    def restructure_data(self, observations_):
         all_velocities, all_delta_goals = [], []
-        obs = observations_["FlyAgent"]
+        obs = observations_[self.name]
         for deque in obs:
-            drone_states = np.array([state for state in deque if isinstance(state, firesim.DroneState)])
+            drone_states = np.array([state for state in deque if isinstance(state, firesim.AgentState)])
             if len(drone_states) == 0:
                 continue
 

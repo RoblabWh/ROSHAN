@@ -131,6 +131,7 @@ void FireModel::Update() {
     // Update the fire particles and the cell states
     gridmap_->UpdateParticles();
     gridmap_->UpdateCells();
+    gridmap_->UpdateCellDiminishing();
 #ifdef SPEEDTEST
     TestBurndownHeadless();
 #endif

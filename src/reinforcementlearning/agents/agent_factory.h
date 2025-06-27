@@ -9,6 +9,7 @@
 #include "agent.h"
 #include "explore_agent.h"
 #include "fly_agent.h"
+#include "planner_agent.h"
 #include "firespin/model_parameters.h"
 #include "firespin/firemodel_gridmap.h"
 

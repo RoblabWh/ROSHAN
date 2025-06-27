@@ -1,0 +1,138 @@
+//
+// Created by nex on 21.06.25.
+//
+
+#include "planner_agent.h"
+
+
+PlannerAgent::PlannerAgent(FireModelParameters &parameters, int id, int time_steps) : Agent(parameters, 300) {
+    id_ = id;
+    agent_type_ = "PlannerAgent";
+    time_steps_ = time_steps;
+}
+
+void PlannerAgent::PerformPlan(PlanAction *action, const std::string &hierarchy_type,
+                               const std::shared_ptr<GridMap> &gridMap) {
+    // Iterate over all Actions and set a new goal for each FlyAgent
+    for (const auto &fly_agent : fly_agents_) {
+        // Get the goal from the action
+        auto goal = action->GetGoalFromAction(fly_agent->GetId());
+        auto fire_extinguished = fly_agent->DispenseWaterCertain(gridMap);
+        extinguished_fires_ += fire_extinguished ? 1 : 0;
+        fly_agent->SetGoalPosition(goal);
+        // If any FlyAgent has extinguished the last fire we set the extinguished_last_fire_ to true
+        if (!extinguished_last_fire_){
+            extinguished_last_fire_ = fly_agent->GetExtinguishedLastFire();
+        }
+    }
+    if (hierarchy_type == "PlannerAgent") {
+        did_hierarchy_step = true;
+    }
+    this->UpdateStates(gridMap);
+    if (!gridMap->HasBurningFires() && extinguished_last_fire_){
+        objective_reached_ = true;
+    }
+}
+
+void PlannerAgent::Initialize(std::shared_ptr<ExploreAgent> explore_agent, std::vector<std::shared_ptr<FlyAgent>> fly_agents, const std::shared_ptr<GridMap> &grid_map,
+                              const std::string &rl_mode) {
+    explore_agent_ = std::move(explore_agent);
+    fly_agents_ = std::move(fly_agents);
+    // Initialize the agent states with the current grid map
+    InitializePlannerAgentStates(grid_map);
+}
+
+std::vector<bool>
+PlannerAgent::GetTerminalStates(bool eval_mode, const std::shared_ptr<GridMap> &grid_map, int env_steps_remaining) {
+    std::vector<bool> terminal_states;
+    bool terminal_state = false;
+    bool agent_died = false;
+    bool agent_succeeded = false;
+//    int num_burning_cells = grid_map->GetNumBurningCells();
+//    int num_explored_fires = grid_map->GetNumExploredFires();
+    explored_fires_equals_actual_fires_ = false; //grid_map->ExploredFiresEqualsActualFires();
+
+    // If the agent has finished his objective(calculated in the PlanAction) it has reached a terminal state and succeeded
+    if (objective_reached_) {
+        terminal_state = true;
+        agent_succeeded = true;
+    }
+
+    if (grid_map->PercentageBurned() > 0.3) {
+        // If the agent let the map burn too much it has reached a terminal state and died
+        terminal_state = true;
+        agent_died = true;
+    }
+
+    // If the agent has taken too long it has reached a terminal state and died
+    if (env_steps_remaining <= 0 && !eval_mode) {
+        terminal_state = true;
+        agent_died = true;
+    }
+
+    if (!grid_map->HasBurningFires() && !objective_reached_) {
+        // Map has burned down on it's own
+        terminal_state = true;
+        agent_died = false;
+    }
+
+    terminal_states.push_back(terminal_state);
+    terminal_states.push_back(agent_died);
+    terminal_states.push_back(agent_succeeded);
+    agent_terminal_state_ = terminal_state;
+    env_steps_remaining_ = env_steps_remaining;
+    return terminal_states;
+}
+
+double PlannerAgent::CalculateReward() {
+    std::unordered_map<std::string, double> reward_components;
+    double total_reward = 0;
+
+    if (objective_reached_) { // Either Objective is reached
+        reward_components["GoalReached"] = 5;
+    } else if (agent_terminal_state_ && (env_steps_remaining_ <= 0)) { // or the agent has taken too long
+        reward_components["TimeOut"] = -2;
+    } else if (agent_terminal_state_ && !objective_reached_) { // or the agent has reached a terminal state without reaching the objective
+        reward_components["MapBurnedTooMuch"] = -2;
+    }
+
+    reward_components["ExtinguishedFires"] = extinguished_fires_ * 0.1;
+
+    total_reward = ComputeTotalReward(reward_components);
+    LogRewards(reward_components);
+    reward_components_ = reward_components;
+    this->SetReward(total_reward);
+    return total_reward;
+}
+
+void PlannerAgent::InitializePlannerAgentStates(const std::shared_ptr<GridMap> &grid_map) {
+    // Initialize the agent states with the current grid map
+    for (int i = 0; i < time_steps_; ++i) {
+        agent_states_.push_front(BuildAgentState(grid_map));
+    }
+}
+
+void PlannerAgent::UpdateStates(const std::shared_ptr<GridMap> &grid_map) {
+    agent_states_.push_front(BuildAgentState(grid_map));
+
+    // Maximum number of states i.e. memory
+    if (agent_states_.size() > time_steps_) {
+        agent_states_.pop_back();
+    }
+}
+
+std::shared_ptr<AgentState> PlannerAgent::BuildAgentState(const std::shared_ptr<GridMap> &grid_map) {
+    auto state = std::make_shared<AgentState>();
+
+    std::vector<std::pair<double, double>> drone_positions;
+    for (const auto &fly_agent : fly_agents_) {
+        drone_positions.push_back(fly_agent->GetGridPositionDouble());
+    }
+//    auto fire_positions = explore_agent_->GetLastState().GetFirePositionsFromFireMap();
+    auto fire_positions = grid_map->GetFirePositionsFromBurningCells();
+    state->SetDronePositions(std::make_shared<std::vector<std::pair<double, double>>>(drone_positions));
+    state->SetFirePositions(fire_positions);
+
+    return state;
+}
+

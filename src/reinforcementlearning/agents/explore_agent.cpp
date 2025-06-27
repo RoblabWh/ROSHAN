@@ -12,20 +12,21 @@ ExploreAgent::ExploreAgent(FireModelParameters &parameters, int id, int time_ste
 
 void ExploreAgent::Initialize(std::vector<std::shared_ptr<FlyAgent>> fly_agents, const std::shared_ptr<GridMap> &grid_map, const std::string &rl_mode) {
     fly_agents_ = std::move(fly_agents);
-    agent_states_.clear();
-    InitializeExploreAgentStates(grid_map);
+//    agent_states_.clear();
+    auto paths = GeneratePaths(grid_map->GetRows(), grid_map->GetCols(), fly_agents_.size(), fly_agents_.front()->GetRealPosition(),
+                                 FireModelParameters::GetViewRange("ExploreAgent"));
     for (const auto& fly_agent : fly_agents_) {
+        perfect_goals_.emplace_back(std::move(paths[fly_agent->GetId()]));
+
         fly_agent->SetGoalPosition(std::make_pair(grid_map->GetRows() / 2, grid_map->GetCols() / 2));
     }
+    InitializeExploreAgentStates(grid_map);
 }
 
-void ExploreAgent::PerformExplore(ExploreAction *action, const std::string& hierarchy_type, const std::shared_ptr<GridMap>& gridMap) {
-    // These values are used to calculate the reward, GetRevisitedCells must be called before anything else
-    // because it is used to populate the ExploreMap with the input of the last step
-    revisited_cells_ = gridMap->GetRevisitedCells();
-
-    double x_off = gridMap->GetXOff();
-    double y_off = gridMap->GetYOff();
+std::pair<double, double>
+ExploreAgent::GetGoalFromAction(const ExploreAction *action, const std::shared_ptr<GridMap> &grid_map) {
+    double x_off = grid_map->GetXOff();
+    double y_off = grid_map->GetYOff();
 
     auto goal_x = action->GetGoalX();
     auto goal_y = action->GetGoalY();
@@ -35,10 +36,8 @@ void ExploreAgent::PerformExplore(ExploreAction *action, const std::string& hier
     goal_y = goal_y <= 0 ? (goal_y + y_off) : goal_y >= 1 ? (goal_y - y_off) : goal_y;
 
     // Calc the grid position
-    goal_x = ((goal_x + 1) / 2) * gridMap->GetRows();
-    goal_y = ((goal_y + 1) / 2) * gridMap->GetCols();
-    std::cout << "ExploreAgent goal position (normalized): (" << action->GetGoalX() << ", " << action->GetGoalY() << ")" << std::endl;
-    std::cout << "ExploreAgent goal position: (" << goal_x << ", " << goal_y << ")" << std::endl;
+    goal_x = ((goal_x + 1) / 2) * grid_map->GetRows();
+    goal_y = ((goal_y + 1) / 2) * grid_map->GetCols();
 
     // Nudge goal so the view range is in the grid PROBABLY DON'T DO THIS
 //    int view_range_off = FireModelParameters::GetViewRange("FlyAgent") / 2;
@@ -47,14 +46,40 @@ void ExploreAgent::PerformExplore(ExploreAction *action, const std::string& hier
 //    goal_x += view_off_x;
 //    goal_y += view_off_y;
 
+//    std::cout << "ExploreAgent goal position (normalized): (" << action->GetGoalX() << ", " << action->GetGoalY() << ")" << std::endl;
+//    std::cout << "ExploreAgent goal position: (" << goal_x << ", " << goal_y << ")" << std::endl;
+
+    return std::make_pair(goal_x, goal_y);
+}
+
+std::pair<double, double> ExploreAgent::GetGoalFromCertain(std::deque<std::pair<double, double>> &goals, const std::shared_ptr<GridMap>& gridMap) {
+    if (goals.empty()) {
+        // If there are no more perfect goals, return the groundstation position
+        return gridMap->GetGroundstation()->GetGridPositionDouble();
+    }
+    std::pair<double, double> goal = goals[goal_idx_];
+    return goal;
+}
+
+
+void ExploreAgent::PerformExplore(ExploreAction *action, const std::string& hierarchy_type, const std::shared_ptr<GridMap>& gridMap) {
+    // These values are used to calculate the reward, GetRevisitedCells must be called before anything else
+    // because it is used to populate the ExploreMap with the input of the last step
+    revisited_cells_ = gridMap->GetRevisitedCells();
+
+//    auto goal = GetGoalFromAction(action, gridMap);
+
     //TODO Make it so that the network puts out multiple goals for multiple agents
     for (const auto& fly_agent : fly_agents_) {
-        std::pair<double, double> local_goal = std::make_pair(goal_x, goal_y);
+        //auto goal = GetGoalFromCertain(perfect_goals_[fly_agent->GetId()], gridMap);
+        auto goal = perfect_goals_[fly_agent->GetId()][goal_idx_];
+        std::pair<double, double> local_goal = std::make_pair(goal.first, goal.second);
 //        auto local_goal = fly_agent->CalculateLocalGoal(goal_x, goal_y);
         fly_agent->SetGoalPosition({local_goal.first, local_goal.second});
         fly_agent->SetRevisitedCells(revisited_cells_);
 //        fly_agent->SetGoalPosition({goal_x, goal_y});
     }
+    goal_idx_ < perfect_goals_[0].size() - 1 ? goal_idx_++ : goal_idx_ = 0;
     if(hierarchy_type == "ExploreAgent") {
         did_hierarchy_step = true;
     }
@@ -72,14 +97,18 @@ std::shared_ptr<AgentState> ExploreAgent::BuildAgentState(const std::shared_ptr<
     std::vector<std::shared_ptr<const std::vector<std::vector<double>>>> views;
     for (const auto& agent : fly_agents_) {
         const auto& latest_state = agent->GetLastState();
-        views.push_back(latest_state.GetTotalDroneViewPtr());
+        auto orig_ptr = latest_state.GetTotalDroneViewPtr();
+        auto copy_ptr = std::make_shared<const std::vector<std::vector<double>>>(*orig_ptr);
+        views.push_back(copy_ptr);
         // TODO Rewrite this; this is a hack to get other states from the drone
         state->SetPosition(latest_state.GetPosition());
         state->SetCellSize(latest_state.GetCellSize());
-        state->SetMapDimensions({grid_map->GetRows(), grid_map->GetCols()});
     }
+    state->SetMapDimensions({grid_map->GetRows(), grid_map->GetCols()});
     state->SetMultipleTotalDroneView(views);
     state->SetExplorationMap(grid_map->GetExploredMap());
+//    state->SetExploredFires(grid_map->GetExploredFires());
+    state->SetPerfectGoals(perfect_goals_);
 
     return state;
 }
@@ -135,28 +164,18 @@ std::vector<bool> ExploreAgent::GetTerminalStates(bool eval_mode, const std::sha
     explored_fires_equals_actual_fires_ = false; //grid_map->ExploredFiresEqualsActualFires();
 
     // If the agent has taken too long it has reached a terminal state and died
-    if (total_env_steps <= 0 && !eval_mode) {
-        terminal_state = true;
-        drone_died = true;
-    }
+    // TODO currently hard-coded to false, this is because the agent is currently not network controlled
+    if (false) {
+        if (total_env_steps <= 0 && !eval_mode) {
+            terminal_state = true;
+            drone_died = true;
+        }
 
-    if (objective_reached_) {
-        terminal_state = true;
-        drone_succeeded = true;
+        if (objective_reached_) {
+            terminal_state = true;
+            drone_succeeded = true;
+        }
     }
-
-    // If the agent has flown out of the grid it has reached a terminal state and died
-//    if (GetOutOfAreaCounter() > 1) {
-//        terminal_state = true;
-//        drone_died = true;
-//    }
-//
-//    // If the drone has reached the goal and it is not in evaluation mode
-//    // the goal is reached because the fly agent is trained that way
-//    auto explore_map = GetLastState().GetExplorationMapScalar();
-//    if (explore_map >= 0.99 || explored_fires_equals_actual_fires_) {
-//        terminal_state = true;
-//    }
 
     terminal_states.push_back(terminal_state);
     terminal_states.push_back(drone_died);
