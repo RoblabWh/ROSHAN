@@ -10,7 +10,7 @@ class ExploreAgent(Agent):
     def __init__(self):
         super().__init__()
         self.name = "ExploreAgent"
-        self.hierachy_level = "medium"
+        self.hierarchy_level = "medium"
         self.low_level_steps = 200
         self.use_intrinsic_reward = False
         self.rnd_model = None

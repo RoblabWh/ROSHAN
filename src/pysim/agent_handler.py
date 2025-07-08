@@ -44,9 +44,10 @@ class AgentHandler:
         # Agent Type is either FlyAgent or ExploreAgent
         self.agent_type = self.get_agent_from_type(status)
         self.num_agents = self.agent_type.get_num_agents(status["num_agents"])
+        self.drone_count = self.agent_type.get_drone_count(status["num_agents"])
 
         # On which Level of the Hierarchy is the agent
-        self.hierarchy_level = self.agent_type.get_hierachy_level()
+        self.hierarchy_level = self.agent_type.get_hierarchy_level()
         self.hierarchy_steps = 0
         self.hierarchy_early_stop = False
 
@@ -60,12 +61,13 @@ class AgentHandler:
             self.agent_type.initialize_rnd_model(vision_range, drone_count=self.num_agents,
                                                  map_size=map_size, time_steps=time_steps)
         self.current_obs = None
+
         if algorithm == 'PPO':
             config = PPOConfig(algorithm=algorithm,
                                model_path=status["model_path"],
                                model_name=status["model_name"],
                                vision_range=vision_range,
-                               drone_count=self.num_agents,
+                               drone_count=self.drone_count,
                                map_size=map_size,
                                time_steps=time_steps,
                                use_next_obs=False,
@@ -81,7 +83,7 @@ class AgentHandler:
                               model_path=status["model_path"],
                               model_name=status["model_name"],
                               vision_range=vision_range,
-                              drone_count=self.num_agents,
+                              drone_count=self.drone_count,
                               map_size=map_size,
                               time_steps=time_steps,
                               action_dim=self.agent_type.action_dim,
@@ -96,7 +98,7 @@ class AgentHandler:
                                  model_path=status["model_path"],
                                  model_name=status["model_name"],
                                  vision_range=vision_range,
-                                 drone_count=self.num_agents,
+                                 drone_count=self.drone_count,
                                  map_size=map_size,
                                  time_steps=time_steps,
                                  action_dim=self.agent_type.action_dim,
@@ -109,7 +111,7 @@ class AgentHandler:
                                                model_path=status["model_path"],
                                                model_name=status["model_name"],
                                                vision_range=vision_range,
-                                               drone_count=self.num_agents,
+                                               drone_count=self.drone_count,
                                                map_size=map_size,
                                                time_steps=time_steps,
                                                action_dim=self.agent_type.action_dim)

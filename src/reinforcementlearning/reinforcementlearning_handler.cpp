@@ -116,6 +116,7 @@ void ReinforcementLearningHandler::ResetEnvironment(Mode mode) {
                 auto rl_mode = rl_status_["rl_mode"].cast<std::string>();
                 auto agent = AgentFactory::GetInstance().CreateAgent("FlyAgent", parameters_, i, time_steps);
                 auto fly_agent = std::dynamic_pointer_cast<FlyAgent>(agent);
+                fly_agent->SetSpeed(std::make_pair(1, 1));
                 if (fly_agent == nullptr) {
                     std::cerr << "Failed to create FlyAgent\n";
                     continue;
@@ -133,6 +134,7 @@ void ReinforcementLearningHandler::ResetEnvironment(Mode mode) {
                 return;
             }
             // Initialize PlannerAgent
+            planner->SetGridMap(gridmap_);
             auto explore_agent = std::dynamic_pointer_cast<ExploreAgent>(agents_by_type_["ExploreAgent"].front());
             auto fly_agents = CastAgents<FlyAgent>(agents_by_type_["PlannerFlyAgent"]);
             planner->Initialize(explore_agent, fly_agents, gridmap_, rl_status_["rl_mode"].cast<std::string>());

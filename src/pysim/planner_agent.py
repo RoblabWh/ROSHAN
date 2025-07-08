@@ -10,7 +10,7 @@ class PlannerAgent(Agent):
     def __init__(self, num_drones):
         super().__init__()
         self.name = "PlannerAgent"
-        self.hierachy_level = "high"
+        self.hierarchy_level = "high"
         self.low_level_steps = 200
         self.use_intrinsic_reward = False
         self.rnd_model = None
@@ -64,7 +64,7 @@ class PlannerAgent(Agent):
 
     @staticmethod
     def restructure_data(observations_):
-        all_drone_states, all_fire_states  = [], []
+        all_drone_states, all_fire_states, all_goal_positions  = [], [], []
 
         obs = observations_["PlannerAgent"]
         for deque in obs:
@@ -73,12 +73,15 @@ class PlannerAgent(Agent):
                 continue
 
             drone_states_ = np.array([state.GetDronePositions() for state in drone_states])
+            goal_positions = np.array([state.GetGoalPositions() for state in drone_states])
             fire_states = np.array([state.GetFirePositions() for state in drone_states]) # Try GetExploredFires
 
             all_drone_states.append(drone_states_)
             all_fire_states.append(fire_states)
+            all_goal_positions.append(goal_positions)
 
         all_drone_states = np.array(all_drone_states)
         all_fire_states = np.array(all_fire_states)
+        all_goal_positions = np.array(all_goal_positions)
 
-        return all_drone_states, all_fire_states
+        return all_drone_states, all_goal_positions, all_fire_states

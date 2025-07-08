@@ -7,7 +7,7 @@ class FlyAgent(Agent):
     def __init__(self, name):
         super().__init__()
         self.name = name
-        self.hierachy_level = "low"
+        self.hierarchy_level = "low"
         self.use_intrinsic_reward = False
         self.action_dim = 2
 

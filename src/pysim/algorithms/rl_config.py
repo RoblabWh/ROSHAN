@@ -44,7 +44,7 @@ class PPOConfig(RLConfig):
     Configuration class for Proximal Policy Optimization (PPO) algorithm.
     """
     # PPO specific parameters
-    horizon: int = 512 # 12800 for FlyNetwork
+    horizon: int = 64 # 12800 for FlyNetwork
     k_epochs: int = 14 #14 # 4
     entropy_coeff: float = 0.0006 #0.001
     value_loss_coef: int = 0.5

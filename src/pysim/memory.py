@@ -193,14 +193,13 @@ class Memory(object):
             axis_sizes = list(zip(*shapes))
             size_sets = [set(sizes) for sizes in axis_sizes]
 
-            # Find axes with more than 1 unique size: these are variable-length axes
-            # We'll pad on the first such axis we find (for most RL cases, only one axis is variable)
+            # find axes with more than 1 unique size: these are variable-length axes ( need to pad these and build masks)
+            # pad on the first such axis we find (for most RL cases, only one axis is variable)
             variable_axes = [ax for ax, sizes in enumerate(size_sets) if len(sizes) > 1]
             if not variable_axes:
                 # No variable axes: just stack normally, keep singleton dims
                 t = torch.FloatTensor(np.stack(arr_list)).to(self.device)
                 state_tuple.append(t)
-                masks.append([])
             else:
                 # There is at least one variable axis, pad along that axis
                 axis = variable_axes[0]
@@ -209,9 +208,9 @@ class Memory(object):
                 mask = []
                 for arr in arr_list:
                     valid_len = arr.shape[axis]
-                    # Build mask: 1 for valid, 0 for padded
-                    mask_arr = np.zeros((max_len,), dtype=np.float32)
-                    mask_arr[:valid_len] = 1.0
+                    # Build mask: True for padded elements, False for valid elements
+                    mask_arr = np.zeros((max_len,), dtype=np.bool_)
+                    mask_arr[valid_len:] = True
                     mask.append(mask_arr)
                     # Pad data as before
                     pad_width = [(0, 0)] * arr.ndim
@@ -219,8 +218,8 @@ class Memory(object):
                     arr = np.pad(arr, pad_width, mode='constant', constant_values=-1)
                     padded.append(arr)
                 t = torch.FloatTensor(np.stack(padded)).to(self.device)
-                mask_t = torch.FloatTensor(np.stack(mask)).to(self.device)  # [batch, max_len]
-                masks.append(mask_t)
+                mask_t = torch.BoolTensor(np.stack(mask)).to(self.device)  # [batch, max_len]
+                masks = mask_t
                 state_tuple.append(t)
 
         return tuple(state_tuple), masks
@@ -234,11 +233,11 @@ class Memory(object):
 
         # Transpose the state buffer: now tuples are grouped per state index
         state_fields = list(zip(*self.state[:self.size]))
-        state_tuple, masks = self.create_state_tuple(state_fields)
+        state_tuple, mask = self.create_state_tuple(state_fields)
 
         # state_tuple = tuple(torch.FloatTensor(np.array(state)).squeeze(1).to(self.device) for state in zip(*self.state[:self.size]))
         data['state'] = state_tuple
-        data['masks'] = masks  # Store masks for variable-length states
+        data['mask'] = mask  # Store mask for variable-length states
         data['action'] = torch.FloatTensor(self.action[:self.size]).to(self.device)
         data['logprobs'] = torch.FloatTensor(self.logprobs[:self.size]).to(self.device)
         data['reward'] = torch.FloatTensor(self.reward[:self.size]).to(self.device)

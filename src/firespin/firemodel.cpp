@@ -305,10 +305,13 @@ void FireModel::StartFires(float percentage) {
 }
 
 void FireModel::IgniteFireCluster(int fires) {
-    // Starting point
     std::pair<int, int> point = gridmap_->GetRandomPointInGrid();
     std::set<std::pair<int, int>> visited;
     std::queue<std::pair<int, int>> to_visit;
+
+    std::random_device rd;
+    std::mt19937 gen(rd());
+    std::uniform_real_distribution<double> dist(0.0, 1.0);
 
     to_visit.push(point);
     visited.insert(point);
@@ -316,24 +319,41 @@ void FireModel::IgniteFireCluster(int fires) {
     int ignited = 0;
 
     while (!to_visit.empty() && ignited < fires) {
-        std::pair<int, int> current = to_visit.front();
+        auto current = to_visit.front();
         to_visit.pop();
 
-        if(gridmap_->CellCanIgnite(current.first, current.second)) {
+        if (gridmap_->CellCanIgnite(current.first, current.second)) {
             gridmap_->IgniteCell(current.first, current.second);
             ignited++;
         }
 
         // Get Moore Neighborhood
-        std::vector<std::pair<int, int>> neighbors = gridmap_->GetMooreNeighborhood(current.first, current.second);
-        for (auto neighbor : neighbors) {
+        auto neighbors = gridmap_->GetMooreNeighborhood(current.first, current.second);
+        std::vector<std::pair<int, int>> ignitable_neighbors;
+
+        // Collect neighbors we can ignite
+        for (auto& neighbor : neighbors) {
             if (visited.find(neighbor) == visited.end() && gridmap_->CellCanIgnite(neighbor.first, neighbor.second)) {
-                double randomValue = static_cast<double>(std::rand()) / RAND_MAX;
-                double fireProbability = parameters_.fire_spread_prob_ + (static_cast<double>(std::rand()) / RAND_MAX - 0.5) * parameters_.fire_noise_;
-                if (randomValue < fireProbability) {
-                    to_visit.push(neighbor);
-                    visited.insert(neighbor);
-                }
+                ignitable_neighbors.push_back(neighbor);
+            }
+        }
+
+        // If we need more fires and the queue is about to run dry, force-push a neighbor
+        if (to_visit.empty() && ignited < fires && !ignitable_neighbors.empty()) {
+            // Randomly select one neighbor to guarantee some spread
+            std::shuffle(ignitable_neighbors.begin(), ignitable_neighbors.end(), gen);
+            to_visit.push(ignitable_neighbors.front());
+            visited.insert(ignitable_neighbors.front());
+            continue;
+        }
+
+        // Otherwise, do regular probabilistic addition
+        for (auto& neighbor : ignitable_neighbors) {
+            double randomValue = dist(gen);
+            double fireProbability = parameters_.fire_spread_prob_ + (dist(gen) - 0.5) * parameters_.fire_noise_;
+            if (randomValue < fireProbability) {
+                to_visit.push(neighbor);
+                visited.insert(neighbor);
             }
         }
     }

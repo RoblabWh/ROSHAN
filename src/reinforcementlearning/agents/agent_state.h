@@ -55,6 +55,7 @@ public:
     void SetPerfectGoals(std::vector<std::deque<std::pair<double, double>>> perfect_goals) { perfect_goals_ = std::move(perfect_goals); }
     void SetDronePositions(std::shared_ptr<std::vector<std::pair<double, double>>> drone_positions) { drone_positions_ = std::move(drone_positions); }
     void SetFirePositions(std::shared_ptr<std::vector<std::pair<double, double>>> fire_positions) { fire_positions_ = std::move(fire_positions); }
+    void SetGoalPositions(std::shared_ptr<std::vector<std::pair<double, double>>> goal_positions) { goal_positions_ = std::move(goal_positions); }
 
     //** These functions are for the states **//
     [[nodiscard]] std::vector<std::vector<std::vector<double>>> GetMultipleTotalDroneView() const {
@@ -181,7 +182,7 @@ public:
 
     [[nodiscard]] std::vector<std::pair<double, double>> GetDronePositions() const { return *drone_positions_; }
     [[nodiscard]] std::vector<std::pair<double, double>> GetFirePositions() const { return *fire_positions_; }
-
+    [[nodiscard]] std::vector<std::pair<double, double>> GetGoalPositions() const { return *goal_positions_; }
 
     //** These functions are only for Python Debugger Visibility **//
     [[nodiscard]] std::pair<double, double> get_velocity() const { return velocity_; }
@@ -200,6 +201,7 @@ public:
     [[nodiscard]] std::vector<std::shared_ptr<const std::vector<std::vector<double>>>> get_multiple_total_drone_view() const { return multiple_total_drone_views_; }
     [[nodiscard]] std::vector<std::pair<double, double>> get_drone_positions() const { return *drone_positions_;}
     [[nodiscard]] std::vector<std::pair<double, double>> get_fire_positions() const { return *fire_positions_;}
+    [[nodiscard]] std::vector<std::pair<double, double>> get_goal_positions() const { return *goal_positions_; }
 private:
     //* State Value for the velocity of an Agent in x and y direction
     std::pair<double, double> velocity_;
@@ -218,6 +220,7 @@ private:
     std::shared_ptr<const std::vector<std::vector<double>>> fire_map_;
     std::shared_ptr<const std::vector<std::pair<double, double>>> drone_positions_;
     std::shared_ptr<const std::vector<std::pair<double, double>>> fire_positions_;
+    std::shared_ptr<const std::vector<std::pair<double, double>>> goal_positions_;
 
     //TODO TEST Remove later
     std::vector<std::deque<std::pair<double, double>>> perfect_goals_;

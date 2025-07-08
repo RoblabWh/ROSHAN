@@ -9,7 +9,7 @@ class HierarchyManager:
         self.hierarchy = {}
         self.hierarchy_keys = list(self.hierarchy.keys())
         self.build_hierarchy(status, agent_handler)
-        self.max_low_level_steps = 128
+        self.max_low_level_steps = 50
 
     def restruct_current_obs(self, observations_):
         for key in self.hierarchy_keys:

@@ -17,6 +17,10 @@ void PlannerAgent::PerformPlan(PlanAction *action, const std::string &hierarchy_
     for (const auto &fly_agent : fly_agents_) {
         // Get the goal from the action
         auto goal = action->GetGoalFromAction(fly_agent->GetId());
+        if (goal == std::make_pair(-1.0, -1.0)) {
+            // If the goal is (-1.0, -1.0) we set the goal to the groundstation
+            goal = gridMap->GetGroundstation()->GetGridPositionDouble();
+        }
         auto fire_extinguished = fly_agent->DispenseWaterCertain(gridMap);
         extinguished_fires_ += fire_extinguished ? 1 : 0;
         fly_agent->SetGoalPosition(goal);
@@ -96,7 +100,32 @@ double PlannerAgent::CalculateReward() {
         reward_components["MapBurnedTooMuch"] = -2;
     }
 
-    reward_components["ExtinguishedFires"] = extinguished_fires_ * 0.1;
+
+    auto groundstation_pos = gridmap_->GetGroundstation()->GetGridPositionDouble();
+    auto fire_positions = gridmap_->GetFirePositionsFromBurningCells();
+    // Each individual FlyAgent contributes to the goal
+    for(const auto& agent : fly_agents_) {
+        auto goal_position = agent->GetGoalPosition();
+        if (goal_position == groundstation_pos && !fire_positions->empty()) {
+            // If the goal position is set to the groundstation it's probably bad
+            reward_components["FlyingTowardsGroundstation"] = -0.01;
+        }
+//        else if (std::find(fire_positions->begin(), fire_positions->end(), goal_position) != fire_positions->end()) {
+//            // If the goal position is a fire position it's good
+//            reward_components["FlyingTowardsFire"] = 0.1;
+//        }
+//        else {
+//            // If the agent has a goal we can calculate the distance to the goal
+//            double distance_to_goal = agent->GetDistanceToGoal();
+//            if (distance_to_goal < 0.5) {
+//                reward_components["CloseToGoal"] = 1;
+//            } else if (distance_to_goal < 2.0) {
+//                reward_components["FarFromGoal"] = -0.5;
+//            }
+//        }
+    }
+
+    reward_components["ExtinguishedFires"] = extinguished_fires_ * 0.2;
 
     total_reward = ComputeTotalReward(reward_components);
     LogRewards(reward_components);
@@ -125,12 +154,15 @@ std::shared_ptr<AgentState> PlannerAgent::BuildAgentState(const std::shared_ptr<
     auto state = std::make_shared<AgentState>();
 
     std::vector<std::pair<double, double>> drone_positions;
+    std::vector<std::pair<double, double>> drone_goals;
     for (const auto &fly_agent : fly_agents_) {
-        drone_positions.push_back(fly_agent->GetGridPositionDouble());
+        drone_positions.push_back(fly_agent->GetPositionDoubleNorm());
+        drone_goals.push_back(fly_agent->GetGoalPositionDoubleNorm());
     }
 //    auto fire_positions = explore_agent_->GetLastState().GetFirePositionsFromFireMap();
     auto fire_positions = grid_map->GetFirePositionsFromBurningCells();
     state->SetDronePositions(std::make_shared<std::vector<std::pair<double, double>>>(drone_positions));
+    state->SetGoalPositions(std::make_shared<std::vector<std::pair<double, double>>>(drone_goals));
     state->SetFirePositions(fire_positions);
 
     return state;

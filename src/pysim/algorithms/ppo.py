@@ -153,7 +153,7 @@ class PPO(RLAlgorithm):
         t_dict = memory.to_tensor()
 
         states = t_dict['state']
-        variable_state_masks = t_dict['masks']
+        variable_state_masks = t_dict['mask']
         actions = t_dict['action']
         old_logprobs = t_dict['logprobs']
         ext_rewards = t_dict['reward']
@@ -191,13 +191,15 @@ class PPO(RLAlgorithm):
             advantages = []
             returns = []
             for i in range(memory.num_agents):
-                _, values_, _ = self.policy.evaluate(states[i], actions[i], variable_state_masks[0][1] if self.use_variable_state_masks and len(variable_state_masks[0][1]) > 0 else None)
+                _, values_, _ = self.policy.evaluate(states[i], actions[i], variable_state_masks[0] if self.use_variable_state_masks and len(variable_state_masks[0]) > 0 else None)
                 if masks[i][-1] == 1:
                     last_state = tuple(torch.FloatTensor(np.array(state)).to(self.device) for state in memory.get_agent_state(next_obs, i))
                     bootstrapped_value = self.policy.critic(last_state).detach()
                     if bootstrapped_value.dim() != 1:
                         bootstrapped_value = bootstrapped_value.mean(dim=1)
-                    values_ = torch.cat((values_, bootstrapped_value.squeeze(0)), dim=0)
+                    if bootstrapped_value.dim() > 1:
+                        bootstrapped_value = bootstrapped_value.squeeze(0)
+                    values_ = torch.cat((values_, bootstrapped_value), dim=0)
                 adv, ret = self.get_advantages(values_.detach(), masks[i], rewards[i].detach())
 
                 advantages.append(adv)
@@ -224,7 +226,7 @@ class PPO(RLAlgorithm):
                 # Evaluate old actions and values using current policy
                 batch_states = tuple(state[index] for state in states)
                 batch_actions = actions[index]
-                batch_variable_masks = variable_state_masks[0][1][index] if self.use_variable_state_masks and len(variable_state_masks[0][1]) > 0 else None
+                batch_variable_masks = variable_state_masks[0][index] if self.use_variable_state_masks and len(variable_state_masks[0]) > 0 else None
                 logprobs, values, dist_entropy = self.policy.evaluate(batch_states, batch_actions, batch_variable_masks)
 
                 # Importance ratio: p/q
