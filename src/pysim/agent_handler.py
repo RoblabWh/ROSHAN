@@ -3,7 +3,6 @@ from algorithms.iql import IQL
 from algorithms.rl_algorithm import RLAlgorithm
 from algorithms.td3 import TD3
 from algorithms.rl_config import RLConfig, PPOConfig, IQLConfig, TD3Config, NoAlgorithmConfig
-import firesim
 from utils import Logger
 import numpy as np
 import os
@@ -14,24 +13,33 @@ from planner_agent import PlannerAgent
 
 
 class AgentHandler:
-    def __init__(self, status, algorithm: str = 'PPO', vision_range=21, map_size=50, time_steps=None, logdir=None):
+    def __init__(self, status, config, agent_type: str = None, mode: str = None, logdir=None):
 
+        # Past Agent Actions
         self.agent_actions = None
-        if time_steps is None:
-            print("Time steps not set, what are you doing!?")
-            time_steps = [3, 32]
 
+        # If agent_type is None it is the FIRST selected agent type(this determines the hierarchy)
+        agent_type = config["settings"]["hierarchy_type"] if agent_type is None else agent_type
+        agent_dict = config["environment"]["agent"][agent_type]
+
+        vision_range = agent_dict["view_range"]
+        time_steps = agent_dict["time_steps"]
+        algorithm = agent_dict["algorithm"]
+        map_size = config["fire_model"]["simulation"]["grid"]["exploration_map_size"]
+
+        # Probably can be discarded, but kept for compatibility now
         self.original_algo = algorithm
-        if status["hierarchy_type"] == "ExploreAgent":
+
+        if agent_type == "explore_agent":
             algorithm = 'no_algo'
-            status["console"] += "Using ExploreAgent, no algorithm needed\n"
-            status["console"] += "Training of ExploreAgents must be implemented first\n"
+            status["console"] += "Using explore_agent, no algorithm needed\n"
+            status["console"] += "Training of explore_agents must be implemented first\n"
         supported_algos = ['no_algo', 'PPO', 'IQL', 'TD3']
         assert algorithm in supported_algos, f"Algorithm {algorithm} not supported, only {supported_algos} are supported"
 
         self.algorithm_name = algorithm
         self.env_reset = False
-        self.mode = status["rl_mode"]
+        self.mode = status["rl_mode"] if mode is None else mode
         self.max_eval = status["max_eval"]
 
         # Used for Evaluation
@@ -41,7 +49,7 @@ class AgentHandler:
         self.initialized = False #TODO Maybe Unused
         self.eval_steps = 0
 
-        # Agent Type is either FlyAgent or ExploreAgent
+        # Agent Type is either fly_agent or explore_agent
         self.agent_type = self.get_agent_from_type(status)
         self.num_agents = self.agent_type.get_num_agents(status["num_agents"])
         self.drone_count = self.agent_type.get_drone_count(status["num_agents"])
@@ -64,15 +72,15 @@ class AgentHandler:
 
         if algorithm == 'PPO':
             config = PPOConfig(algorithm=algorithm,
-                               model_path=status["model_path"],
-                               model_name=status["model_name"],
+                               model_path=agent_dict["default_model_folder"],
+                               model_name=agent_dict["default_model_name"],
                                vision_range=vision_range,
                                drone_count=self.drone_count,
                                map_size=map_size,
                                time_steps=time_steps,
                                use_next_obs=False,
-                               use_categorical=status["hierarchy_type"] == "PlannerAgent",
-                               use_variable_state_masks=status["hierarchy_type"] == "PlannerAgent"
+                               use_categorical=status["hierarchy_type"] == "planner_agent",
+                               use_variable_state_masks=status["hierarchy_type"] == "planner_agent"
                                )
             self.algorithm = PPO(network=self.agent_type.get_network(algorithm=algorithm),
                                  config=config)
@@ -80,8 +88,8 @@ class AgentHandler:
             status["console"] += "PPO agent initialized\n"
         elif algorithm == 'IQL':
             config = IQLConfig(algorithm=algorithm,
-                              model_path=status["model_path"],
-                              model_name=status["model_name"],
+                               model_path=agent_dict["default_model_folder"],
+                               model_name=agent_dict["default_model_name"],
                               vision_range=vision_range,
                               drone_count=self.drone_count,
                               map_size=map_size,
@@ -95,26 +103,26 @@ class AgentHandler:
             status["console"] += "IQL agent initialized\n"
         elif algorithm == 'TD3':
             config = TD3Config(algorithm=algorithm,
-                                 model_path=status["model_path"],
-                                 model_name=status["model_name"],
-                                 vision_range=vision_range,
-                                 drone_count=self.drone_count,
-                                 map_size=map_size,
-                                 time_steps=time_steps,
-                                 action_dim=self.agent_type.action_dim,
-                                 clear_memory=False
-                                 )
+                               model_path=agent_dict["default_model_folder"],
+                               model_name=agent_dict["default_model_name"],
+                               vision_range=vision_range,
+                               drone_count=self.drone_count,
+                               map_size=map_size,
+                               time_steps=time_steps,
+                               action_dim=self.agent_type.action_dim,
+                               clear_memory=False
+                               )
             self.algorithm = TD3(network=self.agent_type.get_network(algorithm=algorithm),
                                  config=config)
         elif algorithm == 'no_algo':
             config = NoAlgorithmConfig(algorithm=algorithm,
-                                               model_path=status["model_path"],
-                                               model_name=status["model_name"],
-                                               vision_range=vision_range,
-                                               drone_count=self.drone_count,
-                                               map_size=map_size,
-                                               time_steps=time_steps,
-                                               action_dim=self.agent_type.action_dim)
+                                       model_path=agent_dict["default_model_folder"],
+                                       model_name=agent_dict["default_model_name"],
+                                       vision_range=vision_range,
+                                       drone_count=self.drone_count,
+                                       map_size=map_size,
+                                       time_steps=time_steps,
+                                       action_dim=self.agent_type.action_dim)
             self.algorithm = RLAlgorithm(config)
         self.use_next_obs = self.algorithm.use_next_obs
         self.memory = SwarmMemory(max_size=self.algorithm.memory_size,
@@ -129,18 +137,18 @@ class AgentHandler:
     def get_agent_from_type(status):
         agent_type = status["hierarchy_type"]
         num_drones = status["num_agents"]
-        allowed_types = ["FlyAgent", "ExploreAgent", "ExploreFlyAgent", "PlannerFlyAgent", "PlannerAgent"]
+        allowed_types = ["fly_agent", "explore_agent", "ExploreFlyAgent", "PlannerFlyAgent", "planner_agent"]
         if agent_type not in allowed_types:
             raise ValueError("Invalid agent type, must be either {}, was: {}".format(allowed_types, agent_type))
-        if agent_type == "FlyAgent":
-            return FlyAgent("FlyAgent")
+        if agent_type == "fly_agent":
+            return FlyAgent("fly_agent")
         if agent_type == "ExploreFlyAgent":
             return FlyAgent("ExploreFlyAgent")
         if agent_type == "PlannerFlyAgent":
             return FlyAgent("PlannerFlyAgent")
-        if agent_type == "ExploreAgent":
+        if agent_type == "explore_agent":
             return ExploreAgent()
-        if agent_type == "PlannerAgent":
+        if agent_type == "planner_agent":
             return PlannerAgent(num_drones)
 
     def reset(self, status):

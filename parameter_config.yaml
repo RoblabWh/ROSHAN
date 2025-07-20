@@ -1,0 +1,130 @@
+settings:
+  mode: 0 # 0: GUI_RL, 2: NoGUI_RL
+  rl_mode: "eval" # either "train" or "eval"
+  resume: false # Whether to resume training from the last checkpoint
+  llm_support: false # Whether to use LLM support for the environment (currently not supported)
+  hierarchy_type: planner_agent # Type of hierarchy to use for the agents (fly_agent, explore_agent, planner_agent)
+  use_default: true # Uses this config as default and skips the GUI setup
+
+paths:
+  log_directory: ./logs
+  init_map: 35x36_Woods.tif # This map is used in NoGUI & use_default setup, if left empty("") the default map will be used.
+
+algorithm:
+  type: PPO
+  model_path: /models/ppo/
+  model_name: best_model
+  vision_range: 12
+  drone_count: 3
+  map_size: 80
+  time_steps: 16
+  memory_size: 1000000
+  action_dim: 2
+  clear_memory: true
+  use_next_obs: true
+  lr: 0.0004
+  batch_size: 32
+  horizon: 64
+  k_epochs: 14
+  entropy_coeff: 0.0006
+  value_loss_coef: 0.5
+  separate_optimizers: false
+  betas: [0.9, 0.999]
+  gamma: 0.9635
+  _lambda: 0.96
+  eps_clip: 0.2783
+  use_categorical: false
+  use_variable_state_masks: false
+
+fire_model:
+  # Rendering Parameters
+  rendering:
+    render_grid: false
+    has_noise: true
+    lingering: true
+    noise_level: 20
+    noise_size: 2
+    background_color: [21, 19, 51, 255] #[41, 49, 51, 255]
+  #### Simulation Parameters
+  # These parameters are used to configure the simulation environment
+  # They contain time, cell, particles, grid and wind parameters
+  # The values are set to reasonable defaults for a simulation
+  # Most of them can be adjusted in the GUI, adjustment here only for testing purposes
+  simulation:
+    time:
+      dt: 0.3
+      min_dt: 0.0001
+      max_dt: 5.0
+    cells:
+      # Besides flood_duration these values only affect the uniform grid, otherwise those values are derived from the cell_class
+      cell_ignition_threshold: 100.0 # Time that the cell needs to be visited by a particle to be ignited in seconds (s)
+      cell_burning_duration: 120.0 # Time the cell is capable of burning in seconds (s)
+      cell_size: 10.0 # We assume quadratic cells and this is the length of both sides of the cell in meters (m)
+      flood_duration: 5.0 # Flooding duration of a cell in seconds (s)
+    particles:
+      # These parameters are used to configure the particles in the simulation
+      # Ranges are provided in the comments; stray apart from them and you might get funny results
+      emit_convective: true # Whether to emit convective particles
+      virtualparticle_y_st: 1.0 # Hotness of the Particle (no real world unit yet) [0.0 - 1.0]
+      virtualparticle_y_lim: 0.2 # How long the Particle is able to cause ignition (no real world unit yet) [0.1 - 0.3]
+      virtualparticle_fl: 0.15 # Scaling factor for new position (need to calibrate) [0.0 - 10.0]
+      virtualparticle_c0: 1.98 # A constant close to 2 [1.5 - 2.0]
+      virtualparticle_tau_mem: 10.0 # A few tens of seconds [0.1 - 100.0]
+      Lt: 80.0 # Height of emitting source (m)
+      emit_radiation: true # Whether to emit radiation particles
+      radiationparticle_y_st: 1.0 # Hotness of the Radiation Particle (no real world unit yet) [0.0 - 1.0]
+      radiationparticle_y_lim: 0.165 # How long the Radiation Particle is able to cause ignition (no real world unit yet) [0.1 - 0.3]
+    grid:
+      uniform_nx: 50 # Number of cells in x-direction for uniform grid (Rows programmatically; Cols visually)
+      uniform_ny: 50 # Number of cells in y-direction for uniform grid (Cols programmatically; Rows visually)
+      exploration_map_size: 50 # Size of the exploration map side (side X side)
+    wind:
+      wind_uw: 10.0 # Wind Speed at 10m height in m/s [0 - 35(Hurricane)]
+      wind_angle: -1.0 # Wind Angle in degree, -1 for random start wind angle
+      wind_a: 0.314 # Component of the wind speed in the 1st direction [0.2 - 0.5]
+
+# Environment Parameters
+environment:
+  frame_skips: 1 # Number of frames to skip in the environment (1 for no skipping) # TODO Reimplement this this is not correctly implemented
+  fire_behaviour:
+    ignite_single_cells: false
+    fire_percentage: 0.5
+    fire_spread_prob: 0.095
+    fire_noise: 1
+    recharge_time_active: false
+  agent_behaviour:
+    fire_goal_percentage: 0.0
+    groundstation_start_percentage: 0.0
+    corner_start_percentage: 0.9
+  agent:
+    number_of_drones: 1 # Number of fly_agents; ONLY USED FOR TRAINING fly_agents
+    number_of_explorers: 4
+    number_of_extinguishers: 3
+    water_capacity: 10 # Number of water units a drone can carry (one unit extinguishes one cell)
+    max_velocity: 10.0 # Maximum Velocity for a drone agent in m/s
+    extinguish_all_fires: false # Whether a fly_agent should extinguish all fires in Evaluation Mode (not really relevant)
+    fly_agent:
+      algorithm: PPO # Algorithm used by the fly_agent
+      num_agents: 1
+      time_steps: 3 # Number of time steps to consider in the FlyAgent's memory
+      max_speed: 10.0 # Maximum speed of the FlyAgent in m/s
+      view_range: 12 # View range of the FlyAgent in cells
+      default_model_folder: /home/nex/Dokumente/Code/ROSHAN/models/new_solved/ # Default model path for the fly_agent
+      default_model_name: my_model_latest.pt # Default model name for the fly_agent
+    explore_agent:
+      algorithm: PPO # Algorithm used by the explore_agent
+      num_agents: 4
+      time_steps: 3 # Number of time steps to consider in the ExploreAgent's memory
+      max_speed: 10.0 # Maximum speed of the explore_agent in m/s
+      view_range: 12 # View range of the explore_agent in cells
+      default_model_folder: "" # Keep empty for future use and compatibility with pipeline lol
+      default_model_name: ""  # Keep empty for future use and compatibility with pipeline lol
+    planner_agent:
+      algorithm: PPO # Algorithm used by the planner_agent
+      # These parameters are used to configure the planner_agents LOW-LEVEL AGENTS
+      num_agents: 3
+      time_steps: 3 # Number of time steps to consider in the ExtinguishAgent's memory
+      max_speed: 3.0 # Maximum speed of the ExtinguishAgent (low-level-agent of the Planner) in m/s
+      view_range: 6 # View range of the ExtinguishAgent in cells
+      default_model_folder: /home/nex/Dokumente/Code/ROSHAN/models/planner_kind_of_works/ # Default model path for the fly_agent
+      default_model_name: my_model_latest.pt # Default model name for the fly_agent

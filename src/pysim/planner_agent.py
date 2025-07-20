@@ -9,7 +9,7 @@ from agent import Agent
 class PlannerAgent(Agent):
     def __init__(self, num_drones):
         super().__init__()
-        self.name = "PlannerAgent"
+        self.name = "planner_agent"
         self.hierarchy_level = "high"
         self.low_level_steps = 200
         self.use_intrinsic_reward = False
@@ -66,7 +66,7 @@ class PlannerAgent(Agent):
     def restructure_data(observations_):
         all_drone_states, all_fire_states, all_goal_positions  = [], [], []
 
-        obs = observations_["PlannerAgent"]
+        obs = observations_["planner_agent"]
         for deque in obs:
             drone_states = np.array([state for state in deque if isinstance(state, firesim.AgentState)])
             if len(drone_states) == 0:

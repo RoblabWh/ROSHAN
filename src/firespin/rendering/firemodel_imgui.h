@@ -39,6 +39,11 @@ public:
     void HandleEvents(SDL_Event event, ImGuiIO *io, const std::shared_ptr<GridMap>& gridmap, const std::shared_ptr<FireModelRenderer>& model_renderer,
                       const std::shared_ptr<DatasetHandler>& dataset_handler, std::vector<std::vector<int>> &current_raster_data, bool agent_is_running);
     static void OpenBrowser(const std::string& url);
+    void DefaultModeSelected() {
+        model_startup_ = true;
+        show_controls_ = true;
+        show_model_parameter_config_ = false;
+    }
 
     // Callbacks
     std::function<void()> onResetDrones;

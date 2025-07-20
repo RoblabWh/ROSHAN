@@ -7,3 +7,6 @@
 [submodule "externals/pybind11"]
 	path = externals/pybind11
 	url = https://github.com/pybind/pybind11
+[submodule "externals/yaml-cpp"]
+	path = externals/yaml-cpp
+	url = https://github.com/jbeder/yaml-cpp.git

@@ -12,6 +12,7 @@ FireModel::FireModel(Mode mode) : mode_(mode)
     timer_.Start();
 
     dataset_handler_ = std::make_shared<DatasetHandler>();
+    parameters_.init("/home/nex/Dokumente/Code/ROSHAN/parameter_config.yaml");
     parameters_.SetCorineLoaded(dataset_handler_->HasCorineLoaded());
     model_renderer_ = nullptr;
     wind_ = std::make_shared<Wind>(parameters_);
@@ -30,9 +31,10 @@ FireModel::FireModel(Mode mode) : mode_(mode)
         parameters_.SetNumberOfDrones(0);
     }
     if (mode_ == Mode::NoGUI_RL) {
-        parameters_.SetNumberOfDrones(1);
         parameters_.SetAgentIsRunning(true);
-        parameters_.initial_mode_selection_done_ = true;
+    }
+    if (parameters_.use_default_) {
+        imgui_handler_->DefaultModeSelected();
     }
     std::cout << "Created FireModel" << std::endl;
 }
@@ -47,7 +49,7 @@ FireModel::~FireModel(){
 }
 
 void FireModel::InitializeMap(const std::string& map_path) {
-    if ((mode_ == Mode::NoGUI_RL || mode_ == Mode::NoGUI)){
+    if (mode_ == Mode::NoGUI_RL || mode_ == Mode::NoGUI || parameters_.use_default_){
         if (!map_path.empty()){
             std::cout << "Loading map from: " << map_path << std::endl;
             this->LoadMap(map_path);
@@ -55,7 +57,8 @@ void FireModel::InitializeMap(const std::string& map_path) {
             std::cout << "No map path provided, using default map." << std::endl;
             this->SetUniformRasterData();
         }
-        this->StartFires(parameters_.fire_percentage_);
+//        this->StartFires(parameters_.fire_percentage_);
+        parameters_.initial_mode_selection_done_ = true;
     }
 }
 
@@ -359,18 +362,6 @@ void FireModel::IgniteFireCluster(int fires) {
     }
 }
 
-int FireModel::GetViewRange(const std::string& agent_type) {
-    return FireModelParameters::GetViewRange(agent_type);
-}
-
-int FireModel::GetTimeSteps() {
-    return parameters_.GetTimeSteps();
-}
-
 bool FireModel::InitialModeSelectionDone() {
     return parameters_.InitialModeSelectionDone();
-}
-
-int FireModel::GetMapSize() {
-    return parameters_.GetExplorationMapSize();
 }

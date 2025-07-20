@@ -9,7 +9,7 @@ from agent import Agent
 class ExploreAgent(Agent):
     def __init__(self):
         super().__init__()
-        self.name = "ExploreAgent"
+        self.name = "explore_agent"
         self.hierarchy_level = "medium"
         self.low_level_steps = 200
         self.use_intrinsic_reward = False
@@ -64,7 +64,7 @@ class ExploreAgent(Agent):
         #all_explore_maps, all_total_views = [], []
         all_explore_maps, all_positions = [], []
 
-        obs = observations_["ExploreAgent"]
+        obs = observations_["explore_agent"]
         for deque in obs:
             drone_states = np.array([state for state in deque if isinstance(state, firesim.AgentState)])
             if len(drone_states) == 0:

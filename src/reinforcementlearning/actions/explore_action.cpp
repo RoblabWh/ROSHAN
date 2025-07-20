@@ -10,6 +10,6 @@ void ExploreAction::ExecuteOn(std::shared_ptr<Agent> agent, std::string hierarch
     if (auto explore_agent = std::dynamic_pointer_cast<ExploreAgent>(agent)) {
         explore_agent->PerformExplore(this, hierarchy_type, gridMap);
     } else {
-        std::cerr << "ExploreAction executed on non-ExploreAgent!" << std::endl;
+        std::cerr << "ExploreAction executed on non-explore_agent!" << std::endl;
     }
 }

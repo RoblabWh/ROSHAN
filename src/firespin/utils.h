@@ -17,6 +17,8 @@
 #include <cmath>
 #include <limits>
 #include <cmath>
+#include <fstream>
+#include "json.hpp"
 
 std::string formatTime(int seconds);
 
@@ -64,6 +66,8 @@ GeneratePaths(
         std::pair<double, double> start,
         int view_range
 );
+
+std::string get_path_from_config(const std::string& config_key, const std::vector<std::string>& extensions);
 
 template <typename T>
 class CircularBuffer {

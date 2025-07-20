@@ -28,8 +28,18 @@ class PPO(RLAlgorithm):
         self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
         # Current Policy
-        self.policy = ActorCriticPPO(Actor=self.actor, Critic=self.critic, vision_range=self.vision_range, drone_count=self.drone_count, map_size=self.map_size, time_steps=self.time_steps)
-        self.policy = CategoricalActorCritic(Actor=self.actor, Critic=self.critic, vision_range=self.vision_range, drone_count=self.drone_count, map_size=self.map_size, time_steps=self.time_steps) if self.use_categorical else self.policy
+        self.policy = None
+        if self.use_categorical:
+            self.policy = CategoricalActorCritic(Actor=self.actor,
+                                                 Critic=self.critic,
+                                                 vision_range=self.vision_range,
+                                                 drone_count=self.drone_count,
+                                                 map_size=self.map_size,
+                                                 time_steps=self.time_steps)
+        else:
+            self.policy = ActorCriticPPO(Actor=self.actor, Critic=self.critic, vision_range=self.vision_range,
+                                         drone_count=self.drone_count, map_size=self.map_size,
+                                         time_steps=self.time_steps)
 
         self.actor_params = self.policy.actor.parameters()
         self.critic_params = self.policy.critic.parameters()

@@ -7,7 +7,7 @@
 
 PlannerAgent::PlannerAgent(FireModelParameters &parameters, int id, int time_steps) : Agent(parameters, 300) {
     id_ = id;
-    agent_type_ = "PlannerAgent";
+    agent_type_ = "planner_agent";
     time_steps_ = time_steps;
 }
 
@@ -29,7 +29,7 @@ void PlannerAgent::PerformPlan(PlanAction *action, const std::string &hierarchy_
             extinguished_last_fire_ = fly_agent->GetExtinguishedLastFire();
         }
     }
-    if (hierarchy_type == "PlannerAgent") {
+    if (hierarchy_type == "planner_agent") {
         did_hierarchy_step = true;
     }
     this->UpdateStates(gridMap);

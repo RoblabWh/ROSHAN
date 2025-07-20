@@ -6,60 +6,33 @@
 
 DatasetHandler::DatasetHandler() {
     // Find the project root directory
-    auto start_path = std::filesystem::current_path();
-    auto project_root = find_project_root(start_path);
-    std::filesystem::path dataset_path;
-    bool dataset_path_found = false;
+    auto dataset_path = get_path_from_config("dataset_path", {".tif", ".tiff"});
+    datafilepath_ = get_path_from_config("osm_data", {".json"});
 
-    if (project_root) {
-        std::filesystem::path config_path = *project_root / "config.json";
-
-        // Check if config.json exists
-        if (std::filesystem::exists(config_path)) {
-            // Read and parse the JSON config
-            std::ifstream config_file(config_path);
-            json config;
-            config_file >> config;
-
-            // Check if "dataset_directory" is present in the config
-            if (config.contains("dataset_path")) {
-                dataset_path = std::filesystem::path(config["dataset_path"]);
-                std::string extension = dataset_path.extension().string();
-                std::transform(extension.begin(), extension.end(), extension.begin(), ::tolower);
-                if (extension == ".tif" || extension == ".tiff") {
-                    dataset_path_found = true;
-                    std::cout << "Using dataset path from config.json: " << dataset_path << std::endl;
-                } else {
-                    std::cerr << "DatasetHandler: Invalid dataset file extension" << std::endl;
-                }
-            }
-            GDALAllRegister();
-            small_dataset_ = nullptr;
-            dataset_ = nullptr;
-            // Create an array of pointers to your GeoCoordinates
-            coords_[0] = &(rectangle_.lower_left);
-            coords_[1] = &(rectangle_.upper_left);
-            coords_[2] = &(rectangle_.upper_right);
-            coords_[3] = &(rectangle_.lower_right);
-
-            if (dataset_path_found) {
-                dataset_ = (GDALDataset *) GDALOpen(dataset_path.c_str(), GA_ReadOnly);
-                if (dataset_ == nullptr) {
-                    std::cout << "DatasetHandler: Could not open file: " << dataset_path << std::endl;
-                    exit(1);
-                }
-                datafilepath_ = config["osm_data"];
-            } else {
-                std::cerr << "Dataset not loaded. Proceeding without dataset." << std::endl;
-            }
-        } else {
-            std::cerr << "config.json not found at: " << config_path << std::endl;
-        }
-    } else {
-        std::cerr << "Project root not found. OOPSI! This should generally not happen." << std::endl;
+    if (dataset_path.empty()) {
+        std::cout << "DatasetHandler: No dataset path found in config.json" << std::endl;
         exit(1);
     }
 
+    GDALAllRegister();
+    small_dataset_ = nullptr;
+    dataset_ = nullptr;
+    // Create an array of pointers to your GeoCoordinates
+    coords_[0] = &(rectangle_.lower_left);
+    coords_[1] = &(rectangle_.upper_left);
+    coords_[2] = &(rectangle_.upper_right);
+    coords_[3] = &(rectangle_.lower_right);
+
+    if (!dataset_path.empty()) {
+        dataset_ = (GDALDataset *) GDALOpen(dataset_path.c_str(), GA_ReadOnly);
+        if (dataset_ == nullptr) {
+            std::cout << "DatasetHandler: Could not open file: " << dataset_path << std::endl;
+            exit(1);
+        }
+    } else {
+        std::cout << "DatasetHandler: No dataset path found in config.json" << std::endl;
+        exit(1);
+    }
 }
 
 void DatasetHandler::TransformCoordinates(double lng, double lat, double &lng_transformed, double &lat_transformed) {
@@ -71,7 +44,7 @@ void DatasetHandler::TransformCoordinates(double lng, double lat, double &lng_tr
 
     poCT = OGRCreateCoordinateTransformation(&oSourceSRS, &oTargetSRS);
 
-    if (poCT == NULL) {
+    if (poCT == nullptr) {
         std::cout << "DatasetHandler: Could not create coordinate transformation" << std::endl;
         exit(1);
     }
@@ -167,7 +140,7 @@ void DatasetHandler::DeleteDataFile() {
     }
 }
 
-void DatasetHandler::SaveRaster(std::string filePath) {
+void DatasetHandler::SaveRaster(const std::string& filePath) {
 
     double minX = std::min({rectangle_.lower_left.coordinate[0], rectangle_.lower_right.coordinate[0], rectangle_.upper_left.coordinate[0], rectangle_.upper_right.coordinate[0]});
     double minY = std::min({rectangle_.lower_left.coordinate[1], rectangle_.lower_right.coordinate[1], rectangle_.upper_left.coordinate[1], rectangle_.upper_right.coordinate[1]});
@@ -186,7 +159,7 @@ void DatasetHandler::SaveRaster(std::string filePath) {
 
     // Create a new dataset for the rectangle
     GDALDriver* poDriver = GetGDALDriverManager()->GetDriverByName("GTiff");
-    GDALDataset* poDstDS = poDriver->Create(filePath.c_str(), width, height, 1, GDT_Float32, NULL);
+    GDALDataset* poDstDS = poDriver->Create(filePath.c_str(), width, height, 1, GDT_Float32, nullptr);
 
     // Set the geotransform and projection on the new dataset
     double adfNewGeoTransform[6] = { minX, pixelWidth, 0, maxY, 0, -pixelHeight };
@@ -194,7 +167,7 @@ void DatasetHandler::SaveRaster(std::string filePath) {
     poDstDS->SetProjection(dataset_->GetProjectionRef());
 
     // Read data from the source dataset into the new dataset
-    float* pafScanline = new float[width * height];
+    auto* pafScanline = new float[width * height];
     CPLErr err = dataset_->GetRasterBand(1)->RasterIO(GF_Read, startX, startY, width, height,
                                          pafScanline, width, height, GDT_Float32,
                                          0, 0);
@@ -275,7 +248,7 @@ void DatasetHandler::LoadRasterDataFromJSON(std::vector<std::vector<int>> &raste
     }
 }
 
-void DatasetHandler::LoadMap(std::string filePath) {
+void DatasetHandler::LoadMap(const std::string& filePath) {
     delete small_dataset_;
     small_dataset_ = (GDALDataset *) GDALOpen(filePath.c_str(), GA_ReadOnly);
     if (small_dataset_ == nullptr) {

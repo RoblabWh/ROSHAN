@@ -56,9 +56,6 @@ public:
     void SetRLStatus(pybind11::dict status) override;
     void UpdateReward() override;
     pybind11::dict GetRLStatus() override;
-    int GetViewRange(const std::string& agent_type) override;
-    int GetTimeSteps() override;
-    int GetMapSize() override;
     void InitializeMap(const std::string &map_path) override;
     void LoadMap(std::string path);
     bool InitialModeSelectionDone() override;

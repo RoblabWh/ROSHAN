@@ -1,11 +1,9 @@
 import copy
-
-from pandas.core.computation.expressions import evaluate
-
 from agent_handler import AgentHandler
 
 class HierarchyManager:
-    def __init__(self, status, agent_handler: AgentHandler):
+    def __init__(self, status, config, agent_handler: AgentHandler):
+        self.config = config
         self.hierarchy = {}
         self.hierarchy_keys = list(self.hierarchy.keys())
         self.build_hierarchy(status, agent_handler)
@@ -92,43 +90,29 @@ class HierarchyManager:
 
     def build_hierarchy(self, status, agent_handler: AgentHandler):
         self.hierarchy[agent_handler.hierarchy_level] = agent_handler
+
         construct_medium = agent_handler.hierarchy_level == "medium" or agent_handler.hierarchy_level == "high"
-        algorithm_name = agent_handler.original_algo
+
         # Construct a low level agent if the current agent is a medium level agent
         if agent_handler.hierarchy_level == "high":
-            vision_range = agent_handler.algorithm.vision_range
-            map_size = agent_handler.algorithm.map_size
-            time_steps = status["flyAgentTimesteps"]
             status_ = copy.copy(status)
             status_["hierarchy_type"] = "PlannerFlyAgent"
-            status_["model_name"] = "my_model_latest.pt"
-            status_["rl_mode"] = "eval"
-            status_["model_path"] = "/home/nex/Dokumente/Code/ROSHAN/models/new_solved/"
-            low_level_agent_plan = AgentHandler(status_, algorithm=algorithm_name, vision_range=vision_range, map_size=map_size, time_steps=time_steps, logdir='./logs')
+            low_level_agent_plan = AgentHandler(status_, self.config, agent_type="fly_agent", mode="eval", logdir='./logs')
             low_level_agent_plan.hierarchy_level = "plan_low"
             status["console"] += "Hierarchy: High Level > Medium Level > Low Level\n"
             status["console"] += "Loading PlannerFlyAgents...\n"
             low_level_agent_plan.load_model(status_)
             self.hierarchy["plan_low"] = low_level_agent_plan
         if construct_medium:
+            # Construct a medium level agent if the current agent is a high level agent
             if agent_handler.hierarchy_level == "high":
-                # Construct a medium level agent if the current agent is a high level agent
                 status_ = copy.copy(status)
-                status_["hierarchy_type"] = "ExploreAgent"
-                status_["rl_mode"] = "eval"
-                status_["console"] = ""
-                medium_level_agent = AgentHandler(status_, algorithm=algorithm_name, vision_range=agent_handler.algorithm.vision_range, map_size=agent_handler.algorithm.map_size, time_steps=status["exploreAgentTimesteps"], logdir='./logs')
+                status_["hierarchy_type"] = "explore_agent"
+                medium_level_agent = AgentHandler(status_, self.config, agent_type="explore_agent", mode="eval", logdir='./logs')
                 self.hierarchy["medium"] = medium_level_agent
-            vision_range = agent_handler.algorithm.vision_range
-            map_size = agent_handler.algorithm.map_size
             status_ = copy.copy(status)
-            time_steps = status_["flyAgentTimesteps"]
             status_["hierarchy_type"] = "ExploreFlyAgent"
-            status_["model_name"] = "my_model_latest.pt"
-            status_["model_path"] = "/home/nex/Dokumente/Code/ROSHAN/models/new_solved/"
-            status_["rl_mode"] = "eval"
-            status_["console"] = ""
-            low_level_agent = AgentHandler(status_, algorithm=algorithm_name, vision_range=vision_range, map_size=map_size, time_steps=time_steps, logdir='./logs')
+            low_level_agent = AgentHandler(status_, self.config, agent_type="fly_agent", mode="eval", logdir='./logs')
             if agent_handler.hierarchy_level != "high": status["console"] += "Hierarchy: Medium Level & Low Level\n"
             status["console"] += "Loading ExploreFlyAgent Model...\n"
             low_level_agent.load_model(status_)

@@ -66,9 +66,6 @@ public:
 
     [[nodiscard]] inline bool IsRunning() const { return is_running_; }
     bool InitialModeSelectionDone();
-    int GetViewRange(const std::string& agent_type);
-    int GetTimeSteps();
-    int GetMapSize();
     void InitializeMap(const std::string &map_path);
 
 private:

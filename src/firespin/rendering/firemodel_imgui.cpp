@@ -373,7 +373,7 @@ void ImguiHandler::PyConfig(std::string &user_input,
                     std::vector<std::string> drone_names;
                     for (const auto &drone: *drones) {
                         drone->SetActive(false);
-                        drone_names.push_back(std::to_string(drone->GetId()));
+                        drone_names.push_back(drone->GetAgentType() + "_" + std::to_string(drone->GetId()));
                     }
 
                     // Create a combo box for selecting a drone
@@ -684,7 +684,7 @@ void ImguiHandler::PyConfig(std::string &user_input,
                 }
                 ImGui::SetWindowFontScale(1.5f);
                 ImGui::PushStyleColor(ImGuiCol_Text, color);
-                ImGui::TextColored(color, "FlyAgent Behaviour");
+                ImGui::TextColored(color, "fly_agent Behaviour");
                 ImGui::SetWindowFontScale(1.0f);
                 ImGui::PopStyleColor();
                 if (ImGui::BeginTable("##FlyAgentControl", 2, ImGuiTableFlags_Borders | ImGuiTableFlags_RowBg)) {
@@ -823,13 +823,9 @@ void ImguiHandler::FileHandling(const std::shared_ptr<DatasetHandler>& dataset_h
 }
 
 bool ImguiHandler::ImGuiOnStartup(const std::shared_ptr<FireModelRenderer>& model_renderer, std::vector<std::vector<int>> &current_raster_data) {
-    if (!model_startup_) {
+    if (!model_startup_ && !parameters_.use_default_) {
         int width, height;
         SDL_GetRendererOutputSize(model_renderer->GetRenderer(), &width, &height);
-//        ImVec2 window_size = ImVec2(400, 160);
-//        ImGui::SetNextWindowSize(window_size);
-//        ImVec2 appWindowPos = ImVec2((width - window_size.x) * 0.5f, (height - window_size.y) * 0.5f);
-//        ImGui::SetNextWindowPos(appWindowPos, ImGuiCond_Always);
         if(!model_mode_selection_ && mode_ == Mode::GUI_RL){
             ImGui::Begin("Select Mode", nullptr, ImGuiWindowFlags_NoResize | ImGuiWindowFlags_NoCollapse | ImGuiWindowFlags_NoMove | ImGuiWindowFlags_AlwaysAutoResize);
             ImVec2 window_size = ImGui::GetWindowSize(); // Actual size after auto-resizing
@@ -843,8 +839,8 @@ bool ImguiHandler::ImGuiOnStartup(const std::shared_ptr<FireModelRenderer>& mode
 
             // Combo Box for selecting the Agent Types
             auto hierarchy_type = rl_status["hierarchy_type"].cast<std::string>();
-            const char* hierarchy_types[] = {"FlyAgent", "ExploreAgent", "PlannerAgent"};
-            static int current_hierarchy_type = hierarchy_type == "FlyAgent" ? 0 : hierarchy_type == "ExploreAgent" ? 1 : 2;
+            const char* hierarchy_types[] = {"fly_agent", "explore_agent", "planner_agent"};
+            static int current_hierarchy_type = hierarchy_type == "fly_agent" ? 0 : hierarchy_type == "explore_agent" ? 1 : 2;
             ImGui::Text("Select Agent Type");
             if (ImGui::BeginCombo("##Hierarchy Type", hierarchy_types[current_hierarchy_type])) {
                 for (int n = 0; n < IM_ARRAYSIZE(hierarchy_types); n++) {
@@ -863,9 +859,9 @@ bool ImguiHandler::ImGuiOnStartup(const std::shared_ptr<FireModelRenderer>& mode
                 // FlyAgent
                 if (current_hierarchy_type == 0) {
                     ImGui::SetTooltip("The Number of Agents is the number of drones present in the environment. Each drone collects observations and shares the same network.");
-                } // ExploreAgent
+                } // explore_agent
                 else if (current_hierarchy_type == 1) {
-                    ImGui::SetTooltip("The Number of Agents is the number of Explorers the ExploreAgent deploys. Each Explorer collects observations and shares the same network.");
+                    ImGui::SetTooltip("The Number of Agents is the number of Explorers the explore_agents deploys. Each Explorer collects observations and shares the same network.");
                 }
             }
             if (current_hierarchy_type == 0) {
@@ -1011,28 +1007,40 @@ void ImguiHandler::ShowParameterConfig(const std::shared_ptr<Wind>& wind) {
     ImGuiWindowFlags window_flags =
             ImGuiWindowFlags_HorizontalScrollbar | ImGuiWindowFlags_AlwaysVerticalScrollbar;
     ImGui::Begin("Simulation Parameters", &show_model_parameter_config_, window_flags);
+    static double tau_min = 0.01;
+    static double tau_max = 100.0;
+    static double min_Y_st = 0.0;
+    static double max_Y_st = 1.0;
+    static double min_Y_lim = 0.1;
+    static double max_Y_lim = 0.3;
+    static double min_Fl = 0.0;
+    static double max_Fl = 10.0;
+    static double min_C0 = 1.5;
+    static double max_C0 = 2.0;
+    static double min_Lt = 10.0;
+    static double max_Lt = 100.0;
     if (parameters_.emit_convective_) {
         ImGui::SeparatorText("Virtual Particles");
         if (ImGui::TreeNodeEx("##Virtual Particles",
                               ImGuiTreeNodeFlags_DefaultOpen | ImGuiTreeNodeFlags_SpanAvailWidth)) {
             ImGui::Text("Particle Lifetime");
             ImGui::SliderScalar("tau_mem", ImGuiDataType_Double, &parameters_.virtualparticle_tau_mem_,
-                                &parameters_.tau_min, &parameters_.tau_max, "%.3f", 1.0f);
+                                &tau_min, &tau_max, "%.3f", 1.0f);
             ImGui::Text("Hotness");
             ImGui::SliderScalar("Y_st", ImGuiDataType_Double, &parameters_.virtualparticle_y_st_,
-                                &parameters_.min_Y_st_, &parameters_.max_Y_st_, "%.3f", 1.0f);
+                                &min_Y_st, &max_Y_st, "%.3f", 1.0f);
             ImGui::Text("Ignition Threshold");
             ImGui::SliderScalar("Y_lim", ImGuiDataType_Double, &parameters_.virtualparticle_y_lim_,
-                                &parameters_.min_Y_lim_, &parameters_.max_Y_lim_, "%.3f", 1.0f);
+                                &min_Y_lim, &max_Y_lim, "%.3f", 1.0f);
             ImGui::Text("Height of Emission");
-            ImGui::SliderScalar("Lt", ImGuiDataType_Double, &parameters_.Lt_, &parameters_.min_Lt_,
-                                &parameters_.max_Lt_, "%.3f", 1.0f);
+            ImGui::SliderScalar("Lt", ImGuiDataType_Double, &parameters_.Lt_, &min_Lt,
+                                &max_Lt, "%.3f", 1.0f);
             ImGui::Text("Scaling Factor");
-            ImGui::SliderScalar("Fl", ImGuiDataType_Double, &parameters_.virtualparticle_fl_, &parameters_.min_Fl_,
-                                &parameters_.max_Fl_, "%.3f", 1.0f);
+            ImGui::SliderScalar("Fl", ImGuiDataType_Double, &parameters_.virtualparticle_fl_, &min_Fl,
+                                &max_Fl, "%.3f", 1.0f);
             ImGui::Text("Constant");
-            ImGui::SliderScalar("C0", ImGuiDataType_Double, &parameters_.virtualparticle_c0_, &parameters_.min_C0_,
-                                &parameters_.max_C0_, "%.3f", 1.0f);
+            ImGui::SliderScalar("C0", ImGuiDataType_Double, &parameters_.virtualparticle_c0_, &min_C0,
+                                &max_C0, "%.3f", 1.0f);
             ImGui::TreePop();
             ImGui::Spacing();
         }
@@ -1042,9 +1050,9 @@ void ImguiHandler::ShowParameterConfig(const std::shared_ptr<Wind>& wind) {
         ImGui::SeparatorText("Radiation Particles");
         if(ImGui::TreeNodeEx("##Radiation Particles", ImGuiTreeNodeFlags_SpanAvailWidth)){
             ImGui::Text("Radiation Hotness");
-            ImGui::SliderScalar("Y_st_r", ImGuiDataType_Double, &parameters_.radiationparticle_y_st_, &parameters_.min_Y_st_, &parameters_.max_Y_st_, "%.3f", 1.0f);
+            ImGui::SliderScalar("Y_st_r", ImGuiDataType_Double, &parameters_.radiationparticle_y_st_, &min_Y_st, &max_Y_st, "%.3f", 1.0f);
             ImGui::Text("Radiation Ignition Threshold");
-            ImGui::SliderScalar("Y_lim_r", ImGuiDataType_Double, &parameters_.radiationparticle_y_lim_, &parameters_.min_Y_lim_, &parameters_.max_Y_lim_, "%.3f", 1.0f);
+            ImGui::SliderScalar("Y_lim_r", ImGuiDataType_Double, &parameters_.radiationparticle_y_lim_, &min_Y_lim, &max_Y_lim, "%.3f", 1.0f);
 //            ImGui::Text("Radiation Length");
 //            ImGui::SliderScalar("Lr", ImGuiDataType_Double, &parameters_.radiationparticle_Lr_, &parameters_.min_Lr_, &parameters_.max_Lr_, "%.3f", 1.0f);
             ImGui::TreePop();
@@ -1054,6 +1062,12 @@ void ImguiHandler::ShowParameterConfig(const std::shared_ptr<Wind>& wind) {
 
     if (parameters_.map_is_uniform_) {
         ImGui::SeparatorText("Cell (Terrain)");
+        static double min_burning_duration = 1.0;
+        static double max_burning_duration = 200.0;
+        static double min_ignition_threshold = 1.0;
+        static double max_ignition_threshold = 500.0;
+        static double min_cell_size = 1.0;
+        static double max_cell_size = 100.0;
         if(ImGui::TreeNodeEx("##CellTerrain", ImGuiTreeNodeFlags_DefaultOpen | ImGuiTreeNodeFlags_SpanAvailWidth)) {
             ImGui::Spacing();
             ImGui::Text("Cell Size");
@@ -1062,25 +1076,29 @@ void ImguiHandler::ShowParameterConfig(const std::shared_ptr<Wind>& wind) {
             ImGui::TextColored(ImVec4(0.5f, 0.5f, 0.5f, 1.0f), "(?)");
             if(ImGui::IsItemHovered())
                 ImGui::SetTooltip("always press [Reset GridMap] manually after changing these values");
-            ImGui::SliderScalar("##Cell Size", ImGuiDataType_Double, &parameters_.cell_size_, &parameters_.min_cell_size_, &parameters_.max_cell_size_, "%.3f", 1.0f);
+            ImGui::SliderScalar("##Cell Size", ImGuiDataType_Double, &parameters_.cell_size_, &min_cell_size, &max_cell_size, "%.3f", 1.0f);
             ImGui::Text("Cell Ignition Threshold");
-            ImGui::SliderScalar("##Cell Ignition Threshold", ImGuiDataType_Double, &parameters_.cell_ignition_threshold_, &parameters_.min_ignition_threshold_, &parameters_.max_ignition_threshold_, "%.3f", 1.0f);
+            ImGui::SliderScalar("##Cell Ignition Threshold", ImGuiDataType_Double, &parameters_.cell_ignition_threshold_, &min_ignition_threshold, &max_ignition_threshold, "%.3f", 1.0f);
             ImGui::Text("Cell Burning Duration");
-            ImGui::SliderScalar("##Cell Burning Duration", ImGuiDataType_Double, &parameters_.cell_burning_duration_, &parameters_.min_burning_duration_, &parameters_.max_burning_duration_, "%.3f", 1.0f);
+            ImGui::SliderScalar("##Cell Burning Duration", ImGuiDataType_Double, &parameters_.cell_burning_duration_, &min_burning_duration, &max_burning_duration, "%.3f", 1.0f);
             ImGui::TreePop();
             ImGui::Spacing();
         }
     }
 
     ImGui::SeparatorText("Wind");
+    static double min_Uw = 0.0;
+    static double max_Uw = 35.0;
+    static double min_A = 0.2;
+    static double max_A = 0.5;
     if(ImGui::TreeNodeEx("##Wind", ImGuiTreeNodeFlags_DefaultOpen | ImGuiTreeNodeFlags_SpanAvailWidth)) {
         double min_angle_degree = 0;
         double max_angle_degree = (2* M_PI);
         bool update_wind = false;
         ImGui::Text("Wind Speed");
-        if(ImGui::SliderScalar("##Wind Speed", ImGuiDataType_Double, &parameters_.wind_uw_, &parameters_.min_Uw_, &parameters_.max_Uw_, "%.3f", 1.0f)) update_wind = true;
+        if(ImGui::SliderScalar("##Wind Speed", ImGuiDataType_Double, &parameters_.wind_uw_, &min_Uw, &max_Uw, "%.3f", 1.0f)) update_wind = true;
         ImGui::Text("A");
-        if(ImGui::SliderScalar("##A", ImGuiDataType_Double, &parameters_.wind_a_, &parameters_.min_A_, &parameters_.max_A_, "%.3f", 1.0f)) update_wind = true;
+        if(ImGui::SliderScalar("##A", ImGuiDataType_Double, &parameters_.wind_a_, &min_A, &max_A, "%.3f", 1.0f)) update_wind = true;
         ImGui::Text("Wind Angle");
         if(ImGui::SliderScalar("##Wind Angle", ImGuiDataType_Double, &parameters_.wind_angle_, &min_angle_degree, &max_angle_degree, "%.1f", 1.0f)) update_wind = true;
         if (update_wind)
@@ -1186,7 +1204,7 @@ void ImguiHandler::HandleEvents(SDL_Event event, ImGuiIO *io, const std::shared_
         }
     }
     // TODO Manual Drone Control for exploration flyers
-    else if (event.type == SDL_KEYDOWN && parameters_.GetNumberOfDrones() == 1 && !agent_is_running && !io->WantTextInput) {
+    else if (event.type == SDL_KEYDOWN && parameters_.GetNumberOfFlyAgents() == 1 && !agent_is_running && !io->WantTextInput) {
         if (event.key.keysym.sym == SDLK_w)
             onMoveDrone(0, -1, 0, 0);
         // MoveDroneByAngle(0, 0.25, 0, 0);

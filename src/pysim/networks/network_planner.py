@@ -90,7 +90,7 @@ class Actor(nn.Module):
     """
     def __init__(self, vision_range, drone_count, map_size, time_steps):
         super(Actor, self).__init__()
-        self.Inputspace = Inputspace(drone_count, time_steps=time_steps)
+        self.Inputspace = Inputspace(drone_dim=drone_count, time_steps=time_steps)
         self.in_features = self.Inputspace.out_features
         # Mu
         self.mu_move = nn.Linear(in_features=self.in_features, out_features=2)
@@ -113,7 +113,7 @@ class Critic(nn.Module):
     """
     def __init__(self, vision_range, drone_count, map_size, time_steps):
         super(Critic, self).__init__()
-        self.Inputspace = Inputspace(vision_range, time_steps=time_steps)
+        self.Inputspace = Inputspace(drone_dim=drone_count, time_steps=time_steps)
         self.in_features = self.Inputspace.out_features
 
         self.value_head = nn.Linear(in_features=self.in_features, out_features=1)

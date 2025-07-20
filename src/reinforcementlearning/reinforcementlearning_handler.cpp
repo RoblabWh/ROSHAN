@@ -8,16 +8,16 @@
 
 ReinforcementLearningHandler::ReinforcementLearningHandler(FireModelParameters &parameters) : parameters_(parameters){
 
-    AgentFactory::GetInstance().RegisterAgent("FlyAgent",
+    AgentFactory::GetInstance().RegisterAgent("fly_agent",
                                               [](auto& parameters, int drone_id, int time_steps) {
                                                   return std::make_shared<FlyAgent>(parameters, drone_id, time_steps);
                                               });
-    AgentFactory::GetInstance().RegisterAgent("ExploreAgent",
+    AgentFactory::GetInstance().RegisterAgent("explore_agent",
                                               [](auto& parameters, int id, int time_steps) {
                                                   return std::make_shared<ExploreAgent>(parameters, id, time_steps);
                                               });
 
-    AgentFactory::GetInstance().RegisterAgent("PlannerAgent",
+    AgentFactory::GetInstance().RegisterAgent("planner_agent",
                                               [](auto& parameters, int id, int time_steps) {
                                                   return std::make_shared<PlannerAgent>(parameters, id, time_steps);
                                               });
@@ -56,96 +56,98 @@ void ReinforcementLearningHandler::ResetEnvironment(Mode mode) {
     parameters_.SetHierarchyType(hierarchy_type);
     total_env_steps_ = parameters_.GetTotalEnvSteps();
 
-    // Create FlyAgents [always present]
-    // Calculate the number of FlyAgents based on the chosen Hierarchy TODO currently not implemented
-    int num_fly_agents = parameters_.GetNumberOfDrones();
-    if (parameters_.GetHierarchyType() == "FlyAgent") {
+    // Create fly_agents [always present]
+    // Calculate the number of fly_agents based on the chosen Hierarchy TODO currently not implemented
+    if (parameters_.GetHierarchyType() == "fly_agent") {
+        int num_fly_agents = parameters_.GetNumberOfFlyAgents();
         for (int i = 0; i < num_fly_agents; ++i){
             auto time_steps = rl_status_["flyAgentTimesteps"].cast<int>();
-            auto frame_skips = rl_status_["frame_skips"].cast<int>();
             auto rl_mode = rl_status_["rl_mode"].cast<std::string>();
-            auto agent = AgentFactory::GetInstance().CreateAgent("FlyAgent", parameters_, i, time_steps);
+            auto agent = AgentFactory::GetInstance().CreateAgent("fly_agent", parameters_, i, time_steps);
             auto fly_agent = std::dynamic_pointer_cast<FlyAgent>(agent);
             if (fly_agent == nullptr) {
-                std::cerr << "Failed to create FlyAgent\n";
+                std::cerr << "Failed to create fly_agent\n";
                 continue;
             }
-            // Initialize FlyAgent
-            fly_agent->Initialize(mode, frame_skips, gridmap_, model_renderer_, rl_mode);
-            fly_agent->SetAgentType("FlyAgent");
-            agents_by_type_["FlyAgent"].push_back(fly_agent);
+            // Initialize fly_agent
+            auto agent_speed = parameters_.fly_agent_speed_;
+            auto view_range = parameters_.fly_agent_view_range_;
+            fly_agent->Initialize(mode, agent_speed, view_range, gridmap_, model_renderer_, rl_mode);
+            fly_agent->SetAgentType("fly_agent");
+            agents_by_type_["fly_agent"].push_back(fly_agent);
         }
     }
     else {
-        // If the hierarchy type is not FlyAgent, we create ExploreFlyers and an ExploreAgent first
+        // If the hierarchy type is not FlyAgent, we create ExploreFlyers and an explore_agent first
         int num_explore_agents = parameters_.GetNumberOfExplorers();
         for (int i = 0; i < num_explore_agents; ++i) {
             auto time_steps = rl_status_["flyAgentTimesteps"].cast<int>();
-            auto frame_skips = rl_status_["frame_skips"].cast<int>();
             auto rl_mode = rl_status_["rl_mode"].cast<std::string>();
-            auto agent = AgentFactory::GetInstance().CreateAgent("FlyAgent", parameters_, i, time_steps);
+            auto agent = AgentFactory::GetInstance().CreateAgent("fly_agent", parameters_, i, time_steps);
             auto fly_agent = std::dynamic_pointer_cast<FlyAgent>(agent);
             if (fly_agent == nullptr) {
-                std::cerr << "Failed to create FlyAgent\n";
+                std::cerr << "Failed to create fly_agent\n";
                 continue;
             }
-            // Initialize FlyAgent
-            fly_agent->Initialize(mode, frame_skips, gridmap_, model_renderer_, rl_mode);
+            // Initialize fly_agent
+            auto agent_speed = parameters_.explore_agent_speed_;
+            auto view_range = parameters_.explore_agent_view_range_;
+            fly_agent->Initialize(mode, agent_speed, view_range, gridmap_, model_renderer_, rl_mode);
             fly_agent->SetAgentType("ExploreFlyAgent");
             agents_by_type_["ExploreFlyAgent"].push_back(fly_agent);
         }
-        // Create ExploreAgent
+        // Create explore_agent
         {
             auto time_steps = rl_status_["exploreAgentTimesteps"].cast<int>();
-            auto agent = AgentFactory::GetInstance().CreateAgent("ExploreAgent", parameters_, 0, time_steps);
+            auto agent = AgentFactory::GetInstance().CreateAgent("explore_agent", parameters_, 0, time_steps);
             auto explore_agent = std::dynamic_pointer_cast<ExploreAgent>(agent);
             if (explore_agent == nullptr) {
-                std::cerr << "Failed to create ExploreAgent\n";
+                std::cerr << "Failed to create explore_agent\n";
                 return;
             }
-            // Initialize ExploreAgent
+            // Initialize explore_agent
             auto fly_agents = CastAgents<FlyAgent>(agents_by_type_["ExploreFlyAgent"]);
             explore_agent->Initialize(fly_agents, gridmap_, rl_status_["rl_mode"].cast<std::string>());
-            agents_by_type_["ExploreAgent"].push_back(explore_agent);
+            agents_by_type_["explore_agent"].push_back(explore_agent);
         }
-        if (parameters_.GetHierarchyType() == "PlannerAgent") {
+        if (parameters_.GetHierarchyType() == "planner_agent") {
             int num_extinguishers = parameters_.GetNumberOfExtinguishers();
             for(int i = 0; i < num_extinguishers; ++i) {
                 auto time_steps = rl_status_["flyAgentTimesteps"].cast<int>();
-                auto frame_skips = rl_status_["frame_skips"].cast<int>();
                 auto rl_mode = rl_status_["rl_mode"].cast<std::string>();
-                auto agent = AgentFactory::GetInstance().CreateAgent("FlyAgent", parameters_, i, time_steps);
+                auto agent = AgentFactory::GetInstance().CreateAgent("fly_agent", parameters_, i, time_steps);
                 auto fly_agent = std::dynamic_pointer_cast<FlyAgent>(agent);
-                fly_agent->SetSpeed(std::make_pair(1, 1));
                 if (fly_agent == nullptr) {
                     std::cerr << "Failed to create FlyAgent\n";
                     continue;
                 }
                 // Initialize FlyAgent
-                fly_agent->Initialize(mode, frame_skips, gridmap_, model_renderer_, rl_mode);
+                auto agent_speed = parameters_.extinguisher_speed_;
+                auto view_range = parameters_.extinguisher_view_range_;
+                fly_agent->Initialize(mode, agent_speed, view_range, gridmap_, model_renderer_, rl_mode);
                 fly_agent->SetAgentType("PlannerFlyAgent");
                 agents_by_type_["PlannerFlyAgent"].push_back(fly_agent);
             }
-            // Create PlannerAgent
-            auto planner_agent = AgentFactory::GetInstance().CreateAgent("PlannerAgent", parameters_, 0, 1);
+            // Create planner_agent
+            auto planner_agent = AgentFactory::GetInstance().CreateAgent("planner_agent", parameters_, 0, 1);
             auto planner = std::dynamic_pointer_cast<PlannerAgent>(planner_agent);
             if (planner == nullptr) {
-                std::cerr << "Failed to create PlannerAgent\n";
+                std::cerr << "Failed to create planner_agent\n";
                 return;
             }
             // Initialize PlannerAgent
             planner->SetGridMap(gridmap_);
-            auto explore_agent = std::dynamic_pointer_cast<ExploreAgent>(agents_by_type_["ExploreAgent"].front());
+            auto explore_agent = std::dynamic_pointer_cast<ExploreAgent>(agents_by_type_["explore_agent"].front());
             auto fly_agents = CastAgents<FlyAgent>(agents_by_type_["PlannerFlyAgent"]);
             planner->Initialize(explore_agent, fly_agents, gridmap_, rl_status_["rl_mode"].cast<std::string>());
-            agents_by_type_["PlannerAgent"].push_back(planner);
+            agents_by_type_["planner_agent"].push_back(planner);
         }
     }
 }
 
 void ReinforcementLearningHandler::StepDroneManual(int drone_idx, double speed_x, double speed_y, int water_dispense) {
-    if (drone_idx < agents_by_type_["FlyAgent"].size()) {
-        auto drone = std::dynamic_pointer_cast<FlyAgent>(agents_by_type_["FlyAgent"][drone_idx]);
+    if (drone_idx < agents_by_type_["fly_agent"].size()) {
+        auto drone = std::dynamic_pointer_cast<FlyAgent>(agents_by_type_["fly_agent"][drone_idx]);
         drone->Step(speed_x, speed_y, gridmap_);
         drone->DispenseWater(gridmap_, water_dispense);
         auto terminal_state = drone->GetTerminalStates(eval_mode_, gridmap_, total_env_steps_);
@@ -160,11 +162,11 @@ void ReinforcementLearningHandler::InitFires() const {
 
 // TODO Why is this unused?
 void ReinforcementLearningHandler::SimStep(std::vector<std::shared_ptr<Action>> actions){
-    if (gridmap_ == nullptr || agents_by_type_.find("FlyAgent") == agents_by_type_.end()) {
+    if (gridmap_ == nullptr || agents_by_type_.find("fly_agent") == agents_by_type_.end()) {
         std::cerr << "No agents of type FlyAgent or invalid GridMap.\n";
     }
 
-    auto& agents = agents_by_type_["FlyAgent"];
+    auto& agents = agents_by_type_["fly_agent"];
     auto hierarchy_type = "Stepper";
 
     for (size_t i = 0; i < agents.size(); ++i) {
@@ -240,7 +242,7 @@ void ReinforcementLearningHandler::SetRLStatus(py::dict status) {
 void ReinforcementLearningHandler::UpdateReward() {
     auto intrinsic_reward = rl_status_["intrinsic_reward"].cast<std::vector<double>>();
     // TODO this very ugly decide on how to display rewards in the GUI
-    for (const auto& drone: agents_by_type_["FlyAgent"]) {
+    for (const auto& drone: agents_by_type_["fly_agent"]) {
         std::dynamic_pointer_cast<FlyAgent>(drone)->ModifyReward(intrinsic_reward[std::dynamic_pointer_cast<FlyAgent>(drone)->GetId()]);
     }
 }

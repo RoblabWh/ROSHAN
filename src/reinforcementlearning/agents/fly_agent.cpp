@@ -6,16 +6,16 @@
 
 FlyAgent::FlyAgent(FireModelParameters &parameters, int id, int time_steps) : Agent(parameters, 300) {
     id_ = id;
-    agent_type_ = "FlyAgent";
+    agent_type_ = "fly_agent";
     time_steps_ = time_steps;
-    view_range_ = FireModelParameters::GetViewRange(agent_type_);
+    frame_skips_ = parameters_.frame_skips_;
     water_capacity_ = parameters_.GetWaterCapacity();
-    max_speed_ = parameters_.GetMaxVelocity();
     out_of_area_counter_ = 0;
 }
 
 void FlyAgent::Initialize(int mode,
-                          const int frame_skips,
+                          double speed,
+                          int view_range,
                           const std::shared_ptr<GridMap>& grid_map,
                           const std::shared_ptr<FireModelRenderer>& model_renderer,
                           const std::string& rl_mode) {
@@ -24,14 +24,16 @@ void FlyAgent::Initialize(int mode,
         this->SetGoalTextureRenderer(model_renderer->GetRenderer());
     }
 
-    frame_skips_ = frame_skips;
     std::random_device rd;
     std::mt19937 gen(rd());
     std::uniform_real_distribution<double> dist(0.0, 1.0);
     double rng_number = dist(gen);
     std::pair<int, int> point;
 
-    if (parameters_.GetHierarchyType() == "FlyAgent") {
+    max_speed_ = std::make_pair(speed, speed);
+    view_range_ = view_range;
+
+    if (parameters_.GetHierarchyType() == "fly_agent") {
         if (rng_number <= parameters_.groundstation_start_percentage_) {
             point = grid_map->GetGroundstation()->GetGridPosition();
         }
@@ -110,7 +112,7 @@ void FlyAgent::PerformFly(FlyAction* action, const std::string& hierarchy_type, 
     } else {
         this->Step(speed_x, speed_y, gridMap);
     }
-    if (hierarchy_type == "FlyAgent") {
+    if (hierarchy_type == "fly_agent") {
         this->FlyPolicy(gridMap);
         did_hierarchy_step = true;
     } else {
@@ -161,8 +163,11 @@ double FlyAgent::CalculateReward() {
 //TODO TIDY UP !!!!
 
 void FlyAgent::Render(std::pair<int, int> position, std::pair<int, int> goal_position_screen, int size) {
-    drone_texture_renderer_.Render(position, size, view_range_, 0, active_);
-    goal_texture_renderer_.RenderGoal(goal_position_screen, size);
+    auto fast_drone = this->GetAgentType() == "ExploreFlyAgent";
+    drone_texture_renderer_.Render(position, size, view_range_, 0, active_, fast_drone);
+    if (!fast_drone) {
+        goal_texture_renderer_.RenderGoal(goal_position_screen, size);
+    }
 }
 
 std::pair<double, double> FlyAgent::GetNewVelocity(double next_speed_x, double next_speed_y) const {

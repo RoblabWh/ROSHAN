@@ -55,9 +55,7 @@ bool EngineCore::Init(int mode){
 EngineCore::~EngineCore() = default;
 
 void EngineCore::InitializeMap(const std::string& map_path) {
-    if (mode_ == Mode::NoGUI || mode_ == Mode::NoGUI_RL) {
-        model_->InitializeMap(map_path);
-    }
+    model_->InitializeMap(map_path);
 }
 
 void EngineCore::Clean() {
@@ -220,28 +218,6 @@ std::string EngineCore::GetUserInput() {
 bool EngineCore::InitialModeSelectionDone() {
     return model_->InitialModeSelectionDone();
 }
-
-int EngineCore::GetViewRange(const std::string& agent_type) {
-    if(model_ != nullptr){
-        return model_->GetViewRange(agent_type);
-    }
-    return 0;
-}
-
-int EngineCore::GetTimeSteps() {
-    if(model_ != nullptr){
-        return model_->GetTimeSteps();
-    }
-    return 0;
-}
-
-int EngineCore::GetMapSize() {
-    if(model_ != nullptr){
-        return model_->GetMapSize();
-    }
-    return 0;
-}
-
 
 void EngineCore::StyleColorsEnemyMouse(ImGuiStyle* dst) {
 

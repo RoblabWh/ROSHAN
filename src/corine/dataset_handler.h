@@ -34,18 +34,15 @@ public:
     bool HasCorineLoaded() { return dataset_ != nullptr; }
     void LoadRasterDataFromJSON(std::vector<std::vector<int>> &rasterData);
     void LoadMapDataset(std::vector<std::vector<int>> &rasterData);
-    void LoadMap(std::string filePath);
-    void SaveRaster(std::string filePath);
-
-    void ShowInfo();
-
+    void LoadMap(const std::string& filePath);
+    void SaveRaster(const std::string& filePath);
 private:
     GDALDataset *dataset_;
     GDALDataset *small_dataset_;
     std::string datafilepath_;
-    GeoRectangle rectangle_;
-    GeoCoordinate* coords_[4];
-    void TransformCoordinates(double lng, double lat, double &lng_transformed, double &lat_transformed);
+    GeoRectangle rectangle_{};
+    GeoCoordinate* coords_[4]{};
+    static void TransformCoordinates(double lng, double lat, double &lng_transformed, double &lat_transformed);
     void GetCoordinatesFromFile();
     void GetCoordinatesFromDataset();
     void DeleteDataFile();

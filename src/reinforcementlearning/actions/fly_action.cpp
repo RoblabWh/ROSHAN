@@ -10,6 +10,6 @@ void FlyAction::ExecuteOn(std::shared_ptr<Agent> agent, std::string hierarchy_ty
     if (auto fly_agent = std::dynamic_pointer_cast<FlyAgent>(agent)) {
         fly_agent->PerformFly(this, hierarchy_type, gridMap);
     } else {
-        std::cerr << "FlyAction executed on non-FlyAgent!" << std::endl;
+        std::cerr << "FlyAction executed on non-fly_agent!" << std::endl;
     }
 }

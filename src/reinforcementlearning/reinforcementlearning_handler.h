@@ -55,19 +55,19 @@ public:
     std::shared_ptr<std::vector<std::shared_ptr<FlyAgent>>> GetDrones() {
         auto fly_agents = std::make_shared<std::vector<std::shared_ptr<FlyAgent>>>();
 
-        bool fly_agents_exist = agents_by_type_.find("FlyAgent") != agents_by_type_.end();
+        bool fly_agents_exist = agents_by_type_.find("fly_agent") != agents_by_type_.end();
         bool explore_fly_agents_exist = agents_by_type_.find("ExploreFlyAgent") != agents_by_type_.end();
         bool planner_fly_agents_exist = agents_by_type_.find("PlannerFlyAgent") != agents_by_type_.end();
         if (!fly_agents_exist && !explore_fly_agents_exist && !planner_fly_agents_exist) {
             return std::make_shared<std::vector<std::shared_ptr<FlyAgent>>>();
         }
         if (fly_agents_exist) {
-            for(const auto& agent : agents_by_type_["FlyAgent"]) {
+            for(const auto& agent : agents_by_type_["fly_agent"]) {
                 auto fly_agent = std::dynamic_pointer_cast<FlyAgent>(agent);
                 if (fly_agent){
                     fly_agents->push_back(std::shared_ptr<FlyAgent>(fly_agent));
                 } else {
-                    std::cerr << "Non-FlyAgent is not a FlyAgent!\n";
+                    std::cerr << "Non-fly_agent is not a fly_agent!\n";
                 }
             }
         }

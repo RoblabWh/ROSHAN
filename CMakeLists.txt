@@ -41,12 +41,13 @@ endif()
 # Generate a JSON configuration file
 set(CONFIG_FILE "${PARENT_DIR}/config.json")
 
+# Populate the paths config file if it does not exist
 if(NOT EXISTS ${CONFIG_FILE})
     set(MODULE_DIRECTORY "${MY_CPP_BUILD_PATH}")
     set(MODELS_DIRECTORY "${MODELS_PATH}")
+    set(MAPS_DIRECTORY "${PARENT_DIR}/maps")
     set(OSM_DATA "${PARENT_DIR}/openstreetmap/data.json")
     set(DATASET_PATH "${CMAKE_SOURCE_DIR}/assets/dataset/CLMS_CLCplus_RASTER_2021_010m_eu_03035_V1_1.tif") # Default path for dataset_directory
-    set(LOG_DIRECTORY "./logs")
 
     configure_file(
             "${CMAKE_SOURCE_DIR}/config.json.in"
@@ -60,6 +61,7 @@ include_directories(${CMAKE_SOURCE_DIR}/src)
 include_directories(${CMAKE_SOURCE_DIR}/externals/imgui)
 include_directories(${CMAKE_SOURCE_DIR}/externals/imgui/backends)
 include_directories(${CMAKE_SOURCE_DIR}/externals/nlohmann)
+include_directories(${CMAKE_SOURCE_DIR}/externals/yaml-cpp)
 
 # Find Python
 find_package(Python3 COMPONENTS Interpreter Development)
@@ -74,6 +76,9 @@ endif()
 # Add subdirectory for pybind11
 add_subdirectory(externals/pybind11)
 set(PYTHON_EXECUTABLE "$ENV{CONDA_PREFIX}/bin/python")
+
+# Add subdirectory for YAML-CPP
+add_subdirectory(externals/yaml-cpp)
 
 # Find and link against OpenGL
 find_package(OpenGL REQUIRED)
@@ -181,6 +186,7 @@ target_link_libraries(firesim PRIVATE
         ${X11_LIBRARIES}
         OpenGL::GL
         imgui_external
+        yaml-cpp
 )
 
 # Main executable
@@ -203,6 +209,7 @@ target_link_libraries(ROSHAN PRIVATE
         ${Python3_LIBRARIES}
         OpenGL::GL
         imgui_external
+        yaml-cpp
         ${CURL_LIBRARIES}
         ${GDAL_LIBRARIES}
         dl

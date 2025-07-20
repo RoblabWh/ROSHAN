@@ -1,7 +1,7 @@
 {
   "module_directory": "@MODULE_DIRECTORY@",
   "models_directory": "@MODELS_DIRECTORY@",
+  "maps_directory": "@MAPS_DIRECTORY@",
   "osm_data": "@OSM_DATA@",
-  "dataset_path": "@DATASET_PATH@",
-  "log_directory": "@LOG_DIRECTORY@"
+  "dataset_path": "@DATASET_PATH@"
 }

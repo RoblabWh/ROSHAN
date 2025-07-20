@@ -6,7 +6,7 @@
 
 ExploreAgent::ExploreAgent(FireModelParameters &parameters, int id, int time_steps) : Agent(parameters, 300) {
     id_ = id;
-    agent_type_ = "ExploreAgent";
+    agent_type_ = "explore_agent";
     time_steps_ = time_steps;
 }
 
@@ -14,7 +14,7 @@ void ExploreAgent::Initialize(std::vector<std::shared_ptr<FlyAgent>> fly_agents,
     fly_agents_ = std::move(fly_agents);
 //    agent_states_.clear();
     auto paths = GeneratePaths(grid_map->GetRows(), grid_map->GetCols(), fly_agents_.size(), fly_agents_.front()->GetRealPosition(),
-                                 FireModelParameters::GetViewRange("ExploreAgent"));
+                                 parameters_.explore_agent_view_range_);
     for (const auto& fly_agent : fly_agents_) {
         perfect_goals_.emplace_back(std::move(paths[fly_agent->GetId()]));
 
@@ -40,7 +40,7 @@ ExploreAgent::GetGoalFromAction(const ExploreAction *action, const std::shared_p
     goal_y = ((goal_y + 1) / 2) * grid_map->GetCols();
 
     // Nudge goal so the view range is in the grid PROBABLY DON'T DO THIS
-//    int view_range_off = FireModelParameters::GetViewRange("FlyAgent") / 2;
+//    int view_range_off = FireModelParameters::GetViewRange("fly_agent") / 2;
 //    int view_off_x = goal_x <= static_cast<double>(gridMap->GetRows()) / 2 ? view_range_off - 1 : -view_range_off + 1;
 //    int view_off_y = goal_y <= static_cast<double>(gridMap->GetCols()) / 2 ? view_range_off - 1: -view_range_off + 1;
 //    goal_x += view_off_x;
@@ -80,7 +80,7 @@ void ExploreAgent::PerformExplore(ExploreAction *action, const std::string& hier
 //        fly_agent->SetGoalPosition({goal_x, goal_y});
     }
     goal_idx_ < perfect_goals_[0].size() - 1 ? goal_idx_++ : goal_idx_ = 0;
-    if(hierarchy_type == "ExploreAgent") {
+    if(hierarchy_type == "explore_agent") {
         did_hierarchy_step = true;
     }
     this->UpdateStates(gridMap);

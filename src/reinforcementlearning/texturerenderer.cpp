@@ -31,15 +31,19 @@ TextureRenderer::TextureRenderer(SDL_Renderer* renderer, const char *texture_pat
     SDL_FreeSurface(drone_surface);
 }
 
-void TextureRenderer::Render(std::pair<int, int> position, int size, int view_range, double angle, bool active) {
+void TextureRenderer::Render(std::pair<int, int> position, int size, int view_range, double angle, bool active, bool fast_drone) {
     // Render the Drone
     SDL_Rect destRect = {position.first, position.second, size, size}; // x, y, width and height of the arrow
+
+    auto alpha = 255; // Default alpha value
+    if (fast_drone) alpha = 190;
+    SDL_SetTextureAlphaMod(texture_.get(), alpha);
     SDL_RenderCopyEx(renderer_, texture_.get(), nullptr, &destRect, angle * 180 / M_PI, nullptr, SDL_FLIP_NONE);
     SDL_Rect view_range_rect = {position.first - (view_range * size) / 2, position.second - (view_range * size) / 2, (view_range + 1) * size, (view_range + 1) * size};
     if (active) {
-        SDL_SetRenderDrawColor(renderer_, 255, 0, 0, 255);
+        SDL_SetRenderDrawColor(renderer_, 255, 0, 0, alpha);
     } else {
-        SDL_SetRenderDrawColor(renderer_, 20, 20, 20, 255);
+        SDL_SetRenderDrawColor(renderer_, 20, 20, 20, alpha);
     }
     SDL_RenderDrawRect(renderer_, &view_range_rect);
 }

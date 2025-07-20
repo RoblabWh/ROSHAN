@@ -242,11 +242,10 @@ GeneratePaths(
     if (split_vertical) {
         // Vertical stripes
         int stripe_w = width / num_drones;
-        int remainder = width % num_drones;
         int x0 = 0;
 
         for (int i = 0; i < num_drones; ++i) {
-            int x1 = x0 + stripe_w + (i < remainder ? 1 : 0);
+            int x1 = x0 + stripe_w;
             if (x1 > width) x1 = width;
 
             int x_step = std::max(1, stripe_w / static_cast<int>(std::ceil((float)stripe_w / (static_cast<float>(view_range) - 1))));
@@ -278,14 +277,14 @@ GeneratePaths(
 
             x0 = x1;
         }
-    } else {
+    }
+    else {
         // Horizontal stripes
         int stripe_h = height / num_drones;
-        int remainder = height % num_drones;
         int y0 = 0;
 
         for (int i = 0; i < num_drones; ++i) {
-            int y1 = y0 + stripe_h + (i < remainder ? 1 : 0);
+            int y1 = y0 + stripe_h;
             if (y1 > height) y1 = height;
 
             int y_step = std::max(1, stripe_h / static_cast<int>(std::ceil((float)stripe_h / (static_cast<float>(view_range) - 1))));
@@ -320,4 +319,44 @@ GeneratePaths(
     }
 
     return paths;
+}
+
+std::string get_path_from_config(const std::string &config_key, const std::vector<std::string> &extensions) {
+    auto start_path = std::filesystem::current_path();
+    auto project_root = find_project_root(start_path);
+    if (!project_root) {
+        std::cerr << "Project root not found. OOPSI! This should generally not happen." << std::endl;
+        return "";
+    }
+    std::filesystem::path config_path = *project_root / "config.json";
+    if (!std::filesystem::exists(config_path)) {
+        std::cerr << "config.json not found at: " << config_path << std::endl;
+        return "";
+    }
+    std::ifstream config_file(config_path);
+    nlohmann::json config;
+    config_file >> config;
+
+    // Check if "config_key" is present in the config
+    if (!config.contains(config_key)) {
+        std::cerr << "Config key '" << config_key << "' not found in config.json." << std::endl;
+        return "";
+    }
+    std::filesystem::path project_path = config[config_key];
+    if (!project_path.is_absolute()) {
+        project_path = *project_root / project_path;
+    }
+    std::string extension = project_path.extension().string();
+    std::transform(extension.begin(), extension.end(), extension.begin(), ::tolower);
+    if (!extensions.empty() &&
+        std::find(extensions.begin(), extensions.end(), extension) == extensions.end()) {
+        std::cerr << "Invalid file extension '" << extension << "'. Expected one of: ";
+        for (const auto &ext : extensions) {
+            std::cerr << ext << " ";
+        }
+        std::cerr << std::endl;
+        return "";
+    }
+
+    return project_path.string();
 }
