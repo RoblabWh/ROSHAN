@@ -54,10 +54,6 @@ bool EngineCore::Init(int mode){
 
 EngineCore::~EngineCore() = default;
 
-void EngineCore::InitializeMap(const std::string& map_path) {
-    model_->InitializeMap(map_path);
-}
-
 void EngineCore::Clean() {
     model_.reset();
     // Cleanup GUI stuff
@@ -128,6 +124,12 @@ void EngineCore::HandleEvents() {
                 model_->HandleEvents(event, io_);
             }
         }
+    }
+}
+
+void EngineCore::InitializeMap() {
+    if(model_ != nullptr){
+        model_->InitializeMap();
     }
 }
 

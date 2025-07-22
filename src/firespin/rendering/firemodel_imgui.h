@@ -58,6 +58,7 @@ public:
 
 private:
     FireModelParameters &parameters_;
+
     //Flags
     bool show_demo_window_ = false;
     bool show_controls_ = false;

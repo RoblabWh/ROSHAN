@@ -67,7 +67,7 @@ GeneratePaths(
         int view_range
 );
 
-std::string get_path_from_config(const std::string& config_key, const std::vector<std::string>& extensions);
+std::filesystem::path get_project_path(const std::string& config_key, const std::vector<std::string>& extensions);
 
 template <typename T>
 class CircularBuffer {

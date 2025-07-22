@@ -37,7 +37,7 @@ public:
     virtual void SetRenderer(SDL_Renderer* renderer) = 0;
     virtual void ImGuiRendering(bool &update_simulation, bool &render_simulation, int &delay, float framerate) = 0;
     virtual std::string GetUserInput() = 0;
-    virtual void InitializeMap(const std::string &map_path) = 0;
+    virtual void InitializeMap() = 0;
     virtual bool InitialModeSelectionDone() = 0;
 };
 

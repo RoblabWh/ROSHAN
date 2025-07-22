@@ -17,7 +17,12 @@ public:
     FireModelParameters() = default;
 
     void init(const std::string& yaml_path) {
-        YAML::Node config = YAML::LoadFile("/home/nex/Dokumente/Code/ROSHAN/parameter_config.yaml");
+        YAML::Node config = YAML::LoadFile(yaml_path);
+
+        // Paths
+        auto paths = config["paths"];
+        corine_dataset_name_ = paths["corine_dataset_name"].as<std::string>();
+
         auto firemodel = config["fire_model"];
         // Rendering
         auto rendering = firemodel["rendering"];
@@ -37,7 +42,7 @@ public:
         dt_ = time["dt"].as<double>();
         min_dt_ = time["min_dt"].as<double>();
         max_dt_ = time["max_dt"].as<double>();
-        use_default_ = config["settings"]["use_default"].as<bool>();
+        skip_gui_init_ = config["settings"]["skip_gui_init"].as<bool>();
 
         // Cells
         auto cells = simulation["cells"];
@@ -102,16 +107,19 @@ public:
         number_of_flyagents_ = flyagent["num_agents"].as<int>();
         fly_agent_speed_ = flyagent["max_speed"].as<double>();
         fly_agent_view_range_ = flyagent["view_range"].as<int>();
+        fly_agent_time_steps_ = flyagent["time_steps"].as<int>();
 
         auto exploreagent = agent["explore_agent"];
         number_of_explorers_ = exploreagent["num_agents"].as<int>();
         explore_agent_speed_ = exploreagent["max_speed"].as<double>();
         explore_agent_view_range_ = exploreagent["view_range"].as<int>();
+        explore_agent_time_steps_ = exploreagent["time_steps"].as<int>();
 
         auto planneragent = agent["planner_agent"];
         number_of_extinguishers_ = planneragent["num_agents"].as<int>();
         extinguisher_speed_ = planneragent["max_speed"].as<double>();
         extinguisher_view_range_ = planneragent["view_range"].as<int>();
+        planner_agent_time_steps_ = planneragent["time_steps"].as<int>();
 
         water_capacity_ = agent["water_capacity"].as<int>();
         extinguish_all_fires_ = agent["extinguish_all_fires"].as<bool>();
@@ -122,11 +130,14 @@ public:
         fire_goal_percentage_ = agent_behaviour["fire_goal_percentage"].as<float>();
     }
 
+    // Paths
+    std::string corine_dataset_name_{};
+
     //
     //Flags
     //
     bool map_is_uniform_{};
-    bool use_default_{};
+    bool skip_gui_init_{};
     bool corine_loaded_ = false;
     bool initial_mode_selection_done_ = false;
     bool episode_termination_indicator_ = true;
@@ -257,7 +268,7 @@ public:
     void SetCurrentEnvSteps(int steps) {current_env_steps_ = steps;}
 //    int GetTotalEnvSteps() const {return (int)((grid_nx_ * grid_ny_ * (0.1 / dt_)) + 80);}
     [[nodiscard]] int GetTotalEnvSteps() const {
-        int agent_factor = hierarchy_type == "fly_agent" ? 1 : hierarchy_type == "explore_agent" ? 10 : 10;
+        int agent_factor = hierarchy_type == "fly_agent" ? 1 : hierarchy_type == "explore_agent" ? 5 : 10;
         auto max_speed = hierarchy_type == "fly_agent" ? fly_agent_speed_ : hierarchy_type == "explore_agent" ? explore_agent_speed_ : extinguisher_speed_;
         return (int)(agent_factor * sqrt(grid_nx_ * grid_nx_ + grid_ny_ * grid_ny_) * (20 / (max_speed * dt_)));
     }
@@ -265,12 +276,15 @@ public:
     int number_of_flyagents_{};
     double fly_agent_speed_{};
     int fly_agent_view_range_{};
+    int fly_agent_time_steps_{};
     int number_of_explorers_{};
     double explore_agent_speed_{};
     int explore_agent_view_range_{};
+    int explore_agent_time_steps_{};
     int number_of_extinguishers_{};
     double extinguisher_speed_{};
     int extinguisher_view_range_{};
+    int planner_agent_time_steps_{};
     int water_capacity_{};
     bool extinguish_all_fires_{};
     [[nodiscard]] int GetNumberOfFlyAgents() const {return number_of_flyagents_;}

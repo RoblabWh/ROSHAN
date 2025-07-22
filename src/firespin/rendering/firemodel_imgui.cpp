@@ -734,7 +734,8 @@ void ImguiHandler::FileHandling(const std::shared_ptr<DatasetHandler>& dataset_h
         std::string vTitle;
         std::string vKey;
         if (model_path_selection_){
-            config.path = "../models";
+            auto root_path = get_project_path("root_path", {});
+            config.path = root_path.string();
             if (path_key_ == "model_path"){
                 vTitle = "Change Model Path Folder";
                 vFilters.reset();
@@ -748,13 +749,15 @@ void ImguiHandler::FileHandling(const std::shared_ptr<DatasetHandler>& dataset_h
         }
         else if (model_load_selection_) {
             vTitle = "Choose Model to Load";
-            config.path = "../models";
+            auto root_path = get_project_path("root_path", {});
+            config.path = root_path.string();
             vFilters = ".pt";
             vKey = "ChooseFileDlgKey";
         }
         else {
             vTitle = "Choose File or Filename";
-            config.path = "../maps";
+            auto maps_path = get_project_path("maps_directory", {});
+            config.path = maps_path.string();
             vFilters = ".tif";
             vKey = "ChooseFileDlgKey";
         }
@@ -823,7 +826,7 @@ void ImguiHandler::FileHandling(const std::shared_ptr<DatasetHandler>& dataset_h
 }
 
 bool ImguiHandler::ImGuiOnStartup(const std::shared_ptr<FireModelRenderer>& model_renderer, std::vector<std::vector<int>> &current_raster_data) {
-    if (!model_startup_ && !parameters_.use_default_) {
+    if (!model_startup_ && !parameters_.skip_gui_init_) {
         int width, height;
         SDL_GetRendererOutputSize(model_renderer->GetRenderer(), &width, &height);
         if(!model_mode_selection_ && mode_ == Mode::GUI_RL){
@@ -903,7 +906,7 @@ bool ImguiHandler::ImGuiOnStartup(const std::shared_ptr<FireModelRenderer>& mode
                 console += "Initialized ROSHAN in Train mode.\n";
                 auto model_path = rl_status["model_path"].cast<std::string>();
                 auto model_name = rl_status["model_name"].cast<std::string>();
-                console += "Saving Model to: " + model_path + "/" + model_name + "\n";
+                console += "Saving Model to: " + (std::filesystem::path(model_path) / std::filesystem::path(model_name)).string() + "\n";
                 rl_status[py::str("console")] = console;
                 rl_status[py::str("rl_mode")] = py::str("train");
                 train_mode_selected_ = true;

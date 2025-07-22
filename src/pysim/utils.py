@@ -1,9 +1,10 @@
 import numpy as np
 import torch
+import json
+import os
 from pathlib import Path
 from collections import deque
 from torch.utils.tensorboard import SummaryWriter
-
 
 def get_in_features_2d(h_in, w_in, layers_dict):
     for layer in layers_dict:
@@ -41,6 +42,18 @@ def find_project_root(current_path):
         if (parent / '.git').is_dir():
             return parent
     raise Exception('Could not find project root directory')
+
+def get_project_paths(name):
+    script_directory = os.path.dirname(os.path.abspath(__file__))
+    root_directory = find_project_root(Path(script_directory))
+
+    with open(Path(root_directory / 'project_paths.json'), 'r') as f:
+        std_paths = json.load(f)
+
+    if name not in std_paths.keys():
+        raise ValueError(f"Project path '{name}' not found in project_paths.json")
+
+    return std_paths[name]
 
 
 def initialize_output_weights(m, out_type):

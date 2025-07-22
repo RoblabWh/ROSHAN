@@ -61,7 +61,8 @@ void ReinforcementLearningHandler::ResetEnvironment(Mode mode) {
     if (parameters_.GetHierarchyType() == "fly_agent") {
         int num_fly_agents = parameters_.GetNumberOfFlyAgents();
         for (int i = 0; i < num_fly_agents; ++i){
-            auto time_steps = rl_status_["flyAgentTimesteps"].cast<int>();
+            auto time_steps = parameters_.fly_agent_time_steps_;
+            // TODO rl_mode shouldn't be used here
             auto rl_mode = rl_status_["rl_mode"].cast<std::string>();
             auto agent = AgentFactory::GetInstance().CreateAgent("fly_agent", parameters_, i, time_steps);
             auto fly_agent = std::dynamic_pointer_cast<FlyAgent>(agent);
@@ -81,7 +82,7 @@ void ReinforcementLearningHandler::ResetEnvironment(Mode mode) {
         // If the hierarchy type is not FlyAgent, we create ExploreFlyers and an explore_agent first
         int num_explore_agents = parameters_.GetNumberOfExplorers();
         for (int i = 0; i < num_explore_agents; ++i) {
-            auto time_steps = rl_status_["flyAgentTimesteps"].cast<int>();
+            auto time_steps = parameters_.fly_agent_time_steps_;
             auto rl_mode = rl_status_["rl_mode"].cast<std::string>();
             auto agent = AgentFactory::GetInstance().CreateAgent("fly_agent", parameters_, i, time_steps);
             auto fly_agent = std::dynamic_pointer_cast<FlyAgent>(agent);
@@ -98,7 +99,7 @@ void ReinforcementLearningHandler::ResetEnvironment(Mode mode) {
         }
         // Create explore_agent
         {
-            auto time_steps = rl_status_["exploreAgentTimesteps"].cast<int>();
+            auto time_steps = parameters_.explore_agent_time_steps_;
             auto agent = AgentFactory::GetInstance().CreateAgent("explore_agent", parameters_, 0, time_steps);
             auto explore_agent = std::dynamic_pointer_cast<ExploreAgent>(agent);
             if (explore_agent == nullptr) {
@@ -113,7 +114,7 @@ void ReinforcementLearningHandler::ResetEnvironment(Mode mode) {
         if (parameters_.GetHierarchyType() == "planner_agent") {
             int num_extinguishers = parameters_.GetNumberOfExtinguishers();
             for(int i = 0; i < num_extinguishers; ++i) {
-                auto time_steps = rl_status_["flyAgentTimesteps"].cast<int>();
+                auto time_steps = parameters_.fly_agent_time_steps_;
                 auto rl_mode = rl_status_["rl_mode"].cast<std::string>();
                 auto agent = AgentFactory::GetInstance().CreateAgent("fly_agent", parameters_, i, time_steps);
                 auto fly_agent = std::dynamic_pointer_cast<FlyAgent>(agent);

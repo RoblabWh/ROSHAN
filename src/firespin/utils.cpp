@@ -321,16 +321,16 @@ GeneratePaths(
     return paths;
 }
 
-std::string get_path_from_config(const std::string &config_key, const std::vector<std::string> &extensions) {
+std::filesystem::path get_project_path(const std::string &config_key, const std::vector<std::string> &extensions) {
     auto start_path = std::filesystem::current_path();
     auto project_root = find_project_root(start_path);
     if (!project_root) {
         std::cerr << "Project root not found. OOPSI! This should generally not happen." << std::endl;
         return "";
     }
-    std::filesystem::path config_path = *project_root / "config.json";
+    std::filesystem::path config_path = *project_root / "project_paths.json";
     if (!std::filesystem::exists(config_path)) {
-        std::cerr << "config.json not found at: " << config_path << std::endl;
+        std::cerr << "project_paths.json not found at: " << config_path << std::endl;
         return "";
     }
     std::ifstream config_file(config_path);
@@ -339,7 +339,7 @@ std::string get_path_from_config(const std::string &config_key, const std::vecto
 
     // Check if "config_key" is present in the config
     if (!config.contains(config_key)) {
-        std::cerr << "Config key '" << config_key << "' not found in config.json." << std::endl;
+        std::cerr << "Config key '" << config_key << "' not found in project_paths.json." << std::endl;
         return "";
     }
     std::filesystem::path project_path = config[config_key];
@@ -358,5 +358,5 @@ std::string get_path_from_config(const std::string &config_key, const std::vecto
         return "";
     }
 
-    return project_path.string();
+    return project_path;
 }

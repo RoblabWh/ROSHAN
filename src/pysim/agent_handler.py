@@ -3,7 +3,7 @@ from algorithms.iql import IQL
 from algorithms.rl_algorithm import RLAlgorithm
 from algorithms.td3 import TD3
 from algorithms.rl_config import RLConfig, PPOConfig, IQLConfig, TD3Config, NoAlgorithmConfig
-from utils import Logger
+from utils import Logger, get_project_paths
 import numpy as np
 import os
 from memory import SwarmMemory
@@ -13,13 +13,12 @@ from planner_agent import PlannerAgent
 
 
 class AgentHandler:
-    def __init__(self, status, config, agent_type: str = None, mode: str = None, logdir=None):
+    def __init__(self, config: dict, agent_type: str = None, subtype: str = None, mode: str = None, status: dict = None, logdir=None):
 
         # Past Agent Actions
         self.agent_actions = None
 
         # If agent_type is None it is the FIRST selected agent type(this determines the hierarchy)
-        agent_type = config["settings"]["hierarchy_type"] if agent_type is None else agent_type
         agent_dict = config["environment"]["agent"][agent_type]
 
         vision_range = agent_dict["view_range"]
@@ -30,29 +29,35 @@ class AgentHandler:
         # Probably can be discarded, but kept for compatibility now
         self.original_algo = algorithm
 
+        creation_string = ""
+
         if agent_type == "explore_agent":
             algorithm = 'no_algo'
-            status["console"] += "Using explore_agent, no algorithm needed\n"
-            status["console"] += "Training of explore_agents must be implemented first\n"
+            creation_string += "Using explore_agent, no algorithm needed\n"
+            creation_string += "Training of explore_agents must be implemented first\n"
         supported_algos = ['no_algo', 'PPO', 'IQL', 'TD3']
         assert algorithm in supported_algos, f"Algorithm {algorithm} not supported, only {supported_algos} are supported"
 
         self.algorithm_name = algorithm
         self.env_reset = False
-        self.mode = status["rl_mode"] if mode is None else mode
-        self.max_eval = status["max_eval"]
+        self.rl_mode = mode
+        self.resume = config["settings"]["resume"]
+
+        # TODO : Check this
 
         # Used for Evaluation
         self.stats = {'died': [0], 'reached': [0], 'time': [0], 'reward': [0], 'episode': [0], 'perc_burn': [0]}
+        auto_train_dict = config["settings"]["auto_train"]
+        self.use_auto_train = auto_train_dict["use_auto_train"]
+        self.max_eval = auto_train_dict["max_eval"]
         if logdir is not None:
             self.logger = Logger(log_dir=logdir)
-        self.initialized = False #TODO Maybe Unused
         self.eval_steps = 0
 
-        # Agent Type is either fly_agent or explore_agent
-        self.agent_type = self.get_agent_from_type(status)
-        self.num_agents = self.agent_type.get_num_agents(status["num_agents"])
-        self.drone_count = self.agent_type.get_drone_count(status["num_agents"])
+        # Agent Type is either fly_agent, explore_agent or planner_agent
+        drone_count = agent_dict["num_agents"]
+        self.agent_type = self.get_agent_from_type(agent_type=agent_type if subtype is None else subtype, num_drones=drone_count)
+        self.num_agents = self.agent_type.get_num_agents(agent_dict["num_agents"])
 
         # On which Level of the Hierarchy is the agent
         self.hierarchy_level = self.agent_type.get_hierarchy_level()
@@ -70,73 +75,89 @@ class AgentHandler:
                                                  map_size=map_size, time_steps=time_steps)
         self.current_obs = None
 
+        root_path = get_project_paths("root_path")
+        loading_path = agent_dict["default_model_folder"]
+        loading_name = agent_dict["default_model_name"]
+        model_path = os.path.join(root_path, config["paths"]["model_directory"]) if not config["settings"]["resume"] else loading_path
+        model_name = self.get_model_name_from_config(config) if not config["settings"]["resume"] else loading_name
+
+        base_config = RLConfig(algorithm=algorithm,
+                                 use_auto_train=self.use_auto_train,
+                                 model_path=model_path,
+                                 model_name=model_name,
+                                 loading_path=loading_path,
+                                 loading_name=loading_name,
+                                 vision_range=vision_range,
+                                 drone_count=drone_count,
+                                 map_size=map_size,
+                                 time_steps=time_steps)
+
         if algorithm == 'PPO':
-            config = PPOConfig(algorithm=algorithm,
-                               model_path=agent_dict["default_model_folder"],
-                               model_name=agent_dict["default_model_name"],
-                               vision_range=vision_range,
-                               drone_count=self.drone_count,
-                               map_size=map_size,
-                               time_steps=time_steps,
-                               use_next_obs=False,
-                               use_categorical=status["hierarchy_type"] == "planner_agent",
-                               use_variable_state_masks=status["hierarchy_type"] == "planner_agent"
-                               )
+            # PPOConfig is used for PPO algorithm
+            rl_config = PPOConfig(**vars(base_config),
+                                  use_categorical=agent_type == "planner_agent",
+                                  use_variable_state_masks=agent_type == "planner_agent")
+            rl_config.use_next_obs = False
+
             self.algorithm = PPO(network=self.agent_type.get_network(algorithm=algorithm),
-                                 config=config)
-            self.initialized = True
-            status["console"] += "PPO agent initialized\n"
+                                 config=rl_config)
         elif algorithm == 'IQL':
-            config = IQLConfig(algorithm=algorithm,
-                               model_path=agent_dict["default_model_folder"],
-                               model_name=agent_dict["default_model_name"],
-                              vision_range=vision_range,
-                              drone_count=self.drone_count,
-                              map_size=map_size,
-                              time_steps=time_steps,
-                              action_dim=self.agent_type.action_dim,
-                              clear_memory=False
-                              )
+            # IQLConfig is used for IQL algorithm
+            rl_config = IQLConfig(**vars(base_config))
+            rl_config.action_dim = self.agent_type.action_dim
+            rl_config.clear_memory = False  # IQL does not clear memory
+
             self.algorithm = IQL(network=self.agent_type.get_network(algorithm=algorithm),
-                                 config=config)
-            self.initialized = True
-            status["console"] += "IQL agent initialized\n"
+                                 config=rl_config)
         elif algorithm == 'TD3':
-            config = TD3Config(algorithm=algorithm,
-                               model_path=agent_dict["default_model_folder"],
-                               model_name=agent_dict["default_model_name"],
-                               vision_range=vision_range,
-                               drone_count=self.drone_count,
-                               map_size=map_size,
-                               time_steps=time_steps,
-                               action_dim=self.agent_type.action_dim,
-                               clear_memory=False
-                               )
+            # TD3Config is used for TD3 algorithm
+            rl_config = TD3Config(**vars(base_config))
+            rl_config.action_dim = self.agent_type.action_dim
+            rl_config.clear_memory = False
+
             self.algorithm = TD3(network=self.agent_type.get_network(algorithm=algorithm),
-                                 config=config)
+                                 config=rl_config)
         elif algorithm == 'no_algo':
-            config = NoAlgorithmConfig(algorithm=algorithm,
-                                       model_path=agent_dict["default_model_folder"],
-                                       model_name=agent_dict["default_model_name"],
-                                       vision_range=vision_range,
-                                       drone_count=self.drone_count,
-                                       map_size=map_size,
-                                       time_steps=time_steps,
-                                       action_dim=self.agent_type.action_dim)
-            self.algorithm = RLAlgorithm(config)
+            # NoAlgorithmConfig is used for No Algorithm scenario
+            rl_config = NoAlgorithmConfig(**vars(base_config))
+            rl_config.action_dim = self.agent_type.action_dim
+
+            self.algorithm = RLAlgorithm(rl_config)
+
         self.use_next_obs = self.algorithm.use_next_obs
+
         self.memory = SwarmMemory(max_size=self.algorithm.memory_size,
                                   num_agents=self.num_agents,
                                   action_dim=self.agent_type.action_dim,
                                   use_intrinsic_reward=self.use_intrinsic_reward,
                                   use_next_obs=self.use_next_obs)
-        status["console"] += f"{status['num_agents']} agents of Type: {self.agent_type.name} initialized\n"
-        status["console"] += f"Training with {self.algorithm_name} algorithm\n"
+
+        # Update status dict now
+        if status is not None:
+            creation_string += f"Agents of Type: {self.agent_type.name} initialized\n"
+            if self.num_agents != drone_count:
+                creation_string += f"{self.num_agents} Agent controls {drone_count} Drones\n"
+            else:
+                creation_string += f"{self.num_agents} Agents in total who control {self.num_agents} Drones\n"
+            creation_string += "Algorithm: {}\n".format(self.algorithm_name)
+            status["console"] += creation_string
+            status["model_path"] = self.algorithm.model_path
+            status["model_name"] = self.algorithm.model_name
 
     @staticmethod
-    def get_agent_from_type(status):
-        agent_type = status["hierarchy_type"]
-        num_drones = status["num_agents"]
+    def get_model_name_from_config(config):
+        """
+        Get the model name from the configuration.
+        :param config: The configuration dictionary.
+        :return: The model name.
+        """
+        if "model_name" in config["settings"]:
+            return config["settings"]["model_name"]
+        else:
+            return "model.pt"
+
+    @staticmethod
+    def get_agent_from_type(agent_type, num_drones):
         allowed_types = ["fly_agent", "explore_agent", "ExploreFlyAgent", "PlannerFlyAgent", "planner_agent"]
         if agent_type not in allowed_types:
             raise ValueError("Invalid agent type, must be either {}, was: {}".format(allowed_types, agent_type))
@@ -179,44 +200,37 @@ class AgentHandler:
         else:
             raise NotImplementedError("Algorithm {} not implemented".format(self.algorithm_name))
 
-    def load_model(self, status):
+    def load_model(self):
+        # Load model if possible, return new rl_mode and possible console string
         if self.algorithm_name == 'no_algo':
-            return "No algorithm used, no model to load\n"
-        train = True if status["rl_mode"] == "train" else False
-        # Load model, return True if successful and set model to evaluation mode
+            return self.rl_mode, "No algorithm used, no model to load\n"
+        train = True if self.rl_mode == "train" else False
         if not train:
             if self.algorithm.load():
                 self.algorithm.set_eval()
-                status["rl_mode"] = "eval"
-                return f"Load model from checkpoint {os.path.join(self.algorithm.model_path, self.algorithm.model_name)}\n" \
+                return self.rl_mode, f"Load model from checkpoint {os.path.join(self.algorithm.model_path, self.algorithm.model_name)}\n" \
                        f"Model set to evaluation mode\n"
             else:
                 self.algorithm.set_train()
-                status["rl_mode"] = "train"
-                return "No checkpoint found to evaluate model, start training from scratch\n"
-        elif status["resume"]:
+                self.rl_mode = "train"
+                return self.rl_mode, "No checkpoint found to evaluate model, start training from scratch\n"
+        elif self.resume:
             if self.algorithm.load():
                 self.algorithm.set_train()
-                status["rl_mode"] = "train"
-                return f"Load model from checkpoint {os.path.join(self.algorithm.model_path, self.algorithm.model_name)}\n" \
+                return self.rl_mode, f"Load model from checkpoint {os.path.join(self.algorithm.model_path, self.algorithm.model_name)}\n" \
                        f"Model set to training mode\n"
             else:
                 self.algorithm.set_train()
-                status["rl_mode"] = "train"
-                return "No checkpoint found to resume training, start training from scratch\n"
+                return self.rl_mode, "No checkpoint found to resume training, start training from scratch\n"
         else:
             self.algorithm.set_train()
-            status["rl_mode"] = "train"
-            return "Training from scratch\n"
-
-    def set_paths(self, model_path, model_name):
-        self.algorithm.set_paths(model_path, model_name)
+            return self.rl_mode, "Training from scratch\n"
 
     def add_memory_entry(self, obs, actions, action_logprobs, rewards, terminals, next_obs=None, intrinsic_rewards=None):
         self.memory.add(obs, actions, action_logprobs, rewards, terminals, next_obs=next_obs, intrinsic_reward=intrinsic_rewards)
 
     def update_status(self, status):
-        self.set_paths(status["model_path"], status["model_name"])
+        self.algorithm.set_paths(status["model_path"], status["model_name"])
         status["obs_collected"] = len(self.memory) + 1
         if self.algorithm_name == 'PPO':
             status['min_update'] = self.algorithm.horizon
@@ -224,9 +238,9 @@ class AgentHandler:
             status["min_update"] = self.algorithm.min_memory_size
         elif self.algorithm_name == 'no_algo':
             status["min_update"] = 0
-        if status["rl_mode"] != self.mode:
-            self.mode = status["rl_mode"]
-            if self.mode == "train":
+        if status["rl_mode"] != self.rl_mode:
+            self.rl_mode = status["rl_mode"]
+            if self.rl_mode == "train":
                 self.algorithm.set_train()
             else:
                 self.algorithm.set_eval()
@@ -236,7 +250,7 @@ class AgentHandler:
 
     def train_loop(self, status, engine):
         actions, action_logprobs = self.act(self.current_obs)
-        next_obs, rewards, all_terminals, terminal_result, percent_burned = self.step_agent(status, engine, actions)
+        next_obs, rewards, all_terminals, terminal_result, percent_burned = self.step_agent(engine, actions)
         intrinsic_reward = None
         if self.use_intrinsic_reward:
             intrinsic_reward = self.agent_type.get_intrinsic_reward(self.current_obs)
@@ -268,12 +282,12 @@ class AgentHandler:
 
     def eval_loop(self, status, engine, evaluate=False):
         actions = self.act_certain(self.current_obs)
-        obs, rewards, all_terminals, terminal_result, percent_burned = self.step_agent(status, engine, actions)
+        obs, rewards, all_terminals, terminal_result, percent_burned = self.step_agent(engine, actions)
         if evaluate: self.evaluate(status, rewards, all_terminals, terminal_result, percent_burned)
         self.current_obs = obs
         return terminal_result["AllAgentsSucceeded"], terminal_result["EnvReset"] # True if all agents reached their goal can do "OneAgentSucceeded"
 
-    def step_agent(self, status, engine, actions):
+    def step_agent(self, engine, actions):
         self.agent_actions = self.get_action(actions)
         observations, rewards, all_terminals, terminal_result, percent_burned = engine.Step(self.agent_type.name, self.agent_actions)
         obs = self.restructure_data(observations)
@@ -302,10 +316,9 @@ class AgentHandler:
             status["policy_updates"] += self.algorithm.k_epochs
         elif self.algorithm_name == 'TD3':
             status["policy_updates"] += self.algorithm.k_epochs
-        if status["train_step"] >= status["max_train"] and status["auto_train"]:
+        if status["train_step"] >= status["max_train"] and self.use_auto_train:
             status["train_episode"] += 1
             status["console"] += "Training finished, after {} training steps, now starting Evaluation\n".format(status["train_step"])
-            print("Starting evaluation")
             status["rl_mode"] = "eval"
         self.logger.summarize_metrics(status)
 
@@ -325,16 +338,16 @@ class AgentHandler:
         return self.algorithm.select_action_certain(observations)
 
     def evaluate(self, status, rewards, terminals, terminal_result, percent_burned):
-        episode_over, log = self.get_evaluation_string(status, rewards, terminals, terminal_result, percent_burned)
+        episode_over, log = self.get_evaluation_string(rewards, terminals, terminal_result, percent_burned)
         status["console"] += log
-        if episode_over and status["auto_train"]:
+        if episode_over and self.use_auto_train:
             self.eval_steps += 1
-            if self.eval_steps >= status["max_eval"]:
+            if self.eval_steps >= self.max_eval:
                 status["console"] += "Evaluation finished, after {} evaluation steps with average reward: {}\n".format(self.eval_steps, np.mean(self.stats["reward"]))
                 status["rl_mode"] = "train"
                 self.reset(status)
 
-    def get_evaluation_string(self, status, rewards, terminals, terminal_result, percent_burned):
+    def get_evaluation_string(self, rewards, terminals, terminal_result, percent_burned):
         # Log stats
         self.stats['reward'][-1] += rewards[0]
         self.stats['time'][-1] += 1
@@ -366,7 +379,7 @@ class AgentHandler:
             console += "-----------------------------------\n\n\n"
 
             # Reset stats if this is not the last evaluation
-            if self.stats['episode'][-1] != status["max_eval"] - 1:
+            if self.stats['episode'][-1] != self.max_eval - 1:
                 self.stats['episode'].append(self.stats['episode'][-1] + 1)
                 self.stats['died'].append(0)
                 self.stats['perc_burn'].append(0)

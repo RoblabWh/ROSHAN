@@ -27,7 +27,7 @@ struct GeoRectangle {
 
 class DatasetHandler {
 public:
-    DatasetHandler();
+    DatasetHandler(const std::string& dataset_name);
     ~DatasetHandler();
 
     bool NewDataPointExists();

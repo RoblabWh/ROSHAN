@@ -95,27 +95,21 @@ class HierarchyManager:
 
         # Construct a low level agent if the current agent is a medium level agent
         if agent_handler.hierarchy_level == "high":
-            status_ = copy.copy(status)
-            status_["hierarchy_type"] = "PlannerFlyAgent"
-            low_level_agent_plan = AgentHandler(status_, self.config, agent_type="fly_agent", mode="eval", logdir='./logs')
+            low_level_agent_plan = AgentHandler(config=self.config, agent_type="fly_agent", subtype="PlannerFlyAgent", mode="eval", logdir='./logs')
             low_level_agent_plan.hierarchy_level = "plan_low"
             status["console"] += "Hierarchy: High Level > Medium Level > Low Level\n"
             status["console"] += "Loading PlannerFlyAgents...\n"
-            low_level_agent_plan.load_model(status_)
+            _, _ = low_level_agent_plan.load_model()
             self.hierarchy["plan_low"] = low_level_agent_plan
         if construct_medium:
             # Construct a medium level agent if the current agent is a high level agent
             if agent_handler.hierarchy_level == "high":
-                status_ = copy.copy(status)
-                status_["hierarchy_type"] = "explore_agent"
-                medium_level_agent = AgentHandler(status_, self.config, agent_type="explore_agent", mode="eval", logdir='./logs')
+                medium_level_agent = AgentHandler(config=self.config, agent_type="explore_agent", mode="eval", logdir='./logs')
                 self.hierarchy["medium"] = medium_level_agent
-            status_ = copy.copy(status)
-            status_["hierarchy_type"] = "ExploreFlyAgent"
-            low_level_agent = AgentHandler(status_, self.config, agent_type="fly_agent", mode="eval", logdir='./logs')
+            low_level_agent = AgentHandler(config=self.config, agent_type="fly_agent", subtype="ExploreFlyAgent", mode="eval", logdir='./logs')
             if agent_handler.hierarchy_level != "high": status["console"] += "Hierarchy: Medium Level & Low Level\n"
             status["console"] += "Loading ExploreFlyAgent Model...\n"
-            low_level_agent.load_model(status_)
+            _, _ = low_level_agent.load_model()
             self.hierarchy["low"] = low_level_agent
         else:
             status["console"] += "Hierarchy: Low Level\n"

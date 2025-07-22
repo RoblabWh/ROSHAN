@@ -15,6 +15,7 @@ int main(int argc, char** argv)
     Mode mode = Mode::GUI;
     auto engine = std::make_unique<EngineCore>();
     engine->Init(static_cast<int>(mode));
+    engine->InitializeMap();
 
     while(engine->IsRunning()) {
         engine->HandleEvents();

@@ -12,6 +12,9 @@ class RLConfig:
     # Environment configuration
     model_path: str
     model_name: str
+    loading_path: str
+    loading_name: str
+    use_auto_train: bool # Used for AutoTrain
 
     # For my implementation
     vision_range: int

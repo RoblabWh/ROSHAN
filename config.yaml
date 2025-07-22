@@ -1,12 +1,19 @@
 settings:
-  mode: 0 # 0: GUI_RL, 2: NoGUI_RL
+  mode: 0 # 0: GUI_RL, 2: NoGUI_RL, # Mode 1 is GUI and Mode 2 is NoGUI (ONLY Simulation)
   rl_mode: "eval" # either "train" or "eval"
   resume: false # Whether to resume training from the last checkpoint
   llm_support: false # Whether to use LLM support for the environment (currently not supported)
   hierarchy_type: planner_agent # Type of hierarchy to use for the agents (fly_agent, explore_agent, planner_agent)
-  use_default: true # Uses this config as default and skips the GUI setup
-
+  skip_gui_init: true # Uses this config as default and skips the GUI setup
+  auto_train:
+    use_auto_train: false # Whether to use auto training
+    max_eval: 100 # Maximum number of evaluations to perform
 paths:
+  # Path to the directory where models are stored
+  # This is the root_path where your new trained models data is stored
+  # No Loading is ever done from this folder, use the default_model_paths for each agent for that
+  model_directory: models2/
+  corine_dataset_name: CLMS_CLCplus_RASTER_2021_010m_eu_03035_V1_1.tif # Name of the Corine datasetco to use
   log_directory: ./logs
   init_map: 35x36_Woods.tif # This map is used in NoGUI & use_default setup, if left empty("") the default map will be used.
 
@@ -63,7 +70,7 @@ fire_model:
       flood_duration: 5.0 # Flooding duration of a cell in seconds (s)
     particles:
       # These parameters are used to configure the particles in the simulation
-      # Ranges are provided in the comments; stray apart from them and you might get funny results
+      # Ranges are provided in the comments; stray apart from them, and you might get funny results
       emit_convective: true # Whether to emit convective particles
       virtualparticle_y_st: 1.0 # Hotness of the Particle (no real world unit yet) [0.0 - 1.0]
       virtualparticle_y_lim: 0.2 # How long the Particle is able to cause ignition (no real world unit yet) [0.1 - 0.3]

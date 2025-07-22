@@ -4,14 +4,16 @@
 
 #include "dataset_handler.h"
 
-DatasetHandler::DatasetHandler() {
+DatasetHandler::DatasetHandler(const std::string& dataset_name) {
     // Find the project root directory
-    auto dataset_path = get_path_from_config("dataset_path", {".tif", ".tiff"});
-    datafilepath_ = get_path_from_config("osm_data", {".json"});
+    auto dataset_path = get_project_path("dataset_path", {});
+    datafilepath_ = get_project_path("osm_data", {".json"}).string();
+    dataset_path = dataset_path / std::filesystem::path(dataset_name);
 
-    if (dataset_path.empty()) {
-        std::cout << "DatasetHandler: No dataset path found in config.json" << std::endl;
-        exit(1);
+    if (!std::filesystem::exists(dataset_path)) {
+        // Warning if the dataset path exists but the dataset does not
+        std::cout << "DatasetHandler: Dataset path does not exist: " << dataset_path << std::endl;
+        std::cout << "DatasetHandler: Loading new Maps disabled. Only saved Maps and generic GridMap can be used." << std::endl;
     }
 
     GDALAllRegister();
@@ -23,15 +25,12 @@ DatasetHandler::DatasetHandler() {
     coords_[2] = &(rectangle_.upper_right);
     coords_[3] = &(rectangle_.lower_right);
 
-    if (!dataset_path.empty()) {
+    if (std::filesystem::exists(dataset_path)) {
         dataset_ = (GDALDataset *) GDALOpen(dataset_path.c_str(), GA_ReadOnly);
         if (dataset_ == nullptr) {
             std::cout << "DatasetHandler: Could not open file: " << dataset_path << std::endl;
             exit(1);
         }
-    } else {
-        std::cout << "DatasetHandler: No dataset path found in config.json" << std::endl;
-        exit(1);
     }
 }
 

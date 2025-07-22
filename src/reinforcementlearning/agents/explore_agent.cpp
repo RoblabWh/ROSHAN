@@ -17,9 +17,17 @@ void ExploreAgent::Initialize(std::vector<std::shared_ptr<FlyAgent>> fly_agents,
                                  parameters_.explore_agent_view_range_);
     for (const auto& fly_agent : fly_agents_) {
         perfect_goals_.emplace_back(std::move(paths[fly_agent->GetId()]));
-
-        fly_agent->SetGoalPosition(std::make_pair(grid_map->GetRows() / 2, grid_map->GetCols() / 2));
     }
+
+    for (const auto& fly_agent : fly_agents_) {
+        auto goal = perfect_goals_[fly_agent->GetId()][goal_idx_];
+        std::pair<double, double> local_goal = std::make_pair(goal.first, goal.second);
+        fly_agent->SetGoalPosition({local_goal.first, local_goal.second});
+        fly_agent->SetRevisitedCells(revisited_cells_);
+    }
+
+    goal_idx_ < perfect_goals_[0].size() - 1 ? goal_idx_++ : goal_idx_ = 0;
+
     InitializeExploreAgentStates(grid_map);
 }
 

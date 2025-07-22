@@ -1,29 +1,20 @@
-import json
 import yaml
 import os
 import sys
 from pathlib import Path
-from utils import find_project_root
+from utils import get_project_paths
 
-script_directory = os.path.dirname(os.path.abspath(__file__))
-root_directory = find_project_root(Path(script_directory))
-
-with open(Path(root_directory / 'config.json'), 'r') as f:
-    std_paths = json.load(f)
-
-with open(Path(root_directory / 'parameter_config.yaml'), 'r') as f:
-    config = yaml.safe_load(f)
-
-sys.path.insert(0, std_paths['module_directory'])
+module_directory = get_project_paths('module_directory')
+sys.path.insert(0, module_directory)
 
 # Change the current working directory, so that the python script has the same folder as the c++ executable
-os.chdir(std_paths['module_directory'])
+os.chdir(module_directory)
 
 # Check Python Version
 pythonversion = str(sys.version_info[0]) + str(sys.version_info[1])
 
 # Find Firesim Module in the current directory
-firesimverison = [f for f in os.listdir(std_paths['module_directory']) if f[:7] == 'firesim'][0].split('-')[1]
+firesimverison = [f for f in os.listdir(module_directory) if f[:7] == 'firesim'][0].split('-')[1]
 
 if pythonversion != firesimverison:
     raise ValueError(f"Python Version {pythonversion} does not match Firesim Version {firesimverison}."
@@ -33,13 +24,14 @@ import firesim
 from agent_handler import AgentHandler
 from hierarchy_manager import HierarchyManager
 
-def build_status(console):
+def build_status(config):
 
     hierarchy = config["settings"]["hierarchy_type"]
     environment = config["environment"]
-    agent = environment["agent"]["fly_agent"] if hierarchy == "fly_agent" else environment["agent"]["explore_agent"] if hierarchy == "explore_agent" else environment["agent"]["planner_agent"]
+    agent = environment["agent"][hierarchy]
+    root_path = get_project_paths("root_path")
     status = {# Non-Settable Parameters (either flags or communication with C++)
-              "console": console,
+              "console": "",
               "obs_collected": 0, # Used by GUI to show the number of collected observations
               "min_update": 0,  # How many obs before updating the policy? Decided by the RL Algorithm
               "agent_online": True,
@@ -51,18 +43,15 @@ def build_status(console):
               "best_objective": 0,  # Best Objective so far
               # Settable Parameters (can be changed by the user, best through Config)
               "rl_mode": config["settings"]["rl_mode"],  # "train" or "eval"
-              "model_path": std_paths['models_directory'],
+              "model_path": os.path.join(root_path, config["paths"]["model_directory"]),
               "model_name": "my_model.pt",
               "num_agents": agent["num_agents"],  # Number of agents in the environment
-              "flyAgentTimesteps": environment["agent"]["fly_agent"]["time_steps"],  # Number of timesteps for the FlyAgent
-              "exploreAgentTimesteps": environment["agent"]["explore_agent"]["time_steps"],
               "rl_algorithm": "PPO",  # RL Algorithm to use, either PPO, IQL, TD3
-              "auto_train": False,  # If True, the agent will train several episodes and then evaluate
+              "auto_train": config["settings"]["auto_train"]["use_auto_train"],  # If True, the agent will train several episodes and then evaluate
               "train_episodes": 1,  # Number of total trainings containing each max_train steps
               "max_eval": 3,  # Number of Environments to run before stopping evaluation
               "max_train": 1,  # Number of train_steps before stopping training
               "hierarchy_type": hierarchy,  # Either fly_agent, ExplorationAgent
-              "resume": False,  # If True, the agent will resume training from the last checkpoint
               }
 
     return status
@@ -70,15 +59,12 @@ def build_status(console):
 def main():
     # Lists alls the functions in the EngineCore class
     # print(dir(EngineCore))
-
-    # Steps in the simulation, used for training and evaluation
-    steps = 0
-
-    # Folder the models are stored in
-    console = ""
+    root_path = get_project_paths("root_path")
+    with open(os.path.join(root_path, 'config.yaml'), 'r') as f:
+        config = yaml.safe_load(f)
 
     # RL_Status Dictionary, sending back and forth to C++
-    status = build_status(console)
+    status = build_status(config)
 
     llm = None
     if config["settings"]["llm_support"]:
@@ -90,38 +76,40 @@ def main():
     engine = firesim.EngineCore()
     engine.Init(config["settings"]["mode"])
     engine.SendRLStatusToModel(status)
-    if config["settings"]["mode"] == 0 or config["settings"]["use_default"] == 1:
-        engine.InitializeMap(Path(root_directory).joinpath("maps").joinpath(config["paths"]["init_map"]).__str__()
-                             if config["paths"]["init_map"] is not None else "")
+    engine.InitializeMap()
 
     # Wait for the initial mode selection from the user
     while not engine.InitialModeSelectionDone():
         engine.HandleEvents()
         engine.Update()
         engine.Render()
+
     status = engine.GetRLStatusFromModel()
 
     # If the user changed settings in the GUI, we need to update the config OBJECT
-    if config["settings"]["use_default"] is False:
+    if config["settings"]["skip_gui_init"] is False:
         # Update the config with the new settings from the GUI
-        config["settings"]["hierarchy_type"] = status["hierarchy_type"]
+        general_settings = config["settings"]
+        general_settings["hierarchy_type"] = status["hierarchy_type"]
+        general_settings["rl_mode"] = status["rl_mode"]
+        general_settings["auto_train"]["use_auto_train"] = status["auto_train"]
+
         agent_type = config["settings"]["hierarchy_type"]
         agent_settings = config["environment"]["agent"][agent_type]
-        agent_settings["default_model_folder"] = status["model_path"]
-        agent_settings["default_model_name"] = status["model_name"]
+        if status["rl_mode"] == "eval":
+            # Shouldn't really be an issue when the user selects "train" mode, but just in case
+            agent_settings["default_model_folder"] = status["model_path"]
+            agent_settings["default_model_name"] = status["model_name"]
         # config["settings"]["rl_algorithm"] = status["rl_algorithm"]
-        # config["settings"]["rl_mode"] = status["rl_mode"]
         # config["settings"]["auto_train"] = status["auto_train"]
         # config["settings"]["train_episodes"] = status["train_episodes"]
         # config["settings"]["max_eval"] = status["max_eval"]
         # config["settings"]["max_train"] = status["max_train"]
 
-    # Now get the view range and time steps from the engine, these parameters are currently set in the model_params
-    # TODO Keep this in the model_params as soft hidden param since it meddles with the model structure?
-
     # Create the Agent Object, this is used by the hierarchy manager which might spawn other low_level agents
-    agent = AgentHandler(status=status, config=config, logdir=config["paths"]["log_directory"])
-    status["console"] += agent.load_model(status=status)
+    agent = AgentHandler(config=config, agent_type=config["settings"]["hierarchy_type"], mode=config["settings"]["rl_mode"], status=status, logdir=config["paths"]["log_directory"])
+    status["rl_mode"], loading_string = agent.load_model()
+    status["console"] += loading_string
 
     hierarchy_manager = HierarchyManager(status, config, agent)
 
@@ -146,12 +134,12 @@ def main():
                 hierarchy_manager.eval(status, engine)
             engine.SendRLStatusToModel(status)
 
-            steps += 1
 
-        user_input = engine.GetUserInput()
-        if config["settings"]["llm_support"] and user_input != "":
-            # TODO DEPRECATED
-            llm(engine, user_input, 0, 0)
+        if config["settings"]["llm_support"]:
+            user_input = engine.GetUserInput()
+            if user_input != "":
+                # TODO DEPRECATED
+                llm(engine, user_input, 0, 0)
 
     engine.Clean()
 

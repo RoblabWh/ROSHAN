@@ -29,7 +29,7 @@ CLC+ Backbone Database:
 
 [Download Corine CLC+ Backbone - 10 meter (Year 2018 or 2021)](https://land.copernicus.eu/pan-european/clc-plus/clc-backbone/clc-backbone?tab=download)
 
-Once compiled you can set the dataset_path in the **config.json**, the standard path is **/ROSHAN/assets/dataset/CLMS_CLCplus_RASTER_2021_010m_eu_03035_V1_1.tif**.
+Once compiled you can set the dataset_path in the **project_paths.json**, the standard path is **/ROSHAN/assets/dataset/CLMS_CLCplus_RASTER_2021_010m_eu_03035_V1_1.tif**.
 
 ## Dependencies
 

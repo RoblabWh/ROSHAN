@@ -11,8 +11,8 @@ FireModel::FireModel(Mode mode) : mode_(mode)
     running_time_ = 0;
     timer_.Start();
 
-    dataset_handler_ = std::make_shared<DatasetHandler>();
-    parameters_.init("/home/nex/Dokumente/Code/ROSHAN/parameter_config.yaml");
+    parameters_.init("/home/nex/Dokumente/Code/ROSHAN/config.yaml");
+    dataset_handler_ = std::make_shared<DatasetHandler>(parameters_.corine_dataset_name_);
     parameters_.SetCorineLoaded(dataset_handler_->HasCorineLoaded());
     model_renderer_ = nullptr;
     wind_ = std::make_shared<Wind>(parameters_);
@@ -33,7 +33,7 @@ FireModel::FireModel(Mode mode) : mode_(mode)
     if (mode_ == Mode::NoGUI_RL) {
         parameters_.SetAgentIsRunning(true);
     }
-    if (parameters_.use_default_) {
+    if (parameters_.skip_gui_init_) {
         imgui_handler_->DefaultModeSelected();
     }
     std::cout << "Created FireModel" << std::endl;
@@ -48,8 +48,10 @@ FireModel::~FireModel(){
     std::cout << "FireModel destroyed" << std::endl;
 }
 
-void FireModel::InitializeMap(const std::string& map_path) {
-    if (mode_ == Mode::NoGUI_RL || mode_ == Mode::NoGUI || parameters_.use_default_){
+void FireModel::InitializeMap() {
+    auto maps_folder = get_project_path("maps_directory", {});
+    auto map_path = (maps_folder / parameters_.default_map_).string();
+    if (mode_ == Mode::NoGUI_RL || mode_ == Mode::NoGUI || parameters_.skip_gui_init_){
         if (!map_path.empty()){
             std::cout << "Loading map from: " << map_path << std::endl;
             this->LoadMap(map_path);
@@ -57,7 +59,6 @@ void FireModel::InitializeMap(const std::string& map_path) {
             std::cout << "No map path provided, using default map." << std::endl;
             this->SetUniformRasterData();
         }
-//        this->StartFires(parameters_.fire_percentage_);
         parameters_.initial_mode_selection_done_ = true;
     }
 }
@@ -194,8 +195,8 @@ void FireModel::Render() {
 //   ######################################################################
 // **//
 
-void FireModel::LoadMap(std::string path) {
-    dataset_handler_->LoadMap(std::move(path));
+void FireModel::LoadMap(const std::string& path) {
+    dataset_handler_->LoadMap(path);
     std::vector<std::vector<int>> rasterData;
     dataset_handler_->LoadMapDataset(rasterData);
     current_raster_data_.clear();

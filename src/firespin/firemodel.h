@@ -56,8 +56,8 @@ public:
     void SetRLStatus(pybind11::dict status) override;
     void UpdateReward() override;
     pybind11::dict GetRLStatus() override;
-    void InitializeMap(const std::string &map_path) override;
-    void LoadMap(std::string path);
+    void InitializeMap() override;
+    void LoadMap(const std::string& path);
     bool InitialModeSelectionDone() override;
 
 private:

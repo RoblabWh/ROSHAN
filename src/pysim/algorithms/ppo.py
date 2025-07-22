@@ -59,8 +59,6 @@ class PPO(RLAlgorithm):
 
     def reset(self):
         self.version += 1
-        self.model_version_reward = self.model_name.split(".")[0] + "_reward_v" + str(self.version) + "." + self.model_name.split(".")[1]
-        self.model_version_obj = self.model_name.split(".")[0] + "_obj_v" + str(self.version) + "." + self.model_name.split(".")[1]
         self.policy = ActorCriticPPO(Actor=self.actor, Critic=self.critic, vision_range=self.vision_range,
                                   drone_count=self.drone_count, map_size=self.map_size, time_steps=self.time_steps)
         self.optimizer_a = torch.optim.Adam(self.policy.actor.parameters(), lr=self.lr, betas=self.betas, eps=1e-5)
@@ -77,7 +75,7 @@ class PPO(RLAlgorithm):
         self.policy.train()
 
     def load(self):
-        path: str = os.path.join(self.model_path, self.model_name).__str__()
+        path: str = os.path.join(self.loading_path, self.loading_name).__str__()
         try:
             # self.policy.load_state_dict(torch.load(path, map_location=lambda storage, loc: storage))
             self.policy.load_state_dict(torch.load(path, map_location=self.device))
@@ -97,11 +95,11 @@ class PPO(RLAlgorithm):
         console = ""
         if logger.is_better_reward():
             console = f"Saving Network with best reward {logger.best_reward:.4f} in episode {logger.current_episode}\n"
-            torch.save(self.policy.state_dict(), f'{os.path.join(self.model_path, self.model_version_reward)}')
+            torch.save(self.policy.state_dict(), f'{os.path.join(self.model_path, self.get_model_name_reward(self.use_auto_train))}')
         if logger.is_better_objective():
             console = f"Saving Network with best objective {logger.best_objective:.2f} in episode {logger.current_episode}\n"
-            torch.save(self.policy.state_dict(), f'{os.path.join(self.model_path, self.model_version_obj)}')
-        torch.save(self.policy.state_dict(), f'{os.path.join(self.model_path, self.model_latest)}')
+            torch.save(self.policy.state_dict(), f'{os.path.join(self.model_path, self.get_model_name_obj(self.use_auto_train))}')
+        torch.save(self.policy.state_dict(), f'{os.path.join(self.model_path, self.get_model_name_latest())}')
 
         return console
 

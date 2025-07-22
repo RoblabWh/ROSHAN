@@ -66,8 +66,7 @@ public:
 
     [[nodiscard]] inline bool IsRunning() const { return is_running_; }
     bool InitialModeSelectionDone();
-    void InitializeMap(const std::string &map_path);
-
+    void InitializeMap();
 private:
 
     bool is_running_{};

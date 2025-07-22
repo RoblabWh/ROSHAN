@@ -39,22 +39,20 @@ else()
 endif()
 
 # Generate a JSON configuration file
-set(CONFIG_FILE "${PARENT_DIR}/config.json")
+set(CONFIG_FILE "${PARENT_DIR}/project_paths.json")
 
 # Populate the paths config file if it does not exist
-if(NOT EXISTS ${CONFIG_FILE})
-    set(MODULE_DIRECTORY "${MY_CPP_BUILD_PATH}")
-    set(MODELS_DIRECTORY "${MODELS_PATH}")
-    set(MAPS_DIRECTORY "${PARENT_DIR}/maps")
-    set(OSM_DATA "${PARENT_DIR}/openstreetmap/data.json")
-    set(DATASET_PATH "${CMAKE_SOURCE_DIR}/assets/dataset/CLMS_CLCplus_RASTER_2021_010m_eu_03035_V1_1.tif") # Default path for dataset_directory
+set(ROOT_PATH "${PARENT_DIR}")
+set(MODULE_DIRECTORY "${MY_CPP_BUILD_PATH}")
+set(MAPS_DIRECTORY "${PARENT_DIR}/maps")
+set(OSM_DATA "${PARENT_DIR}/openstreetmap/data.json")
+set(DATASET_PATH "${CMAKE_SOURCE_DIR}/assets/dataset/") # Default path for dataset_directory
 
-    configure_file(
-            "${CMAKE_SOURCE_DIR}/config.json.in"
-            "${CONFIG_FILE}"
-            @ONLY
-    )
-endif()
+configure_file(
+        "${CMAKE_SOURCE_DIR}/project_paths.json.in"
+        "${CONFIG_FILE}"
+        @ONLY
+)
 
 # Include directories Externals and SRC
 include_directories(${CMAKE_SOURCE_DIR}/src)
