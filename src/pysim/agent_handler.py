@@ -3,7 +3,7 @@ from algorithms.iql import IQL
 from algorithms.rl_algorithm import RLAlgorithm
 from algorithms.td3 import TD3
 from algorithms.rl_config import RLConfig, PPOConfig, IQLConfig, TD3Config, NoAlgorithmConfig
-from utils import Logger, get_project_paths
+from utils import SimulationBridge, Logger, get_project_paths
 import numpy as np
 import os
 from memory import SwarmMemory
@@ -13,10 +13,14 @@ from planner_agent import PlannerAgent
 
 
 class AgentHandler:
-    def __init__(self, config: dict, agent_type: str = None, subtype: str = None, mode: str = None, status: dict = None, logdir=None):
+    def __init__(self, config: dict, sim_bridge: SimulationBridge, agent_type: str = None, subtype: str = None, mode: str = None, is_sub_agent: bool = True):
 
         # Past Agent Actions
         self.agent_actions = None
+        self.sim_bridge = sim_bridge
+        # A sub agent is an agent that is part of a lower hierarchy level,
+        # e.g. a PlannerFlyAgent is a sub agent of ExploreFlyAgent or PlannerFlyAgent
+        self.is_sub_agent = is_sub_agent
 
         # If agent_type is None it is the FIRST selected agent type(this determines the hierarchy)
         agent_dict = config["environment"]["agent"][agent_type]
@@ -44,15 +48,12 @@ class AgentHandler:
         self.resume = config["settings"]["resume"]
 
         # TODO : Check this
-
         # Used for Evaluation
         self.stats = {'died': [0], 'reached': [0], 'time': [0], 'reward': [0], 'episode': [0], 'perc_burn': [0]}
         auto_train_dict = config["settings"]["auto_train"]
         self.use_auto_train = auto_train_dict["use_auto_train"]
         self.max_eval = auto_train_dict["max_eval"]
-        if logdir is not None:
-            self.logger = Logger(log_dir=logdir)
-        self.eval_steps = 0
+        self.max_train = auto_train_dict["max_train"]
 
         # Agent Type is either fly_agent, explore_agent or planner_agent
         drone_count = agent_dict["num_agents"]
@@ -61,19 +62,21 @@ class AgentHandler:
 
         # On which Level of the Hierarchy is the agent
         self.hierarchy_level = self.agent_type.get_hierarchy_level()
-        self.hierarchy_steps = 0
-        self.hierarchy_early_stop = False
 
         # Use Intrinsic Reward according to: https://arxiv.org/abs/1810.12894
         self.use_intrinsic_reward = self.agent_type.use_intrinsic_reward
 
-        # Other variables
+        # Other variables (need resetting)
+        self.current_obs = None
+        self.eval_steps = 0
         self.env_step = 0
+        self.hierarchy_steps = 0
+        self.hierarchy_early_stop = False
 
+        # TODO: Maybe put this into the Agent Type?
         if self.use_intrinsic_reward:
             self.agent_type.initialize_rnd_model(vision_range, drone_count=self.num_agents,
                                                  map_size=map_size, time_steps=time_steps)
-        self.current_obs = None
 
         root_path = get_project_paths("root_path")
         loading_path = agent_dict["default_model_folder"]
@@ -81,7 +84,14 @@ class AgentHandler:
         model_path = os.path.join(root_path, config["paths"]["model_directory"]) if not config["settings"]["resume"] else loading_path
         model_name = self.get_model_name_from_config(config) if not config["settings"]["resume"] else loading_name
 
-        base_config = RLConfig(algorithm=algorithm,
+        # TODO: If I resume the training, I need to load several things:
+        # - The model
+        # - The optimizer state
+        # - The memory state (possibly, for OffPolicy algorithms)
+        # - The logger state
+        # - The current episode
+
+        rl_config = RLConfig(algorithm=algorithm,
                                  use_auto_train=self.use_auto_train,
                                  model_path=model_path,
                                  model_name=model_name,
@@ -94,7 +104,7 @@ class AgentHandler:
 
         if algorithm == 'PPO':
             # PPOConfig is used for PPO algorithm
-            rl_config = PPOConfig(**vars(base_config),
+            rl_config = PPOConfig(**vars(rl_config),
                                   use_categorical=agent_type == "planner_agent",
                                   use_variable_state_masks=agent_type == "planner_agent")
             rl_config.use_next_obs = False
@@ -103,7 +113,7 @@ class AgentHandler:
                                  config=rl_config)
         elif algorithm == 'IQL':
             # IQLConfig is used for IQL algorithm
-            rl_config = IQLConfig(**vars(base_config))
+            rl_config = IQLConfig(**vars(rl_config))
             rl_config.action_dim = self.agent_type.action_dim
             rl_config.clear_memory = False  # IQL does not clear memory
 
@@ -111,7 +121,7 @@ class AgentHandler:
                                  config=rl_config)
         elif algorithm == 'TD3':
             # TD3Config is used for TD3 algorithm
-            rl_config = TD3Config(**vars(base_config))
+            rl_config = TD3Config(**vars(rl_config))
             rl_config.action_dim = self.agent_type.action_dim
             rl_config.clear_memory = False
 
@@ -119,7 +129,7 @@ class AgentHandler:
                                  config=rl_config)
         elif algorithm == 'no_algo':
             # NoAlgorithmConfig is used for No Algorithm scenario
-            rl_config = NoAlgorithmConfig(**vars(base_config))
+            rl_config = NoAlgorithmConfig(**vars(rl_config))
             rl_config.action_dim = self.agent_type.action_dim
 
             self.algorithm = RLAlgorithm(rl_config)
@@ -132,17 +142,30 @@ class AgentHandler:
                                   use_intrinsic_reward=self.use_intrinsic_reward,
                                   use_next_obs=self.use_next_obs)
 
-        # Update status dict now
-        if status is not None:
+        # Update status dict only if not a sub_agent
+        if not self.is_sub_agent:
+            model_path = self.algorithm.get_model_path()
+            logging_path = os.path.join(model_path, "logs")
+            self.logger = Logger(log_dir=logging_path)
+            self.logger.log_hparams(rl_config.__dict__)
+
             creation_string += f"Agents of Type: {self.agent_type.name} initialized\n"
             if self.num_agents != drone_count:
                 creation_string += f"{self.num_agents} Agent controls {drone_count} Drones\n"
             else:
                 creation_string += f"{self.num_agents} Agents in total who control {self.num_agents} Drones\n"
             creation_string += "Algorithm: {}\n".format(self.algorithm_name)
-            status["console"] += creation_string
-            status["model_path"] = self.algorithm.model_path
-            status["model_name"] = self.algorithm.model_name
+            sim_bridge.append_console(creation_string)
+            sim_bridge.set("model_path", self.algorithm.model_path)
+            sim_bridge.set("model_name", self.algorithm.model_name)
+
+            min_update = 0
+            if self.algorithm_name == 'PPO':
+                min_update = self.algorithm.horizon
+            elif self.algorithm_name == 'IQL' or self.algorithm_name == 'TD3':
+                min_update = self.algorithm.min_memory_size
+
+            self.sim_bridge.set("min_update", min_update)
 
     @staticmethod
     def get_model_name_from_config(config):
@@ -151,8 +174,8 @@ class AgentHandler:
         :param config: The configuration dictionary.
         :return: The model name.
         """
-        if "model_name" in config["settings"]:
-            return config["settings"]["model_name"]
+        if config["paths"]["model_name"] != "" and config["paths"]["model_name"] is not None:
+            return config["paths"]["model_name"]
         else:
             return "model.pt"
 
@@ -172,23 +195,52 @@ class AgentHandler:
         if agent_type == "planner_agent":
             return PlannerAgent(num_drones)
 
-    def reset(self, status):
-        if status["train_episode"] >= status["train_episodes"]:
-            status["agent_online"] = False
-            status["console"] += "Training finished, after {} training episodes\n".format(status["train_episode"])
-            print("Training finished, after {} training episodes".format(status["train_episode"]))
-            status["console"] += "Agent is offline\n"
-            print("Agent is offline")
-        else:
-            status["console"] += ("Resume with next training "
-                                  "step {}/{}\n").format(status["train_episode"] + 1, status["train_episodes"])
-            status["train_step"] = 0
-            self.stats = {'died': [0], 'reached': [0], 'time': [0], 'reward': [0], 'episode': [0], 'perc_burn': [0]}
-            self.hierarchy_steps = 0
-            self.env_reset = True
-            self.algorithm.reset()
-            self.logger.reset_bests()
-            self.initialized = True
+    def reset(self):
+        """
+        Resets the agent and its algorithm to the initial state.
+        """
+
+        train_episode = self.sim_bridge.get("train_episode")
+        train_episodes = self.sim_bridge.get("train_episodes")
+
+        if self.use_auto_train:
+            # Checks if the auto_training is finished
+            if train_episode == train_episodes:
+                self.sim_bridge.set("agent_online", False)
+                log = "Training finished, after {} training episodes\n".format(train_episode)
+                self.sim_bridge.append_console(log)
+                self.sim_bridge.append_console("Agent is offline\n")
+                return
+            else:
+                log = "Resume with next training step {}/{}\n".format(train_episode + 1, train_episodes)
+                self.sim_bridge.append_console(log)
+                self.sim_bridge.set("train_step", 0)
+        self.algorithm.reset()
+        self.reset_agent_variables()
+
+    def reset_agent_variables(self):
+        """
+        Reset the agent variables to their initial state.
+        This method is called when the environment is reset.
+        """
+        self.stats = {'died': [0], 'reached': [0], 'time': [0], 'reward': [0], 'episode': [0], 'perc_burn': [0]}
+        self.hierarchy_steps = 0
+        self.env_step = 0
+        self.current_obs = None
+        self.agent_actions = None
+        self.env_reset = True
+        # self.sim_bridge.set("env_reset", True)
+        self.eval_steps = 0
+
+        # Reset the Logger
+        if not self.is_sub_agent: # should not really be False like ever, but just in case
+            self.logger.close()
+            model_path = self.algorithm.get_model_path()
+            logging_path = os.path.join(model_path, "logs")
+            self.logger = Logger(log_dir=logging_path)
+
+        # Reset memory
+        self.memory.clear_memory()
 
     def should_train(self):
         if self.algorithm_name == 'PPO':
@@ -200,55 +252,55 @@ class AgentHandler:
         else:
             raise NotImplementedError("Algorithm {} not implemented".format(self.algorithm_name))
 
-    def load_model(self):
+    def load_model(self, change_status=False):
         # Load model if possible, return new rl_mode and possible console string
+        log = ""
         if self.algorithm_name == 'no_algo':
-            return self.rl_mode, "No algorithm used, no model to load\n"
+            log += "No algorithm used, no model to load\n"
         train = True if self.rl_mode == "train" else False
         if not train:
             if self.algorithm.load():
                 self.algorithm.set_eval()
-                return self.rl_mode, f"Load model from checkpoint {os.path.join(self.algorithm.model_path, self.algorithm.model_name)}\n" \
+                log += f"Load model from checkpoint:\n {os.path.join(self.algorithm.loading_path, self.algorithm.loading_name)}\n" \
                        f"Model set to evaluation mode\n"
             else:
                 self.algorithm.set_train()
                 self.rl_mode = "train"
-                return self.rl_mode, "No checkpoint found to evaluate model, start training from scratch\n"
+                log +=  "No checkpoint found to evaluate model, start training from scratch\n"
         elif self.resume:
             if self.algorithm.load():
                 self.algorithm.set_train()
-                return self.rl_mode, f"Load model from checkpoint {os.path.join(self.algorithm.model_path, self.algorithm.model_name)}\n" \
+                log += f"Load model from checkpoint:\n {os.path.join(self.algorithm.loading_path, self.algorithm.loading_name)}\n" \
                        f"Model set to training mode\n"
             else:
                 self.algorithm.set_train()
-                return self.rl_mode, "No checkpoint found to resume training, start training from scratch\n"
+                log += "No checkpoint found to resume training, start training from scratch\n"
         else:
             self.algorithm.set_train()
-            return self.rl_mode, "Training from scratch\n"
+            log += "Training from scratch\n"
+
+        if change_status:
+            self.sim_bridge.set("rl_mode", self.rl_mode)
+            self.sim_bridge.append_console(log)
 
     def add_memory_entry(self, obs, actions, action_logprobs, rewards, terminals, next_obs=None, intrinsic_rewards=None):
         self.memory.add(obs, actions, action_logprobs, rewards, terminals, next_obs=next_obs, intrinsic_reward=intrinsic_rewards)
 
-    def update_status(self, status):
-        self.algorithm.set_paths(status["model_path"], status["model_name"])
-        status["obs_collected"] = len(self.memory) + 1
-        if self.algorithm_name == 'PPO':
-            status['min_update'] = self.algorithm.horizon
-        elif self.algorithm_name == 'IQL' or self.algorithm_name == 'TD3':
-            status["min_update"] = self.algorithm.min_memory_size
-        elif self.algorithm_name == 'no_algo':
-            status["min_update"] = 0
-        if status["rl_mode"] != self.rl_mode:
-            self.rl_mode = status["rl_mode"]
-            if self.rl_mode == "train":
-                self.algorithm.set_train()
-            else:
-                self.algorithm.set_eval()
+    def update_status(self):
+        model_path = self.sim_bridge.get("model_path")
+        model_name = self.sim_bridge.get("model_name")
+        self.algorithm.set_paths(model_path, model_name)
+
+        self.sim_bridge.set("obs_collected", len(self.memory) + 1)
+
+        if self.sim_bridge.get("rl_mode") != self.rl_mode:
+            self.rl_mode = self.sim_bridge.get("rl_mode")
+            self.algorithm.set_train() if self.rl_mode == "train" else self.algorithm.set_eval()
 
     def restruct_current_obs(self, observations):
         self.current_obs = self.restructure_data(observations)
 
-    def train_loop(self, status, engine):
+    def train_loop(self, engine):
         actions, action_logprobs = self.act(self.current_obs)
         next_obs, rewards, all_terminals, terminal_result, percent_burned = self.step_agent(engine, actions)
         intrinsic_reward = None
@@ -257,8 +309,9 @@ class AgentHandler:
             # The environment has not been reset so we can send the intrinsic
             # reward to the model (only for displaying purposes)
             if not any(all_terminals):
-                status["intrinsic_reward"] = intrinsic_reward.detach().cpu().numpy().tolist()
-                engine.SendRLStatusToModel(status)
+                intrinsic_reward = intrinsic_reward.detach().cpu().numpy().tolist()
+                self.sim_bridge.set("intrinsic_reward", intrinsic_reward)
+                engine.SendRLStatusToModel(self.sim_bridge.status)
                 engine.UpdateReward()
         n_obs = None
         if self.use_next_obs:
@@ -266,11 +319,14 @@ class AgentHandler:
         # Memory Adding
         self.add_memory_entry(self.current_obs, actions, action_logprobs,
                               rewards, all_terminals, next_obs=n_obs, intrinsic_rewards=intrinsic_reward)
-        # Logging
-        status["objective"], status["best_objective"] = self.update_logging(terminal_result)
+
+        # Update the Logger before checking if we should train, so that the logger has the latest information
+        # to calculate the objective percentage and best reward
+        self.update_logging(terminal_result)
+
         # Training
         if self.should_train():
-            self.update(status, mini_batch_size=self.algorithm.batch_size, next_obs=next_obs)
+            self.update(mini_batch_size=self.algorithm.batch_size, next_obs=next_obs)
             if self.use_intrinsic_reward and self.algorithm == 'PPO':
                 self.agent_type.update_rnd_model(self.memory, self.algorithm.horizon, self.algorithm.batch_size)
             # Clear memory
@@ -278,13 +334,13 @@ class AgentHandler:
                 self.memory.clear_memory()
         self.current_obs = next_obs
         self.env_reset = terminal_result["EnvReset"]
-        self.handle_env_reset(status)
+        self.handle_env_reset()
 
-    def eval_loop(self, status, engine, evaluate=False):
+    def eval_loop(self, engine, evaluate=False):
         actions = self.act_certain(self.current_obs)
         obs, rewards, all_terminals, terminal_result, percent_burned = self.step_agent(engine, actions)
-        if evaluate: self.evaluate(status, rewards, all_terminals, terminal_result, percent_burned)
         self.current_obs = obs
+        if evaluate: self.evaluate(rewards, all_terminals, terminal_result, percent_burned)
         return terminal_result["AllAgentsSucceeded"], terminal_result["EnvReset"] # True if all agents reached their goal can do "OneAgentSucceeded"
 
     def step_agent(self, engine, actions):
@@ -294,33 +350,39 @@ class AgentHandler:
         self.env_step += 1
         return obs, rewards, all_terminals, terminal_result, percent_burned
 
-    def step_without_network(self, status, engine):
+    def step_without_network(self, engine):
         agent_actions = self.get_action([[0,0] for _ in range(self.num_agents)])
         _, _, _, terminal_result, _ = engine.Step(self.agent_type.name, agent_actions)
         self.env_reset = terminal_result["EnvReset"]
-        self.handle_env_reset(status)
+        self.handle_env_reset()
 
+    # Possibly unused
     def sim_step(self, engine):
         engine.SimStep(self.agent_actions)
 
-    def handle_env_reset(self, status):
+    def handle_env_reset(self):
         if self.env_reset:
-            status["current_episode"] += 1
+            self.sim_bridge.set("current_episode", self.sim_bridge.get("current_episode") + 1)
 
-    def update(self, status, mini_batch_size, next_obs):
-        status["console"] += self.algorithm.update(self.memory, mini_batch_size, next_obs, self.logger)
-        status["train_step"] += 1
+    def update(self, mini_batch_size, next_obs):
+        log = self.algorithm.update(self.memory, mini_batch_size, next_obs, self.logger)
+        self.sim_bridge.add_value("train_step", 1)
+
         if self.algorithm_name == 'PPO':
-            status["policy_updates"] += self.algorithm.horizon // self.algorithm.batch_size * self.algorithm.k_epochs
+            policy_updates = self.algorithm.horizon // self.algorithm.batch_size * self.algorithm.k_epochs
+            self.sim_bridge.add_value("policy_updates", policy_updates)
         elif self.algorithm_name == 'IQL':
-            status["policy_updates"] += self.algorithm.k_epochs
+            self.sim_bridge.add_value("policy_updates", self.algorithm.k_epochs)
         elif self.algorithm_name == 'TD3':
-            status["policy_updates"] += self.algorithm.k_epochs
-        if status["train_step"] >= status["max_train"] and self.use_auto_train:
-            status["train_episode"] += 1
-            status["console"] += "Training finished, after {} training steps, now starting Evaluation\n".format(status["train_step"])
-            status["rl_mode"] = "eval"
-        self.logger.summarize_metrics(status)
+            self.sim_bridge.add_value("policy_updates", self.algorithm.k_epochs)
+
+        if self.sim_bridge.get("train_step") >= self.max_train and self.use_auto_train:
+            self.sim_bridge.add_value("train_episode", 1)
+            log += "Training finished, after {} training steps, now starting Evaluation\n".format(self.sim_bridge.get("train_step"))
+            self.sim_bridge.set("rl_mode", "eval")
+
+        self.sim_bridge.append_console(log)
+        self.logger.summarize()
 
     def act(self, observations):
         actions, action_logprobs = self.algorithm.select_action(observations)
@@ -330,22 +392,25 @@ class AgentHandler:
         return self.agent_type.get_action(actions)
 
     def update_logging(self, terminal_result):
-        self.logger.log_episode(terminal_result)
-        self.logger.calc_objective_percentage()
-        return self.logger.current_objective, self.logger.get_best_objective()[1]
+        self.logger.log_step(terminal_result)
+        self.logger.calc_current_objective()
+
+        self.sim_bridge.set("objective", self.logger.best_metrics["current_objective"])
+        self.sim_bridge.set("best_objective", self.logger.get_best_objective()[1])
 
     def act_certain(self, observations):
         return self.algorithm.select_action_certain(observations)
 
-    def evaluate(self, status, rewards, terminals, terminal_result, percent_burned):
-        episode_over, log = self.get_evaluation_string(rewards, terminals, terminal_result, percent_burned)
-        status["console"] += log
+    def evaluate(self, rewards, terminals, terminal_result, percent_burned):
+        episode_over = self.get_evaluation_string(rewards, terminals, terminal_result, percent_burned)
+
         if episode_over and self.use_auto_train:
             self.eval_steps += 1
             if self.eval_steps >= self.max_eval:
-                status["console"] += "Evaluation finished, after {} evaluation steps with average reward: {}\n".format(self.eval_steps, np.mean(self.stats["reward"]))
-                status["rl_mode"] = "train"
-                self.reset(status)
+                log = "Evaluation finished, after {} evaluation steps with average reward: {}\n".format(self.eval_steps, np.mean(self.stats["reward"]))
+                self.sim_bridge.append_console(log)
+                self.sim_bridge.set("rl_mode", "train")
+                self.reset()
 
     def get_evaluation_string(self, rewards, terminals, terminal_result, percent_burned):
         # Log stats
@@ -387,8 +452,10 @@ class AgentHandler:
                 self.stats['time'].append(0)
                 self.stats['reward'].append(0)
 
-            return True, console
-        return False, console
+            self.sim_bridge.append_console(console)
+
+            return True
+        return False
 
     def restructure_data(self, observations_):
         return self.agent_type.restructure_data(observations_)

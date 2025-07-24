@@ -52,7 +52,8 @@ class PPOConfig(RLConfig):
     entropy_coeff: float = 0.0006 #0.001
     value_loss_coef: int = 0.5
     separate_optimizers: bool = False
-    betas: tuple[int, int] = (0.9, 0.999)
+    beta1: float = 0.9
+    beta2: float = 0.999
     gamma: float = 0.9635 #0.99
     _lambda: float = 0.96
     eps_clip: float = 0.2783 #0.15 #0.2
@@ -72,7 +73,8 @@ class IQLConfig(RLConfig):
     min_memory_size: int = 1000
     policy_freq: int = 10
     k_epochs: int = 20
-    betas: tuple[int, int] = (0.9, 0.999)
+    beta1: float = 0.9
+    beta2: float = 0.999
 
 @dataclass
 class TD3Config(RLConfig):
@@ -88,5 +90,6 @@ class TD3Config(RLConfig):
     policy_noise: float = 0.2
     noise_clip: float = 0.5
     policy_freq: int = 2
-    betas: tuple[int, int] = (0.9, 0.999)
+    beta1: float = 0.9
+    beta2: float = 0.999
 

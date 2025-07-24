@@ -5,7 +5,7 @@ import warnings
 import numpy as np
 from algorithms.actor_critic import ActorCriticPPO, CategoricalActorCritic
 from memory import SwarmMemory
-from utils import RunningMeanStd
+from utils import RunningMeanStd, Logger
 from algorithms.rl_algorithm import RLAlgorithm
 from algorithms.rl_config import PPOConfig
 from torch.utils.data.sampler import BatchSampler, SubsetRandomSampler
@@ -29,12 +29,40 @@ class PPO(RLAlgorithm):
 
         # Current Policy
         self.policy = None
+        self.actor_params = None
+        self.critic_params = None
+        self.initialize_policy()
+
+        self.optimizer_a = None
+        self.optimizer_c = None
+        self.initialize_optimizers()
+
+        self.MSE_loss = nn.MSELoss()
+        self.reward_rms = RunningMeanStd()
+        self.int_reward_rms = RunningMeanStd()
+        self.set_train()
+
+    def initialize_optimizers(self):
+        """
+        Initializes the optimizers for the actor and critic networks.
+        This method is called after the policy is reset or loaded.
+        """
+        if self.separate_optimizers:
+            self.optimizer_a = torch.optim.Adam(self.actor_params, lr=self.lr, betas=(self.beta1, self.beta2), eps=1e-5)
+            self.optimizer_c = torch.optim.Adam(self.critic_params, lr=self.lr, betas=(self.beta1, self.beta2), eps=1e-5)
+        else:
+            params = list(self.actor_params) + list(self.critic_params)
+            self.optimizer_a = torch.optim.Adam(params, lr=self.lr, betas=(self.beta1, self.beta2), eps=1e-5)
+            self.optimizer_c = None
+
+    def initialize_policy(self):
+        """
+        Initializes the policy with the actor and critic networks.
+        This method is called when the algorithm is reset or loaded.
+        """
         if self.use_categorical:
-            self.policy = CategoricalActorCritic(Actor=self.actor,
-                                                 Critic=self.critic,
-                                                 vision_range=self.vision_range,
-                                                 drone_count=self.drone_count,
-                                                 map_size=self.map_size,
+            self.policy = CategoricalActorCritic(Actor=self.actor, Critic=self.critic, vision_range=self.vision_range,
+                                                 drone_count=self.drone_count, map_size=self.map_size,
                                                  time_steps=self.time_steps)
         else:
             self.policy = ActorCriticPPO(Actor=self.actor, Critic=self.critic, vision_range=self.vision_range,
@@ -44,25 +72,9 @@ class PPO(RLAlgorithm):
         self.actor_params = self.policy.actor.parameters()
         self.critic_params = self.policy.critic.parameters()
 
-        if self.separate_optimizers:
-            self.optimizer_a = torch.optim.Adam(self.actor_params, lr=self.lr, betas=self.betas, eps=1e-5)
-            self.optimizer_c = torch.optim.Adam(self.critic_params, lr=self.lr, betas=self.betas, eps=1e-5)
-        else:
-            params = list(self.actor_params) + list(self.critic_params)
-            self.optimizer_a = torch.optim.Adam(params, lr=self.lr, betas=self.betas, eps=1e-5)
-            self.optimizer_c = None
-
-        self.MSE_loss = nn.MSELoss()
-        self.reward_rms = RunningMeanStd()
-        self.int_reward_rms = RunningMeanStd()
-        self.set_train()
-
-    def reset(self):
-        self.version += 1
-        self.policy = ActorCriticPPO(Actor=self.actor, Critic=self.critic, vision_range=self.vision_range,
-                                  drone_count=self.drone_count, map_size=self.map_size, time_steps=self.time_steps)
-        self.optimizer_a = torch.optim.Adam(self.policy.actor.parameters(), lr=self.lr, betas=self.betas, eps=1e-5)
-        self.optimizer_c = torch.optim.Adam(self.policy.critic.parameters(), lr=self.lr, betas=self.betas, eps=1e-5)
+    def reset_algorithm(self):
+        self.initialize_policy()
+        self.initialize_optimizers()
         self.MSE_loss = nn.MSELoss()
         self.reward_rms = RunningMeanStd()
         self.int_reward_rms = RunningMeanStd()
@@ -91,15 +103,15 @@ class PPO(RLAlgorithm):
     def select_action_certain(self, observations):
         return self.policy.act_certain(observations)
 
-    def save(self, logger):
+    def save(self, logger: Logger):
         console = ""
         if logger.is_better_reward():
-            console = f"Saving Network with best reward {logger.best_reward:.4f} in episode {logger.current_episode}\n"
-            torch.save(self.policy.state_dict(), f'{os.path.join(self.model_path, self.get_model_name_reward(self.use_auto_train))}')
+            console = f"Saving Network with best reward {logger.best_metrics['best_reward']:.4f} in episode {logger.episode}\n"
+            torch.save(self.policy.state_dict(), f'{os.path.join(self.get_model_path(), self.get_model_name_reward())}')
         if logger.is_better_objective():
-            console = f"Saving Network with best objective {logger.best_objective:.2f} in episode {logger.current_episode}\n"
-            torch.save(self.policy.state_dict(), f'{os.path.join(self.model_path, self.get_model_name_obj(self.use_auto_train))}')
-        torch.save(self.policy.state_dict(), f'{os.path.join(self.model_path, self.get_model_name_latest())}')
+            console = f"Saving Network with best objective {logger.best_metrics['best_objective']:.2f} in episode {logger.episode}\n"
+            torch.save(self.policy.state_dict(), f'{os.path.join(self.get_model_path(), self.get_model_name_obj())}')
+        torch.save(self.policy.state_dict(), f'{os.path.join(self.get_model_path(), self.get_model_name_latest())}')
 
         return console
 
@@ -177,8 +189,8 @@ class PPO(RLAlgorithm):
         logging_values = []
         console = ""
         log_rewards = torch.cat(ext_rewards).detach().cpu().numpy() if intrinsic_rewards is None \
-            else torch.cat(intrinsic_rewards).detach().cpu().numpy() + torch.cat(ext_rewards).detach().cpu().numpy()
-        logger.add_rewards(log_rewards)
+           else torch.cat(intrinsic_rewards).detach().cpu().numpy() + torch.cat(ext_rewards).detach().cpu().numpy()
+        logger.add_metric("rewards", log_rewards)
 
         # Save current weights if mean reward or objective is higher than the best so far
         # (Save BEFORE training, so if the policy worsens we can still go back)
@@ -215,15 +227,16 @@ class PPO(RLAlgorithm):
 
         # Merge all agent states, actions, rewards etc.
         advantages = torch.cat(advantages)
-        # # Norm advantages
-        # advantages = (advantages - advantages.mean()) / (advantages.std() + 1e-10)
         returns = torch.cat(returns)
-        # Log returns
-        logger.add_returns(returns.detach().cpu().numpy())
         actions = torch.cat(actions)
         old_logprobs = torch.cat(old_logprobs)
         states = memory.rearrange_states(states)
         #v_masks = memory.rearrange_masks(variable_state_masks) if self.use_variable_state_masks else None
+
+        # Logging before proceeding to batched training
+        logger.add_metric("returns", returns.detach().cpu().numpy())
+        logger.add_metric("advantages", advantages.detach().cpu().numpy())
+        logger.add_metric("old_logprobs", old_logprobs.detach().cpu().numpy())
 
         # Train policy for K epochs: sampling and updating
         for _ in range(self.k_epochs):
@@ -259,8 +272,9 @@ class PPO(RLAlgorithm):
                 value_loss = self.MSE_loss(values, returns[index].squeeze())
 
                 # Log loss
-                logger.add_losses(critic_loss=value_loss.detach().cpu().item(), actor_loss=actor_loss.detach().cpu().item())
-                logger.add_std(torch.exp(self.policy.actor.log_std).cpu().detach().numpy())
+                logger.add_metric("critic_loss", value_loss.detach().cpu().numpy())
+                logger.add_metric("actor_loss", actor_loss.detach().cpu().numpy())
+                logger.add_metric("log_std", torch.exp(self.policy.actor.log_std).detach().cpu().numpy())
                 logging_values.append(values.detach().cpu().numpy())
                 epoch_values.append(values.detach().cpu().numpy())
                 epoch_returns.append(returns[index].detach().cpu().numpy())
@@ -300,10 +314,9 @@ class PPO(RLAlgorithm):
             # if ev <= 0:
             #     console += (f"Explained Variance for Epoch {_}: {ev}\n"
             #                 f"This is bad. The Critic might aswell have predicted zero or is even doing worse than that.\n")
-            logger.add_explained_variance(ev)
+            logger.add_metric("explained_variance", ev)
 
 
-        # Save current weights if the mean reward is higher than the best reward so far
-        logger.add_values(np.concatenate(logging_values))
+        logger.add_metric("values", np.concatenate(logging_values).flatten())
 
         return console

@@ -32,10 +32,10 @@ class TD3(RLAlgorithm):
         )
 
         self.actor_target = copy.deepcopy(self.policy.actor)
-        self.actor_optimizer = torch.optim.Adam(self.policy.actor.parameters(), lr=self.lr, betas=self.betas, eps=1e-5)
+        self.actor_optimizer = torch.optim.Adam(self.policy.actor.parameters(), lr=self.lr, betas=(self.beta1, self.beta2), eps=1e-5)
 
         self.critic_target = copy.deepcopy(self.policy.critic)
-        self.critic_optimizer = torch.optim.Adam(self.policy.critic.parameters(), lr=self.lr, betas=self.betas, eps=1e-5)
+        self.critic_optimizer = torch.optim.Adam(self.policy.critic.parameters(), lr=self.lr, betas=(self.beta1, self.beta2), eps=1e-5)
 
         self.MSE_loss = nn.MSELoss()
         self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")

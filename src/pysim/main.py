@@ -1,8 +1,7 @@
 import yaml
 import os
 import sys
-from pathlib import Path
-from utils import get_project_paths
+from utils import SimulationBridge, get_project_paths
 
 module_directory = get_project_paths('module_directory')
 sys.path.insert(0, module_directory)
@@ -24,38 +23,6 @@ import firesim
 from agent_handler import AgentHandler
 from hierarchy_manager import HierarchyManager
 
-def build_status(config):
-
-    hierarchy = config["settings"]["hierarchy_type"]
-    environment = config["environment"]
-    agent = environment["agent"][hierarchy]
-    root_path = get_project_paths("root_path")
-    status = {# Non-Settable Parameters (either flags or communication with C++)
-              "console": "",
-              "obs_collected": 0, # Used by GUI to show the number of collected observations
-              "min_update": 0,  # How many obs before updating the policy? Decided by the RL Algorithm
-              "agent_online": True,
-              "train_episode": 0,  # Current training episode
-              "train_step": 0,  # How often did you train?
-              "current_episode": 0,
-              "policy_updates": 0,  # How often did you update the policy?
-              "objective": 0,  # Tracking the Percentage of the Objective
-              "best_objective": 0,  # Best Objective so far
-              # Settable Parameters (can be changed by the user, best through Config)
-              "rl_mode": config["settings"]["rl_mode"],  # "train" or "eval"
-              "model_path": os.path.join(root_path, config["paths"]["model_directory"]),
-              "model_name": "my_model.pt",
-              "num_agents": agent["num_agents"],  # Number of agents in the environment
-              "rl_algorithm": "PPO",  # RL Algorithm to use, either PPO, IQL, TD3
-              "auto_train": config["settings"]["auto_train"]["use_auto_train"],  # If True, the agent will train several episodes and then evaluate
-              "train_episodes": 1,  # Number of total trainings containing each max_train steps
-              "max_eval": 3,  # Number of Environments to run before stopping evaluation
-              "max_train": 1,  # Number of train_steps before stopping training
-              "hierarchy_type": hierarchy,  # Either fly_agent, ExplorationAgent
-              }
-
-    return status
-
 def main():
     # Lists alls the functions in the EngineCore class
     # print(dir(EngineCore))
@@ -64,7 +31,7 @@ def main():
         config = yaml.safe_load(f)
 
     # RL_Status Dictionary, sending back and forth to C++
-    status = build_status(config)
+    sim_bridge = SimulationBridge(config)
 
     llm = None
     if config["settings"]["llm_support"]:
@@ -75,7 +42,7 @@ def main():
     # Initialize the EngineCore and send the RL_Status
     engine = firesim.EngineCore()
     engine.Init(config["settings"]["mode"])
-    engine.SendRLStatusToModel(status)
+    engine.SendRLStatusToModel(sim_bridge.get_status())
     engine.InitializeMap()
 
     # Wait for the initial mode selection from the user
@@ -84,55 +51,56 @@ def main():
         engine.Update()
         engine.Render()
 
-    status = engine.GetRLStatusFromModel()
+    sim_bridge.set_status(engine.GetRLStatusFromModel())
 
     # If the user changed settings in the GUI, we need to update the config OBJECT
+    # Update the config with the new settings from the GUI
     if config["settings"]["skip_gui_init"] is False:
-        # Update the config with the new settings from the GUI
         general_settings = config["settings"]
-        general_settings["hierarchy_type"] = status["hierarchy_type"]
-        general_settings["rl_mode"] = status["rl_mode"]
-        general_settings["auto_train"]["use_auto_train"] = status["auto_train"]
+        general_settings["hierarchy_type"] = sim_bridge.get("hierarchy_type")
+        general_settings["rl_mode"] = sim_bridge.get("rl_mode")
 
         agent_type = config["settings"]["hierarchy_type"]
         agent_settings = config["environment"]["agent"][agent_type]
-        if status["rl_mode"] == "eval":
+        if sim_bridge.get("rl_mode") == "eval":
             # Shouldn't really be an issue when the user selects "train" mode, but just in case
-            agent_settings["default_model_folder"] = status["model_path"]
-            agent_settings["default_model_name"] = status["model_name"]
+            agent_settings["default_model_folder"] = sim_bridge.get("model_path")
+            agent_settings["default_model_name"] = sim_bridge.get("model_name")
+
+        # Update auto_train settings
+        auto_train_settings = config["settings"]["auto_train"]
+        auto_train_settings["use_auto_train"] = sim_bridge.get("auto_train")
+        auto_train_settings["train_episodes"] = sim_bridge.get("train_episodes")
+        auto_train_settings["max_eval"] = sim_bridge.get("max_eval")
+        auto_train_settings["max_train"] = sim_bridge.get("max_train")
         # config["settings"]["rl_algorithm"] = status["rl_algorithm"]
         # config["settings"]["auto_train"] = status["auto_train"]
         # config["settings"]["train_episodes"] = status["train_episodes"]
         # config["settings"]["max_eval"] = status["max_eval"]
         # config["settings"]["max_train"] = status["max_train"]
 
-    # Create the Agent Object, this is used by the hierarchy manager which might spawn other low_level agents
-    agent = AgentHandler(config=config, agent_type=config["settings"]["hierarchy_type"], mode=config["settings"]["rl_mode"], status=status, logdir=config["paths"]["log_directory"])
-    status["rl_mode"], loading_string = agent.load_model()
-    status["console"] += loading_string
+    hierarchy_manager = HierarchyManager(config, sim_bridge)
 
-    hierarchy_manager = HierarchyManager(status, config, agent)
+    engine.SendRLStatusToModel(sim_bridge.get_status())
 
-    engine.SendRLStatusToModel(status)
-
-    while engine.IsRunning() and status["agent_online"]:
+    while engine.IsRunning() and sim_bridge.get("agent_online"):
         engine.HandleEvents()
         engine.Update()
         engine.Render()
 
         # C++ Python Interface & Controls
-        status = engine.GetRLStatusFromModel()
-        hierarchy_manager.update_status(status)
+        sim_bridge.set_status(engine.GetRLStatusFromModel())
+        hierarchy_manager.update_status()
 
-        if engine.AgentIsRunning() and status["agent_online"]:
+        if engine.AgentIsRunning() and sim_bridge.get("agent_online"):
             # Initial Observation
             hierarchy_manager.restruct_current_obs(engine.GetObservations())
 
-            if status["rl_mode"] == "train":
-                hierarchy_manager.train(status, engine)
+            if sim_bridge.get("rl_mode") == "train":
+                hierarchy_manager.train(engine)
             else:
-                hierarchy_manager.eval(status, engine)
-            engine.SendRLStatusToModel(status)
+                hierarchy_manager.eval(engine)
+            engine.SendRLStatusToModel(sim_bridge.get_status())
 
 
         if config["settings"]["llm_support"]:

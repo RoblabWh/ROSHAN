@@ -1,10 +1,109 @@
+from typing import Union, Any
+
 import numpy as np
 import torch
 import json
 import os
 from pathlib import Path
-from collections import deque
+from collections import deque, defaultdict
 from torch.utils.tensorboard import SummaryWriter
+
+class SimulationBridge:
+    def __init__(self, config: dict):
+        """
+        A bridge to pass status information between different components.
+        :param status: A dictionary containing status information.
+        """
+        self.status = self.build_status(config)
+
+    @staticmethod
+    def build_status(config):
+
+        hierarchy = config["settings"]["hierarchy_type"]
+        environment = config["environment"]
+        agent = environment["agent"][hierarchy]
+        root_path = get_project_paths("root_path")
+        auto_train_dict = config["settings"]["auto_train"]
+        status = {
+            # Non-Settable Parameters (either flags or communication with C++)
+            "console": "",
+            "obs_collected": 0,  # Used by GUI to show the number of collected observations
+            "min_update": 0,  # How many obs before updating the policy? Decided by the RL Algorithm
+            "agent_online": True,
+            "train_episode": 0,  # Current training episode
+            "train_step": 0,  # How often did you train?
+            "current_episode": 0,
+            "policy_updates": 0,  # How often did you update the policy?
+            "objective": 0,  # Tracking the Percentage of the Objective
+            "best_objective": 0,  # Best Objective so far
+            # Settable Parameters (can be changed by the user, BUT should really only be changed through the config file)
+            "hierarchy_type": hierarchy,  # Either fly_agent, explore_agent or planner_agent
+            "rl_mode": config["settings"]["rl_mode"],  # "train" or "eval"
+            "model_path": os.path.join(root_path, config["paths"]["model_directory"]),
+            "model_name": config["paths"]["model_name"],  # Name of the model to load or save
+            "num_agents": agent["num_agents"],  # Number of agents in the environment
+            "rl_algorithm": "PPO",  # RL Algorithm to use, either PPO, IQL, TD3
+            "auto_train": auto_train_dict["use_auto_train"], # If True, the agent will train several episodes and then evaluate
+            "train_episodes": auto_train_dict["train_episodes"],  # Number of total trainings containing each max_train steps
+            "max_eval": auto_train_dict["max_eval"],  # Number of Environments to run before stopping evaluation
+            "max_train": auto_train_dict["max_train"],  # Number of train_steps before stopping training
+        }
+
+        return status
+
+    def set_status(self, status):
+        """
+        Set the status dictionary.
+        :param status: The status dictionary to set.
+        """
+        if not isinstance(status, dict):
+            raise ValueError("Status must be a dictionary.")
+        self.status = status
+
+    def get_status(self):
+        """
+        Get the current status dictionary.
+        :return: The status dictionary.
+        """
+        return self.status
+
+    def append_console(self, msg):
+        """
+        Append a message to the console log.
+        :param msg: The message to append.
+        """
+        if 'console' not in self.status:
+            self.status['console'] = ""
+        self.status['console'] += msg + "\n"
+
+    def add_value(self, key, value):
+        """
+        Adds the value to the current value of the key in the status dictionary.
+        :param key: The key to add the value to.
+        :param value: The value to add.
+        """
+        if key not in self.status:
+            raise KeyError(f"Key '{key}' not found in status dictionary.")
+        if isinstance(value, (int, float)):
+            self.status[key] += value
+        else:
+            raise ValueError(f"Value for key '{key}' must be an int or float, got {type(value)} instead.")
+
+    def set(self, key, value):
+        """
+        Set a value in the status dictionary.
+        :param key: The key to set the value for.
+        :param value: The value to set.
+        """
+        self.status[key] = value
+
+    def get(self, key):
+        """
+        Get a value from the status dictionary.
+        :param key: The key to retrieve the value for.
+        :return: The value associated with the key.
+        """
+        return self.status[key]
 
 def get_in_features_2d(h_in, w_in, layers_dict):
     for layer in layers_dict:
@@ -132,176 +231,141 @@ class RunningMeanStd(object):
 class Logger:
     """
     Logger class for logging training and evaluation metrics using TensorBoard.
-
     :param log_dir: Directory where the logs will be saved.
-    :param horizon: The number of steps per episode or training horizon.
+    :param resume: If True, resume logging from the last checkpoint.
     """
-
-    def __init__(self, log_dir):
-        self.current_steps = None
-        self.episode_finished = None
-        self.writer = SummaryWriter(log_dir)
+    def __init__(self, log_dir, resume=False):
         self.log_dir = log_dir
-        self.tag = 'run0'
-        self.total_steps = 0  # Total steps across all epochs
-        self.summarize_steps = 0
-
-        # Initialize storage for metrics
-        self.reset_metrics()
-
-        # Best reward tracking
-        self.current_episode = 0
-        self.best_reward = float('-inf')
+        self.writer = SummaryWriter(log_dir)
+        self.metrics = defaultdict(list)
+        self.histograms = defaultdict(list)
+        self.episode_steps = 0 # Steps in the current episode
         self.objectives = deque(maxlen=100)
-        self.best_objective = float('-inf')
-        self.current_objective = 0
+        self.logging_step = 0
+        self.episode = 0 # Current episode number
+        self.best_metrics = {"current_objective": 0.0, "best_objective": -np.inf,
+                             "current_reward": 0.0, "best_reward": -np.inf}
+        self.episode_ended = False
 
-        # Episodic metrics
-        self.agent_steps = []
+        if resume:
+            self._load_state()
 
-    def reset_metrics(self):
-        """Resets all metrics at the end of an epoch or training cycle."""
-        # Agent Observations
-        self.velocities = []
-        self.positions = []
-
-        # Algorithm metrics
-        self.entropies = []
-        self.critic_losses = []
-        self.actor_losses = []
-        self.std_xs = []
-        self.std_ys = []
-
-        # Agent metrics
-        self.rewards = []
-        self.rewards_scaled = []
-        self.returns = []
-        self.values = []
-
-        # Explained variance
-        self.explained_variances = []
-
-        # Network Metrics
-        self.filters = []
-
-        # Flags
-        self.current_steps = 0
-        self.episode_finished = False
-
-    def log_episode(self, terminal_result):
-        """Logs metrics at each step and handles episode completion."""
-        self.current_steps += 1
-        env_done = terminal_result["EnvReset"]
-        
-        if env_done:
-            self.current_episode += 1
-            objective_reached = not terminal_result["OneAgentDied"]
-            self.objectives.append(objective_reached)
-            self.agent_steps.append(self.current_steps)
-            self.episode_finished = True
-            self.current_steps = 0  # Reset steps for next episode
-
-    def calc_objective_percentage(self):
+    def summarize(self):
+        # Log all scalar metrics (averaged over the episode)
+        for tag, values in self.metrics.items():
+            if values:
+                self.log_scalar(tag, np.mean(values))
+        # Log all histogram metrics
+        for tag, values in self.histograms.items():
+            if values:
+                self.log_histogram(tag, values)
+        # Log Episode Length, Objectives, etc.
+        if self.episode_ended:
+            self.log_scalar("Episode Steps", self.episode_steps)
+            self.episode_steps = 0
         if len(self.objectives) == self.objectives.maxlen:
-            self.current_objective = np.mean(self.objectives)
+            self.log_scalar("Objective", np.mean(self.objectives))
+
+        # Clear for next summary
+        self.metrics.clear()
+        self.histograms.clear()
+        self.episode_ended = False
+        self.logging_step += 1
+
+    def log_hparams(self, hparams: dict):
+        """
+        Logs hyperparameters to TensorBoard.
+        :param hparams: Dictionary of hyperparameters.
+        """
+        if not isinstance(hparams, dict):
+            raise ValueError("Hyperparameters must be a dictionary.")
+        # Ensure all values are bool, str, float, int or None
+        allowed_types = (bool, str, float, int, type(None))
+        for key, value in hparams.items():
+            if not isinstance(value, allowed_types):
+                raise ValueError(f"Hyperparameter '{key}' must be of {allowed_types}, got {type(value)} instead.")
+
+        self.writer.add_hparams(hparams, {"hparam/metric": 0.0})
+
+    def log_step(self, terminal_result: dict):
+        """
+        Marks the end of an episode and logs the episode length and objective.
+        :param terminal_result: Dictionary containing terminal results of the episode.
+        """
+        self.episode_steps += 1
+        env_done = terminal_result["EnvReset"]
+
+        if env_done:
+            self.episode += 1
+            objective_reached = not terminal_result["OneAgentDied"]
+            self.objectives.append(1 if objective_reached else 0)
+            self.episode_ended = True
+
+    def add_metric(self, tag, value, hist=False):
+        self.histograms[tag].append(value)
+        self.metrics[tag].append(value)
+
+    def log_scalar(self, tag, value, step: int = None):
+        t = self.logging_step if step is None else step
+        self.writer.add_scalar(tag, value, t)
+
+    def log_histogram(self, tag, values, step: int = None):
+        t = self.logging_step if step is None else step
+        if isinstance(values, list):
+            values = np.array(values)
+        self.writer.add_histogram(tag + "_hist", values, t)
+
+    def log_text(self, tag, text, step: int = None):
+        t = self.logging_step if step is None else step
+        self.writer.add_text(tag, text, t)
+
+    def _load_state(self):
+        state_path = os.path.join(self.log_dir, 'logger_state.npy')
+        if os.path.exists(state_path):
+            state = np.load(state_path, allow_pickle=True).item()
+            self.episode = state.get("episode", 0)
+            self.logging_step = state.get("logging_step", 0)
+            self.objectives = deque(state.get("objectives", []), maxlen=100)
+            self.best_metrics = state.get("best_metrics", {})
+
+    def save_state(self):
+        state = {
+            "episode": self.episode,
+            "logging_step": self.logging_step,
+            "objectives": list(self.objectives),
+            "best_metrics": self.best_metrics
+        }
+        state_path = os.path.join(self.log_dir, 'logger_state.npy')
+        np.save(state_path, state)
+
+    def calc_current_objective(self):
+        if len(self.objectives) == self.objectives.maxlen:
+            self.best_metrics["current_objective"] = float(np.mean(self.objectives))
 
     def get_best_objective(self):
-        if self.current_objective > self.best_objective:
-            return True, self.current_objective
+        if self.best_metrics["current_objective"] > self.best_metrics["best_objective"]:
+            return True, self.best_metrics["current_objective"]
         else:
-            return False, self.best_objective
+            return False, self.best_metrics["best_objective"]
 
-    def add_filters(self, filters):
-        """Adds the number of filters in each layer."""
-        for idx in filters.shape[0]:
-            self.filters.append(filters[idx])
-
-    def add_std(self, std):
-        """Adds standard deviation metrics."""
-        self.std_xs.append(std[0])
-        self.std_ys.append(std[1])
-
-    def add_rewards(self, rewards):
-        """Adds rewards."""
-        self.rewards.extend(rewards)  # Assuming rewards is a list or array
-
-    def add_rewards_scaled(self, rewards_scaled):
-        """Adds scaled rewards."""
-        self.rewards_scaled.extend(rewards_scaled)
-
-    def add_returns(self, returns):
-        """Adds returns."""
-        self.returns.extend(returns)
-
-    def add_values(self, values):
-        """Adds value function predictions."""
-        self.values.extend(values)  # Assuming values is a list or array
-
-    def add_losses(self, critic_loss, actor_loss, entropy=0):
-        """Adds loss metrics."""
-        # self.entropies.extend(entropy)
-        self.critic_losses.append(critic_loss)
-        self.actor_losses.append(actor_loss)
-
-    def add_explained_variance(self, explained_variance):
-        """Adds explained variance metric."""
-        self.explained_variances.append(explained_variance)
-
-    def summarize_metrics(self, status):
-        """Logs all metrics to TensorBoard."""
-        t = self.summarize_steps
-        if self.episode_finished:
-            self.writer.add_histogram(f'{self.tag}/Agent Steps', np.array(self.agent_steps), t)
-            self.agent_steps.clear()
-
-        # Log scalar metrics
-        if self.critic_losses: self.writer.add_scalar(f'{self.tag}/Critic Loss', np.mean(self.critic_losses), t)
-        if self.actor_losses: self.writer.add_scalar(f'{self.tag}/Actor Loss', np.mean(self.actor_losses), t)
-        # self.writer.add_scalar(f'{self.tag}/Entropy', np.mean(self.entropies), t)
-        if self.rewards: self.writer.add_scalar(f'{self.tag}/Reward (Avg)', np.mean(self.rewards), t)
-        if self.rewards_scaled: self.writer.add_scalar(f'{self.tag}/Reward Scaled (Avg)', np.mean(self.rewards_scaled), t)
-        if self.returns: self.writer.add_scalar(f'{self.tag}/Return (Avg)', np.mean(self.returns), t)
-        if self.values: self.writer.add_scalar(f'{self.tag}/Value (Avg)', np.mean(self.values), t)
-        if self.std_xs: self.writer.add_scalar(f'{self.tag}/Std X (Avg)', np.mean(self.std_xs), t)
-        if self.std_ys: self.writer.add_scalar(f'{self.tag}/Std Y (Avg)', np.mean(self.std_ys), t)
-        if self.explained_variances: self.writer.add_scalar(f'{self.tag}/Explained Variance (AVG)', np.mean(self.explained_variances), t)
-
-        # Log histogram metrics
-        if self.rewards: self.writer.add_histogram(f'{self.tag}/Rewards', np.array(self.rewards), t)
-        # self.writer.add_histogram(f'{self.tag}/Rewards Scaled', np.array(self.rewards_scaled), t)
-        if self.returns: self.writer.add_histogram(f'{self.tag}/Returns', np.array(self.returns), t)
-        if self.values: self.writer.add_histogram(f'{self.tag}/Values', np.array(self.values), t)
-        if self.std_xs: self.writer.add_histogram(f'{self.tag}/Std X', np.array(self.std_xs), t)
-        if self.std_ys: self.writer.add_histogram(f'{self.tag}/Std Y', np.array(self.std_ys), t)
-        # self.writer.add_histogram(f'{self.tag}/Velocities', np.array(self.velocities), t)
-        # self.writer.add_histogram(f'{self.tag}/Positions', np.array(self.positions), t)
-        if self.explained_variances: self.writer.add_histogram(f'{self.tag}/Explained Variances', np.array(self.explained_variances), t)
-
-        self.summarize_steps += 1
-        self.tag = "run" + str(status["train_episode"])
-
-        # Clear metrics after logging
-        self.reset_metrics()
-
-    def reset_bests(self):
-        """Resets the best recorded reward and objective."""
-        self.best_reward = float('-inf')
-        self.best_objective = float('-inf')
+    def is_better_objective(self):
+        """Checks if the current objective is better than the best recorded objective.
+           Should only be called when checking if the Model should be saved.
+           Otherwise, use `calc_current_objective` to check for the best objective.
+        """
+        is_better, self.best_metrics["best_objective"] = self.get_best_objective()
+        return is_better
 
     def is_better_reward(self):
-        """Checks if the current reward is better than the best recorded reward."""
-        current_reward = np.mean(self.rewards)
-        if current_reward >= self.best_reward:
-            self.best_reward = current_reward
+        """Checks if the current reward is better than the best recorded reward.
+           Should only be called when checking if the Model should be saved.
+        """
+        current_reward = np.mean(self.metrics["reward"]) if "reward" in self.metrics else 0.0
+        if current_reward >= self.best_metrics["best_reward"]:
+            self.best_metrics["best_reward"] = current_reward
             return True
         else:
             return False
 
-    def is_better_objective(self):
-        """Checks if the current objective is better than the best recorded objective."""
-        is_better, self.best_objective = self.get_best_objective()
-        return is_better
-
     def close(self):
-        """Closes the SummaryWriter."""
         self.writer.close()

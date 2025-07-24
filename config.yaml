@@ -1,21 +1,27 @@
 settings:
   mode: 0 # 0: GUI_RL, 2: NoGUI_RL, # Mode 1 is GUI and Mode 2 is NoGUI (ONLY Simulation)
-  rl_mode: "eval" # either "train" or "eval"
+  rl_mode: "train" # either "train" or "eval"
   resume: false # Whether to resume training from the last checkpoint
   llm_support: false # Whether to use LLM support for the environment (currently not supported)
   hierarchy_type: planner_agent # Type of hierarchy to use for the agents (fly_agent, explore_agent, planner_agent)
   skip_gui_init: true # Uses this config as default and skips the GUI setup
   auto_train:
-    use_auto_train: false # Whether to use auto training
-    max_eval: 100 # Maximum number of evaluations to perform
+    use_auto_train: true # Whether to use auto training
+    train_episodes: 3 # Number of total trainings, each containing max_train train_steps
+    max_train: 1 # Maximum number of train_steps to perform
+    max_eval: 1 # Maximum number of evaluations to perform
 paths:
-  # Path to the directory where models are stored
+  # Directory and Name where models are saved
   # This is the root_path where your new trained models data is stored
   # No Loading is ever done from this folder, use the default_model_paths for each agent for that
-  model_directory: models2/
+  model_directory: models/log_test
+  model_name: "" # Leave this empty to get a default name from this config
+  # Name of the CORINE dataset-file, Path to the Corine dataset file must be set in project_paths.json (generated default paths at compile time)
   corine_dataset_name: CLMS_CLCplus_RASTER_2021_010m_eu_03035_V1_1.tif # Name of the Corine datasetco to use
   log_directory: ./logs
-  init_map: 35x36_Woods.tif # This map is used in NoGUI & use_default setup, if left empty("") the default map will be used.
+  # This map is used in NoGUI & use_default setup, if left empty("") the default map will be used.
+  # TODO Make this a list of maps to choose from
+  init_map: 35x36_Woods.tif
 
 algorithm:
   type: PPO
@@ -48,7 +54,7 @@ fire_model:
   rendering:
     render_grid: false
     has_noise: true
-    lingering: true
+    lingering: false
     noise_level: 20
     noise_size: 2
     background_color: [21, 19, 51, 255] #[41, 49, 51, 255]
@@ -92,10 +98,12 @@ fire_model:
 
 # Environment Parameters
 environment:
-  frame_skips: 1 # Number of frames to skip in the environment (1 for no skipping) # TODO Reimplement this this is not correctly implemented
+  # TODO Reimplement this this is not correctly implemented v
+  frame_skips: 1 # Number of frames to skip in the environment (1 for no skipping)
   fire_behaviour:
-    ignite_single_cells: false
-    fire_percentage: 0.5
+    # These parameters are used to configure the fire behaviour in the environment
+    fire_percentage: 0.5 # Percentage of cells that should be ignited at the start of the simulation
+    ignite_single_cells: false # Whether to ignite single cells or ignite clusters
     fire_spread_prob: 0.095
     fire_noise: 1
     recharge_time_active: false
