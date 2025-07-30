@@ -254,7 +254,7 @@ void ImguiHandler::RLStatusParser(const py::dict& rl_status) {
     ImGui::PopStyleColor();
     ImGui::Text("Train Step(Policy Updates): %d(%d)", train_step, policy_updates);
     ImGui::Text("Horizon: %d/%d", obs_collected, min_update);
-    ImGui::Text("Auto Train: %s", auto_train ? "true" : "false");
+//    ImGui::Text("Auto Train: %s", auto_train ? "true" : "false");
     ImGui::Separator();
     ImGui::SetWindowFontScale(1.5f);
     ImGui::PushStyleColor(ImGuiCol_Text, color);
@@ -273,7 +273,19 @@ void ImguiHandler::RLStatusParser(const py::dict& rl_status) {
         if (ImGui::IsItemHovered())
             ImGui::SetTooltip("The best Objective might go lower sometimes, this behaviour is intended and occurs because it is recalculated at policy update.");
     }
+    ImGui::Text("Environment Steps before Failure: %d/%d",parameters_.GetCurrentEnvSteps(), parameters_.GetTotalEnvSteps());
+    if (ImGui::IsItemHovered())
+        ImGui::SetTooltip("The number of steps the environment will take before the episode is considered a failure.\n"
+                          "This number is calculated by the size of the map and the simulation time:\n"
+                          "sqrt(grid_nx_ * grid_nx_ + grid_ny_ * grid_ny_) * (20 / (max_velocity * dt_)");
+    ImGui::Separator();
     if(auto_train){
+        ImGui::Separator();
+        ImGui::SetWindowFontScale(1.5f);
+        ImGui::PushStyleColor(ImGuiCol_Text, color);
+        ImGui::Text("Auto Training: ON");
+        ImGui::SetWindowFontScale(1.0f);
+        ImGui::PopStyleColor();
         auto train_episodes = rl_status["train_episodes"].cast<int>();
         auto max_eval = rl_status["max_eval"].cast<int>();
         auto max_train = rl_status["max_train"].cast<int>();
@@ -323,12 +335,6 @@ void ImguiHandler::PyConfig(std::string &user_input,
 
         RLStatusParser(rl_status);
         auto console = rl_status["console"].cast<std::string>();
-        ImGui::Text("Environment Steps before failure: %d/%d",parameters_.GetCurrentEnvSteps(), parameters_.GetTotalEnvSteps());
-        if (ImGui::IsItemHovered())
-            ImGui::SetTooltip("The number of steps the environment will take before the episode is considered a failure.\n"
-                              "This number is calculated by the size of the map and the simulation time:\n"
-                              "sqrt(grid_nx_ * grid_nx_ + grid_ny_ * grid_ny_) * (20 / (max_velocity * dt_)");
-        ImGui::Separator();
 
         if (ImGui::BeginTabBar("RLStatus")){
             if (ImGui::BeginTabItem("Console")) {
@@ -825,12 +831,64 @@ void ImguiHandler::FileHandling(const std::shared_ptr<DatasetHandler>& dataset_h
     }
 }
 
-bool ImguiHandler::ImGuiOnStartup(const std::shared_ptr<FireModelRenderer>& model_renderer, std::vector<std::vector<int>> &current_raster_data) {
-    if (!model_startup_ && !parameters_.skip_gui_init_) {
+void ImguiHandler::CheckForModelPathSelection(const std::shared_ptr<FireModelRenderer>& model_renderer) {
+
+    if (!parameters_.check_for_model_folder_empty_) {
         int width, height;
         SDL_GetRendererOutputSize(model_renderer->GetRenderer(), &width, &height);
-        if(!model_mode_selection_ && mode_ == Mode::GUI_RL){
-            ImGui::Begin("Select Mode", nullptr, ImGuiWindowFlags_NoResize | ImGuiWindowFlags_NoCollapse | ImGuiWindowFlags_NoMove | ImGuiWindowFlags_AlwaysAutoResize);
+        // Check if there are files in the model folder from previous runs
+        auto rl_status = onGetRLStatus();
+        auto model_path = rl_status["model_path"].cast<std::string>();
+        auto model_name = rl_status["model_name"].cast<std::string>();
+        auto resume = rl_status["resume"].cast<bool>();
+        // Find files and folders in model_path
+        std::filesystem::path model_dir(model_path);
+        if (std::filesystem::exists(model_dir) && std::filesystem::is_directory(model_dir) && !resume) {
+            if (!std::filesystem::is_empty(model_dir)) {
+                ImGui::Begin("Model Folder Check", nullptr,
+                             ImGuiWindowFlags_NoResize | ImGuiWindowFlags_NoCollapse | ImGuiWindowFlags_NoMove |
+                             ImGuiWindowFlags_AlwaysAutoResize);
+                ImVec2 window_size = ImGui::GetWindowSize(); // Actual size after auto-resizing
+                ImGui::SetWindowPos(ImVec2((static_cast<float>(width) - window_size.x) * 0.5f,
+                                           (static_cast<float>(height) - window_size.y) * 0.5f));
+                ImGui::Spacing();
+                ImGui::Text("Model Folder not empty.");
+                ImGui::Text("Delete all files in the folder:");
+                ImGui::Text("%s", model_path.c_str());
+                if (ImGui::Button("Delete Files and Continue",ImVec2(-1, 0))) {
+                    parameters_.check_for_model_folder_empty_ = true;
+                }
+                if (ImGui::Button("Close Program", ImVec2(-1, 0))) {
+                    // Close the dialog and close the program correctly
+                    parameters_.check_for_model_folder_empty_ = true;
+                    parameters_.initial_mode_selection_done_ = true;
+                    parameters_.exit_carefully_ = true;
+                }
+                ImGui::End();
+            } else {
+                parameters_.check_for_model_folder_empty_ = true;
+            }
+        } else {
+            parameters_.check_for_model_folder_empty_ = true;
+        }
+    }
+}
+
+
+bool ImguiHandler::ImGuiOnStartup(const std::shared_ptr<FireModelRenderer>& model_renderer, std::vector<std::vector<int>> &current_raster_data) {
+
+    if (parameters_.skip_gui_init_) {
+        this->CheckForModelPathSelection(model_renderer);
+    }
+
+    if (!model_startup_ && !parameters_.skip_gui_init_) {
+        int width, height;
+        static bool model_path_selection = false;
+        SDL_GetRendererOutputSize(model_renderer->GetRenderer(), &width, &height);
+        if (!model_mode_selection_ && mode_ == Mode::GUI_RL) {
+            ImGui::Begin("Select Mode", nullptr,
+                         ImGuiWindowFlags_NoResize | ImGuiWindowFlags_NoCollapse | ImGuiWindowFlags_NoMove |
+                         ImGuiWindowFlags_AlwaysAutoResize);
             ImVec2 window_size = ImGui::GetWindowSize(); // Actual size after auto-resizing
             ImGui::SetWindowPos(ImVec2((static_cast<float>(width) - window_size.x) * 0.5f,
                                        (static_cast<float>(height) - window_size.y) * 0.5f));
@@ -840,10 +898,62 @@ bool ImguiHandler::ImGuiOnStartup(const std::shared_ptr<FireModelRenderer>& mode
             ImGui::PushStyleColor(ImGuiCol_ButtonActive, ImVec4(0.45f, 0.5f, 0.75f, 1.0f));
             auto rl_status = onGetRLStatus();
 
+            if (ImGui::Button("Train Model", ImVec2(-1, 0))) {
+//                py::dict rl_status = onGetRLStatus();
+                auto console = rl_status["console"].cast<std::string>();
+                console += "Initialized ROSHAN in Train mode.\n";
+                rl_status[py::str("rl_mode")] = py::str("train");
+                train_mode_selected_ = true;
+                model_mode_selection_ = true;
+                model_path_selection = true;
+            }
+            if (ImGui::Button("Load Model", ImVec2(-1, 0))) {
+//                py::dict rl_status = onGetRLStatus();
+                auto console = rl_status["console"].cast<std::string>();
+                console += "Initialized ROSHAN in Eval mode.\n";
+                rl_status[py::str("console")] = console;
+                rl_status[py::str("rl_mode")] = py::str("eval");
+                model_mode_selection_ = true;
+                model_load_selection_ = true;
+                open_file_dialog_ = true;
+                parameters_.check_for_model_folder_empty_ = true;
+            }
+            ImGui::Spacing();
+            auto resume = rl_status["resume"].cast<bool>();
+            ImGui::Checkbox("Resume Training from Checkpoint?", &resume);
+            ImGui::Spacing();
+            rl_status[py::str("resume")] = resume;
+            onSetRLStatus(rl_status);
+            ImGui::PopStyleColor(3);
+            ImGui::End();
+            return true;
+        }
+        else if (model_path_selection) {
+            this->CheckForModelPathSelection(model_renderer);
+            if (parameters_.check_for_model_folder_empty_) {
+                model_path_selection = false;
+            }
+            return true;
+        }
+        else if (train_mode_selected_) {
+            ImGui::PushStyleColor(ImGuiCol_Button, ImVec4(0.45f, 0.6f, 0.85f, 1.0f));
+            ImGui::PushStyleColor(ImGuiCol_ButtonHovered, ImVec4(0.45f, 0.7f, 0.95f, 1.0f));
+            ImGui::PushStyleColor(ImGuiCol_ButtonActive, ImVec4(0.45f, 0.5f, 0.75f, 1.0f));
+            ImGui::Begin("Training Setup", nullptr,
+                         ImGuiWindowFlags_NoResize | ImGuiWindowFlags_NoCollapse | ImGuiWindowFlags_NoMove |
+                         ImGuiWindowFlags_AlwaysAutoResize);
+            ImVec2 window_size = ImGui::GetWindowSize(); // Actual size after auto-resizing
+            ImGui::SetWindowPos(ImVec2((static_cast<float>(width) - window_size.x) * 0.5f,
+                                       (static_cast<float>(height) - window_size.y) * 0.5f));
+            ImGui::Spacing();
+            ImGui::Text("Algorithm specific parameters must be changed in the Config files.");
+            ImGui::Spacing();
             // Combo Box for selecting the Agent Types
+            auto rl_status = onGetRLStatus();
             auto hierarchy_type = rl_status["hierarchy_type"].cast<std::string>();
-            const char* hierarchy_types[] = {"fly_agent", "explore_agent", "planner_agent"};
-            static int current_hierarchy_type = hierarchy_type == "fly_agent" ? 0 : hierarchy_type == "explore_agent" ? 1 : 2;
+            const char *hierarchy_types[] = {"fly_agent", "explore_agent", "planner_agent"};
+            static int current_hierarchy_type =
+                    hierarchy_type == "fly_agent" ? 0 : hierarchy_type == "explore_agent" ? 1 : 2;
             ImGui::Text("Select Agent Type");
             if (ImGui::BeginCombo("##Hierarchy Type", hierarchy_types[current_hierarchy_type])) {
                 for (int n = 0; n < IM_ARRAYSIZE(hierarchy_types); n++) {
@@ -858,22 +968,22 @@ bool ImguiHandler::ImGuiOnStartup(const std::shared_ptr<FireModelRenderer>& mode
             ImGui::Spacing();
             auto num_agents = rl_status["num_agents"].cast<int>();
             ImGui::InputInt("Number of Agents", &num_agents, 1, 10, ImGuiInputTextFlags_CharsDecimal);
-            if(ImGui::IsItemHovered()){
+            if (ImGui::IsItemHovered()) {
                 // FlyAgent
                 if (current_hierarchy_type == 0) {
-                    ImGui::SetTooltip("The Number of Agents is the number of drones present in the environment. Each drone collects observations and shares the same network.");
+                    ImGui::SetTooltip(
+                            "The Number of Agents is the number of drones present in the environment. Each drone collects observations and shares the same network.");
                 } // explore_agent
                 else if (current_hierarchy_type == 1) {
-                    ImGui::SetTooltip("The Number of Agents is the number of Explorers the explore_agents deploys. Each Explorer collects observations and shares the same network.");
+                    ImGui::SetTooltip(
+                            "The Number of Agents is the number of Explorers the explore_agents deploys. Each Explorer collects observations and shares the same network.");
                 }
             }
             if (current_hierarchy_type == 0) {
                 parameters_.SetNumberOfDrones(num_agents);
-            }
-            else if (current_hierarchy_type == 1) {
+            } else if (current_hierarchy_type == 1) {
                 parameters_.SetNumberOfExplorers(num_agents);
-            }
-            else {
+            } else {
                 parameters_.SetNumberOfExtinguishers(num_agents);
             }
             rl_status[py::str("num_agents")] = num_agents;
@@ -884,8 +994,9 @@ bool ImguiHandler::ImGuiOnStartup(const std::shared_ptr<FireModelRenderer>& mode
 
             // Combo Box for selecting the RL Algorithm
             auto rl_algorithm = rl_status["rl_algorithm"].cast<std::string>();
-            const char* rl_algorithms[] = {"PPO", "TD3", "IQL"};
-            static int current_rl_algorithm = rl_algorithm == "PPO" ? 0 : rl_algorithm == "TD3" ? 1 : rl_algorithm == "IQL" ? 2 : 3;
+            const char *rl_algorithms[] = {"PPO", "TD3", "IQL"};
+            static int current_rl_algorithm =
+                    rl_algorithm == "PPO" ? 0 : rl_algorithm == "TD3" ? 1 : rl_algorithm == "IQL" ? 2 : 3;
             ImGui::Text("Select RL Algorithm");
             if (ImGui::BeginCombo("##RL Algorithm", rl_algorithms[current_rl_algorithm])) {
                 for (int n = 0; n < IM_ARRAYSIZE(rl_algorithms); n++) {
@@ -899,69 +1010,6 @@ bool ImguiHandler::ImGuiOnStartup(const std::shared_ptr<FireModelRenderer>& mode
             }
             rl_status[py::str("rl_algorithm")] = rl_algorithms[current_rl_algorithm];
             ImGui::Spacing();
-
-            if (ImGui::Button("Train Model", ImVec2(-1, 0))) {
-//                py::dict rl_status = onGetRLStatus();
-                auto console = rl_status["console"].cast<std::string>();
-                console += "Initialized ROSHAN in Train mode.\n";
-                auto model_path = rl_status["model_path"].cast<std::string>();
-                auto model_name = rl_status["model_name"].cast<std::string>();
-                console += "Saving Model to: " + (std::filesystem::path(model_path) / std::filesystem::path(model_name)).string() + "\n";
-                rl_status[py::str("console")] = console;
-                rl_status[py::str("rl_mode")] = py::str("train");
-                train_mode_selected_ = true;
-                model_mode_selection_ = true;
-            }
-            if (ImGui::Button("Load Model", ImVec2(-1, 0))) {
-//                py::dict rl_status = onGetRLStatus();
-                auto console = rl_status["console"].cast<std::string>();
-                console += "Initialized ROSHAN in Eval mode.\n";
-                rl_status[py::str("console")] = console;
-                rl_status[py::str("rl_mode")] = py::str("eval");
-                model_mode_selection_ = true;
-                model_load_selection_ = true;
-                open_file_dialog_ = true;
-            }
-            onSetRLStatus(rl_status);
-            ImGui::PopStyleColor(3);
-            ImGui::End();
-            return true;
-        }
-        else if (train_mode_selected_) {
-            ImGui::PushStyleColor(ImGuiCol_Button, ImVec4(0.45f, 0.6f, 0.85f, 1.0f));
-            ImGui::PushStyleColor(ImGuiCol_ButtonHovered, ImVec4(0.45f, 0.7f, 0.95f, 1.0f));
-            ImGui::PushStyleColor(ImGuiCol_ButtonActive, ImVec4(0.45f, 0.5f, 0.75f, 1.0f));
-            ImGui::Begin("Training Setup", nullptr, ImGuiWindowFlags_NoResize | ImGuiWindowFlags_NoCollapse | ImGuiWindowFlags_NoMove | ImGuiWindowFlags_AlwaysAutoResize);
-            ImVec2 window_size = ImGui::GetWindowSize(); // Actual size after auto-resizing
-            ImGui::SetWindowPos(ImVec2((static_cast<float>(width) - window_size.x) * 0.5f,
-                                       (static_cast<float>(height) - window_size.y) * 0.5f));
-            ImGui::Spacing();
-            ImGui::Text("Algorithm specific parameters must be changed in their Config files.");
-            ImGui::Spacing();
-            py::dict rl_status = onGetRLStatus();
-            auto auto_train = rl_status["auto_train"].cast<bool>();
-            auto train_episodes = rl_status["train_episodes"].cast<int>();
-            auto max_eval = rl_status["max_eval"].cast<int>();
-            auto max_train = rl_status["max_train"].cast<int>();
-            if (auto_train) {
-                ImGui::InputInt("Train X Models", &train_episodes, 1, 10, ImGuiInputTextFlags_CharsDecimal);
-                if(ImGui::IsItemHovered())
-                    ImGui::SetTooltip("Train a number of consecutive models and auto evaluate them.");
-                ImGui::InputInt("Max Train Steps", &max_train, 1, 10, ImGuiInputTextFlags_CharsDecimal);
-                if(ImGui::IsItemHovered())
-                    ImGui::SetTooltip("Maximum Training Steps before continuing training the next model.");
-                ImGui::InputInt("Max Eval Steps", &max_eval, 1, 10, ImGuiInputTextFlags_CharsDecimal);
-                if(ImGui::IsItemHovered())
-                    ImGui::SetTooltip("Maximum Evaluation Steps for EACH trained Model!");
-                rl_status[py::str("max_train")] = max_train;
-                rl_status[py::str("train_episodes")] = train_episodes;
-                rl_status[py::str("max_eval")] = max_eval;
-            }
-            ImGui::Checkbox("Auto Train/Eval", &auto_train);
-            if(ImGui::IsItemHovered())
-                ImGui::SetTooltip("Automatically train and evaluate models.");
-            rl_status[py::str("auto_train")] = auto_train;
-            onSetRLStatus(rl_status);
             if (ImGui::Button("Proceed to Map Selection", ImVec2(-1, 0))) {
                 train_mode_selected_ = false;
             }
@@ -970,7 +1018,9 @@ bool ImguiHandler::ImGuiOnStartup(const std::shared_ptr<FireModelRenderer>& mode
             return true;
         }
         else {
-            ImGui::Begin("Map Selection", nullptr, ImGuiWindowFlags_NoResize | ImGuiWindowFlags_NoCollapse | ImGuiWindowFlags_NoMove | ImGuiWindowFlags_AlwaysAutoResize);
+            ImGui::Begin("Map Selection", nullptr,
+                         ImGuiWindowFlags_NoResize | ImGuiWindowFlags_NoCollapse | ImGuiWindowFlags_NoMove |
+                         ImGuiWindowFlags_AlwaysAutoResize);
             ImGui::Spacing();
             ImGui::PushStyleColor(ImGuiCol_Button, ImVec4(0.45f, 0.6f, 0.85f, 1.0f));
             ImGui::PushStyleColor(ImGuiCol_ButtonHovered, ImVec4(0.45f, 0.7f, 0.95f, 1.0f));
@@ -1001,9 +1051,8 @@ bool ImguiHandler::ImGuiOnStartup(const std::shared_ptr<FireModelRenderer>& mode
             ImGui::End();
             return still_no_init;
         }
-    } else {
-        return false;
     }
+    return false;
 }
 
 void ImguiHandler::ShowParameterConfig(const std::shared_ptr<Wind>& wind) {

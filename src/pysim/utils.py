@@ -39,6 +39,7 @@ class SimulationBridge:
             # Settable Parameters (can be changed by the user, BUT should really only be changed through the config file)
             "hierarchy_type": hierarchy,  # Either fly_agent, explore_agent or planner_agent
             "rl_mode": config["settings"]["rl_mode"],  # "train" or "eval"
+            "resume": config["settings"]["resume"],  # If True, the agent will resume training from the last checkpoint
             "model_path": os.path.join(root_path, config["paths"]["model_directory"]),
             "model_name": config["paths"]["model_name"],  # Name of the model to load or save
             "num_agents": agent["num_agents"],  # Number of agents in the environment
@@ -261,7 +262,7 @@ class Logger:
                 self.log_histogram(tag, values)
         # Log Episode Length, Objectives, etc.
         if self.episode_ended:
-            self.log_scalar("Episode Steps", self.episode_steps)
+            self.log_scalar("Sanitylogs/Episode_Steps", self.episode_steps)
             self.episode_steps = 0
         if len(self.objectives) == self.objectives.maxlen:
             self.log_scalar("Objective", np.mean(self.objectives))
@@ -271,6 +272,7 @@ class Logger:
         self.histograms.clear()
         self.episode_ended = False
         self.logging_step += 1
+        self.save_state()
 
     def log_hparams(self, hparams: dict):
         """
@@ -307,13 +309,13 @@ class Logger:
 
     def log_scalar(self, tag, value, step: int = None):
         t = self.logging_step if step is None else step
-        self.writer.add_scalar(tag, value, t)
+        self.writer.add_scalar(tag, value, t, new_style=True)
 
     def log_histogram(self, tag, values, step: int = None):
         t = self.logging_step if step is None else step
         if isinstance(values, list):
             values = np.array(values)
-        self.writer.add_histogram(tag + "_hist", values, t)
+        self.writer.add_histogram(tag + "_hist", values, t, bins='auto')
 
     def log_text(self, tag, text, step: int = None):
         t = self.logging_step if step is None else step

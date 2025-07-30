@@ -30,10 +30,10 @@ namespace py = pybind11;
 
 class FireModel : public IModel{
 public:
-    explicit FireModel(Mode mode);
+    explicit FireModel(Mode mode, const std::string& config_path);
 
-    static std::shared_ptr<FireModel> Create(Mode mode) {
-        return std::make_shared<FireModel>(mode);
+    static std::shared_ptr<FireModel> Create(Mode mode, const std::string& config_path) {
+        return std::make_shared<FireModel>(mode, config_path);
     }
 
     ~FireModel() override;
@@ -49,6 +49,7 @@ public:
     void Render() override;
     void SetRenderer(SDL_Renderer* renderer) override;
     bool AgentIsRunning() override;
+    bool GetEarlyClosing() override;
     void HandleEvents(SDL_Event event, ImGuiIO* io) override;
     void ImGuiRendering(bool &update_simulation, bool &render_simulation, int &delay, float framerate) override;
     std::string GetUserInput() override;

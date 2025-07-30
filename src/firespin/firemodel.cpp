@@ -6,18 +6,17 @@
 
 #include <utility>
 
-FireModel::FireModel(Mode mode) : mode_(mode)
+FireModel::FireModel(Mode mode, const std::string& config_path) : mode_(mode)
 {
     running_time_ = 0;
     timer_.Start();
 
-    parameters_.init("/home/nex/Dokumente/Code/ROSHAN/config.yaml");
+    parameters_.init(config_path);
     dataset_handler_ = std::make_shared<DatasetHandler>(parameters_.corine_dataset_name_);
     parameters_.SetCorineLoaded(dataset_handler_->HasCorineLoaded());
     model_renderer_ = nullptr;
     wind_ = std::make_shared<Wind>(parameters_);
     gridmap_ = nullptr;
-    rl_handler_ = nullptr;
 
     user_input_ = "";
     model_output_ = "Hey, let's talk.";
@@ -28,12 +27,15 @@ FireModel::FireModel(Mode mode) : mode_(mode)
         this->setupImGui();
     }
     if (mode_ == Mode::GUI || mode_ == Mode::NoGUI){
+        parameters_.check_for_model_folder_empty_ = true;
         parameters_.SetNumberOfDrones(0);
     }
     if (mode_ == Mode::NoGUI_RL) {
         parameters_.SetAgentIsRunning(true);
+        parameters_.check_for_model_folder_empty_ = true;
+        std::cout << "Running in NoGUI_RL mode. Agent always runs." << std::endl;
     }
-    if (parameters_.skip_gui_init_) {
+    if (parameters_.skip_gui_init_ && (mode_ != Mode::NoGUI_RL && mode_ != Mode::NoGUI)) {
         imgui_handler_->DefaultModeSelected();
     }
     std::cout << "Created FireModel" << std::endl;
@@ -206,8 +208,8 @@ void FireModel::LoadMap(const std::string& path) {
 
 void FireModel::setupRLHandler() {
     rl_handler_ = ReinforcementLearningHandler::Create(parameters_);
-    std::cout << "Created ReinforcementLearning Handler" << std::endl;
     rl_handler_->startFires = [this](float percentage) {StartFires(percentage);};
+    std::cout << "Created ReinforcementLearning Handler" << std::endl;
 }
 
 void FireModel::setupImGui() {
@@ -364,5 +366,9 @@ void FireModel::IgniteFireCluster(int fires) {
 }
 
 bool FireModel::InitialModeSelectionDone() {
-    return parameters_.InitialModeSelectionDone();
+    return parameters_.initial_mode_selection_done_ && parameters_.check_for_model_folder_empty_;
+}
+
+bool FireModel::GetEarlyClosing() {
+    return !parameters_.exit_carefully_;
 }

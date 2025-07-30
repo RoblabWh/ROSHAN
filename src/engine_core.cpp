@@ -6,7 +6,7 @@
 
 #include <utility>
 
-bool EngineCore::Init(int mode){
+bool EngineCore::Init(int mode, const std::string& config_path){
     mode_ = static_cast<Mode>(mode);
     // Switch case for every mode and print the mode
     switch (mode_) {
@@ -38,12 +38,12 @@ bool EngineCore::Init(int mode){
         ImGui::PushStyleColor(ImGuiCol_Button, ImVec4(0.45f, 0.6f, 0.85f, 1.0f));
         ImGui::PushStyleColor(ImGuiCol_ButtonHovered, ImVec4(0.45f, 0.7f, 0.95f, 1.0f));
         ImGui::PushStyleColor(ImGuiCol_ButtonActive, ImVec4(0.45f, 0.5f, 0.75f, 1.0f));
-        model_ = FireModel::Create(mode_);
+        model_ = FireModel::Create(mode_, config_path);
         model_->SetRenderer(renderer_);
         ImGui::PopStyleColor(3);
     } else if (mode_ == Mode::NoGUI || mode_ == Mode::NoGUI_RL) {
         std::cout << "Loading Firemodel without GUI\n";
-        model_ = FireModel::Create(mode_);
+        model_ = FireModel::Create(mode_, config_path);
         update_simulation_ = true;
         std::cout << "Firemodel loaded\n";
 
@@ -113,15 +113,20 @@ void EngineCore::HandleEvents() {
     // Generally you may always pass all inputs to dear imgui, and hide them from your application based on those two flags.
     if (mode_ == Mode::GUI || mode_ == Mode::GUI_RL) {
         SDL_Event event;
+        if (model_ != nullptr) {
+            is_running_ = model_->GetEarlyClosing();
+        }
         while (SDL_PollEvent(&event))
         {
             ImGui_ImplSDL2_ProcessEvent(&event);
-            if (event.type == SDL_QUIT)
-                is_running_ = false;
-            if (event.type == SDL_WINDOWEVENT && event.window.event == SDL_WINDOWEVENT_CLOSE && event.window.windowID == SDL_GetWindowID(window_))
-                is_running_ = false;
-            if (model_ != nullptr){
+            if (model_ != nullptr) {
                 model_->HandleEvents(event, io_);
+            }
+            if (event.type == SDL_QUIT) {
+                is_running_ = false;
+            }
+            if (event.type == SDL_WINDOWEVENT && event.window.event == SDL_WINDOWEVENT_CLOSE && event.window.windowID == SDL_GetWindowID(window_)) {
+                is_running_ = false;
             }
         }
     }
@@ -218,6 +223,10 @@ std::string EngineCore::GetUserInput() {
 }
 
 bool EngineCore::InitialModeSelectionDone() {
+    // Early closing through Events
+    if (!is_running_) {
+        return true;
+    }
     return model_->InitialModeSelectionDone();
 }
 

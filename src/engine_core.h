@@ -40,7 +40,7 @@ public:
     EngineCore()= default;
     ~EngineCore();
 
-    bool Init(int mode);
+    bool Init(int mode, const std::string& config_path = "../config.yaml");
     void Clean();
 
     void Update();

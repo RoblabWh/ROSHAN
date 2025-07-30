@@ -88,7 +88,7 @@ private:
     template<typename T>
     void DrawGrid(const std::vector<std::vector<T>> &grid, const std::string color_status);
     static void DrawBuffer(std::vector<float> buffer, int buffer_pos);
-
+    void CheckForModelPathSelection(const std::shared_ptr<FireModelRenderer>& model_renderer);
     void RLStatusParser(const py::dict& rl_status);
 };
 

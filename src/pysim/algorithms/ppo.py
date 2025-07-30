@@ -106,10 +106,10 @@ class PPO(RLAlgorithm):
     def save(self, logger: Logger):
         console = ""
         if logger.is_better_reward():
-            console = f"Saving Network with best reward {logger.best_metrics['best_reward']:.4f} in episode {logger.episode}\n"
+            console = f"Saving Network with best reward {logger.best_metrics['best_reward']:.4f} in episode {logger.episode}"
             torch.save(self.policy.state_dict(), f'{os.path.join(self.get_model_path(), self.get_model_name_reward())}')
         if logger.is_better_objective():
-            console = f"Saving Network with best objective {logger.best_metrics['best_objective']:.2f} in episode {logger.episode}\n"
+            console = f"Saving Network with best objective {logger.best_metrics['best_objective']:.2f} in episode {logger.episode}"
             torch.save(self.policy.state_dict(), f'{os.path.join(self.get_model_path(), self.get_model_name_obj())}')
         torch.save(self.policy.state_dict(), f'{os.path.join(self.get_model_path(), self.get_model_name_latest())}')
 
@@ -190,7 +190,7 @@ class PPO(RLAlgorithm):
         console = ""
         log_rewards = torch.cat(ext_rewards).detach().cpu().numpy() if intrinsic_rewards is None \
            else torch.cat(intrinsic_rewards).detach().cpu().numpy() + torch.cat(ext_rewards).detach().cpu().numpy()
-        logger.add_metric("rewards", log_rewards)
+        logger.add_metric("Rewards/Rewards_Raw", log_rewards)
 
         # Save current weights if mean reward or objective is higher than the best so far
         # (Save BEFORE training, so if the policy worsens we can still go back)
@@ -205,6 +205,9 @@ class PPO(RLAlgorithm):
 
         rewards = ext_rewards if intrinsic_rewards is None \
             else [ext_reward + int_reward for ext_reward, int_reward in zip(ext_rewards, intrinsic_rewards)]
+
+        log_rewards = torch.cat(rewards).detach().cpu().numpy()
+        logger.add_metric("Rewards/Rewards_norm", log_rewards)
 
         # Advantages
         with (torch.no_grad()):
@@ -234,9 +237,9 @@ class PPO(RLAlgorithm):
         #v_masks = memory.rearrange_masks(variable_state_masks) if self.use_variable_state_masks else None
 
         # Logging before proceeding to batched training
-        logger.add_metric("returns", returns.detach().cpu().numpy())
-        logger.add_metric("advantages", advantages.detach().cpu().numpy())
-        logger.add_metric("old_logprobs", old_logprobs.detach().cpu().numpy())
+        logger.add_metric("Rewards/Returns", returns.detach().cpu().numpy())
+        logger.add_metric("Rewards/Advantages", advantages.detach().cpu().numpy())
+        logger.add_metric("Sanitylogs/old_logprobs", old_logprobs.detach().cpu().numpy())
 
         # Train policy for K epochs: sampling and updating
         for _ in range(self.k_epochs):
@@ -272,9 +275,9 @@ class PPO(RLAlgorithm):
                 value_loss = self.MSE_loss(values, returns[index].squeeze())
 
                 # Log loss
-                logger.add_metric("critic_loss", value_loss.detach().cpu().numpy())
-                logger.add_metric("actor_loss", actor_loss.detach().cpu().numpy())
-                logger.add_metric("log_std", torch.exp(self.policy.actor.log_std).detach().cpu().numpy())
+                logger.add_metric("Loss/critic_loss", value_loss.detach().cpu().numpy())
+                logger.add_metric("Loss/actor_loss", actor_loss.detach().cpu().numpy())
+                logger.add_metric("Loss/log_std", torch.exp(self.policy.actor.log_std).detach().cpu().numpy())
                 logging_values.append(values.detach().cpu().numpy())
                 epoch_values.append(values.detach().cpu().numpy())
                 epoch_returns.append(returns[index].detach().cpu().numpy())
@@ -314,9 +317,9 @@ class PPO(RLAlgorithm):
             # if ev <= 0:
             #     console += (f"Explained Variance for Epoch {_}: {ev}\n"
             #                 f"This is bad. The Critic might aswell have predicted zero or is even doing worse than that.\n")
-            logger.add_metric("explained_variance", ev)
+            logger.add_metric("Sanitylogs/Explained_Variance", ev)
 
 
-        logger.add_metric("values", np.concatenate(logging_values).flatten())
+        logger.add_metric("Values", np.concatenate(logging_values).flatten())
 
         return console

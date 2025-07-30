@@ -1,5 +1,5 @@
 import yaml
-import os
+import os, shutil
 import sys
 from utils import SimulationBridge, get_project_paths
 
@@ -20,15 +20,32 @@ if pythonversion != firesimverison:
                      f"Activate your conda environment before compiling the library.")
 
 import firesim
-from agent_handler import AgentHandler
 from hierarchy_manager import HierarchyManager
 
-def main():
-    # Lists alls the functions in the EngineCore class
-    # print(dir(EngineCore))
-    root_path = get_project_paths("root_path")
-    with open(os.path.join(root_path, 'config.yaml'), 'r') as f:
+def assert_config(config):
+    """
+    Asserts that the config dictionary doesn't have some wild configurations.
+    """
+    assert config["settings"]["mode"] in [0, 2], "Invalid mode in config.yaml. Must be 0 (GUI_RL), 2 (NoGUI_RL)"
+    assert config["settings"]["hierarchy_type"] in ["fly_agent", "explore_agent", "planner_agent"], \
+        "Invalid hierarchy_type in config.yaml. Must be 'fly_agent', 'explore_agent', or 'planner_agent'."
+    assert config["settings"]["rl_mode"] in ["train", "eval"], "Invalid rl_mode in config.yaml. Must be 'train' or 'eval'."
+    hierarchy_type = config["settings"]["hierarchy_type"]
+    if hierarchy_type == "planner_agent":
+        assert config["environment"]["agent"]["fly_agent"]["default_model_folder"] != "", \
+            "default_model_folder for fly_agent cannot be empty in config.yaml when planner_agent is selected."
+        assert config["environment"]["agent"]["fly_agent"]["default_model_name"] != "", \
+            "default_model_name cannot be empty in config.yaml when planner_agent is selected."
+    # Assert that resume is off when auto_train is on
+    if config["settings"]["auto_train"]["use_auto_train"]:
+        assert not config["settings"]["resume"], "resume cannot be True when auto_train is enabled in config.yaml."
+
+def main(config_path_ : str = ""):
+
+    with open(config_path_, 'r') as f:
         config = yaml.safe_load(f)
+
+    assert_config(config)
 
     # RL_Status Dictionary, sending back and forth to C++
     sim_bridge = SimulationBridge(config)
@@ -48,7 +65,7 @@ def main():
     # Wait for the initial mode selection from the user
     while not engine.InitialModeSelectionDone():
         engine.HandleEvents()
-        engine.Update()
+        engine.Update() # Pretty useless here
         engine.Render()
 
     sim_bridge.set_status(engine.GetRLStatusFromModel())
@@ -66,13 +83,38 @@ def main():
             # Shouldn't really be an issue when the user selects "train" mode, but just in case
             agent_settings["default_model_folder"] = sim_bridge.get("model_path")
             agent_settings["default_model_name"] = sim_bridge.get("model_name")
+            # Only change resume parameter if the user really loaded a model
+            general_settings["resume"] = sim_bridge.get("resume")
+            if sim_bridge.get("resume"):
+                general_settings["rl_mode"] = "train"
+                sim_bridge.set("rl_mode", "train")
 
-        # Update auto_train settings
-        auto_train_settings = config["settings"]["auto_train"]
-        auto_train_settings["use_auto_train"] = sim_bridge.get("auto_train")
-        auto_train_settings["train_episodes"] = sim_bridge.get("train_episodes")
-        auto_train_settings["max_eval"] = sim_bridge.get("max_eval")
-        auto_train_settings["max_train"] = sim_bridge.get("max_train")
+    # Check if the model_folder is empty, if not, ask the user if they want to proceed (and delete the contents in the folder)
+    # The content only needs to be deleted if the resume parameter is set to False
+    engine.HandleEvents()
+    if os.path.exists(sim_bridge.get("model_path")) and engine.IsRunning():
+        if os.listdir(sim_bridge.get("model_path")) and not sim_bridge.get("resume"):
+            # Ask the user here if they want to delete the contents of the model path
+            # If the user does not want to delete the contents, we will exit the program
+            if config["settings"]["mode"] != 0:  # GUI Mode only ask in non-GUI mode
+                user_input = input(f"Do you want to delete the contents of {sim_bridge.get('model_path')}? (y/n): ")
+                if user_input.lower() != 'y':
+                    print("Exiting program.")
+                    engine.Clean()
+                    return
+            # Go through all files and directories in the model path and delete them
+            print(f"Deleting contents of {sim_bridge.get('model_path')}...")
+            for filename in os.listdir(sim_bridge.get("model_path")):
+                file_path = os.path.join(sim_bridge.get("model_path"), filename)
+                try:
+                    if os.path.isfile(file_path) or os.path.islink(file_path):
+                        os.unlink(file_path)
+                    elif os.path.isdir(file_path):
+                        shutil.rmtree(file_path)
+                except Exception as e:
+                    print(f"Failed to delete {file_path}. Reason: {e}")
+
+        # Update RL_Algorithm settings
         # config["settings"]["rl_algorithm"] = status["rl_algorithm"]
         # config["settings"]["auto_train"] = status["auto_train"]
         # config["settings"]["train_episodes"] = status["train_episodes"]
@@ -241,6 +283,10 @@ def main():
 
 # Press the green button in the gutter to run the script.
 if __name__ == '__main__':
-    main()
+    config_path = sys.argv[1] if len(sys.argv) > 1 else ""
+    root_path = get_project_paths("root_path")
+    if not config_path:
+        config_path = os.path.join(root_path, 'config.yaml')
+    main(config_path)
     #optuna()
 

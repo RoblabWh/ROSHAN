@@ -35,6 +35,7 @@ public:
                              rendering["background_color"][1].as<Uint8>(),
                              rendering["background_color"][2].as<Uint8>(),
                              rendering["background_color"][3].as<Uint8>()};
+
         // Simulation parameters
         // Timing
         auto simulation = firemodel["simulation"];
@@ -138,11 +139,12 @@ public:
     //
     bool map_is_uniform_{};
     bool skip_gui_init_{};
+    bool exit_carefully_ = false;
+    bool check_for_model_folder_empty_ = false;
     bool corine_loaded_ = false;
     bool initial_mode_selection_done_ = false;
     bool episode_termination_indicator_ = true;
 
-    [[nodiscard]] bool InitialModeSelectionDone() const {return initial_mode_selection_done_;}
     void SetCorineLoaded(bool loaded) {corine_loaded_ = loaded;}
     [[nodiscard]] bool GetCorineLoaded() const {return corine_loaded_;}
 

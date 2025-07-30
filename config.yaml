@@ -1,32 +1,34 @@
 settings:
   mode: 0 # 0: GUI_RL, 2: NoGUI_RL, # Mode 1 is GUI and Mode 2 is NoGUI (ONLY Simulation)
   rl_mode: "train" # either "train" or "eval"
-  resume: false # Whether to resume training from the last checkpoint
+  # Whether to resume training from the last checkpoint
+  # If set to true, the training will continue from the last checkpoint
+  # from the default_model_paths for the hierarchy_type agent
+  resume: false
   llm_support: false # Whether to use LLM support for the environment (currently not supported)
   hierarchy_type: planner_agent # Type of hierarchy to use for the agents (fly_agent, explore_agent, planner_agent)
   skip_gui_init: true # Uses this config as default and skips the GUI setup
   auto_train:
-    use_auto_train: true # Whether to use auto training
+    use_auto_train: false # Whether to use auto training
     train_episodes: 3 # Number of total trainings, each containing max_train train_steps
     max_train: 1 # Maximum number of train_steps to perform
     max_eval: 1 # Maximum number of evaluations to perform
 paths:
-  # Directory and Name where models are saved
   # This is the root_path where your new trained models data is stored
   # No Loading is ever done from this folder, use the default_model_paths for each agent for that
-  model_directory: models/log_test
-  model_name: "" # Leave this empty to get a default name from this config
+  # If "Resume" is set to true, this directory will NOT be used at all
+  # (either absolute or relative to the project root)
+  model_directory: models/planner_kind_of_works
+  # Leave this empty to get a default name from this config
+  model_name: ""
   # Name of the CORINE dataset-file, Path to the Corine dataset file must be set in project_paths.json (generated default paths at compile time)
-  corine_dataset_name: CLMS_CLCplus_RASTER_2021_010m_eu_03035_V1_1.tif # Name of the Corine datasetco to use
-  log_directory: ./logs
-  # This map is used in NoGUI & use_default setup, if left empty("") the default map will be used.
+  corine_dataset_name: CLMS_CLCplus_RASTER_2021_010m_eu_03035_V1_1.tif
+  # This map is used in NoGUI & skip_gui_init setup, if left empty("") the default map (uniform map) will be used.
   # TODO Make this a list of maps to choose from
   init_map: 35x36_Woods.tif
 
 algorithm:
   type: PPO
-  model_path: /models/ppo/
-  model_name: best_model
   vision_range: 12
   drone_count: 3
   map_size: 80
@@ -98,7 +100,7 @@ fire_model:
 
 # Environment Parameters
 environment:
-  # TODO Reimplement this this is not correctly implemented v
+  # TODO Reimplement this this is not correctly implemented !
   frame_skips: 1 # Number of frames to skip in the environment (1 for no skipping)
   fire_behaviour:
     # These parameters are used to configure the fire behaviour in the environment
@@ -124,7 +126,7 @@ environment:
       time_steps: 3 # Number of time steps to consider in the FlyAgent's memory
       max_speed: 10.0 # Maximum speed of the FlyAgent in m/s
       view_range: 12 # View range of the FlyAgent in cells
-      default_model_folder: /home/nex/Dokumente/Code/ROSHAN/models/new_solved/ # Default model path for the fly_agent
+      default_model_folder: models/new_solved/ # Default model path for the fly_agent (either absolute or relative to the project root)
       default_model_name: my_model_latest.pt # Default model name for the fly_agent
     explore_agent:
       algorithm: PPO # Algorithm used by the explore_agent
@@ -141,5 +143,5 @@ environment:
       time_steps: 3 # Number of time steps to consider in the ExtinguishAgent's memory
       max_speed: 3.0 # Maximum speed of the ExtinguishAgent (low-level-agent of the Planner) in m/s
       view_range: 6 # View range of the ExtinguishAgent in cells
-      default_model_folder: /home/nex/Dokumente/Code/ROSHAN/models/planner_kind_of_works/ # Default model path for the fly_agent
-      default_model_name: my_model_latest.pt # Default model name for the fly_agent
+      default_model_folder: models/planner_kind_of_works/ # Default model path for the fly_agent (either absolute or relative to the project root)
+      default_model_name: ppo_planner_agent_latest.pt # Default model name for the fly_agent

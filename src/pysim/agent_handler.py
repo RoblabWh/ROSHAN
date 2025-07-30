@@ -6,6 +6,7 @@ from algorithms.rl_config import RLConfig, PPOConfig, IQLConfig, TD3Config, NoAl
 from utils import SimulationBridge, Logger, get_project_paths
 import numpy as np
 import os
+import yaml
 from memory import SwarmMemory
 from explore_agent import ExploreAgent
 from flying_agent import FlyAgent
@@ -47,6 +48,13 @@ class AgentHandler:
         self.rl_mode = mode
         self.resume = config["settings"]["resume"]
 
+        # Auto Training Parameters
+        auto_train_dict = config["settings"]["auto_train"]
+        self.use_auto_train = auto_train_dict["use_auto_train"]
+        self.max_train = auto_train_dict["max_train"]
+        self.max_eval = auto_train_dict["max_eval"]
+        self.train_episodes = auto_train_dict["train_episodes"]
+
         # TODO : Check this
         # Used for Evaluation
         self.stats = {'died': [0], 'reached': [0], 'time': [0], 'reward': [0], 'episode': [0], 'perc_burn': [0]}
@@ -79,17 +87,16 @@ class AgentHandler:
                                                  map_size=map_size, time_steps=time_steps)
 
         root_path = get_project_paths("root_path")
-        loading_path = agent_dict["default_model_folder"]
+        loading_path = os.path.join(root_path, agent_dict["default_model_folder"])
         loading_name = agent_dict["default_model_name"]
-        model_path = os.path.join(root_path, config["paths"]["model_directory"]) if not config["settings"]["resume"] else loading_path
-        model_name = self.get_model_name_from_config(config) if not config["settings"]["resume"] else loading_name
+        model_path = os.path.join(root_path, config["paths"]["model_directory"]) if not self.resume else loading_path
+        model_name = self.get_model_name_from_config(config)# if not self.resume else loading_name
 
         # TODO: If I resume the training, I need to load several things:
         # - The model
         # - The optimizer state
         # - The memory state (possibly, for OffPolicy algorithms)
         # - The logger state
-        # - The current episode
 
         rl_config = RLConfig(algorithm=algorithm,
                                  use_auto_train=self.use_auto_train,
@@ -146,8 +153,19 @@ class AgentHandler:
         if not self.is_sub_agent:
             model_path = self.algorithm.get_model_path()
             logging_path = os.path.join(model_path, "logs")
-            self.logger = Logger(log_dir=logging_path)
-            self.logger.log_hparams(rl_config.__dict__)
+            self.logger = Logger(log_dir=logging_path, resume=self.resume)
+
+
+            if not self.resume:
+                root_model_path = self.algorithm.model_path
+                # Save own Config.Yaml when this is a fresh start
+                config_path = os.path.join(root_model_path, "config.yaml")
+                with open(config_path, 'w') as f:
+                    yaml.dump(config, f, sort_keys=False, indent=4)
+
+
+            # TODO This should ideally be done at the end of Evaluation
+            #self.logger.log_hparams(rl_config.__dict__)
 
             creation_string += f"Agents of Type: {self.agent_type.name} initialized\n"
             if self.num_agents != drone_count:
@@ -177,7 +195,9 @@ class AgentHandler:
         if config["paths"]["model_name"] != "" and config["paths"]["model_name"] is not None:
             return config["paths"]["model_name"]
         else:
-            return "model.pt"
+            algorithm = config["algorithm"]["type"].lower()
+            agent_type = config["settings"]["hierarchy_type"].lower()
+            return algorithm + "_" + agent_type + ".pt"
 
     @staticmethod
     def get_agent_from_type(agent_type, num_drones):
@@ -201,18 +221,17 @@ class AgentHandler:
         """
 
         train_episode = self.sim_bridge.get("train_episode")
-        train_episodes = self.sim_bridge.get("train_episodes")
 
         if self.use_auto_train:
             # Checks if the auto_training is finished
-            if train_episode == train_episodes:
+            if train_episode == self.train_episodes:
                 self.sim_bridge.set("agent_online", False)
                 log = "Training finished, after {} training episodes\n".format(train_episode)
                 self.sim_bridge.append_console(log)
                 self.sim_bridge.append_console("Agent is offline\n")
                 return
             else:
-                log = "Resume with next training step {}/{}\n".format(train_episode + 1, train_episodes)
+                log = "Resume with next training step {}/{}\n".format(train_episode + 1, self.train_episodes)
                 self.sim_bridge.append_console(log)
                 self.sim_bridge.set("train_step", 0)
         self.algorithm.reset()
@@ -270,8 +289,8 @@ class AgentHandler:
         elif self.resume:
             if self.algorithm.load():
                 self.algorithm.set_train()
-                log += f"Load model from checkpoint:\n {os.path.join(self.algorithm.loading_path, self.algorithm.loading_name)}\n" \
-                       f"Model set to training mode\n"
+                log += f"Load model from checkpoint:\n{os.path.join(self.algorithm.loading_path, self.algorithm.loading_name)}\n" \
+                       f"Resume Training from checkpoint\n"
             else:
                 self.algorithm.set_train()
                 log += "No checkpoint found to resume training, start training from scratch\n"

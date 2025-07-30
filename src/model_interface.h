@@ -29,6 +29,7 @@ public:
     virtual std::unordered_map<std::string, std::vector<std::deque<std::shared_ptr<State>>>> GetObservations() = 0;
     virtual void Render() = 0;
     virtual bool AgentIsRunning() = 0;
+    virtual bool GetEarlyClosing() = 0;
     virtual void HandleEvents(SDL_Event event, ImGuiIO* io) = 0;
     virtual void GetData(std::string data) = 0;
     virtual void SetRLStatus(pybind11::dict status) = 0;
