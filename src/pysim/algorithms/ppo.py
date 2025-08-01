@@ -104,16 +104,13 @@ class PPO(RLAlgorithm):
         return self.policy.act_certain(observations)
 
     def save(self, logger: Logger):
-        console = ""
         if logger.is_better_reward():
-            console = f"Saving Network with best reward {logger.best_metrics['best_reward']:.4f} in episode {logger.episode}"
+            self.logger.info(f"Saving Network at Episode {logger.episode}, best Reward: {logger.best_metrics['best_reward']:.2f}")
             torch.save(self.policy.state_dict(), f'{os.path.join(self.get_model_path(), self.get_model_name_reward())}')
         if logger.is_better_objective():
-            console = f"Saving Network with best objective {logger.best_metrics['best_objective']:.2f} in episode {logger.episode}"
+            self.logger.info(f"Saving Network at Episode {logger.episode}, best Objective {logger.best_metrics['best_objective']:.2f}")
             torch.save(self.policy.state_dict(), f'{os.path.join(self.get_model_path(), self.get_model_name_obj())}')
         torch.save(self.policy.state_dict(), f'{os.path.join(self.get_model_path(), self.get_model_name_latest())}')
-
-        return console
 
     def get_advantages(self, values, masks, rewards):
         """
@@ -187,14 +184,13 @@ class PPO(RLAlgorithm):
 
         # Logger
         logging_values = []
-        console = ""
         log_rewards = torch.cat(ext_rewards).detach().cpu().numpy() if intrinsic_rewards is None \
            else torch.cat(intrinsic_rewards).detach().cpu().numpy() + torch.cat(ext_rewards).detach().cpu().numpy()
         logger.add_metric("Rewards/Rewards_Raw", log_rewards)
 
         # Save current weights if mean reward or objective is higher than the best so far
         # (Save BEFORE training, so if the policy worsens we can still go back)
-        console += self.save(logger)
+        self.save(logger)
 
         # Clipping most likely is unnecessary
         # rewards = [np.clip(np.array(reward.detach().cpu()) / self.running_reward_std.get_std(), -10, 10) for reward in rewards]
@@ -321,5 +317,3 @@ class PPO(RLAlgorithm):
 
 
         logger.add_metric("Values", np.concatenate(logging_values).flatten())
-
-        return console

@@ -94,6 +94,7 @@ public:
         return fly_agents;
     }
     std::function<void(float)> startFires;
+    std::function<void()> onUpdateRLStatus;
 private:
     std::shared_ptr<GridMap> gridmap_;
     std::shared_ptr<FireModelRenderer> model_renderer_;

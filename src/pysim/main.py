@@ -2,6 +2,7 @@ import yaml
 import os, shutil
 import sys
 from utils import SimulationBridge, get_project_paths
+import logging
 
 module_directory = get_project_paths('module_directory')
 sys.path.insert(0, module_directory)
@@ -47,6 +48,15 @@ def main(config_path_ : str = ""):
 
     assert_config(config)
 
+    logging.basicConfig(
+        level=logging.DEBUG,
+        format="%(asctime)s - %(levelname)s - %(name)s - %(message)s",
+        handlers=[
+            logging.StreamHandler(sys.stdout)
+        ]
+    )
+    logger = logging.getLogger(__name__)
+
     # RL_Status Dictionary, sending back and forth to C++
     sim_bridge = SimulationBridge(config)
 
@@ -88,6 +98,8 @@ def main(config_path_ : str = ""):
             if sim_bridge.get("resume"):
                 general_settings["rl_mode"] = "train"
                 sim_bridge.set("rl_mode", "train")
+
+    # TODO update engine with new config
 
     # Check if the model_folder is empty, if not, ask the user if they want to proceed (and delete the contents in the folder)
     # The content only needs to be deleted if the resume parameter is set to False
@@ -282,10 +294,11 @@ def main(config_path_ : str = ""):
 #     print("Best value:", study.best_trial.value)
 
 # Press the green button in the gutter to run the script.
+
 if __name__ == '__main__':
     config_path = sys.argv[1] if len(sys.argv) > 1 else ""
     root_path = get_project_paths("root_path")
-    if not config_path:
+    if not config_path or not os.path.exists(config_path):
         config_path = os.path.join(root_path, 'config.yaml')
     main(config_path)
     #optuna()

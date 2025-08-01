@@ -9,6 +9,7 @@
 #include <deque>
 #include <filesystem>
 #include <optional>
+#include <utility>
 #include <vector>
 #include <stdexcept>
 #include <algorithm>
@@ -18,6 +19,7 @@
 #include <limits>
 #include <cmath>
 #include <fstream>
+#include <regex>
 #include "json.hpp"
 
 std::string formatTime(int seconds);
@@ -209,6 +211,65 @@ public:
 private:
     std::vector<double> buffer_;
     size_t index_;
+};
+
+class LogReader {
+public:
+    LogReader() = default;
+    explicit LogReader(std::string path = "") : log_path(std::move(path)), last_pos(0) {}
+
+    std::vector<std::string> readNewLines() {
+        std::regex log_entry_start(R"(^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2},\d{3} -)");
+        std::vector<std::string> lines;
+        std::ifstream file(log_path, std::ios::in);
+        if (!file.is_open()) return lines;
+
+        file.seekg(last_pos);
+        std::streampos last_good_pos = file.tellg();  // before reading
+        std::string line;
+
+        while (std::getline(file, line)) {
+            // Cut of Date and Miliseconds
+            if (std::regex_search(line, log_entry_start)) {
+                // If the line starts with a timestamp, we can process it
+                size_t space_pos = line.find(' ');
+                if (space_pos != std::string::npos) {
+                    line = line.substr(space_pos + 1);  // remove date
+                }
+
+                size_t comma_pos = line.find(',');
+                if (comma_pos != std::string::npos) {
+                    line = line.substr(0, comma_pos) + line.substr(line.find(' ', comma_pos));  // Keep time up to comma, skip to first "-"
+                }
+            }
+
+
+            lines.push_back(line);
+            last_good_pos = file.tellg();  // update last good position
+        }
+
+        if (!lines.empty() && last_good_pos != std::streampos(-1)){
+            last_pos = last_good_pos;  // update last position to the end of the read lines
+        }
+
+        return lines;
+    }
+
+    void set_model_path(std::string& path) {
+        if(path != log_path) {
+            log_path = path;
+            reset();
+        }
+    }
+
+    void reset() {
+        last_pos = 0;
+    }
+
+private:
+    std::string log_path;
+    std::streampos last_pos;
+    std::streampos last_pos_read_ = 0;
 };
 
 #endif //ROSHAN_UTILS_H

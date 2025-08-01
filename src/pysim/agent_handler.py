@@ -5,8 +5,7 @@ from algorithms.td3 import TD3
 from algorithms.rl_config import RLConfig, PPOConfig, IQLConfig, TD3Config, NoAlgorithmConfig
 from utils import SimulationBridge, Logger, get_project_paths
 import numpy as np
-import os
-import yaml
+import os, logging, yaml
 from memory import SwarmMemory
 from explore_agent import ExploreAgent
 from flying_agent import FlyAgent
@@ -34,12 +33,6 @@ class AgentHandler:
         # Probably can be discarded, but kept for compatibility now
         self.original_algo = algorithm
 
-        creation_string = ""
-
-        if agent_type == "explore_agent":
-            algorithm = 'no_algo'
-            creation_string += "Using explore_agent, no algorithm needed\n"
-            creation_string += "Training of explore_agents must be implemented first\n"
         supported_algos = ['no_algo', 'PPO', 'IQL', 'TD3']
         assert algorithm in supported_algos, f"Algorithm {algorithm} not supported, only {supported_algos} are supported"
 
@@ -92,6 +85,20 @@ class AgentHandler:
         model_path = os.path.join(root_path, config["paths"]["model_directory"]) if not self.resume else loading_path
         model_name = self.get_model_name_from_config(config)# if not self.resume else loading_name
 
+        self.logger = logging.getLogger(agent_type)
+
+
+        # Only create a FileHandler if this is not a sub agent
+        # TODO different logger files for training and evaluation
+        if not is_sub_agent:
+            logging_file = os.path.join(model_path.__str__(), "logging.log")
+            file_handler = logging.FileHandler(logging_file)
+            file_handler.setLevel(logging.DEBUG)
+            formatter = logging.Formatter("%(asctime)s - %(levelname)s - %(name)s - %(message)s")
+            file_handler.setFormatter(formatter)
+            logging.getLogger().addHandler(file_handler)
+            #self.logger.addHandler(file_handler)
+
         # TODO: If I resume the training, I need to load several things:
         # - The model
         # - The optimizer state
@@ -141,6 +148,7 @@ class AgentHandler:
 
             self.algorithm = RLAlgorithm(rl_config)
 
+
         self.use_next_obs = self.algorithm.use_next_obs
 
         self.memory = SwarmMemory(max_size=self.algorithm.memory_size,
@@ -153,8 +161,7 @@ class AgentHandler:
         if not self.is_sub_agent:
             model_path = self.algorithm.get_model_path()
             logging_path = os.path.join(model_path, "logs")
-            self.logger = Logger(log_dir=logging_path, resume=self.resume)
-
+            self.tensorboard = Logger(log_dir=logging_path, resume=self.resume)
 
             if not self.resume:
                 root_model_path = self.algorithm.model_path
@@ -162,18 +169,21 @@ class AgentHandler:
                 config_path = os.path.join(root_model_path, "config.yaml")
                 with open(config_path, 'w') as f:
                     yaml.dump(config, f, sort_keys=False, indent=4)
-
+            else:
+                current_episode = self.tensorboard.episode
+                current_objective = self.tensorboard.best_metrics["current_objective"]
+                best_objective = self.tensorboard.best_metrics["best_objective"]
+                train_step = self.tensorboard.train_step
+                policy_updates = self.tensorboard.policy_updates
+                self.sim_bridge.set("current_episode", current_episode)
+                self.sim_bridge.set("current_objective", current_objective)
+                self.sim_bridge.set("best_objective", best_objective)
+                self.sim_bridge.set("train_step", train_step)
+                self.sim_bridge.set("policy_updates", policy_updates)
 
             # TODO This should ideally be done at the end of Evaluation
             #self.logger.log_hparams(rl_config.__dict__)
 
-            creation_string += f"Agents of Type: {self.agent_type.name} initialized\n"
-            if self.num_agents != drone_count:
-                creation_string += f"{self.num_agents} Agent controls {drone_count} Drones\n"
-            else:
-                creation_string += f"{self.num_agents} Agents in total who control {self.num_agents} Drones\n"
-            creation_string += "Algorithm: {}\n".format(self.algorithm_name)
-            sim_bridge.append_console(creation_string)
             sim_bridge.set("model_path", self.algorithm.model_path)
             sim_bridge.set("model_name", self.algorithm.model_name)
 
@@ -184,6 +194,13 @@ class AgentHandler:
                 min_update = self.algorithm.min_memory_size
 
             self.sim_bridge.set("min_update", min_update)
+
+            if not self.resume: self.logger.info(f"Top Level Hierarchy: {self.agent_type.name}")
+
+        if not self.resume:
+            self.logger.info(f"Algorithm: {self.algorithm_name}")
+            self.logger.info(f"{self.agent_type.name} initialized")
+            self.logger.info(f"{self.num_agents} Agents control {drone_count} Drones")
 
     @staticmethod
     def get_model_name_from_config(config):
@@ -226,13 +243,11 @@ class AgentHandler:
             # Checks if the auto_training is finished
             if train_episode == self.train_episodes:
                 self.sim_bridge.set("agent_online", False)
-                log = "Training finished, after {} training episodes\n".format(train_episode)
-                self.sim_bridge.append_console(log)
-                self.sim_bridge.append_console("Agent is offline\n")
+                self.logger.info("Training finished, after {} training episodes".format(train_episode))
+                self.logger.info("Agent is now offline. Auto Training is finished")
                 return
             else:
-                log = "Resume with next training step {}/{}\n".format(train_episode + 1, self.train_episodes)
-                self.sim_bridge.append_console(log)
+                self.logger.info("Resume with next training step {}/{}".format(train_episode + 1, self.train_episodes))
                 self.sim_bridge.set("train_step", 0)
         self.algorithm.reset()
         self.reset_agent_variables()
@@ -253,10 +268,10 @@ class AgentHandler:
 
         # Reset the Logger
         if not self.is_sub_agent: # should not really be False like ever, but just in case
-            self.logger.close()
+            self.tensorboard.close()
             model_path = self.algorithm.get_model_path()
             logging_path = os.path.join(model_path, "logs")
-            self.logger = Logger(log_dir=logging_path)
+            self.tensorboard = Logger(log_dir=logging_path)
 
         # Reset memory
         self.memory.clear_memory()
@@ -275,32 +290,34 @@ class AgentHandler:
         # Load model if possible, return new rl_mode and possible console string
         log = ""
         if self.algorithm_name == 'no_algo':
-            log += "No algorithm used, no model to load\n"
+            log += "No algorithm used, no model to load"
+
         train = True if self.rl_mode == "train" else False
         if not train:
             if self.algorithm.load():
                 self.algorithm.set_eval()
-                log += f"Load model from checkpoint:\n {os.path.join(self.algorithm.loading_path, self.algorithm.loading_name)}\n" \
-                       f"Model set to evaluation mode\n"
+                log += (f"Load model from checkpoint: {os.path.join(self.algorithm.loading_path, self.algorithm.loading_name)}"
+                        f" - Model set to evaluation mode")
             else:
                 self.algorithm.set_train()
                 self.rl_mode = "train"
-                log +=  "No checkpoint found to evaluate model, start training from scratch\n"
+                log +=  "No checkpoint found to evaluate model, start training from scratch"
         elif self.resume:
             if self.algorithm.load():
                 self.algorithm.set_train()
-                log += f"Load model from checkpoint:\n{os.path.join(self.algorithm.loading_path, self.algorithm.loading_name)}\n" \
-                       f"Resume Training from checkpoint\n"
+                log += f"Load model from checkpoint: {os.path.join(self.algorithm.loading_path, self.algorithm.loading_name)}" \
+                       f" - Resume Training from checkpoint"
             else:
                 self.algorithm.set_train()
-                log += "No checkpoint found to resume training, start training from scratch\n"
+                log += "No checkpoint found to resume training, start training from scratch"
         else:
             self.algorithm.set_train()
-            log += "Training from scratch\n"
+            log += "Training from scratch"
+
+        if not self.resume: self.logger.info(log)
 
         if change_status:
             self.sim_bridge.set("rl_mode", self.rl_mode)
-            self.sim_bridge.append_console(log)
 
     def add_memory_entry(self, obs, actions, action_logprobs, rewards, terminals, next_obs=None, intrinsic_rewards=None):
         self.memory.add(obs, actions, action_logprobs, rewards, terminals, next_obs=next_obs, intrinsic_reward=intrinsic_rewards)
@@ -313,6 +330,7 @@ class AgentHandler:
         self.sim_bridge.set("obs_collected", len(self.memory) + 1)
 
         if self.sim_bridge.get("rl_mode") != self.rl_mode:
+            self.logger.warning(f"RL Mode changed from {self.rl_mode} to {self.sim_bridge.get('rl_mode')}")
             self.rl_mode = self.sim_bridge.get("rl_mode")
             self.algorithm.set_train() if self.rl_mode == "train" else self.algorithm.set_eval()
 
@@ -384,24 +402,27 @@ class AgentHandler:
             self.sim_bridge.set("current_episode", self.sim_bridge.get("current_episode") + 1)
 
     def update(self, mini_batch_size, next_obs):
-        log = self.algorithm.update(self.memory, mini_batch_size, next_obs, self.logger)
+        self.algorithm.update(self.memory, mini_batch_size, next_obs, self.tensorboard)
         self.sim_bridge.add_value("train_step", 1)
+        self.tensorboard.train_step += 1
 
         if self.algorithm_name == 'PPO':
             policy_updates = self.algorithm.horizon // self.algorithm.batch_size * self.algorithm.k_epochs
             self.sim_bridge.add_value("policy_updates", policy_updates)
+            self.tensorboard.policy_updates += policy_updates
         elif self.algorithm_name == 'IQL':
             self.sim_bridge.add_value("policy_updates", self.algorithm.k_epochs)
+            self.tensorboard.policy_updates += self.algorithm.k_epochs
         elif self.algorithm_name == 'TD3':
             self.sim_bridge.add_value("policy_updates", self.algorithm.k_epochs)
+            self.tensorboard.policy_updates += self.algorithm.k_epochs
 
         if self.sim_bridge.get("train_step") >= self.max_train and self.use_auto_train:
             self.sim_bridge.add_value("train_episode", 1)
-            log += "Training finished, after {} training steps, now starting Evaluation\n".format(self.sim_bridge.get("train_step"))
+            self.logger.info("Training finished, after {} training steps, now starting Evaluation".format(self.sim_bridge.get("train_step")))
             self.sim_bridge.set("rl_mode", "eval")
 
-        self.sim_bridge.append_console(log)
-        self.logger.summarize()
+        self.tensorboard.summarize()
 
     def act(self, observations):
         actions, action_logprobs = self.algorithm.select_action(observations)
@@ -411,11 +432,11 @@ class AgentHandler:
         return self.agent_type.get_action(actions)
 
     def update_logging(self, terminal_result):
-        self.logger.log_step(terminal_result)
-        self.logger.calc_current_objective()
+        self.tensorboard.log_step(terminal_result)
+        self.tensorboard.calc_current_objective()
 
-        self.sim_bridge.set("objective", self.logger.best_metrics["current_objective"])
-        self.sim_bridge.set("best_objective", self.logger.get_best_objective()[1])
+        self.sim_bridge.set("objective", self.tensorboard.best_metrics["current_objective"])
+        self.sim_bridge.set("best_objective", self.tensorboard.get_best_objective()[1])
 
     def act_certain(self, observations):
         return self.algorithm.select_action_certain(observations)
@@ -426,8 +447,7 @@ class AgentHandler:
         if episode_over and self.use_auto_train:
             self.eval_steps += 1
             if self.eval_steps >= self.max_eval:
-                log = "Evaluation finished, after {} evaluation steps with average reward: {}\n".format(self.eval_steps, np.mean(self.stats["reward"]))
-                self.sim_bridge.append_console(log)
+                self.logger.info("Evaluation finished, after {} evaluation steps with average reward: {}".format(self.eval_steps, np.mean(self.stats["reward"])))
                 self.sim_bridge.set("rl_mode", "train")
                 self.reset()
 
@@ -435,32 +455,32 @@ class AgentHandler:
         # Log stats
         self.stats['reward'][-1] += rewards[0]
         self.stats['time'][-1] += 1
-        console = ""
+        log = "Evaluation Step"
 
         if terminal_result['EnvReset']:
-            console += "Episode: {} finished with terminal state\n".format(self.stats['episode'][-1] + 1)
+            log += "\nEpisode: {} finished with terminal state\n".format(self.stats['episode'][-1] + 1)
             if terminal_result['OneAgentDied']:  # Drone died
-                console += "One of the Drones died.\n\n"
+                log += "One of the Drones died.\n\n"
                 self.stats['died'][-1] += 1
             else:  # Drone reached goal
-                console += "Drones extinguished all fires.\n\n"
+                log += "Drones extinguished all fires.\n"
                 self.stats['reached'][-1] += 1
 
             self.stats['perc_burn'][-1] = percent_burned
             # Print stats
-            console += "-----------------------------------\n"
-            console += "Episode: {}\n".format(self.stats['episode'][-1] + 1)
-            console += "Reward: {}\n".format(self.stats['reward'][-1])
-            console += "Time: {}\n".format(self.stats['time'][-1])
-            console += "Percentage burned: {}\n".format(self.stats['perc_burn'][-1])
-            console += "Died: {}\n".format(self.stats['died'][-1])
-            console += "Reached: {}\n".format(self.stats['reached'][-1])
-            console += "Total average time: {}\n".format(np.mean(self.stats['time']))
-            console += "Total average percentage burned: {}\n".format(np.mean(self.stats['perc_burn']))
-            console += "Total average reward: {}\n".format(np.mean(self.stats['reward']))
-            console += "Total died: {}\n".format(sum(self.stats['died']))
-            console += "Total reached: {}\n".format(sum(self.stats['reached']))
-            console += "-----------------------------------\n\n\n"
+            log += "-----------------------------------\n"
+            log += "Episode: {}\n".format(self.stats['episode'][-1] + 1)
+            log += "Reward: {}\n".format(self.stats['reward'][-1])
+            log += "Time: {}\n".format(self.stats['time'][-1])
+            log += "Percentage burned: {}\n".format(self.stats['perc_burn'][-1])
+            log += "Died: {}\n".format(self.stats['died'][-1])
+            log += "Reached: {}\n".format(self.stats['reached'][-1])
+            log += "Total average time: {}\n".format(np.mean(self.stats['time']))
+            log += "Total average percentage burned: {}\n".format(np.mean(self.stats['perc_burn']))
+            log += "Total average reward: {}\n".format(np.mean(self.stats['reward']))
+            log += "Total died: {}\n".format(sum(self.stats['died']))
+            log += "Total reached: {}\n".format(sum(self.stats['reached']))
+            log += "-----------------------------------\n"
 
             # Reset stats if this is not the last evaluation
             if self.stats['episode'][-1] != self.max_eval - 1:
@@ -471,7 +491,7 @@ class AgentHandler:
                 self.stats['time'].append(0)
                 self.stats['reward'].append(0)
 
-            self.sim_bridge.append_console(console)
+            self.logger.info(log)
 
             return True
         return False

@@ -214,6 +214,7 @@ void FireModel::setupRLHandler() {
 
 void FireModel::setupImGui() {
     imgui_handler_ = std::make_shared<ImguiHandler>(mode_, parameters_);
+    imgui_handler_->onGetRLStatus = [this]() {return rl_handler_->GetRLStatus();};
     imgui_handler_->onResetDrones = [this]() { rl_handler_->ResetEnvironment(mode_);};
     imgui_handler_->onResetGridMap = [this](std::vector<std::vector<int>>* rasterData) {ResetGridMap(rasterData);};
     imgui_handler_->onFillRasterWithEnum = [this]() {FillRasterWithEnum();};
@@ -221,9 +222,9 @@ void FireModel::setupImGui() {
     imgui_handler_->onMoveDrone = [this](int drone_idx, double speed_x, double speed_y, int water_dispense) {return rl_handler_->StepDroneManual(
             drone_idx, speed_x, speed_y, water_dispense);};
     imgui_handler_->startFires = [this](float percentage) {StartFires(percentage);};
-    imgui_handler_->onSetNoise = [this](CellState state, int noise_level, int noise_size) {gridmap_->SetCellNoise(state, noise_level, noise_size);};
-    imgui_handler_->onGetRLStatus = [this]() {return rl_handler_->GetRLStatus();};
+    imgui_handler_->onSetNoise = [this](CellState state, int noise_level, int noise_size) {GridMap::SetCellNoise(state, noise_level, noise_size);};
     imgui_handler_->onSetRLStatus = [this](py::dict status) {rl_handler_->SetRLStatus(std::move(status));};
+    rl_handler_->onUpdateRLStatus = [this]() {imgui_handler_->updateOnRLStatusChange();};
 }
 
 void FireModel::ImGuiRendering(bool &update_simulation, bool &render_simulation, int &delay, float framerate) {

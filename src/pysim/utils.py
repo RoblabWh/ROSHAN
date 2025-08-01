@@ -26,7 +26,6 @@ class SimulationBridge:
         auto_train_dict = config["settings"]["auto_train"]
         status = {
             # Non-Settable Parameters (either flags or communication with C++)
-            "console": "",
             "obs_collected": 0,  # Used by GUI to show the number of collected observations
             "min_update": 0,  # How many obs before updating the policy? Decided by the RL Algorithm
             "agent_online": True,
@@ -67,15 +66,6 @@ class SimulationBridge:
         :return: The status dictionary.
         """
         return self.status
-
-    def append_console(self, msg):
-        """
-        Append a message to the console log.
-        :param msg: The message to append.
-        """
-        if 'console' not in self.status:
-            self.status['console'] = ""
-        self.status['console'] += msg + "\n"
 
     def add_value(self, key, value):
         """
@@ -246,6 +236,9 @@ class Logger:
         self.episode = 0 # Current episode number
         self.best_metrics = {"current_objective": 0.0, "best_objective": -np.inf,
                              "current_reward": 0.0, "best_reward": -np.inf}
+        # Non-essential metrics that still need to be saved
+        self.train_step = 0  # How often did you train?
+        self.policy_updates = 0  # How often did you update the policy?
         self.episode_ended = False
 
         if resume:
@@ -329,13 +322,17 @@ class Logger:
             self.logging_step = state.get("logging_step", 0)
             self.objectives = deque(state.get("objectives", []), maxlen=100)
             self.best_metrics = state.get("best_metrics", {})
+            self.train_step = state.get("train_step", 0)
+            self.policy_updates = state.get("policy_updates", 0)
 
     def save_state(self):
         state = {
             "episode": self.episode,
             "logging_step": self.logging_step,
             "objectives": list(self.objectives),
-            "best_metrics": self.best_metrics
+            "best_metrics": self.best_metrics,
+            "train_step": self.train_step,
+            "policy_updates": self.policy_updates
         }
         state_path = os.path.join(self.log_dir, 'logger_state.npy')
         np.save(state_path, state)

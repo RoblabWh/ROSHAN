@@ -10,6 +10,7 @@
 #include <utility>
 #include <SDL.h>
 #include <yaml-cpp/yaml.h>
+#include "utils.h"
 
 class FireModelParameters {
 
@@ -18,6 +19,8 @@ public:
 
     void init(const std::string& yaml_path) {
         YAML::Node config = YAML::LoadFile(yaml_path);
+
+        llm_support_ = config["settings"]["llm_support"].as<bool>();
 
         // Paths
         auto paths = config["paths"];
@@ -144,6 +147,7 @@ public:
     bool corine_loaded_ = false;
     bool initial_mode_selection_done_ = false;
     bool episode_termination_indicator_ = true;
+    bool llm_support_{};
 
     void SetCorineLoaded(bool loaded) {corine_loaded_ = loaded;}
     [[nodiscard]] bool GetCorineLoaded() const {return corine_loaded_;}

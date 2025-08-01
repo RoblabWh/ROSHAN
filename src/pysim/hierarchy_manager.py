@@ -1,5 +1,6 @@
 from agent_handler import AgentHandler
 from utils import SimulationBridge
+import logging
 
 
 class HierarchyManager:
@@ -8,6 +9,7 @@ class HierarchyManager:
         self.sim_bridge = sim_bridge
         self.hierarchy = {}
         self.hierarchy_keys = list(self.hierarchy.keys())
+        self.logger = logging.getLogger("HierarchyManager")
         self.build_hierarchy()
         self.max_low_level_steps = 50
 
@@ -22,7 +24,6 @@ class HierarchyManager:
             # if self.hierarchy["medium"].hierarchy_early_stop or self.hierarchy["high"].env_reset or status["env_reset"]:
             #     self.hierarchy["medium"].step_without_network(status, engine)
                 # Dont set "status["env_reset"] = False" just yet
-
             # Check if we need to do a Training Step for HighLevel Agent
             if (self.hierarchy["high"].hierarchy_steps % self.max_low_level_steps == 0
                     or self.hierarchy["high"].env_reset or self.sim_bridge.get("env_reset")):
@@ -32,7 +33,7 @@ class HierarchyManager:
                 self.hierarchy["high"].hierarchy_early_stop = False
 
             # Always step through all low level agents (ExploreFlyAgent)
-            # self.hierarchy["medium"].hierarchy_early_stop, _ = self.hierarchy["low"].eval_loop(status, engine, evaluate=False)
+            # self.hierarchy["medium"].hierarchy_early_stop, _ = self.hierarchy["explore_low"].eval_loop(status, engine, evaluate=False)
             # Always step through all low level agents (PlanFlyAgent)
             _, _ = self.hierarchy["plan_low"].eval_loop(engine, evaluate=False)
             self.hierarchy["high"].hierarchy_steps += 1
@@ -46,7 +47,7 @@ class HierarchyManager:
                 self.sim_bridge.set("env_reset", False)
                 self.hierarchy["medium"].hierarchy_steps = 0
                 self.hierarchy["medium"].hierarchy_early_stop = False
-            self.hierarchy["medium"].hierarchy_early_stop, _ = self.hierarchy["low"].eval_loop(engine, evaluate=False)
+            self.hierarchy["medium"].hierarchy_early_stop, _ = self.hierarchy["explore_low"].eval_loop(engine, evaluate=False)
             self.hierarchy["medium"].hierarchy_steps += 1
         else:
             # Train Loop for low level agent
@@ -64,7 +65,7 @@ class HierarchyManager:
                 self.hierarchy["high"].hierarchy_steps = 0
                 self.hierarchy["high"].hierarchy_early_stop = False
             # Always step through all low level agents (ExploreFlyAgent)
-            self.hierarchy["medium"].hierarchy_early_stop, _ = self.hierarchy["low"].eval_loop(engine, evaluate=False)
+            self.hierarchy["medium"].hierarchy_early_stop, _ = self.hierarchy["explore_low"].eval_loop(engine, evaluate=False)
             # Always step through all low level agents (PlanFlyAgent)
             _, _ = self.hierarchy["plan_low"].eval_loop(engine, evaluate=False)
             self.hierarchy["high"].hierarchy_steps += 1
@@ -77,7 +78,7 @@ class HierarchyManager:
                 self.sim_bridge.set("env_reset", False)
                 self.hierarchy["medium"].hierarchy_steps = 0
                 self.hierarchy["medium"].hierarchy_early_stop = False
-            self.hierarchy["medium"].hierarchy_early_stop, _ = self.hierarchy["low"].eval_loop(engine, evaluate=False)
+            self.hierarchy["medium"].hierarchy_early_stop, _ = self.hierarchy["explore_low"].eval_loop(engine, evaluate=False)
             self.hierarchy["medium"].hierarchy_steps += 1
         else:
             self.hierarchy["low"].eval_loop(engine, evaluate=True)
@@ -102,20 +103,18 @@ class HierarchyManager:
 
         self.hierarchy[agent_handler.hierarchy_level] = agent_handler
         construct_medium = agent_handler.hierarchy_level == "medium" or agent_handler.hierarchy_level == "high"
-        console_string = ""
 
         # Construct a low level agent if the current agent is a medium level agent
         if agent_handler.hierarchy_level == "high":
-            low_level_agent_plan = AgentHandler(config=self.config,
+            planner_fly_agent = AgentHandler(config=self.config,
                                                 sim_bridge=self.sim_bridge,
                                                 agent_type="fly_agent",
                                                 subtype="PlannerFlyAgent",
                                                 mode="eval")
-            low_level_agent_plan.hierarchy_level = "plan_low"
-            console_string += "Hierarchy: High Level > Medium Level > Low Level\n"
-            console_string += "Loading PlannerFlyAgents...\n"
-            low_level_agent_plan.load_model()
-            self.hierarchy["plan_low"] = low_level_agent_plan
+            planner_fly_agent.hierarchy_level = "plan_low"
+            planner_fly_agent.load_model()
+            self.hierarchy["plan_low"] = planner_fly_agent
+
         if construct_medium:
             # Construct a medium level agent if the current agent is a high level agent
             if agent_handler.hierarchy_level == "high":
@@ -124,17 +123,14 @@ class HierarchyManager:
                                                   agent_type="explore_agent",
                                                   mode="eval")
                 self.hierarchy["medium"] = medium_level_agent
-            low_level_agent = AgentHandler(config=self.config,
+            explore_fly_agent = AgentHandler(config=self.config,
                                            sim_bridge=self.sim_bridge,
                                            agent_type="fly_agent",
                                            subtype="ExploreFlyAgent",
                                            mode="eval")
-            if agent_handler.hierarchy_level != "high": console_string += "Hierarchy: Medium Level & Low Level\n"
-            console_string += "Loading ExploreFlyAgent Model...\n"
-            low_level_agent.load_model()
-            self.hierarchy["low"] = low_level_agent
-        else:
-            console_string += "Hierarchy: Low Level\n"
+            explore_fly_agent.load_model()
+            self.hierarchy["explore_low"] = explore_fly_agent
 
+        highest_hierarchy_level = max(self.hierarchy.keys(), key=lambda x: ["low", "plan_low", "explore_low", "medium", "high"].index(x))
+        self.logger.info(f"Hierarchy Level: {highest_hierarchy_level}")
         self.hierarchy_keys = list(self.hierarchy.keys())
-        self.sim_bridge.append_console(console_string)

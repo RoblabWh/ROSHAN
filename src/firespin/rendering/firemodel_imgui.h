@@ -23,6 +23,7 @@ namespace py = pybind11;
 class __attribute__((visibility("default"))) ImguiHandler {
 public:
     ImguiHandler(Mode mode, FireModelParameters &parameters);
+    [[maybe_unused]] void Init();
     void ImGuiSimulationControls(const std::shared_ptr<GridMap>& gridmap, std::vector<std::vector<int>> &current_raster_data,
                                  const std::shared_ptr<FireModelRenderer>& model_renderer, bool &update_simulation,
                                  bool &render_simulation, int &delay, float framerate, double running_time);
@@ -39,6 +40,7 @@ public:
     void HandleEvents(SDL_Event event, ImGuiIO *io, const std::shared_ptr<GridMap>& gridmap, const std::shared_ptr<FireModelRenderer>& model_renderer,
                       const std::shared_ptr<DatasetHandler>& dataset_handler, std::vector<std::vector<int>> &current_raster_data, bool agent_is_running);
     static void OpenBrowser(const std::string& url);
+    void updateOnRLStatusChange();
     void DefaultModeSelected() {
         model_startup_ = true;
         show_controls_ = true;
@@ -83,6 +85,7 @@ private:
     std::set<std::pair<int, int>> popups_;
     std::map<std::pair<int, int>, bool> popup_has_been_opened_;
 
+    LogReader log_reader_;
 
     //Helper
     template<typename T>
@@ -90,6 +93,11 @@ private:
     static void DrawBuffer(std::vector<float> buffer, int buffer_pos);
     void CheckForModelPathSelection(const std::shared_ptr<FireModelRenderer>& model_renderer);
     void RLStatusParser(const py::dict& rl_status);
+};
+
+struct LogEntry {
+    std::string text;
+    ImU32 color;
 };
 
 #endif //ROSHAN_FIREMODEL_IMGUI_H

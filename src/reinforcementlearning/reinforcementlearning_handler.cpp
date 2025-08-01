@@ -238,6 +238,7 @@ void ReinforcementLearningHandler::SetRLStatus(py::dict status) {
     rl_status_ = std::move(status);
     auto rl_mode = rl_status_[py::str("rl_mode")].cast<std::string>();
     eval_mode_ = rl_mode == "eval";
+    this->onUpdateRLStatus();
 }
 
 void ReinforcementLearningHandler::UpdateReward() {

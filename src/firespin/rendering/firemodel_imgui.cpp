@@ -4,8 +4,18 @@
 
 #include "firemodel_imgui.h"
 
-ImguiHandler::ImguiHandler(Mode mode, FireModelParameters &parameters) : parameters_(parameters), mode_(mode) {
+ImguiHandler::ImguiHandler(Mode mode, FireModelParameters &parameters)
+: parameters_(parameters),
+mode_(mode),
+log_reader_("")
+{
+}
 
+void ImguiHandler::Init() {
+    py::dict rl_status = onGetRLStatus();
+    auto model_path = rl_status["model_path"].cast<std::string>();
+    auto log_path = (std::filesystem::path(model_path) / std::filesystem::path("logging.log")).string();
+    log_reader_.set_model_path(log_path);
 }
 
 void ImguiHandler::ImGuiSimulationControls(const std::shared_ptr<GridMap>& gridmap, std::vector<std::vector<int>> &current_raster_data,
@@ -202,9 +212,6 @@ void ImguiHandler::RLStatusParser(const py::dict& rl_status) {
             auto new_value_str = rl_mode == "train" ? "eval" : "train";
             rl_status["rl_mode"] = new_value_str;
             rl_mode = new_value_str;
-            auto console = rl_status["console"].cast<std::string>();
-            console += "Switched to " + static_cast<std::string>(new_value_str) + " mode.\n";
-            rl_status[py::str("console")] = console;
             onSetRLStatus(rl_status);
             ImGui::CloseCurrentPopup();
         }
@@ -334,33 +341,82 @@ void ImguiHandler::PyConfig(std::string &user_input,
         }
 
         RLStatusParser(rl_status);
-        auto console = rl_status["console"].cast<std::string>();
+        static bool auto_scroll = false;
+        static ImGuiTextFilter filter;
+        static std::vector<LogEntry> logs;
 
         if (ImGui::BeginTabBar("RLStatus")){
-            if (ImGui::BeginTabItem("Console")) {
+            if (ImGui::BeginTabItem("Logging")) {
+                filter.Draw("Filter", ImGui::GetFontSize() * 16.0f);
+                ImGui::SameLine();
+                ImGui::Checkbox("Auto Scroll", &auto_scroll);
                 ImGui::BeginChild("scrolling", ImVec2(0, ImGui::GetTextLineHeightWithSpacing() * 20), true, ImGuiWindowFlags_HorizontalScrollbar);
-                ImGui::TextUnformatted(console.c_str());
+
+                std::vector<std::string> log_lines;
+
+                static int refresh = 0;
+
+                if (refresh % 1000 == 0) {
+                    log_lines = log_reader_.readNewLines();
+                    refresh = 0;
+                }
+                refresh++;
+
+                for (const auto& line : log_lines) {
+                    ImU32 color;
+                    if (line.find("ERROR") != std::string::npos)
+                        color = IM_COL32(255, 80, 80, 255);
+                    else if (line.find("WARNING") != std::string::npos)
+                        color = IM_COL32(255, 180, 0, 255);
+                    else if (line.find("DEBUG") != std::string::npos)
+                        color = IM_COL32(180, 180, 255, 255);
+                    else
+                        color = IM_COL32(100, 230, 100, 255);
+
+                    logs.push_back({line, color});
+                }
+
+                for (const auto& log : logs) {
+                    if (filter.PassFilter(log.text.c_str())) {
+                        ImGui::PushStyleColor(ImGuiCol_Text, log.color);
+                        ImGui::PushTextWrapPos(ImGui::GetWindowWidth() - ImGui::GetStyle().WindowPadding.x * 2);
+                        ImGui::TextUnformatted(log.text.c_str());
+                        ImGui::PopTextWrapPos();
+                        ImGui::PopStyleColor();
+                    }
+                }
+
+                if (auto_scroll)
+                    ImGui::SetScrollHereY(1.0f); // Scroll to the bottom
+
                 ImGui::EndChild();
                 ImGui::EndTabItem();
-                if (ImGui::Button("Clear Console")){
-                    rl_status[py::str("console")] = "";
-                    onSetRLStatus(rl_status);
+                if (ImGui::Button("Clear Log Console")){
+                    // Clear the console output
+                    logs.clear();
+                }
+                ImGui::SameLine();
+                if (ImGui::Button("Show All Logs")){
+                    log_reader_.reset();
+                    logs.clear();
                 }
             }
-            if (ImGui::BeginTabItem("ROSHAN-AI")) {
-                static char input_text[512] = "";
-                ImGui::Text("Ask ROSHAN-AI a question:");
-                ImGui::InputText("##input", input_text, IM_ARRAYSIZE(input_text));
-                if (ImGui::Button("Send")) {
-                    // Do something with the text
-                    user_input = input_text;
-                    // Clear the input text
-                    memset(input_text, 0, sizeof(input_text));
+            if (parameters_.llm_support_){
+                if (ImGui::BeginTabItem("ROSHAN-AI")) {
+                    static char input_text[512] = "";
+                    ImGui::Text("Ask ROSHAN-AI a question:");
+                    ImGui::InputText("##input", input_text, IM_ARRAYSIZE(input_text));
+                    if (ImGui::Button("Send")) {
+                        // Do something with the text
+                        user_input = input_text;
+                        // Clear the input text
+                        memset(input_text, 0, sizeof(input_text));
+                    }
+                    ImGui::BeginChild("scrolling", ImVec2(0, ImGui::GetTextLineHeightWithSpacing() * 15), true, ImGuiWindowFlags_HorizontalScrollbar);
+                    ImGui::TextWrapped("%s", model_output.c_str());
+                    ImGui::EndChild();
+                    ImGui::EndTabItem();
                 }
-                ImGui::BeginChild("scrolling", ImVec2(0, ImGui::GetTextLineHeightWithSpacing() * 15), true, ImGuiWindowFlags_HorizontalScrollbar);
-                ImGui::TextWrapped("%s", model_output.c_str());
-                ImGui::EndChild();
-                ImGui::EndTabItem();
             }
             if (ImGui::BeginTabItem("Drone Information")){
                 ImVec4 color = ImVec4(0.33f, 0.67f, 0.86f, 1.0f);
@@ -899,19 +955,12 @@ bool ImguiHandler::ImGuiOnStartup(const std::shared_ptr<FireModelRenderer>& mode
             auto rl_status = onGetRLStatus();
 
             if (ImGui::Button("Train Model", ImVec2(-1, 0))) {
-//                py::dict rl_status = onGetRLStatus();
-                auto console = rl_status["console"].cast<std::string>();
-                console += "Initialized ROSHAN in Train mode.\n";
                 rl_status[py::str("rl_mode")] = py::str("train");
                 train_mode_selected_ = true;
                 model_mode_selection_ = true;
                 model_path_selection = true;
             }
             if (ImGui::Button("Load Model", ImVec2(-1, 0))) {
-//                py::dict rl_status = onGetRLStatus();
-                auto console = rl_status["console"].cast<std::string>();
-                console += "Initialized ROSHAN in Eval mode.\n";
-                rl_status[py::str("console")] = console;
                 rl_status[py::str("rl_mode")] = py::str("eval");
                 model_mode_selection_ = true;
                 model_load_selection_ = true;
@@ -1386,4 +1435,11 @@ void ImguiHandler::OpenBrowser(const std::string& url) {
     if(system((command + url).c_str()) == -1) {
         std::cerr << "Error opening URL: " << url << std::endl;
     }
+}
+
+void ImguiHandler::updateOnRLStatusChange() {
+    py::dict rl_status = onGetRLStatus();
+    auto model_path = rl_status["model_path"].cast<std::string>();
+    auto log_path = (std::filesystem::path(model_path) / std::filesystem::path("logging.log")).string();
+    this->log_reader_.set_model_path(log_path);
 }

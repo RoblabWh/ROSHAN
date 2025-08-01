@@ -1,5 +1,6 @@
 import os
 from algorithms.rl_config import RLConfig
+import logging
 
 class RLAlgorithm:
     """
@@ -12,6 +13,7 @@ class RLAlgorithm:
             setattr(self, field, getattr(config, field))
 
         self.version = 1
+        self.logger = logging.getLogger(self.algorithm)
 
     def set_paths(self, model_path, model_name):
         self.model_path = os.path.abspath(model_path)
