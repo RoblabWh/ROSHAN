@@ -99,7 +99,7 @@ private:
     std::vector<std::vector<int>> noise_map_;
 
     // Random Generator for the particles
-    std::mt19937 gen_;
+    std::mt19937& gen_;
     std::uniform_real_distribution<> real_dis_;
 
     ICell *GetCell();
