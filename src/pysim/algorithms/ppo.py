@@ -176,16 +176,22 @@ class PPO(RLAlgorithm):
         ext_rewards = t_dict['reward']
         masks = t_dict['not_done']
 
-        # Check for intrinsic rewards
+        # Collect rewards once
+        ext_rewards_tensor = torch.cat(ext_rewards)
+        ext_rewards_np = ext_rewards_tensor.detach().cpu().numpy()
+
         intrinsic_rewards = None
+        intrinsic_rewards_tensor = None
+        int_rewards_np = None
         if 'intrinsic_reward' in t_dict.keys():
             intrinsic_rewards = t_dict['intrinsic_reward']
-            self.int_reward_rms.update(torch.cat(intrinsic_rewards).detach().cpu().numpy())
+            intrinsic_rewards_tensor = torch.cat(intrinsic_rewards)
+            int_rewards_np = intrinsic_rewards_tensor.detach().cpu().numpy()
+            self.int_reward_rms.update(int_rewards_np)
 
         # Logger
         logging_values = []
-        log_rewards = torch.cat(ext_rewards).detach().cpu().numpy() if intrinsic_rewards is None \
-           else torch.cat(intrinsic_rewards).detach().cpu().numpy() + torch.cat(ext_rewards).detach().cpu().numpy()
+        log_rewards = ext_rewards_np if intrinsic_rewards_tensor is None else ext_rewards_np + int_rewards_np
         logger.add_metric("Rewards/Rewards_Raw", log_rewards)
 
         # Save current weights if mean reward or objective is higher than the best so far
@@ -195,15 +201,20 @@ class PPO(RLAlgorithm):
         # Clipping most likely is unnecessary
         # rewards = [np.clip(np.array(reward.detach().cpu()) / self.running_reward_std.get_std(), -10, 10) for reward in rewards]
         # Reward normalization !!!!DON'T SHIFT THE REWARDS BECAUSE YOU F UP YOUR OBJECTIVE FUNCTION!!!!
-        self.reward_rms.update(torch.cat(ext_rewards).detach().cpu().numpy())
+        self.reward_rms.update(ext_rewards_np)
         ext_rewards = [reward / self.reward_rms.get_std() for reward in ext_rewards]
-        intrinsic_rewards = [reward / self.int_reward_rms.get_std() for reward in intrinsic_rewards] if intrinsic_rewards is not None else None
+        ext_rewards_norm_tensor = ext_rewards_tensor / self.reward_rms.get_std()
+        if intrinsic_rewards is not None:
+            intrinsic_rewards = [reward / self.int_reward_rms.get_std() for reward in intrinsic_rewards]
+            intrinsic_rewards_norm_tensor = intrinsic_rewards_tensor / self.int_reward_rms.get_std()
+            rewards_tensor = ext_rewards_norm_tensor + intrinsic_rewards_norm_tensor
+        else:
+            rewards_tensor = ext_rewards_norm_tensor
 
         rewards = ext_rewards if intrinsic_rewards is None \
             else [ext_reward + int_reward for ext_reward, int_reward in zip(ext_rewards, intrinsic_rewards)]
 
-        log_rewards = torch.cat(rewards).detach().cpu().numpy()
-        logger.add_metric("Rewards/Rewards_norm", log_rewards)
+        logger.add_metric("Rewards/Rewards_norm", rewards_tensor.detach().cpu().numpy())
 
         # Advantages
         with (torch.no_grad()):
@@ -228,7 +239,7 @@ class PPO(RLAlgorithm):
         advantages = torch.cat(advantages)
         returns = torch.cat(returns)
         actions = torch.cat(actions)
-        old_logprobs = torch.cat(old_logprobs)
+        old_logprobs = torch.cat(old_logprobs).detach()
         states = memory.rearrange_states(states)
         #v_masks = memory.rearrange_masks(variable_state_masks) if self.use_variable_state_masks else None
 
@@ -250,7 +261,7 @@ class PPO(RLAlgorithm):
                 logprobs, values, dist_entropy = self.policy.evaluate(batch_states, batch_actions, batch_variable_masks)
 
                 # Importance ratio: p/q
-                ratios = torch.exp(logprobs - old_logprobs[index].detach())
+                ratios = torch.exp(logprobs - old_logprobs[index])
 
                 # Approximate KL Divergence
                 # approxkl = 0.5 * torch.mean(torch.square(old_logprobs[index].detach() - logprobs))
@@ -271,12 +282,18 @@ class PPO(RLAlgorithm):
                 value_loss = self.MSE_loss(values, returns[index].squeeze())
 
                 # Log loss
-                logger.add_metric("Loss/critic_loss", value_loss.detach().cpu().numpy())
-                logger.add_metric("Loss/actor_loss", actor_loss.detach().cpu().numpy())
-                logger.add_metric("Loss/log_std", torch.exp(self.policy.actor.log_std).detach().cpu().numpy())
-                logging_values.append(values.detach().cpu().numpy())
-                epoch_values.append(values.detach().cpu().numpy())
-                epoch_returns.append(returns[index].detach().cpu().numpy())
+                critic_loss_np = value_loss.detach().cpu().numpy()
+                actor_loss_np = actor_loss.detach().cpu().numpy()
+                log_std_np = torch.exp(self.policy.actor.log_std).detach().cpu().numpy()
+                values_np = values.detach().cpu().numpy()
+                returns_np = returns[index].detach().cpu().numpy()
+
+                logger.add_metric("Loss/critic_loss", critic_loss_np)
+                logger.add_metric("Loss/actor_loss", actor_loss_np)
+                logger.add_metric("Loss/log_std", log_std_np)
+                logging_values.append(values_np)
+                epoch_values.append(values_np)
+                epoch_returns.append(returns_np)
 
                 # Sanity checks
                 assert not torch.isnan(value_loss).any(), f"Critic Loss is NaN, check returns, values or entroy"
