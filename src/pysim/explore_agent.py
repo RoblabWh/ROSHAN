@@ -61,24 +61,27 @@ class ExploreAgent(Agent):
 
     @staticmethod
     def restructure_data(observations_):
-        #all_explore_maps, all_total_views = [], []
-        all_explore_maps, all_positions = [], []
-
         obs = observations_["explore_agent"]
-        for deque in obs:
-            drone_states = np.array([state for state in deque if isinstance(state, firesim.AgentState)])
-            if len(drone_states) == 0:
-                continue
 
-            #multi_total_drone_view = np.array([state.GetMultipleTotalDroneView() for state in drone_states])
-            exploration_map = np.array([state.GetExplorationMapNorm() for state in drone_states])
-            positions = [np.array([state.GetGridPositionDoubleNorm() for state in drone_states])]
+        drone_state_groups = [
+            [state for state in deque if isinstance(state, firesim.AgentState)]
+            for deque in obs
+        ]
+        drone_state_groups = [group for group in drone_state_groups if group]
 
-            all_explore_maps.append(exploration_map)
-            all_positions.append(positions)
+        if not drone_state_groups:
+            raise ValueError("No AgentState data found in observations for explore_agent")
 
-        all_explore_maps = np.array(all_explore_maps)
-        all_positions = np.array(all_positions)
+        exploration_maps = [
+            [state.GetExplorationMapNorm() for state in group]
+            for group in drone_state_groups
+        ]
+        positions = [
+            [state.GetGridPositionDoubleNorm() for state in group]
+            for group in drone_state_groups
+        ]
+
+        all_explore_maps = np.stack(exploration_maps)
+        all_positions = np.stack(positions)
 
         return all_positions, all_explore_maps
-        #return np.transpose(np.array(all_total_views), (0,2,1,3,4)), all_explore_maps
