@@ -1,8 +1,13 @@
 import torch
 import numpy as np
 from collections import defaultdict
+from torch.nn.utils.rnn import pad_sequence
 
-from transformers.models.deta.image_processing_deta import masks_to_boxes
+# Optional dependency used elsewhere in the project.
+try:
+    from transformers.models.deta.image_processing_deta import masks_to_boxes
+except Exception:  # pragma: no cover - runtime availability only
+    masks_to_boxes = None
 
 
 class SwarmMemory(object):
@@ -177,52 +182,84 @@ class Memory(object):
         self.size = min(self.size + 1, self.max_size)
 
     def create_state_tuple(self, state_fields):
-        """
-        Create a tuple of states from the input state.
-        This is used to ensure that the state is in the correct format.
+        """Pad variable-length fields into batched tensors and a mask.
+
+        Parameters
+        ----------
+        state_fields : Iterable[Iterable[Tensor]]
+            Each element collects all samples of one field. Tensors within a
+            field share the same rank and may vary in at most one axis length.
+            Only the first axis with differing sizes is padded; fields with
+            multiple varying axes are not currently supported.
+
+        Returns
+        -------
+        tuple of torch.Tensor
+            For each input field, a tensor of shape ``(B, *S)`` is returned
+            where ``B`` equals the number of samples in the field and ``S`` is
+            the original tensor shape. The axis that differs in length across
+            samples is padded to ``L_max`` (the maximum length) and remains in
+            its original position following the batch dimension. All tensors are
+            placed on ``self.device``.
+        torch.BoolTensor
+            Mask with shape ``(B, L_max)`` on ``self.device`` where ``True``
+            denotes padding and ``False`` denotes valid data. The mask's second
+            dimension corresponds to the padded axis in the returned tensors.
         """
         state_tuple = []
-        masks = []
+        mask_tensor = torch.empty(0, dtype=torch.bool, device=self.device)
 
-        for i, field_list in enumerate(state_fields):
-            # Convert all to numpy arrays, preserving singleton dims
-            arr_list = [np.array(f) for f in field_list]
-            # Find all shapes (should be e.g. (1,1,1,2) for drones, (1,1,NumFires,2) for fires)
-            shapes = [a.shape for a in arr_list]
-            # For each axis, get set of sizes
-            axis_sizes = list(zip(*shapes))
-            size_sets = [set(sizes) for sizes in axis_sizes]
+        for field_list in state_fields:
+            tensor_list = [torch.as_tensor(f, dtype=torch.float32) for f in field_list]
+            shapes = [t.shape for t in tensor_list]
 
-            # find axes with more than 1 unique size: these are variable-length axes ( need to pad these and build masks)
-            # pad on the first such axis we find (for most RL cases, only one axis is variable)
-            variable_axes = [ax for ax, sizes in enumerate(size_sets) if len(sizes) > 1]
-            if not variable_axes:
-                # No variable axes: just stack normally, keep singleton dims
-                t = torch.FloatTensor(np.stack(arr_list)).to(self.device)
+            # Determine which axis varies in length across samples. We only pad
+            # the *first* such axis encountered; remaining axes are assumed to
+            # have consistent sizes. Supporting multiple variable axes would
+            # require nested padding or a more general batching strategy.
+            variable_axis = None
+            for ax in range(len(shapes[0])):
+                if len({s[ax] for s in shapes}) > 1:
+                    variable_axis = ax
+                    break  # stop at first variable axis
+
+            if variable_axis is None:
+                t = torch.stack(tensor_list).to(self.device)
                 state_tuple.append(t)
             else:
-                # There is at least one variable axis, pad along that axis
-                axis = variable_axes[0]
-                max_len = max(s[axis] for s in shapes)
-                padded = []
-                mask = []
-                for arr in arr_list:
-                    valid_len = arr.shape[axis]
-                    # Build mask: True for padded elements, False for valid elements
-                    mask_arr = np.zeros((max_len,), dtype=np.bool_)
-                    mask_arr[valid_len:] = True
-                    mask.append(mask_arr)
-                    # Pad data as before
-                    pad_width = [(0, 0)] * arr.ndim
-                    pad_width[axis] = (0, max_len - valid_len)
-                    arr = np.pad(arr, pad_width, mode='constant', constant_values=-1)
-                    padded.append(arr)
-                t = torch.FloatTensor(np.stack(padded)).to(self.device)
-                mask_t = torch.BoolTensor(np.stack(mask)).to(self.device)  # [batch, max_len]
-                masks = mask_t
-                state_tuple.append(t)
+                axis = variable_axis
+                lengths = torch.tensor([t.shape[axis] for t in tensor_list], device=self.device)
 
-        return tuple(state_tuple), masks
+                # pad_sequence operates on the leading dimension, so move the
+                # variable axis to the front before padding and remember how to
+                # restore the original layout afterwards
+                permute_order = [axis] + [i for i in range(len(shapes[0])) if i != axis]
+                dims_rest = permute_order[1:]
+                rearranged = [t.permute(permute_order) for t in tensor_list]
+
+                padded = pad_sequence(rearranged, batch_first=True)
+                max_len = padded.size(1)
+
+                mask_tensor = (
+                    torch.arange(max_len, device=self.device).expand(len(lengths), max_len)
+                    >= lengths.unsqueeze(1)
+                )
+
+                # Restore original axis order after padding. `order` first keeps
+                # the batch dimension, then places the padded axis back in its
+                # original position followed by the remaining dimensions.
+                order = [0]
+                for j in range(len(shapes[0])):
+                    if j == axis:
+                        order.append(1)
+                    else:
+                        k = dims_rest.index(j)
+                        order.append(k + 2)
+                padded = padded.permute(order)
+
+                state_tuple.append(padded.to(self.device))
+
+        return tuple(state_tuple), mask_tensor
 
     def to_tensor(self):
         """
