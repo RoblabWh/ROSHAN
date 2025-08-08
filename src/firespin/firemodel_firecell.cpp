@@ -34,10 +34,7 @@ FireCell::FireCell(int x, int y, std::mt19937& gen, FireModelParameters &paramet
         tau_ign_ = cell_->GetIgnitionDelayTime();
     }
 
-    // TODO Auslagern der Zufallszahlen in eine eigene Klasse?
     // Initialize random number generator
-    std::random_device rd;
-    gen_.seed(rd());
     real_dis_ = std::uniform_real_distribution<>(0.0, 1.0);
     std::uniform_real_distribution<> dis(0.1, 0.2);
     std::uniform_int_distribution<> sign_dis(-1, 1);
@@ -332,9 +329,10 @@ void FireCell::GenerateNoiseMap() {
     int noise_level = cell_->GetNoiseLevel();
     int size = cell_->GetNoiseSize();
     noise_map_.resize(size, std::vector<int>(size));
+    std::uniform_int_distribution<> dist(-noise_level, noise_level);
     for (int y = 0; y < size; ++y) {
         for (int x = 0; x < size; ++x) {
-            noise_map_[y][x] = std::rand() % (2 * noise_level) - noise_level;
+            noise_map_[y][x] = dist(gen_);
         }
     }
 }
