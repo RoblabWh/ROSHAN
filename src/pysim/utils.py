@@ -297,7 +297,20 @@ class Logger:
             self.episode_ended = True
 
     def add_metric(self, tag, value, hist=False):
-        self.histograms[tag].append(value)
+        """Add a metric for logging.
+
+        Parameters
+        ----------
+        tag : str
+            Name of the metric.
+        value : Any
+            Value to log.
+        hist : bool, optional
+            If True, store the value for histogram logging. If False, the value
+            will only be tracked as a scalar metric. Defaults to False.
+        """
+        if hist:
+            self.histograms[tag].append(value)
         self.metrics[tag].append(value)
 
     def log_scalar(self, tag, value, step: int = None):
