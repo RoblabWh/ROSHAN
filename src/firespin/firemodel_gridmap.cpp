@@ -50,11 +50,10 @@ GridMap::GridMap(std::shared_ptr<Wind> wind, FireModelParameters &parameters,
 }
 
 template <typename ParticleType>
-void GridMap::UpdateVirtualParticles(std::vector<ParticleType>& particles, std::vector<std::vector<bool>>& visited_cells) {
-    std::vector<ParticleType*> particles_to_remove;
-
-    for (size_t part = 0; part < particles.size(); ++part) {
-        auto& particle = particles[part];
+void GridMap::UpdateVirtualParticles(std::vector<ParticleType> &particles, std::vector<std::vector<bool>> &visited_cells) {
+    size_t part = 0;
+    while (part < particles.size()) {
+        auto &particle = particles[part];
 
         if constexpr (std::is_same<ParticleType, VirtualParticle>::value) {
             particle.UpdateState(*wind_, parameters_.GetDt(), buffer_);
@@ -68,29 +67,19 @@ void GridMap::UpdateVirtualParticles(std::vector<ParticleType>& particles, std::
         parameters_.ConvertRealToGridCoordinates(x, y, i, j);
 
         if (!IsPointInGrid(i, j) || !particle.IsCapableOfIgnition()) {
-            {
-                particles_to_remove.push_back(&particle);
-            }
+            particles[part] = std::move(particles.back());
+            particles.pop_back();
             continue;
         }
 
         Point p = Point(i, j);
-
-        {
-            visited_cells[p.x_][p.y_] = true;
-            if (CellCanIgnite(p.x_, p.y_)) {
-                ticking_cells_.insert(p);
-            }
+        visited_cells[p.x_][p.y_] = true;
+        if (CellCanIgnite(p.x_, p.y_)) {
+            ticking_cells_.insert(p);
         }
-    }
 
-    particles.erase(
-            std::remove_if(particles.begin(), particles.end(),
-                           [&](ParticleType& p) {
-                               return std::find(particles_to_remove.begin(), particles_to_remove.end(), &p) != particles_to_remove.end();
-                           }),
-            particles.end()
-    );
+        ++part;
+    }
 }
 
 void GridMap::UpdateParticles() {
