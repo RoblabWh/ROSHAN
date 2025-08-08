@@ -64,24 +64,20 @@ class PlannerAgent(Agent):
 
     @staticmethod
     def restructure_data(observations_):
-        all_drone_states, all_fire_states, all_goal_positions  = [], [], []
-
         obs = observations_["planner_agent"]
-        for deque in obs:
-            drone_states = np.array([state for state in deque if isinstance(state, firesim.AgentState)])
-            if len(drone_states) == 0:
-                continue
 
-            drone_states_ = np.array([state.GetDronePositions() for state in drone_states])
-            goal_positions = np.array([state.GetGoalPositions() for state in drone_states])
-            fire_states = np.array([state.GetFirePositions() for state in drone_states]) # Try GetExploredFires
+        drone_state_groups = [
+            [state for state in deque if isinstance(state, firesim.AgentState)]
+            for deque in obs
+        ]
+        drone_state_groups = [group for group in drone_state_groups if group]
 
-            all_drone_states.append(drone_states_)
-            all_fire_states.append(fire_states)
-            all_goal_positions.append(goal_positions)
+        drone_positions = [[s.GetDronePositions() for s in group] for group in drone_state_groups]
+        goal_positions = [[s.GetGoalPositions() for s in group] for group in drone_state_groups]
+        fire_positions = [[s.GetFirePositions() for s in group] for group in drone_state_groups]
 
-        all_drone_states = np.array(all_drone_states)
-        all_fire_states = np.array(all_fire_states)
-        all_goal_positions = np.array(all_goal_positions)
+        all_drone_states = np.stack(drone_positions)
+        all_goal_positions = np.stack(goal_positions)
+        all_fire_states = np.stack(fire_positions)
 
         return all_drone_states, all_goal_positions, all_fire_states
