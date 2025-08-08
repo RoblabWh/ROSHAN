@@ -4,6 +4,7 @@
 
 #include "firemodel_gridmap.h"
 
+#include <algorithm>
 #include <utility>
 
 GridMap::GridMap(std::shared_ptr<Wind> wind, FireModelParameters &parameters,
@@ -22,6 +23,7 @@ GridMap::GridMap(std::shared_ptr<Wind> wind, FireModelParameters &parameters,
     explored_map_ = std::vector<std::vector<int>>(rows, std::vector<int>(cols, 0));
     step_explored_map_ = std::vector<std::vector<int>>(rows, std::vector<int>(cols, 0));
     fire_map_ = std::vector<std::vector<int>>(rows, std::vector<int>(cols, 0));
+    visited_cells_ = std::vector<std::vector<bool>>(rows, std::vector<bool>(cols, false));
 //    std::cout << "GridMap: " << rows << " " << cols << std::endl;
 
     for (int x = 0; x < rows; ++x) {
@@ -92,13 +94,15 @@ void GridMap::UpdateVirtualParticles(std::vector<ParticleType>& particles, std::
 }
 
 void GridMap::UpdateParticles() {
-    std::vector<std::vector<bool>> visited_cells(rows_, std::vector<bool>(cols_, false));
-    UpdateVirtualParticles(virtual_particles_, visited_cells);
-    UpdateVirtualParticles(radiation_particles_, visited_cells);
+    for (auto &row : visited_cells_) {
+        std::fill(row.begin(), row.end(), false);
+    }
+    UpdateVirtualParticles(virtual_particles_, visited_cells_);
+    UpdateVirtualParticles(radiation_particles_, visited_cells_);
 
     for (auto it = ticking_cells_.begin(); it != ticking_cells_.end(); ) {
         // If cell is not visited, remove it from ticking cells
-        if (!visited_cells[it->x_][it->y_]) {
+        if (!visited_cells_[it->x_][it->y_]) {
             it = ticking_cells_.erase(it);
         } else {
             ++it;
@@ -117,6 +121,7 @@ GridMap::~GridMap(){
     explored_map_.clear();
     step_explored_map_.clear();
     fire_map_.clear();
+    visited_cells_.clear();
 };
 
 std::pair<double, double> GridMap::GetNextFire(std::pair<int, int> drone_position) {
