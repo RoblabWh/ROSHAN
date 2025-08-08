@@ -130,14 +130,17 @@ class PPO(RLAlgorithm):
             if masks[i] == 1:
                 delta = delta + self.gamma * values[i + 1]
             gae = delta + self.gamma * self._lambda * masks[i] * gae
-            advantages.insert(0, gae)
-            returns.insert(0, gae + values[i])
+            advantages.append(gae)
+            returns.append(gae + values[i])
+
+        # Reverse to restore original order
+        advantages = torch.FloatTensor(list(reversed(advantages))).to(self.device)
+        returns = torch.FloatTensor(list(reversed(returns))).to(self.device)
 
         # Norm advantages
-        advantages = torch.FloatTensor(advantages).to(self.device)
         advantages = (advantages - advantages.mean()) / (advantages.std() + 1e-10)
 
-        return advantages, torch.FloatTensor(returns).to(self.device)
+        return advantages, returns
 
     @staticmethod
     def calculate_explained_variance(values, returns):
