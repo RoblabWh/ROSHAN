@@ -8,7 +8,7 @@ settings:
   llm_support: false # Whether to use LLM support for the environment (currently not supported)
   hierarchy_type: planner_agent # Type of hierarchy to use for the agents (fly_agent, explore_agent, planner_agent)
   skip_gui_init: true # Uses this config as default and skips the GUI setup
-  pytorch_detect_anomaly: true # Enable PyTorch autograd anomaly detection
+  pytorch_detect_anomaly: false # Enable PyTorch autograd anomaly detection
   auto_train:
     use_auto_train: false # Whether to use auto training
     train_episodes: 3 # Number of total trainings, each containing max_train train_steps
@@ -19,7 +19,7 @@ paths:
   # No Loading is ever done from this folder, use the default_model_paths for each agent for that (evaluation and resuming training)
   # If "Resume" is set to true, this directory will NOT be used at all
   # (either absolute or relative to the project root)
-  model_directory: models/planner_kind_of_works
+  model_directory: models/planner_test
   # Leave this empty to get a default name from this config
   model_name: ""
   # Name of the CORINE dataset-file, Path to the Corine dataset file must be set in project_paths.json (generated default paths at compile time)

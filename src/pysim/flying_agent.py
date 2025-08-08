@@ -32,18 +32,21 @@ class FlyAgent(Agent):
         return drone_actions
 
     def restructure_data(self, observations_):
-        all_velocities, all_delta_goals = [], []
         obs = observations_[self.name]
-        for deque in obs:
-            drone_states = np.array([state for state in deque if isinstance(state, firesim.AgentState)])
-            if len(drone_states) == 0:
-                continue
 
-            velocities = np.array([state.GetVelocityNorm() for state in drone_states])
-            delta_goal = np.array([state.GetDeltaGoal() for state in drone_states])
+        drone_state_groups = [
+            [state for state in deque if isinstance(state, firesim.AgentState)]
+            for deque in obs
+        ]
+        drone_state_groups = [group for group in drone_state_groups if group]
 
-            all_velocities.append(velocities)
-            all_delta_goals.append(delta_goal)
+        if not drone_state_groups:
+            raise ValueError(f"No AgentState data found in observations for {self.name}")
 
-        # Expanding Dims necessary for scalar values
-        return np.array(all_velocities), np.array(all_delta_goals)
+        velocities = [[state.GetVelocityNorm() for state in group] for group in drone_state_groups]
+        delta_goals = [[state.GetDeltaGoal() for state in group] for group in drone_state_groups]
+
+        all_velocities = np.stack(velocities)
+        all_delta_goals = np.stack(delta_goals)
+
+        return all_velocities, all_delta_goals

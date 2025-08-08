@@ -85,8 +85,10 @@ class AgentHandler:
         model_path = os.path.join(root_path, config["paths"]["model_directory"]) if not self.resume else loading_path
         model_name = self.get_model_name_from_config(config)# if not self.resume else loading_name
 
-        self.logger = logging.getLogger(agent_type)
+        if not os.path.exists(model_path):
+            os.makedirs(model_path)
 
+        self.logger = logging.getLogger(agent_type)
 
         # Only create a FileHandler if this is not a sub agent
         # TODO different logger files for training and evaluation

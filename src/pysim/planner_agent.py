@@ -72,6 +72,9 @@ class PlannerAgent(Agent):
         ]
         drone_state_groups = [group for group in drone_state_groups if group]
 
+        if not drone_state_groups:
+            raise ValueError("No AgentState data found in observations for planner_agent")
+
         drone_positions = [[s.GetDronePositions() for s in group] for group in drone_state_groups]
         goal_positions = [[s.GetGoalPositions() for s in group] for group in drone_state_groups]
         fire_positions = [[s.GetFirePositions() for s in group] for group in drone_state_groups]

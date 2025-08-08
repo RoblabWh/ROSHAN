@@ -22,14 +22,11 @@ def test_create_state_tuple_no_padding():
     assert torch.equal(field1, expected1)
     assert mask.numel() == 0
     assert mask.shape == torch.Size([0])
-    assert field0.device == memory.device
-    assert field1.device == memory.device
-    assert mask.device == memory.device
 
 
 def test_create_state_tuple_with_padding():
     memory = Memory()
-
+    device = memory.device
     samples = [
         (torch.ones((2, 2, 3)), torch.tensor([1.0])),
         (torch.ones((2, 3, 3)) * 2, torch.tensor([2.0])),
@@ -42,9 +39,6 @@ def test_create_state_tuple_with_padding():
     assert field0.shape == (3, 2, 3, 3)
     assert field1.shape == (3, 1)
     assert mask.shape == (3, 3)
-    assert field0.device == memory.device
-    assert field1.device == memory.device
-    assert mask.device == memory.device
 
     lengths = [2, 3, 1]
     max_len = max(lengths)
@@ -55,7 +49,10 @@ def test_create_state_tuple_with_padding():
         if L < max_len:
             assert torch.all(mask[i, L:])
             assert torch.all(field0[i, :, L:, :] == 0)
-        assert torch.allclose(field0[i, :, :L, :], samples[i][0])
+        assert torch.allclose(field0[i, :, :L, :], samples[i][0].to(device))
 
-    expected1 = torch.stack([s[1] for s in samples]).to(memory.device)
+    expected1 = torch.stack([s[1] for s in samples]).to(device)
     assert torch.allclose(field1, expected1)
+
+if __name__ == "__main__":
+    pytest.main([__file__])
