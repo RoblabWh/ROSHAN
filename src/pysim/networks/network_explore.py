@@ -1,3 +1,4 @@
+import os
 import numpy as np
 import torch.nn as nn
 import torch.nn.functional as F
@@ -6,7 +7,8 @@ import torch
 from networks.network_fly import DeterministicActor
 from utils import initialize_output_weights, get_in_features_2d, get_in_features_3d
 
-torch.autograd.set_detect_anomaly(True)
+if os.getenv("PYTORCH_DETECT_ANOMALY", "").lower() in ("1", "true"):
+    torch.autograd.set_detect_anomaly(True)
 
 device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
 

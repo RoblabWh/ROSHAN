@@ -21,7 +21,6 @@ if pythonversion != firesimverison:
                      f"Activate your conda environment before compiling the library.")
 
 import firesim
-from hierarchy_manager import HierarchyManager
 
 def assert_config(config):
     """
@@ -47,6 +46,11 @@ def main(config_path_ : str = ""):
         config = yaml.safe_load(f)
 
     assert_config(config)
+
+    if config["settings"].get("pytorch_detect_anomaly"):
+        os.environ["PYTORCH_DETECT_ANOMALY"] = "true"
+
+    from hierarchy_manager import HierarchyManager
 
     logging.basicConfig(
         level=logging.DEBUG,
