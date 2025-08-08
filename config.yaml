@@ -8,6 +8,7 @@ settings:
   llm_support: false # Whether to use LLM support for the environment (currently not supported)
   hierarchy_type: planner_agent # Type of hierarchy to use for the agents (fly_agent, explore_agent, planner_agent)
   skip_gui_init: true # Uses this config as default and skips the GUI setup
+  pytorch_detect_anomaly: true # Enable PyTorch autograd anomaly detection
   auto_train:
     use_auto_train: false # Whether to use auto training
     train_episodes: 3 # Number of total trainings, each containing max_train train_steps
