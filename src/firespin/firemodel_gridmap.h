@@ -143,6 +143,7 @@ private:
     std::vector<std::vector<int>> explored_map_;
     std::vector<std::vector<int>> step_explored_map_;
     std::vector<std::vector<int>> fire_map_;
+    std::vector<std::vector<bool>> visited_cells_;
     std::unordered_set<Point> ticking_cells_;
     std::unordered_set<Point> burning_cells_;
     std::unordered_set<Point> flooded_cells_;
