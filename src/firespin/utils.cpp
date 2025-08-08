@@ -1,4 +1,5 @@
 #include "utils.h"
+#include <numeric>
 
 std::string CellStateToString(CellState cell_state) {
     switch (cell_state) {
@@ -82,34 +83,49 @@ std::optional<std::filesystem::path> find_project_root(const std::filesystem::pa
 }
 
 [[maybe_unused]] std::vector<std::vector<int>> PoolingResize(const std::vector<std::vector<int>>& input_map, int new_width, int new_height) {
-    int old_width = input_map.size();
-    int old_height = input_map[0].size();
+    int old_width = static_cast<int>(input_map.size());
+    int old_height = static_cast<int>(input_map[0].size());
 
-    std::vector <std::vector<int>> resized_map(new_width, std::vector<int>(new_height, 0));
+    std::vector<std::vector<int>> resized_map(new_width, std::vector<int>(new_height, 0));
 
-    float x_ratio = static_cast<float>(old_width) / new_width;
-    float y_ratio = static_cast<float>(old_height) / new_height;
+    // Flatten the input map for cache-friendly access
+    std::vector<int> flat(old_width * old_height);
+    for (int x = 0; x < old_width; ++x) {
+        std::copy(input_map[x].begin(), input_map[x].end(), flat.begin() + x * old_height);
+    }
 
-    for (int y = 0; y < new_height; ++y) {
-        for (int x = 0; x < new_width; ++x) {
-            int x_start = static_cast<int>(x * x_ratio);
-            int x_end = static_cast<int>((x + 1) * x_ratio);
-            int y_start = static_cast<int>(y * y_ratio);
-            int y_end = static_cast<int>((y + 1) * y_ratio);
+    float x_ratio = static_cast<float>(old_width) / static_cast<float>(new_width);
+    float y_ratio = static_cast<float>(old_height) / static_cast<float>(new_height);
+
+    // Precompute region boundaries
+    std::vector<int> x_bounds(new_width + 1);
+    std::vector<int> y_bounds(new_height + 1);
+    for (int i = 0; i <= new_width; ++i) {
+        x_bounds[i] = static_cast<int>(i * x_ratio);
+    }
+    for (int i = 0; i <= new_height; ++i) {
+        y_bounds[i] = static_cast<int>(i * y_ratio);
+    }
+
+    for (int x = 0; x < new_width; ++x) {
+        int xs = x_bounds[x];
+        int xe = x_bounds[x + 1];
+        for (int y = 0; y < new_height; ++y) {
+            int ys = y_bounds[y];
+            int ye = y_bounds[y + 1];
 
             int sum = 0;
-            int count = 0;
+            int elements = (xe - xs) * (ye - ys);
 
-            for (int yy = y_start; yy < y_end; ++yy) {
-                for (int xx = x_start; xx < x_end; ++xx) {
-                    if (xx < old_width && yy < old_height) {
-                        sum += input_map[xx][yy];
-                        count++;
-                    }
+            if (elements > 0) {
+                int *x_ptr = flat.data() + xs * old_height;
+                for (int xx = xs; xx < xe; ++xx, x_ptr += old_height) {
+                    sum += std::accumulate(x_ptr + ys, x_ptr + ye, 0);
                 }
+                resized_map[x][y] = sum / elements;
+            } else {
+                resized_map[x][y] = 0;
             }
-
-            resized_map[x][y] = (count > 0) ? (sum / count) : 0;
         }
     }
 
@@ -117,10 +133,16 @@ std::optional<std::filesystem::path> find_project_root(const std::filesystem::pa
 }
 
 std::vector<std::vector<int>> InterpolationResize(const std::vector<std::vector<int>>& input_map, int new_width, int new_height) {
-    auto old_width = input_map.size();
-    auto old_height = input_map[0].size();
+    int old_width = static_cast<int>(input_map.size());
+    int old_height = static_cast<int>(input_map[0].size());
 
     std::vector<std::vector<int>> resized_map(new_width, std::vector<int>(new_height, 0));
+
+    // Flatten the input for pointer arithmetic
+    std::vector<int> flat(old_width * old_height);
+    for (int x = 0; x < old_width; ++x) {
+        std::copy(input_map[x].begin(), input_map[x].end(), flat.begin() + x * old_height);
+    }
 
     float x_ratio = static_cast<float>(old_width) / static_cast<float>(new_width);
     float y_ratio = static_cast<float>(old_height) / static_cast<float>(new_height);
@@ -134,17 +156,19 @@ std::vector<std::vector<int>> InterpolationResize(const std::vector<std::vector<
             float x_diff = gx - static_cast<float>(gxi);
             float y_diff = gy - static_cast<float>(gyi);
 
+            int idx = gxi * old_height + gyi;
+
             // Bounds checking
             if (gxi >= old_width - 1 || gyi >= old_height - 1) {
-                resized_map[x][y] = input_map[gxi][gyi];
+                resized_map[x][y] = flat[idx];
                 continue;
             }
 
-            // Bilinear interpolation
-            auto top_left = static_cast<float>(input_map[gxi][gyi]);
-            auto top_right = static_cast<float>(input_map[gxi + 1][gyi]);
-            auto bottom_left = static_cast<float>(input_map[gxi][gyi + 1]);
-            auto bottom_right = static_cast<float>(input_map[gxi + 1][gyi + 1]);
+            // Bilinear interpolation using pointer offsets
+            auto top_left = static_cast<float>(flat[idx]);
+            auto top_right = static_cast<float>(flat[idx + old_height]);
+            auto bottom_left = static_cast<float>(flat[idx + 1]);
+            auto bottom_right = static_cast<float>(flat[idx + old_height + 1]);
 
             float top = top_left + x_diff * (top_right - top_left);
             float bottom = bottom_left + x_diff * (bottom_right - bottom_left);
