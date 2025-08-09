@@ -94,7 +94,7 @@ class PPO(RLAlgorithm):
             self.policy.to(self.device)
             return True
         except FileNotFoundError:
-            warnings.warn(f"Could not load model from {path}. Falling back to train mode.")
+            self.logger.warning(f"Could not load model from {path}. Falling back to train mode.")
             return False
 
     def select_action(self, observations):
@@ -105,10 +105,10 @@ class PPO(RLAlgorithm):
 
     def save(self, logger: Logger):
         if logger.is_better_reward():
-            self.logger.info(f"Saving Network at Episode {logger.episode}, best Reward: {logger.best_metrics['best_reward']:.2f}")
+            self.logger.info(f"Saving at Episode {logger.episode}, best Reward: {logger.best_metrics['best_reward']:.2f}")
             torch.save(self.policy.state_dict(), f'{os.path.join(self.get_model_path(), self.get_model_name_reward())}')
         if logger.is_better_objective():
-            self.logger.info(f"Saving Network at Episode {logger.episode}, best Objective {logger.best_metrics['best_objective']:.2f}")
+            self.logger.info(f"Saving at Episode {logger.episode}, best Objective {logger.best_metrics['best_objective']:.2f}")
             torch.save(self.policy.state_dict(), f'{os.path.join(self.get_model_path(), self.get_model_name_obj())}')
         torch.save(self.policy.state_dict(), f'{os.path.join(self.get_model_path(), self.get_model_name_latest())}')
 

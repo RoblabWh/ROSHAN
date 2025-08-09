@@ -77,6 +77,7 @@ private:
     bool model_mode_selection_ = false;
     bool model_load_selection_ = false;
     bool train_mode_selected_ = false;
+    bool reset_console_ = false;
     std::string path_key_;
     Mode mode_;
 

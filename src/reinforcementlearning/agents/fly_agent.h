@@ -13,6 +13,7 @@
 #include <SDL.h>
 #include <deque>
 #include <memory>
+#include <random>
 #include "reinforcementlearning/texturerenderer.h"
 #include "firespin/model_parameters.h"
 #include "firespin/firemodel_gridmap.h"
@@ -111,6 +112,7 @@ private:
     int view_range_{}; //* View Range of the Agent in Grid Cells (10m each)
     int frame_skips_{}; //* Number of frames the simulation repeates a low level action
     std::pair<double, double> max_speed_{}; //* Value for the maximum velocity of an Agent in x and y direction
+    std::mt19937 gen_;
 
     // Possibly Deprecated
     double FindNearestFireDistance();

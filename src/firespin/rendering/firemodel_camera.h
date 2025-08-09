@@ -9,6 +9,11 @@
 #include <algorithm>
 #include <cmath>
 
+namespace {
+    constexpr double kMinZoom = 0.1;
+    constexpr double kMaxZoom = 10.0;
+}
+
 class FireModelCamera {
 public:
     FireModelCamera() : x_(0), y_(0), zoom_(1.0), camera_speed_(0.3) {};

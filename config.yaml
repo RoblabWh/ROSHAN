@@ -6,7 +6,7 @@ settings:
   # from the default_model_paths for the hierarchy_type agent
   resume: false
   llm_support: false # Whether to use LLM support for the environment (currently not supported)
-  hierarchy_type: planner_agent # Type of hierarchy to use for the agents (fly_agent, explore_agent, planner_agent)
+  hierarchy_type: fly_agent # Type of hierarchy to use for the agents (fly_agent, explore_agent, planner_agent)
   skip_gui_init: true # Uses this config as default and skips the GUI setup
   pytorch_detect_anomaly: false # Enable PyTorch autograd anomaly detection
   auto_train:
@@ -16,10 +16,11 @@ settings:
     max_eval: 1 # Maximum number of evaluations to perform
 paths:
   # This is the root_path where your NEW trained models data is stored
-  # No Loading is ever done from this folder, use the default_model_paths for each agent for that (evaluation and resuming training)
+  # No Loading is ever done from this folder, use the default_model_paths for each agent for that (Evaluation and resuming training)
   # If "Resume" is set to true, this directory will NOT be used at all
+  # If you set rl_mode to "eval" it WILL overwrite the default_model_paths for the agent if you LATER switch to train !
   # (either absolute or relative to the project root)
-  model_directory: models/planner_test
+  model_directory: models/fly_test
   # Leave this empty to get a default name from this config
   model_name: ""
   # Name of the CORINE dataset-file, Path to the Corine dataset file must be set in project_paths.json (generated default paths at compile time)
@@ -29,28 +30,45 @@ paths:
   init_map: 35x36_Woods.tif
 
 algorithm:
-  type: PPO
-  vision_range: 12
-  drone_count: 3
-  map_size: 80
-  time_steps: 16
-  memory_size: 1000000
-  action_dim: 2
-  clear_memory: true
-  use_next_obs: true
-  lr: 0.0004
-  batch_size: 32
-  horizon: 64
-  k_epochs: 14
-  entropy_coeff: 0.0006
-  value_loss_coef: 0.5
-  separate_optimizers: false
-  betas: [0.9, 0.999]
-  gamma: 0.9635
-  _lambda: 0.96
-  eps_clip: 0.2783
-  use_categorical: false
-  use_variable_state_masks: false
+  PPO:
+    memory_size: 1.0e+5 # Size of the Replay Buffer
+    lr: 4.0e-4 # Learning rate for the optimizer
+    batch_size: 2048 # Batch size for the optimizer
+    horizon: 12800 # Number of steps to collect before updating the model
+    k_epochs: 8 # Number of epochs to update the model
+    entropy_coeff: 0.0006 # Coefficient for the entropy loss
+    value_loss_coef: 0.5 # Coefficient for the value loss
+    separate_optimizers: false # Whether to use separate optimizers for the policy and value networks
+    beta1: 0.9 # Beta1 for the Adam optimizer
+    beta2: 0.999 # Beta2 for the Adam optimizer
+    gamma: 0.9635 # Discount factor for the rewards
+    _lambda: 0.96 # Lambda for the Generalized Advantage Estimation (GAE)
+    eps_clip: 0.2783 # Clipping value for the PPO loss
+  IQL:
+    memory_size: 1e6 # Size of the Replay Buffer
+    lr: 4.0e-4 # Learning rate for the optimizer
+    batch_size: 64 # Batch size for the optimizer
+    discount: 0.99 #
+    expectile: 0.7 # Expectile for the IQL loss
+    tau: 0.005 # Target network update rate
+    temperature: 3.0 # Temperature for the IQL loss
+    min_memory_size: 1000 # Minimum number of samples in the replay buffer before training starts
+    policy_freq: 10 #
+    k_epochs: 10 # Number of epochs to update the model
+    beta1: 0.9 # Beta1 for the Adam optimizer
+    beta2: 0.999 # Beta2 for the Adam optimizer
+  TD3:
+    memory_size: 1.0e+5 # Size of the Replay Buffer
+    min_memory_size: 25000 # Minimum number of samples in the replay buffer before training starts
+    k_epochs: 20 # Number of epochs to update the model
+    discount: 0.99 # Discount factor for the rewards
+    tau: 0.005 # Target network update rate
+    exploration_noise: 0.1 # Exploration noise for the action space
+    policy_noise: 0.2 # Noise added to the policy network
+    noise_clip: 0.5 # Clipping value for the noise
+    policy_freq: 2 # Frequency of policy updates
+    beta1: 0.9 # Beta1 for the Adam optimizer
+    beta2: 0.999 # Beta2 for the Adam optimizer
 
 fire_model:
   # Rendering Parameters
@@ -132,7 +150,7 @@ environment:
     explore_agent:
       algorithm: no_algo # Algorithm used by the explore_agent
       num_agents: 4
-      time_steps: 3 # Number of time steps to consider in the ExploreAgent's memory
+      time_steps: 2 # Number of time steps to consider in the ExploreAgent's memory
       max_speed: 10.0 # Maximum speed of the explore_agent in m/s
       view_range: 12 # View range of the explore_agent in cells
       default_model_folder: "" # Keep empty for future use and compatibility with pipeline lol

@@ -11,8 +11,13 @@ void PixelBuffer::Draw(const SDL_Rect rect, Uint32 base_color, const std::vector
     int x_end = rect.x + rect.w > width_ ? width_ : rect.x + rect.w;
     int y_end = rect.y + rect.h > height_ ? height_ : rect.y + rect.h;
 
+    if ((x_end - x_start) == 0 || (y_end - y_start) == 0) {
+        return;
+    }
+
     Uint8 r, g, b, a;
     SDL_GetRGBA(base_color, format_, &r, &g, &b, &a);
+
     int noise_size = static_cast<int>(noise_map.size());
 
     for (int y = y_start; y < y_end + grid_offset; ++y) {

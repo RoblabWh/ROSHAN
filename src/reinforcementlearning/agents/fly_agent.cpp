@@ -4,7 +4,9 @@
 
 #include "fly_agent.h"
 
-FlyAgent::FlyAgent(FireModelParameters &parameters, int id, int time_steps) : Agent(parameters, 300) {
+FlyAgent::FlyAgent(FireModelParameters &parameters, int id, int time_steps) :
+Agent(parameters, 300),
+gen_(std::random_device{}()){
     id_ = id;
     agent_type_ = "fly_agent";
     time_steps_ = time_steps;
@@ -24,10 +26,8 @@ void FlyAgent::Initialize(int mode,
         this->SetGoalTextureRenderer(model_renderer->GetRenderer());
     }
 
-    std::random_device rd;
-    std::mt19937 gen(rd());
     std::uniform_real_distribution<double> dist(0.0, 1.0);
-    double rng_number = dist(gen);
+    double rng_number = dist(gen_);
     std::pair<int, int> point;
 
     max_speed_ = std::make_pair(speed, speed);

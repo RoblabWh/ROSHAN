@@ -372,7 +372,7 @@ class Logger:
         """Checks if the current reward is better than the best recorded reward.
            Should only be called when checking if the Model should be saved.
         """
-        current_reward = np.mean(self.metrics["reward"]) if "reward" in self.metrics else 0.0
+        current_reward = np.mean(self.metrics["Rewards/Rewards_Raw"]) if "Rewards/Rewards_Raw" in self.metrics else 0.0
         if current_reward >= self.best_metrics["best_reward"]:
             self.best_metrics["best_reward"] = current_reward
             return True

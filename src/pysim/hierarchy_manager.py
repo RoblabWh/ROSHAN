@@ -8,109 +8,130 @@ class HierarchyManager:
         self.config = config
         self.sim_bridge = sim_bridge
         self.hierarchy = {}
-        self.hierarchy_keys = list(self.hierarchy.keys())
         self.logger = logging.getLogger("HierarchyManager")
-        self.build_hierarchy()
         self.max_low_level_steps = 50
+        self.build_hierarchy()
+
+    def _should_reset(self, agent) -> bool:
+        return (
+            agent.hierarchy_early_stop
+            or agent.env_reset
+            or self.sim_bridge.get("env_reset")
+        )
+
+    def _reset_agent(self, agent):
+        agent.hierarchy_steps = 0
+        agent.hierarchy_early_stop = False
+        self.sim_bridge.set("env_reset", False)
 
     def restruct_current_obs(self, observations_):
-        for key in self.hierarchy_keys:
-            self.hierarchy[key].restruct_current_obs(observations_)
+        for agent in self.hierarchy.values():
+            agent.restruct_current_obs(observations_)
+
+    def _train_high(self, engine):
+        high = self.hierarchy["high"]
+        if high.hierarchy_steps % self.max_low_level_steps == 0 or self._should_reset(high):
+            # Do a Training Step for HighLevel Agent
+            high.train_loop(engine=engine)
+            self._reset_agent(high)
+
+        # Step through all low level agents (PlanFlyAgent)
+        self.hierarchy["plan_low"].eval_loop(engine=engine, evaluate=False)
+        high.hierarchy_steps += 1
+        self.sim_bridge.set("env_reset", False)
+
+    def _train_medium(self, engine):
+        medium = self.hierarchy["medium"]
+        if self._should_reset(medium):
+            medium.step_without_network()
+            self._reset_agent(medium)
+
+        medium.hierarchy_early_stop, _ = self.hierarchy["explore_low"].eval_loop(engine=engine, evaluate=False)
+        medium.hierarchy_steps += 1
+
+    def _train_low(self, engine):
+        low = self.hierarchy["low"]
+        low.train_loop(engine=engine)
 
     def train(self, engine):
-
-        if "high" in self.hierarchy_keys:
-            # Do an Exploration Step for HighLevel Agent
-            # if self.hierarchy["medium"].hierarchy_early_stop or self.hierarchy["high"].env_reset or status["env_reset"]:
-            #     self.hierarchy["medium"].step_without_network(status, engine)
-                # Dont set "status["env_reset"] = False" just yet
-            # Check if we need to do a Training Step for HighLevel Agent
-            if (self.hierarchy["high"].hierarchy_steps % self.max_low_level_steps == 0
-                    or self.hierarchy["high"].env_reset or self.sim_bridge.get("env_reset")):
-                # Do a Training Step for HighLevel Agent
-                self.hierarchy["high"].train_loop(engine)
-                self.hierarchy["high"].hierarchy_steps = 0
-                self.hierarchy["high"].hierarchy_early_stop = False
-
-            # Always step through all low level agents (ExploreFlyAgent)
-            # self.hierarchy["medium"].hierarchy_early_stop, _ = self.hierarchy["explore_low"].eval_loop(status, engine, evaluate=False)
-            # Always step through all low level agents (PlanFlyAgent)
-            _, _ = self.hierarchy["plan_low"].eval_loop(engine, evaluate=False)
-            self.hierarchy["high"].hierarchy_steps += 1
-            # This is needed because the User can reset the environment at any time !
-            self.sim_bridge.set("env_reset", False)
-        elif "medium" in self.hierarchy_keys:
+        if "high" in self.hierarchy:
+            self._train_high(engine)
+        elif "medium" in self.hierarchy:
             # Train Loop for MediumLevel Agent TODO Currently not implemented, will only do Exploration and NO Training
-            if self.hierarchy["medium"].hierarchy_early_stop or self.hierarchy["medium"].env_reset or self.sim_bridge.get("env_reset"):
-                self.hierarchy["medium"].step_without_network(engine)
-                # This is needed because the User can reset the environment at any time !
-                self.sim_bridge.set("env_reset", False)
-                self.hierarchy["medium"].hierarchy_steps = 0
-                self.hierarchy["medium"].hierarchy_early_stop = False
-            self.hierarchy["medium"].hierarchy_early_stop, _ = self.hierarchy["explore_low"].eval_loop(engine, evaluate=False)
-            self.hierarchy["medium"].hierarchy_steps += 1
+            self._train_medium(engine)
         else:
-            # Train Loop for low level agent
-            self.hierarchy["low"].train_loop(engine)
+            self._train_low(engine)
+
+    def _eval_high(self, engine):
+        medium = self.hierarchy["medium"]
+        if medium and self._should_reset(medium):
+            medium.step_without_network(engine)
+
+        high = self.hierarchy["high"]
+        if high.hierarchy_steps % self.max_low_level_steps == 0 or self._should_reset(high):
+            # Do an Evaluation Step for HighLevel Agent
+            high.eval_loop(engine=engine, evaluate=True)
+            self._reset_agent(high)
+
+        if medium:
+            medium.hierarchy_early_stop, _ = self.hierarchy["explore_low"].eval_loop(engine=engine, evaluate=False)
+
+        self.hierarchy["plan_low"].eval_loop(engine=engine, evaluate=False)
+        high.hierarchy_steps += 1
+        self.sim_bridge.set("env_reset", False)
+
+    def _eval_medium(self, engine):
+        medium = self.hierarchy["medium"]
+        if self._should_reset(medium):
+            medium.step_without_network(engine)
+            self._reset_agent(medium)
+
+        medium.hierarchy_early_stop, _ = self.hierarchy["explore_low"].eval_loop(engine=engine, evaluate=False)
+        medium.hierarchy_steps += 1
+
+    def _eval_low(self, engine):
+        low = self.hierarchy["low"]
+        low.eval_loop(engine=engine, evaluate=True)
 
     def eval(self, engine):
-        if "high" in self.hierarchy_keys:
-            if self.hierarchy["medium"].hierarchy_early_stop or self.hierarchy["medium"].env_reset or self.sim_bridge.get("env_reset"):
-                self.hierarchy["medium"].step_without_network(engine)
-
-            if (self.hierarchy["high"].hierarchy_steps % self.max_low_level_steps == 0
-                    or self.hierarchy["high"].env_reset or self.sim_bridge.get("env_reset")):
-                # Do a Training Step for HighLevel Agent
-                self.hierarchy["high"].eval_loop(engine, evaluate=True)
-                self.hierarchy["high"].hierarchy_steps = 0
-                self.hierarchy["high"].hierarchy_early_stop = False
-            # Always step through all low level agents (ExploreFlyAgent)
-            self.hierarchy["medium"].hierarchy_early_stop, _ = self.hierarchy["explore_low"].eval_loop(engine, evaluate=False)
-            # Always step through all low level agents (PlanFlyAgent)
-            _, _ = self.hierarchy["plan_low"].eval_loop(engine, evaluate=False)
-            self.hierarchy["high"].hierarchy_steps += 1
-            # This is needed because the User can reset the environment at any time !
-            self.sim_bridge.set("env_reset", False)
-        if "medium" in self.hierarchy_keys:
-            if self.hierarchy["medium"].hierarchy_early_stop or self.hierarchy["medium"].env_reset or self.sim_bridge.get("env_reset"):
-                self.hierarchy["medium"].step_without_network(engine)
-                # This is needed because the User can reset the environment at any time !
-                self.sim_bridge.set("env_reset", False)
-                self.hierarchy["medium"].hierarchy_steps = 0
-                self.hierarchy["medium"].hierarchy_early_stop = False
-            self.hierarchy["medium"].hierarchy_early_stop, _ = self.hierarchy["explore_low"].eval_loop(engine, evaluate=False)
-            self.hierarchy["medium"].hierarchy_steps += 1
+        if "high" in self.hierarchy:
+            self._eval_high(engine)
+        elif "medium" in self.hierarchy:
+            self._eval_medium(engine)
         else:
-            self.hierarchy["low"].eval_loop(engine, evaluate=True)
-
+            self._eval_low(engine)
 
     def update_status(self):
-        if "high" in self.hierarchy_keys:
+        if "high" in self.hierarchy:
             self.hierarchy["high"].update_status()
-        elif "medium" in self.hierarchy_keys:
+        elif "medium" in self.hierarchy:
             self.hierarchy["medium"].update_status()
         else:
             self.hierarchy["low"].update_status()
 
     def build_hierarchy(self):
         # Create the top level Agent Object
-        agent_handler = AgentHandler(config=self.config,
-                             agent_type=self.config["settings"]["hierarchy_type"],
-                             mode=self.config["settings"]["rl_mode"],
-                             sim_bridge=self.sim_bridge,
-                             is_sub_agent=False)
+        agent_handler = AgentHandler(
+             config=self.config,
+             agent_type=self.config["settings"]["hierarchy_type"],
+             mode=self.config["settings"]["rl_mode"],
+             sim_bridge=self.sim_bridge,
+             is_sub_agent=False
+        )
         agent_handler.load_model(change_status=True)
 
         self.hierarchy[agent_handler.hierarchy_level] = agent_handler
-        construct_medium = agent_handler.hierarchy_level == "medium" or agent_handler.hierarchy_level == "high"
+        construct_medium = agent_handler.hierarchy_level in {"medium", "high"}
 
         # Construct a low level agent if the current agent is a medium level agent
         if agent_handler.hierarchy_level == "high":
-            planner_fly_agent = AgentHandler(config=self.config,
-                                                sim_bridge=self.sim_bridge,
-                                                agent_type="fly_agent",
-                                                subtype="PlannerFlyAgent",
-                                                mode="eval")
+            planner_fly_agent = AgentHandler(
+                config=self.config,
+                sim_bridge=self.sim_bridge,
+                agent_type="fly_agent",
+                subtype="PlannerFlyAgent",
+                mode="eval"
+            )
             planner_fly_agent.hierarchy_level = "plan_low"
             planner_fly_agent.load_model()
             self.hierarchy["plan_low"] = planner_fly_agent
@@ -118,19 +139,91 @@ class HierarchyManager:
         if construct_medium:
             # Construct a medium level agent if the current agent is a high level agent
             if agent_handler.hierarchy_level == "high":
-                medium_level_agent = AgentHandler(config=self.config,
-                                                  sim_bridge=self.sim_bridge,
-                                                  agent_type="explore_agent",
-                                                  mode="eval")
+                medium_level_agent = AgentHandler(
+                      config=self.config,
+                      sim_bridge=self.sim_bridge,
+                      agent_type="explore_agent",
+                      mode="eval"
+                )
                 self.hierarchy["medium"] = medium_level_agent
-            explore_fly_agent = AgentHandler(config=self.config,
-                                           sim_bridge=self.sim_bridge,
-                                           agent_type="fly_agent",
-                                           subtype="ExploreFlyAgent",
-                                           mode="eval")
+            explore_fly_agent = AgentHandler(
+                   config=self.config,
+                   sim_bridge=self.sim_bridge,
+                   agent_type="fly_agent",
+                   subtype="ExploreFlyAgent",
+                   mode="eval"
+            )
             explore_fly_agent.load_model()
             self.hierarchy["explore_low"] = explore_fly_agent
 
-        highest_hierarchy_level = max(self.hierarchy.keys(), key=lambda x: ["low", "plan_low", "explore_low", "medium", "high"].index(x))
+        highest_hierarchy_level = max(
+            self.hierarchy.keys(),
+            key=lambda x: ["low", "plan_low", "explore_low", "medium", "high"].index(x)
+        )
         self.logger.info(f"Hierarchy Level: {highest_hierarchy_level}")
-        self.hierarchy_keys = list(self.hierarchy.keys())
+
+    # def train(self, engine):
+    #
+    #     if "high" in self.hierarchy_keys:
+    #         # Do an Exploration Step for HighLevel Agent
+    #         # if self.hierarchy["medium"].hierarchy_early_stop or self.hierarchy["high"].env_reset or status["env_reset"]:
+    #         #     self.hierarchy["medium"].step_without_network(status, engine)
+    #             # Dont set "status["env_reset"] = False" just yet
+    #         # Check if we need to do a Training Step for HighLevel Agent
+    #         if (self.hierarchy["high"].hierarchy_steps % self.max_low_level_steps == 0
+    #                 or self.hierarchy["high"].env_reset or self.sim_bridge.get("env_reset")):
+    #             # Do a Training Step for HighLevel Agent
+    #             self.hierarchy["high"].train_loop(engine)
+    #             self.hierarchy["high"].hierarchy_steps = 0
+    #             self.hierarchy["high"].hierarchy_early_stop = False
+    #
+    #         # Always step through all low level agents (ExploreFlyAgent)
+    #         # self.hierarchy["medium"].hierarchy_early_stop, _ = self.hierarchy["explore_low"].eval_loop(status, engine, evaluate=False)
+    #         # Always step through all low level agents (PlanFlyAgent)
+    #         _, _ = self.hierarchy["plan_low"].eval_loop(engine, evaluate=False)
+    #         self.hierarchy["high"].hierarchy_steps += 1
+    #         # This is needed because the User can reset the environment at any time !
+    #         self.sim_bridge.set("env_reset", False)
+    #     elif "medium" in self.hierarchy_keys:
+    #         # Train Loop for MediumLevel Agent TODO Currently not implemented, will only do Exploration and NO Training
+    #         if self.hierarchy["medium"].hierarchy_early_stop or self.hierarchy["medium"].env_reset or self.sim_bridge.get("env_reset"):
+    #             self.hierarchy["medium"].step_without_network(engine)
+    #             # This is needed because the User can reset the environment at any time !
+    #             self.sim_bridge.set("env_reset", False)
+    #             self.hierarchy["medium"].hierarchy_steps = 0
+    #             self.hierarchy["medium"].hierarchy_early_stop = False
+    #         self.hierarchy["medium"].hierarchy_early_stop, _ = self.hierarchy["explore_low"].eval_loop(engine, evaluate=False)
+    #         self.hierarchy["medium"].hierarchy_steps += 1
+    #     else:
+    #         # Train Loop for low level agent
+    #         self.hierarchy["low"].train_loop(engine)
+
+    # def eval(self, engine):
+    #     if "high" in self.hierarchy_keys:
+    #         if self.hierarchy["medium"].hierarchy_early_stop or self.hierarchy["medium"].env_reset or self.sim_bridge.get("env_reset"):
+    #             self.hierarchy["medium"].step_without_network(engine)
+    #
+    #         if (self.hierarchy["high"].hierarchy_steps % self.max_low_level_steps == 0
+    #                 or self.hierarchy["high"].env_reset or self.sim_bridge.get("env_reset")):
+    #             # Do a Training Step for HighLevel Agent
+    #             self.hierarchy["high"].eval_loop(engine, evaluate=True)
+    #             self.hierarchy["high"].hierarchy_steps = 0
+    #             self.hierarchy["high"].hierarchy_early_stop = False
+    #         # Always step through all low level agents (ExploreFlyAgent)
+    #         self.hierarchy["medium"].hierarchy_early_stop, _ = self.hierarchy["explore_low"].eval_loop(engine, evaluate=False)
+    #         # Always step through all low level agents (PlanFlyAgent)
+    #         _, _ = self.hierarchy["plan_low"].eval_loop(engine, evaluate=False)
+    #         self.hierarchy["high"].hierarchy_steps += 1
+    #         # This is needed because the User can reset the environment at any time !
+    #         self.sim_bridge.set("env_reset", False)
+    #     if "medium" in self.hierarchy_keys:
+    #         if self.hierarchy["medium"].hierarchy_early_stop or self.hierarchy["medium"].env_reset or self.sim_bridge.get("env_reset"):
+    #             self.hierarchy["medium"].step_without_network(engine)
+    #             # This is needed because the User can reset the environment at any time !
+    #             self.sim_bridge.set("env_reset", False)
+    #             self.hierarchy["medium"].hierarchy_steps = 0
+    #             self.hierarchy["medium"].hierarchy_early_stop = False
+    #         self.hierarchy["medium"].hierarchy_early_stop, _ = self.hierarchy["explore_low"].eval_loop(engine, evaluate=False)
+    #         self.hierarchy["medium"].hierarchy_steps += 1
+    #     else:
+    #         self.hierarchy["low"].eval_loop(engine, evaluate=True)

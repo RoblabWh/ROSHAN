@@ -1,4 +1,4 @@
-from networks.network_planner import Actor, Critic
+from networks.network_planner import Actor, CriticPPO
 from torch.utils.data.sampler import BatchSampler, SubsetRandomSampler
 import numpy as np
 import torch.nn as nn
@@ -10,6 +10,7 @@ class PlannerAgent(Agent):
     def __init__(self, num_drones):
         super().__init__()
         self.name = "planner_agent"
+        self.short_name = "planner"
         self.hierarchy_level = "high"
         self.low_level_steps = 200
         self.use_intrinsic_reward = False
@@ -24,7 +25,7 @@ class PlannerAgent(Agent):
     @staticmethod
     def get_network(algorithm : str):
         if algorithm == "PPO":
-            return Actor, Critic
+            return Actor, CriticPPO
         # elif algorithm == "IQL":
         #     return Actor, OffPolicyCritic, Value
         # elif algorithm == "TD3":

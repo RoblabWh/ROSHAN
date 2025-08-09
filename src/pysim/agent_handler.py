@@ -2,10 +2,10 @@ from algorithms.ppo import PPO
 from algorithms.iql import IQL
 from algorithms.rl_algorithm import RLAlgorithm
 from algorithms.td3 import TD3
-from algorithms.rl_config import RLConfig, PPOConfig, IQLConfig, TD3Config, NoAlgorithmConfig
+from algorithms.rl_config import RLConfig, PPOConfig, IQLConfig, TD3Config, NoAlgorithmConfig, override_from_dict
 from utils import SimulationBridge, Logger, get_project_paths
 import numpy as np
-import os, logging, yaml
+import os, logging, yaml, inspect, shutil, importlib.util
 from memory import SwarmMemory
 from explore_agent import ExploreAgent
 from flying_agent import FlyAgent
@@ -79,16 +79,17 @@ class AgentHandler:
             self.agent_type.initialize_rnd_model(vision_range, drone_count=self.num_agents,
                                                  map_size=map_size, time_steps=time_steps)
 
+        self.logger = logging.getLogger(agent_type)
+
         root_path = get_project_paths("root_path")
         loading_path = os.path.join(root_path, agent_dict["default_model_folder"])
-        loading_name = agent_dict["default_model_name"]
+        loading_name = self.get_model_name_from_string(agent_dict["default_model_name"], agent_type)
         model_path = os.path.join(root_path, config["paths"]["model_directory"]) if not self.resume else loading_path
         model_name = self.get_model_name_from_config(config)# if not self.resume else loading_name
 
         if not os.path.exists(model_path):
             os.makedirs(model_path)
 
-        self.logger = logging.getLogger(agent_type)
 
         # Only create a FileHandler if this is not a sub agent
         # TODO different logger files for training and evaluation
@@ -118,22 +119,29 @@ class AgentHandler:
                                  map_size=map_size,
                                  time_steps=time_steps)
 
+        algo_overrides = config["algorithm"].get(self.algorithm_name, {})
+
+        # Load the network architecture from the previous run if available
+        network_classes = self._load_network_arch(model_path) if self.algorithm_name != 'no_algo' else None
+
         if algorithm == 'PPO':
             # PPOConfig is used for PPO algorithm
             rl_config = PPOConfig(**vars(rl_config),
                                   use_categorical=agent_type == "planner_agent",
                                   use_variable_state_masks=agent_type == "planner_agent")
             rl_config.use_next_obs = False
+            rl_config = override_from_dict(rl_config, algo_overrides)
 
-            self.algorithm = PPO(network=self.agent_type.get_network(algorithm=algorithm),
+            self.algorithm = PPO(network=network_classes,
                                  config=rl_config)
         elif algorithm == 'IQL':
             # IQLConfig is used for IQL algorithm
             rl_config = IQLConfig(**vars(rl_config))
             rl_config.action_dim = self.agent_type.action_dim
             rl_config.clear_memory = False  # IQL does not clear memory
+            rl_config = override_from_dict(rl_config, algo_overrides)
 
-            self.algorithm = IQL(network=self.agent_type.get_network(algorithm=algorithm),
+            self.algorithm = IQL(network=network_classes,
                                  config=rl_config)
         elif algorithm == 'TD3':
             # TD3Config is used for TD3 algorithm
@@ -141,7 +149,7 @@ class AgentHandler:
             rl_config.action_dim = self.agent_type.action_dim
             rl_config.clear_memory = False
 
-            self.algorithm = TD3(network=self.agent_type.get_network(algorithm=algorithm),
+            self.algorithm = TD3(network=network_classes,
                                  config=rl_config)
         elif algorithm == 'no_algo':
             # NoAlgorithmConfig is used for No Algorithm scenario
@@ -150,6 +158,7 @@ class AgentHandler:
 
             self.algorithm = RLAlgorithm(rl_config)
 
+        if self.algorithm_name != 'no_algo': self._save_network_arch(network_classes)
 
         self.use_next_obs = self.algorithm.use_next_obs
 
@@ -204,8 +213,50 @@ class AgentHandler:
             self.logger.info(f"{self.agent_type.name} initialized")
             self.logger.info(f"{self.num_agents} Agents control {drone_count} Drones")
 
-    @staticmethod
-    def get_model_name_from_config(config):
+    def _save_network_arch(self, network_classes):
+        # Save own Network Structure for future reference and loading
+        network_dir = os.path.join(self.algorithm.get_model_path(), "networks")
+        network_name = "network_" + self.agent_type.short_name + ".py"
+        file_path = os.path.join(network_dir, network_name)
+        if not os.path.exists(network_dir):
+            os.makedirs(network_dir, exist_ok=True)
+        if not os.path.exists(file_path):
+            src_dir = os.path.join(get_project_paths("root_path"), "src/pysim/networks")
+            src_file = os.path.join(src_dir, network_name)
+            shutil.copy(src_file, network_dir)
+            self.logger.info(f"Network sources archived at {network_dir}")
+
+    def _load_network_arch(self, loading_path):
+        # network_classes = self.agent_type.get_network(algorithm=self.algorithm_name)
+        # if not isinstance(network_classes, (list, tuple)):
+        #     network_classes = (network_classes,)
+
+        module_names = self.agent_type.get_module_names(self.algorithm_name)
+
+        network_dir_load = os.path.join(loading_path, "networks")
+        network_dir_std = os.path.join(get_project_paths("root_path"), "src/pysim/networks")
+        network_name = "network_" + self.agent_type.short_name + ".py"
+
+        file_path = os.path.join(network_dir_std, network_name)
+        if os.path.exists(os.path.join(network_dir_load, network_name)):
+            file_path = os.path.join(network_dir_load, network_name)
+
+        if os.path.exists(file_path):
+            modules = {}
+            for m_name in module_names:
+                spec = importlib.util.spec_from_file_location(m_name, file_path)
+                module = importlib.util.module_from_spec(spec)
+                spec.loader.exec_module(module)
+                modules[m_name] = module
+            classes = tuple(getattr(module, m_name) for m_name in module_names if hasattr(module, m_name))
+            self.logger.info(f"Network sources loaded from {file_path}")
+
+            return classes
+        else:
+            self.logger.error(f"Network sources not found at {file_path}, using default network classes")
+            raise Exception
+
+    def get_model_name_from_config(self, config):
         """
         Get the model name from the configuration.
         :param config: The configuration dictionary.
@@ -214,9 +265,26 @@ class AgentHandler:
         if config["paths"]["model_name"] != "" and config["paths"]["model_name"] is not None:
             return config["paths"]["model_name"]
         else:
-            algorithm = config["algorithm"]["type"].lower()
+            algorithm = self.algorithm_name.lower()
             agent_type = config["settings"]["hierarchy_type"].lower()
             return algorithm + "_" + agent_type + ".pt"
+
+    def get_model_name_from_string(self, model_string: str, agent_type: str):
+        """
+        Get the model name from a string.
+        :param model_string: The model name string.
+        :param agent_type: The type of the agent (e.g., "fly_agent", "explore_agent", "planner_agent").
+        :return: The model name.
+        """
+        assert (model_string is not None and model_string != ""), self.logger.warning("default_model_name cannot be None or empty")
+        valid_strings = ["latest", "best_reward", "best_objective"]
+        assert (model_string in valid_strings or model_string.endswith(".pt")), self.logger.warning("default_model_name must be either {} or end with .pt, was: {}".format(valid_strings, model_string))
+
+        model_name = model_string
+        if model_string in valid_strings:
+            algorithm = self.algorithm_name
+            model_name = algorithm.lower() + "_" + agent_type.lower() + "_" + model_string + ".pt"
+        return model_name
 
     @staticmethod
     def get_agent_from_type(agent_type, num_drones):
@@ -316,7 +384,7 @@ class AgentHandler:
             self.algorithm.set_train()
             log += "Training from scratch"
 
-        if not self.resume: self.logger.info(log)
+        self.logger.info(log)
 
         if change_status:
             self.sim_bridge.set("rl_mode", self.rl_mode)

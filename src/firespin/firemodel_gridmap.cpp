@@ -310,14 +310,18 @@ int GridMap::UpdateExplorationMap(int x, int y) {
 int GridMap::UpdateExploredAreaFromDrone(std::pair<int, int> drone_position, int drone_view_radius) {
     int drone_view_radius_2 = drone_view_radius / 2;
     int newly_visited_cells = 0;
-    for (int x = drone_position.first - drone_view_radius_2; x <= drone_position.first + drone_view_radius_2; ++x) {
-        for (int y = drone_position.second - drone_view_radius_2; y <= drone_position.second + drone_view_radius_2; ++y) {
-            if (IsPointInGrid(x, y)) {
-                fire_map_[x][y] = cells_[x][y]->IsBurning() ? 1 : 0;
-                if (step_explored_map_[x][y] == 0) {
-                    newly_visited_cells++;
-                    step_explored_map_[x][y] = 1;
-                }
+
+    int start_x = std::max(0, drone_position.first - drone_view_radius_2);
+    int end_x = std::min(rows_ - 1, drone_position.first + drone_view_radius_2);
+    int start_y = std::max(0, drone_position.second - drone_view_radius_2);
+    int end_y = std::min(cols_ - 1, drone_position.second + drone_view_radius_2);
+
+    for (int x = start_x; x <= end_x; ++x) {
+        for (int y = start_y; y <= end_y; ++y) {
+            fire_map_[x][y] = cells_[x][y]->IsBurning() ? 1 : 0;
+            if (step_explored_map_[x][y] == 0) {
+                newly_visited_cells++;
+                step_explored_map_[x][y] = 1;
             }
         }
     }

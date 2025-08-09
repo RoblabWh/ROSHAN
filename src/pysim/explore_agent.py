@@ -10,6 +10,7 @@ class ExploreAgent(Agent):
     def __init__(self):
         super().__init__()
         self.name = "explore_agent"
+        self.short_name = "explore"
         self.hierarchy_level = "medium"
         self.low_level_steps = 200
         self.use_intrinsic_reward = False
@@ -26,6 +27,8 @@ class ExploreAgent(Agent):
             return Actor, OffPolicyCritic, Value
         elif algorithm == "TD3":
             return DeterministicActor, OffPolicyCritic
+        elif algorithm == "no_algo":
+            return None, None
         else:
             raise ValueError(f"Unknown algorithm: {algorithm}")
 

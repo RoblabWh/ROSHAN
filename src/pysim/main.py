@@ -109,7 +109,7 @@ def main(config_path_ : str = ""):
     # The content only needs to be deleted if the resume parameter is set to False
     engine.HandleEvents()
     if os.path.exists(sim_bridge.get("model_path")) and engine.IsRunning():
-        if os.listdir(sim_bridge.get("model_path")) and not sim_bridge.get("resume"):
+        if os.listdir(sim_bridge.get("model_path")) and not (sim_bridge.get("resume") or (sim_bridge.get("rl_mode") == "eval")):
             # Ask the user here if they want to delete the contents of the model path
             # If the user does not want to delete the contents, we will exit the program
             if config["settings"]["mode"] != 0:  # GUI Mode only ask in non-GUI mode
@@ -137,9 +137,11 @@ def main(config_path_ : str = ""):
         # config["settings"]["max_eval"] = status["max_eval"]
         # config["settings"]["max_train"] = status["max_train"]
 
-    hierarchy_manager = HierarchyManager(config, sim_bridge)
-
-    engine.SendRLStatusToModel(sim_bridge.get_status())
+    # Initialize the HierarchyManager
+    hierarchy_manager = None
+    if engine.IsRunning():
+        hierarchy_manager = HierarchyManager(config, sim_bridge)
+        engine.SendRLStatusToModel(sim_bridge.get_status())
 
     while engine.IsRunning() and sim_bridge.get("agent_online"):
         engine.HandleEvents()

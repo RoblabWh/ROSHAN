@@ -1,9 +1,7 @@
 import os
-import numpy as np
 import torch.nn as nn
-import torch.nn.functional as F
 import torch
-from utils import initialize_output_weights, get_in_features_2d, get_in_features_3d
+from utils import initialize_output_weights
 
 if os.getenv("PYTORCH_DETECT_ANOMALY", "").lower() in ("1", "true"):
     torch.autograd.set_detect_anomaly(True)
@@ -109,12 +107,12 @@ class Actor(nn.Module):
 
         return attention_weight
 
-class Critic(nn.Module):
+class CriticPPO(nn.Module):
     """
     A PyTorch Module that represents the critic network of a PPO agent.
     """
     def __init__(self, vision_range, drone_count, map_size, time_steps):
-        super(Critic, self).__init__()
+        super(CriticPPO, self).__init__()
         self.Inputspace = Inputspace(drone_dim=drone_count, time_steps=time_steps)
         self.in_features = self.Inputspace.out_features
 

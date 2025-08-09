@@ -1,4 +1,5 @@
 from dataclasses import dataclass
+import logging
 
 @dataclass
 class RLConfig:
@@ -92,4 +93,33 @@ class TD3Config(RLConfig):
     policy_freq: int = 2
     beta1: float = 0.9
     beta2: float = 0.999
+
+def override_from_dict(config: RLConfig, params: dict) -> RLConfig:
+    """Override dataclass fields with values from a parameter dictionary.
+
+    Only keys that match existing attributes of ``config`` are applied.
+
+    Parameters
+    ----------
+    config:
+        The configuration dataclass instance to be modified.
+    params:
+        Dictionary containing potential override values.
+
+    Returns
+    -------
+    RLConfig
+        The modified configuration instance for convenience.
+    """
+
+    # Get a Logger instance
+    logger = logging.getLogger("RLConfig")
+
+    for key, value in params.items():
+        if hasattr(config, key) and (value is not None and value != ""):
+            setattr(config, key, value)
+        else:
+            logger.warning(f"Key '{key}' not found in YAML-Config or has no value to override. Use default value: {getattr(config, key)}")
+
+    return config
 

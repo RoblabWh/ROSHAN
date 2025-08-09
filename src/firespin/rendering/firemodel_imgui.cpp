@@ -396,9 +396,10 @@ void ImguiHandler::PyConfig(std::string &user_input,
                     logs.clear();
                 }
                 ImGui::SameLine();
-                if (ImGui::Button("Show All Logs")){
+                if (ImGui::Button("Show All Logs") || reset_console_){
                     log_reader_.reset();
                     logs.clear();
+                    reset_console_ = false;
                 }
             }
             if (parameters_.llm_support_){
@@ -897,9 +898,11 @@ void ImguiHandler::CheckForModelPathSelection(const std::shared_ptr<FireModelRen
         auto model_path = rl_status["model_path"].cast<std::string>();
         auto model_name = rl_status["model_name"].cast<std::string>();
         auto resume = rl_status["resume"].cast<bool>();
+        auto rl_mode = rl_status["rl_mode"].cast<std::string>();
+        bool eval = rl_mode == "eval";
         // Find files and folders in model_path
         std::filesystem::path model_dir(model_path);
-        if (std::filesystem::exists(model_dir) && std::filesystem::is_directory(model_dir) && !resume) {
+        if (std::filesystem::exists(model_dir) && std::filesystem::is_directory(model_dir) && !(resume | eval)) {
             if (!std::filesystem::is_empty(model_dir)) {
                 ImGui::Begin("Model Folder Check", nullptr,
                              ImGuiWindowFlags_NoResize | ImGuiWindowFlags_NoCollapse | ImGuiWindowFlags_NoMove |
@@ -913,6 +916,7 @@ void ImguiHandler::CheckForModelPathSelection(const std::shared_ptr<FireModelRen
                 ImGui::Text("%s", model_path.c_str());
                 if (ImGui::Button("Delete Files and Continue",ImVec2(-1, 0))) {
                     parameters_.check_for_model_folder_empty_ = true;
+                    reset_console_ = true;
                 }
                 if (ImGui::Button("Close Program", ImVec2(-1, 0))) {
                     // Close the dialog and close the program correctly
@@ -1260,7 +1264,7 @@ void ImguiHandler::ShowPopups(const std::shared_ptr<GridMap>& gridmap, std::vect
 void ImguiHandler::HandleEvents(SDL_Event event, ImGuiIO *io, const std::shared_ptr<GridMap>& gridmap, const std::shared_ptr<FireModelRenderer>& model_renderer,
                                 const std::shared_ptr<DatasetHandler>& dataset_handler, std::vector<std::vector<int>> &current_raster_data, bool agent_is_running) {
     // SDL Events
-    if (event.type == SDL_MOUSEBUTTONDOWN && !io->WantCaptureMouse && event.button.button == SDL_BUTTON_LEFT) {
+    if (event.type == SDL_MOUSEBUTTONDOWN && model_renderer && !io->WantCaptureMouse && event.button.button == SDL_BUTTON_LEFT) {
         int x, y;
         SDL_GetMouseState(&x, &y);
         std::pair<int, int> gridPos = model_renderer->ScreenToGridPosition(x, y);
@@ -1272,7 +1276,7 @@ void ImguiHandler::HandleEvents(SDL_Event event, ImGuiIO *io, const std::shared_
             else if(gridmap->GetCellState(x, y) == CellState::GENERIC_BURNING)
                 gridmap->ExtinguishCell(x, y);
         }
-    } else if (event.type == SDL_MOUSEWHEEL && !io->WantCaptureMouse) {
+    } else if (event.type == SDL_MOUSEWHEEL && model_renderer && !io->WantCaptureMouse) {
         if (event.wheel.y > 0) // scroll up
         {
             model_renderer->ApplyZoom(1.1);
@@ -1282,7 +1286,7 @@ void ImguiHandler::HandleEvents(SDL_Event event, ImGuiIO *io, const std::shared_
             model_renderer->ApplyZoom(0.9);
         }
     }
-    else if (event.type == SDL_MOUSEMOTION && !io->WantCaptureMouse) {
+    else if (event.type == SDL_MOUSEMOTION && model_renderer && !io->WantCaptureMouse) {
         int x, y;
         Uint32 mouseState = SDL_GetMouseState(&x, &y);
         if (mouseState & SDL_BUTTON(SDL_BUTTON_RIGHT)) // Middle mouse button is pressed
@@ -1290,7 +1294,7 @@ void ImguiHandler::HandleEvents(SDL_Event event, ImGuiIO *io, const std::shared_
             model_renderer->ChangeCameraPosition(-event.motion.xrel, -event.motion.yrel);
         }
     }
-    else if (event.type == SDL_MOUSEBUTTONDOWN && event.button.button == SDL_BUTTON_MIDDLE && !io->WantCaptureMouse) {
+    else if (event.type == SDL_MOUSEBUTTONDOWN && model_renderer && event.button.button == SDL_BUTTON_MIDDLE && !io->WantCaptureMouse) {
         int x, y;
         SDL_GetMouseState(&x, &y);
         std::pair<int, int> cell_pos = model_renderer->ScreenToGridPosition(x, y);
@@ -1299,7 +1303,7 @@ void ImguiHandler::HandleEvents(SDL_Event event, ImGuiIO *io, const std::shared_
             popup_has_been_opened_.insert({cell_pos, false});
         }
     }
-    else if (event.type == SDL_WINDOWEVENT) {
+    else if (event.type == SDL_WINDOWEVENT && model_renderer) {
         if (event.window.event == SDL_WINDOWEVENT_SIZE_CHANGED) {
             model_renderer->ResizeEvent();
         }

@@ -10,7 +10,10 @@ void FireModelCamera::Move(double dx, double dy) {
 }
 
 void FireModelCamera::Zoom(double factor) {
-    zoom_ *= factor;
+    if (factor <= 0.0) {
+        return;
+    }
+    zoom_ = std::clamp(zoom_ * factor, kMinZoom, kMaxZoom);
 }
 
 std::pair<int, int> FireModelCamera::ScreenToGridPosition(int screenX, int screenY) const {
