@@ -57,7 +57,7 @@ class Inputspace(nn.Module):
             drone_states = drone_states.to(self.device)
         if fire_states.device != self.device:
             fire_states = fire_states.to(self.device)
-        if goal_positions != self.device:
+        if goal_positions.device != self.device:
             goal_positions = goal_positions.to(self.device)
 
         batch_size, n_drones, _ = drone_states.shape

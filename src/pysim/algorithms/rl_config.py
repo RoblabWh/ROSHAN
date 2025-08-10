@@ -1,5 +1,7 @@
 from dataclasses import dataclass
 import logging
+from typing import Union
+
 
 @dataclass
 class RLConfig:
@@ -94,7 +96,7 @@ class TD3Config(RLConfig):
     beta1: float = 0.9
     beta2: float = 0.999
 
-def override_from_dict(config: RLConfig, params: dict) -> RLConfig:
+def override_from_dict(config: Union[RLConfig, IQLConfig, PPOConfig, TD3Config], params: dict) -> Union[RLConfig, IQLConfig, PPOConfig, TD3Config]:
     """Override dataclass fields with values from a parameter dictionary.
 
     Only keys that match existing attributes of ``config`` are applied.
@@ -119,7 +121,11 @@ def override_from_dict(config: RLConfig, params: dict) -> RLConfig:
         if hasattr(config, key) and (value is not None and value != ""):
             setattr(config, key, value)
         else:
-            logger.warning(f"Key '{key}' not found in YAML-Config or has no value to override. Use default value: {getattr(config, key)}")
+            if hasattr(config, key):
+                logger.warning(
+                    f"Key '{key}' has no value to override. Using default: {getattr(config, key)}")
+            else:
+                logger.warning(f"Key '{key}' not found in YAML-Config; ignoring override.")
 
     return config
 

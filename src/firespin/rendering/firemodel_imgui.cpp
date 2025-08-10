@@ -318,7 +318,8 @@ void ImguiHandler::PyConfig(std::string &user_input,
 
         // RL Controls, always showing
         bool button_color = false;
-        if (parameters_.agent_is_running_) {
+        auto agent_is_running = rl_status["agent_is_running"].cast<bool>();
+        if (agent_is_running) {
             ImGui::PushStyleColor(ImGuiCol_Button, ImVec4(0.35f, 0.6f, 0.85f, 1.0f));
             ImGui::PushStyleColor(ImGuiCol_ButtonHovered, ImVec4(0.45f, 0.7f, 0.95f, 1.0f));
             ImGui::PushStyleColor(ImGuiCol_ButtonActive, ImVec4(0.25f, 0.5f, 0.75f, 1.0f));
@@ -327,11 +328,12 @@ void ImguiHandler::PyConfig(std::string &user_input,
         auto rl_mode = rl_status["rl_mode"].cast<std::string>();
         auto running_str_start = rl_mode == "train" ? "Start Training" : "Start Evaluation";
         auto running_str_stop = rl_mode == "train" ? "Stop Training" : "Stop Evaluation";
-        if (ImGui::Button(parameters_.agent_is_running_ ? running_str_stop : running_str_start)) {
-            parameters_.agent_is_running_ = !parameters_.agent_is_running_;
+        if (ImGui::Button(agent_is_running ? running_str_stop : running_str_start)) {
+            rl_status[py::str("agent_is_running")] = py::bool_(!agent_is_running);
+            onSetRLStatus(rl_status);
         }
         if (ImGui::IsItemHovered())
-            ImGui::SetTooltip("Click to %s Reinforcement Learning.", parameters_.agent_is_running_ ? "stop" : "start");
+            ImGui::SetTooltip("Click to %s Reinforcement Learning.", agent_is_running ? "stop" : "start");
         if (button_color) {
             ImGui::PopStyleColor(3);
         }
@@ -1262,7 +1264,7 @@ void ImguiHandler::ShowPopups(const std::shared_ptr<GridMap>& gridmap, std::vect
 }
 
 void ImguiHandler::HandleEvents(SDL_Event event, ImGuiIO *io, const std::shared_ptr<GridMap>& gridmap, const std::shared_ptr<FireModelRenderer>& model_renderer,
-                                const std::shared_ptr<DatasetHandler>& dataset_handler, std::vector<std::vector<int>> &current_raster_data, bool agent_is_running) {
+                                const std::shared_ptr<DatasetHandler>& dataset_handler, std::vector<std::vector<int>> &current_raster_data) {
     // SDL Events
     if (event.type == SDL_MOUSEBUTTONDOWN && model_renderer && !io->WantCaptureMouse && event.button.button == SDL_BUTTON_LEFT) {
         int x, y;
@@ -1309,7 +1311,7 @@ void ImguiHandler::HandleEvents(SDL_Event event, ImGuiIO *io, const std::shared_
         }
     }
     // TODO Manual Drone Control for exploration flyers
-    else if (event.type == SDL_KEYDOWN && parameters_.GetNumberOfFlyAgents() == 1 && !agent_is_running && !io->WantTextInput) {
+    else if (event.type == SDL_KEYDOWN && parameters_.GetNumberOfFlyAgents() == 1 && !io->WantTextInput) {
         if (event.key.keysym.sym == SDLK_w)
             onMoveDrone(0, -1, 0, 0);
         // MoveDroneByAngle(0, 0.25, 0, 0);

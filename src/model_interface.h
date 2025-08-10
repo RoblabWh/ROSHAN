@@ -28,11 +28,11 @@ public:
     double> Step(const std::string& agent_type, std::vector<std::shared_ptr<Action>> actions) = 0;
     virtual std::unordered_map<std::string, std::vector<std::deque<std::shared_ptr<State>>>> GetObservations() = 0;
     virtual void Render() = 0;
-    virtual bool AgentIsRunning() = 0;
     virtual bool GetEarlyClosing() = 0;
     virtual void HandleEvents(SDL_Event event, ImGuiIO* io) = 0;
     virtual void GetData(std::string data) = 0;
     virtual void SetRLStatus(pybind11::dict status) = 0;
+    virtual bool AgentIsRunning() = 0;
     virtual void UpdateReward() = 0;
     virtual pybind11::dict GetRLStatus() = 0;
     virtual void SetRenderer(SDL_Renderer* renderer) = 0;

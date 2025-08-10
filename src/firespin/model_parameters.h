@@ -266,9 +266,6 @@ public:
     std::string hierarchy_type;
     void SetHierarchyType(std::string type) { hierarchy_type = std::move(type);}
     [[nodiscard]] std::string GetHierarchyType() const {return hierarchy_type;}
-    bool agent_is_running_ = false;
-    void SetAgentIsRunning(bool running) {agent_is_running_ = running;}
-    [[nodiscard]] bool GetAgentIsRunning() const {return agent_is_running_;}
     int current_env_steps_ = 0;
     [[nodiscard]] int GetCurrentEnvSteps() const {return current_env_steps_;}
     void SetCurrentEnvSteps(int steps) {current_env_steps_ = steps;}

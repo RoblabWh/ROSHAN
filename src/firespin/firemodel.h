@@ -48,12 +48,12 @@ public:
     std::unordered_map<std::string, std::vector<std::deque<std::shared_ptr<State>>>> GetObservations() override;
     void Render() override;
     void SetRenderer(SDL_Renderer* renderer) override;
-    bool AgentIsRunning() override;
     bool GetEarlyClosing() override;
     void HandleEvents(SDL_Event event, ImGuiIO* io) override;
     void ImGuiRendering(bool &update_simulation, bool &render_simulation, int &delay, float framerate) override;
     std::string GetUserInput() override;
     void GetData(std::string data) override;
+    bool AgentIsRunning() override;
     void SetRLStatus(pybind11::dict status) override;
     void UpdateReward() override;
     pybind11::dict GetRLStatus() override;

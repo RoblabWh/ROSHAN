@@ -2,9 +2,10 @@ from typing import Union, Any
 
 import numpy as np
 import torch
-import json
+import json, logging
 import os
 from pathlib import Path
+from dataclasses import dataclass, fields
 from collections import deque, defaultdict
 from torch.utils.tensorboard import SummaryWriter
 
@@ -29,6 +30,7 @@ class SimulationBridge:
             "obs_collected": 0,  # Used by GUI to show the number of collected observations
             "min_update": 0,  # How many obs before updating the policy? Decided by the RL Algorithm
             "agent_online": True,
+            "agent_is_running": False,  # Is the agent currently running?
             "train_episode": 0,  # Current training episode
             "train_step": 0,  # How often did you train?
             "current_episode": 0,
@@ -381,3 +383,130 @@ class Logger:
 
     def close(self):
         self.writer.close()
+
+class Evaluator:
+    """
+    A class to evaluate the performance of an agent in a simulation environment.
+    It collects statistics such as reward, time taken, objective achieved, percentage burned,
+    number of agents that died, and number of agents that reached the goal.
+    """
+
+    def __init__(self, auto_train_dict: dict, sim_bridge: SimulationBridge):
+        self.stats = [EvaluationStats()]
+        self.logger = logging.getLogger("Evaluator")
+
+        self.sim_bridge = sim_bridge
+        self.eval_steps = 0
+        self.use_auto_train = auto_train_dict["use_auto_train"]
+        self.max_train = auto_train_dict["max_train"] # Maximum number of training steps before switching to evaluation
+        self.max_eval = auto_train_dict["max_eval"] # Maximum number of evaluation steps
+        self.train_episodes = auto_train_dict["train_episodes"] # Number of training episodes to run before stopping Auto Training
+        self.current_episode = 0  # Current episode number
+
+    def on_update(self):
+        if self.sim_bridge.get("train_step") >= self.max_train and self.use_auto_train:
+            self.sim_bridge.add_value("train_episode", 1)
+            self.logger.info("Training finished, after {} training steps, now starting Evaluation".format(self.sim_bridge.get("train_step")))
+            self.sim_bridge.set("rl_mode", "eval")
+
+    def reset(self):
+        """
+        Resets the agent and its algorithm to the initial state.
+        """
+        self.eval_steps = 0
+        self.current_episode = 0
+        self.stats = [EvaluationStats()]  # Reset the stats for the new evaluation
+
+        if self.use_auto_train:
+            train_episode = self.sim_bridge.get("train_episode")
+            # Checks if the auto_training is finished
+            if train_episode == self.train_episodes:
+                self.sim_bridge.set("agent_online", False)
+                self.logger.info("Training finished, after {} training episodes".format(train_episode))
+                self.logger.info("Agent is now offline. Auto Training is finished")
+                return
+            else:
+                self.logger.info("Resume with next training step {}/{}".format(train_episode + 1, self.train_episodes))
+                self.sim_bridge.set("train_step", 0)
+
+    def evaluate(self, rewards, terminals, terminal_result, percent_burned):
+        metrics = self.update_evaluation_metrics(rewards, terminals, terminal_result, percent_burned)
+        flag_dict = {"auto_train": self.use_auto_train, "reset": False}
+
+        if metrics.get("episode_over"):
+            self.eval_steps += 1
+            if self.eval_steps >= self.max_eval:
+                avg_reward = np.mean([s.reward for s in self.stats])
+                self.logger.info(
+                    "Evaluation finished, after {} evaluation steps with average reward: {}".format(self.eval_steps,
+                                                                                                    avg_reward))
+                self.reset()
+                self.sim_bridge.set("agent_is_running", False)
+                flag_dict.__setitem__("reset", True)
+
+        return flag_dict
+
+    def update_evaluation_metrics(self, rewards, terminals, terminal_result, percent_burned):
+        stats = self.stats[self.current_episode]
+        stats.reward += float(rewards[0])
+        stats.time += 1
+
+        metrics = {
+            "episode": self.current_episode + 1,
+            "reward": float(stats.reward),
+            "time": stats.time,
+            "perc_burn": float(stats.perc_burned),
+            "died": stats.died,
+            "reached": stats.reached_goal,
+            "episode_over": False,
+        }
+
+        if terminal_result['EnvReset']:
+            if terminal_result['OneAgentDied']:
+                stats.died += 1
+            else:
+                stats.reached_goal += 1
+
+            stats.perc_burn = float(percent_burned)
+            metrics.update({
+                "perc_burn": stats.perc_burn,
+                "died": stats.died,
+                "reached": stats.reached_goal,
+                "avg_time": float(np.mean([s.time for s in self.stats])),
+                "avg_perc_burn": float(np.mean([s.perc_burn for s in self.stats])),
+                "avg_reward": float(np.mean([s.reward for s in self.stats])),
+                "total_died": int(sum(s.died for s in self.stats)),
+                "total_reached": int(sum(s.reached_goal for s in self.stats)),
+            })
+            metrics["episode_over"] = True
+
+            self.current_episode += 1
+            self.stats.append(EvaluationStats())
+
+            self.logger.info(json.dumps(metrics))
+
+        return metrics
+
+@dataclass
+class EvaluationStats:
+    """
+    A dataclass to hold evaluation statistics.
+    """
+    reward: float = 0.0
+    time: float = 0.0
+    objective: float = 0.0
+    perc_burned: float = 0.0
+    died: int = 0
+    reached_goal: int = 0
+
+def remove_suffix(string: str) -> str:
+    # Remove suffixes like "_latest", "_best_reward" or "_best_objective"
+    model_string = string.split(".")[0]
+    if model_string.endswith("_latest"):
+        model_string = model_string[:-7]
+    elif model_string.endswith("_best_reward"):
+        model_string = model_string[:-13]
+    elif model_string.endswith("_best_objective"):
+        model_string = model_string[:-15]
+    model_string += ".pt"
+    return model_string

@@ -3,7 +3,7 @@ from algorithms.iql import IQL
 from algorithms.rl_algorithm import RLAlgorithm
 from algorithms.td3 import TD3
 from algorithms.rl_config import RLConfig, PPOConfig, IQLConfig, TD3Config, NoAlgorithmConfig, override_from_dict
-from utils import SimulationBridge, Logger, get_project_paths
+from utils import SimulationBridge, Logger, get_project_paths, Evaluator, remove_suffix
 import numpy as np
 import os, logging, yaml, inspect, shutil, importlib.util
 from memory import SwarmMemory
@@ -42,19 +42,12 @@ class AgentHandler:
         self.resume = config["settings"]["resume"]
 
         # Auto Training Parameters
-        auto_train_dict = config["settings"]["auto_train"]
-        self.use_auto_train = auto_train_dict["use_auto_train"]
-        self.max_train = auto_train_dict["max_train"]
-        self.max_eval = auto_train_dict["max_eval"]
-        self.train_episodes = auto_train_dict["train_episodes"]
+        at_dict = config["settings"]["auto_train"]
+        use_auto_train = at_dict["use_auto_train"]
 
         # TODO : Check this
         # Used for Evaluation
-        self.stats = {'died': [0], 'reached': [0], 'time': [0], 'reward': [0], 'episode': [0], 'perc_burn': [0]}
-        auto_train_dict = config["settings"]["auto_train"]
-        self.use_auto_train = auto_train_dict["use_auto_train"]
-        self.max_eval = auto_train_dict["max_eval"]
-        self.max_train = auto_train_dict["max_train"]
+        self.evaluator = Evaluator(auto_train_dict=at_dict, sim_bridge=sim_bridge)
 
         # Agent Type is either fly_agent, explore_agent or planner_agent
         drone_count = agent_dict["num_agents"]
@@ -69,7 +62,6 @@ class AgentHandler:
 
         # Other variables (need resetting)
         self.current_obs = None
-        self.eval_steps = 0
         self.env_step = 0
         self.hierarchy_steps = 0
         self.hierarchy_early_stop = False
@@ -82,25 +74,40 @@ class AgentHandler:
         self.logger = logging.getLogger(agent_type)
 
         root_path = get_project_paths("root_path")
-        loading_path = os.path.join(root_path, agent_dict["default_model_folder"])
-        loading_name = self.get_model_name_from_string(agent_dict["default_model_name"], agent_type)
-        model_path = os.path.join(root_path, config["paths"]["model_directory"]) if not self.resume else loading_path
-        model_name = self.get_model_name_from_config(config)# if not self.resume else loading_name
-
-        if not os.path.exists(model_path):
-            os.makedirs(model_path)
-
+        loading_path, loading_name, model_path, model_name = None, None, None, None
+        if self.is_sub_agent:
+            # If this is a sub agent, we load the model from the default agent's model path
+            loading_path = os.path.join(root_path, agent_dict["default_model_folder"])
+            loading_name = self.get_model_name(path=str(loading_path),
+                                               model_string=agent_dict["default_model_name"],
+                                               agent_type=agent_type,
+                                               is_loading_name=True)
+            model_path = loading_path
+            # model_name should not be used for sub agents
+        else:
+            # If this is the main agent, we use the model path from the config
+            is_loading = self.resume or self.rl_mode == "eval"
+            model_path = os.path.join(root_path, config["paths"]["model_directory"])
+            model_string = self.get_model_name(path=str(model_path),
+                                             model_string=config["paths"]["model_name"],
+                                             agent_type=agent_type,
+                                             is_loading_name=is_loading)
+            model_name = model_string if not is_loading else remove_suffix(model_string)
+            loading_path = model_path if is_loading else None
+            loading_name = model_string if is_loading else None
+            # If this is the main agent and a fresh training, we need to create the model path
+            if not is_loading and not os.path.exists(model_path):
+                os.makedirs(model_path)
 
         # Only create a FileHandler if this is not a sub agent
-        # TODO different logger files for training and evaluation
-        if not is_sub_agent:
+        # TODO different logger files for training and evaluation? probly not needed
+        if not self.is_sub_agent:
             logging_file = os.path.join(model_path.__str__(), "logging.log")
             file_handler = logging.FileHandler(logging_file)
             file_handler.setLevel(logging.DEBUG)
             formatter = logging.Formatter("%(asctime)s - %(levelname)s - %(name)s - %(message)s")
             file_handler.setFormatter(formatter)
             logging.getLogger().addHandler(file_handler)
-            #self.logger.addHandler(file_handler)
 
         # TODO: If I resume the training, I need to load several things:
         # - The model
@@ -109,10 +116,10 @@ class AgentHandler:
         # - The logger state
 
         rl_config = RLConfig(algorithm=algorithm,
-                                 use_auto_train=self.use_auto_train,
-                                 model_path=model_path,
+                                 use_auto_train=use_auto_train,
+                                 model_path=str(model_path),
                                  model_name=model_name,
-                                 loading_path=loading_path,
+                                 loading_path=str(loading_path),
                                  loading_name=loading_name,
                                  vision_range=vision_range,
                                  drone_count=drone_count,
@@ -122,7 +129,16 @@ class AgentHandler:
         algo_overrides = config["algorithm"].get(self.algorithm_name, {})
 
         # Load the network architecture from the previous run if available
-        network_classes = self._load_network_arch(model_path) if self.algorithm_name != 'no_algo' else None
+        if self.algorithm_name != 'no_algo':
+            try:
+                network_classes = self._load_network_arch(model_path)
+            except FileNotFoundError as e:
+                self.logger.warning(f"{e}. Falling back to default network classes")
+                network_classes = self.agent_type.get_network(algorithm=self.algorithm_name)
+                if not isinstance(network_classes, (list, tuple)):
+                    network_classes = (network_classes,)
+        else:
+            network_classes = None
 
         if algorithm == 'PPO':
             # PPOConfig is used for PPO algorithm
@@ -172,9 +188,11 @@ class AgentHandler:
         if not self.is_sub_agent:
             model_path = self.algorithm.get_model_path()
             logging_path = os.path.join(model_path, "logs")
-            self.tensorboard = Logger(log_dir=logging_path, resume=self.resume)
+            # If we resume training or starting in evaluation mode, we need to load the logger
+            is_loading = self.resume or self.rl_mode == "eval"
+            self.tensorboard = Logger(log_dir=logging_path, resume=is_loading)
 
-            if not self.resume:
+            if not is_loading:
                 root_model_path = self.algorithm.model_path
                 # Save own Config.Yaml when this is a fresh start
                 config_path = os.path.join(root_model_path, "config.yaml")
@@ -253,8 +271,58 @@ class AgentHandler:
 
             return classes
         else:
-            self.logger.error(f"Network sources not found at {file_path}, using default network classes")
-            raise Exception
+            self.logger.error(f"Network sources not found at {file_path}, this should not happen WHOOPS")
+            raise FileNotFoundError(f"Network sources not found at {file_path}")
+
+    def get_model_name(self, path: str, model_string: str, agent_type: str, is_loading_name: bool):
+        """
+        Get the model name based on the path and model name.
+        First checks if the model name is a valid .pt file, then checks if the model exists at the given path.
+        If it's just a string, it checks if it is one of the valid strings like "latest", "best_reward", or "best_objective".
+        If not, it constructs a valid model name based on the algorithm and agent type.
+        Finally, it will search the path for a valid model file.
+        :param path: The path to the model.
+        :param model_string: The model name from the config.
+        :param agent_type: The type of the agent (e.g., "fly_agent", "explore_agent", "planner_agent").
+        :param is_loading_name: If True, the model must exist at the given path.
+        :return: A valid model name.
+        """
+        found_model = False
+        if model_string and model_string.endswith(".pt"):
+            # If the model name is a valid .pt file, check if it exists
+            full_path = os.path.join(path, model_string)
+            found_model = True
+            if is_loading_name and not os.path.exists(full_path):
+                self.logger.error(f"Model {full_path} does not exist. Try searching for a valid model in {path}")
+                found_model = False
+            if found_model:
+                return model_string
+
+        # Construct a default model name based on the algorithm and agent type
+        # Only do this if we are not loading a model and just need a default name
+        if not is_loading_name and not found_model:
+            algorithm = self.algorithm_name.lower()
+            return algorithm + "_" + agent_type + ".pt"
+
+        # If the model name is just a string, check if it is one of the valid strings
+        # This only applies if we are loading a model
+        valid_strings = ["latest", "best_reward", "best_objective"]
+        valid_models: list[str] = [file_name for file_name in os.listdir(path) if file_name.endswith(".pt")]
+
+        if len(valid_models) == 0:
+            self.logger.error(f"No valid model files found in {path}. Please check the directory.")
+            return None
+
+        if model_string not in valid_strings:
+            self.logger.warning(f"Provided model_string '{model_string}' is not a valid string. "
+                                f"Valid strings are: {valid_strings}. Using first valid model found in {path}."
+                                f"Valid models found: {valid_models}")
+            return valid_models[0]  # Return the first valid model found in the directory
+
+        # If the model string is one of the valid strings, construct the model name
+        for model in valid_models:
+            if model.split(".")[0].endswith(model_string):
+                return model
 
     def get_model_name_from_config(self, config):
         """
@@ -262,7 +330,8 @@ class AgentHandler:
         :param config: The configuration dictionary.
         :return: The model name.
         """
-        if config["paths"]["model_name"] != "" and config["paths"]["model_name"] is not None:
+        if config["paths"]["model_name"] != "" and config["paths"]["model_name"] is not None\
+                and config["paths"]["model_name"].endswith(".pt"):
             return config["paths"]["model_name"]
         else:
             algorithm = self.algorithm_name.lower()
@@ -276,9 +345,23 @@ class AgentHandler:
         :param agent_type: The type of the agent (e.g., "fly_agent", "explore_agent", "planner_agent").
         :return: The model name.
         """
-        assert (model_string is not None and model_string != ""), self.logger.warning("default_model_name cannot be None or empty")
+        if not (model_string and model_string != ""):
+            self.logger.warning("default_model_name cannot be None or empty")
+            raise ValueError("default_model_name cannot be None or empty")
+
         valid_strings = ["latest", "best_reward", "best_objective"]
-        assert (model_string in valid_strings or model_string.endswith(".pt")), self.logger.warning("default_model_name must be either {} or end with .pt, was: {}".format(valid_strings, model_string))
+
+        if not (model_string in valid_strings or model_string.endswith(".pt")):
+            self.logger.warning(
+                "default_model_name must be either {} or end with .pt, was: {}".format(
+                    valid_strings, model_string
+                )
+            )
+            raise ValueError(
+                "default_model_name must be either {} or end with .pt, was: {}".format(
+                    valid_strings, model_string
+                )
+            )
 
         model_name = model_string
         if model_string in valid_strings:
@@ -301,50 +384,6 @@ class AgentHandler:
             return ExploreAgent()
         if agent_type == "planner_agent":
             return PlannerAgent(num_drones)
-
-    def reset(self):
-        """
-        Resets the agent and its algorithm to the initial state.
-        """
-
-        train_episode = self.sim_bridge.get("train_episode")
-
-        if self.use_auto_train:
-            # Checks if the auto_training is finished
-            if train_episode == self.train_episodes:
-                self.sim_bridge.set("agent_online", False)
-                self.logger.info("Training finished, after {} training episodes".format(train_episode))
-                self.logger.info("Agent is now offline. Auto Training is finished")
-                return
-            else:
-                self.logger.info("Resume with next training step {}/{}".format(train_episode + 1, self.train_episodes))
-                self.sim_bridge.set("train_step", 0)
-        self.algorithm.reset()
-        self.reset_agent_variables()
-
-    def reset_agent_variables(self):
-        """
-        Reset the agent variables to their initial state.
-        This method is called when the environment is reset.
-        """
-        self.stats = {'died': [0], 'reached': [0], 'time': [0], 'reward': [0], 'episode': [0], 'perc_burn': [0]}
-        self.hierarchy_steps = 0
-        self.env_step = 0
-        self.current_obs = None
-        self.agent_actions = None
-        self.env_reset = True
-        # self.sim_bridge.set("env_reset", True)
-        self.eval_steps = 0
-
-        # Reset the Logger
-        if not self.is_sub_agent: # should not really be False like ever, but just in case
-            self.tensorboard.close()
-            model_path = self.algorithm.get_model_path()
-            logging_path = os.path.join(model_path, "logs")
-            self.tensorboard = Logger(log_dir=logging_path)
-
-        # Reset memory
-        self.memory.clear_memory()
 
     def should_train(self):
         if self.algorithm_name == 'PPO':
@@ -447,8 +486,37 @@ class AgentHandler:
         actions = self.act_certain(self.current_obs)
         obs, rewards, all_terminals, terminal_result, percent_burned = self.step_agent(engine, actions)
         self.current_obs = obs
-        if evaluate: self.evaluate(rewards, all_terminals, terminal_result, percent_burned)
+        if evaluate:
+            flags = self.evaluator.evaluate(rewards, all_terminals, terminal_result, percent_burned)
+            self.check_reset(flags)
         return terminal_result["AllAgentsSucceeded"], terminal_result["EnvReset"] # True if all agents reached their goal can do "OneAgentSucceeded"
+
+    def check_reset(self, flags):
+        """
+        Check if the environment should be reset based on evaluation flags.
+        :param flags: Dictionary containing evaluation flags.
+        """
+        if flags.get("reset", False):
+            if flags.get("auto_train", False):
+                self.sim_bridge.set("rl_mode", "train")
+                self.algorithm.reset()
+
+                # Reset the Logger (Only in Auto Training Case, otherwise some values might need a reset)
+                if not self.is_sub_agent:  # should not really be False like ever, but just in case
+                    self.tensorboard.close()
+                    model_path = self.algorithm.get_model_path()
+                    logging_path = os.path.join(model_path, "logs")
+                    self.tensorboard = Logger(log_dir=logging_path)
+
+                # Reset memory
+                self.memory.clear_memory()
+
+            self.hierarchy_steps = 0
+            self.env_step = 0
+            self.current_obs = None
+            self.agent_actions = None
+            self.env_reset = True
+            # self.sim_bridge.set("env_reset", True)
 
     def step_agent(self, engine, actions):
         self.agent_actions = self.get_action(actions)
@@ -487,11 +555,7 @@ class AgentHandler:
             self.sim_bridge.add_value("policy_updates", self.algorithm.k_epochs)
             self.tensorboard.policy_updates += self.algorithm.k_epochs
 
-        if self.sim_bridge.get("train_step") >= self.max_train and self.use_auto_train:
-            self.sim_bridge.add_value("train_episode", 1)
-            self.logger.info("Training finished, after {} training steps, now starting Evaluation".format(self.sim_bridge.get("train_step")))
-            self.sim_bridge.set("rl_mode", "eval")
-
+        self.evaluator.on_update()
         self.tensorboard.summarize()
 
     def act(self, observations):
@@ -510,61 +574,6 @@ class AgentHandler:
 
     def act_certain(self, observations):
         return self.algorithm.select_action_certain(observations)
-
-    def evaluate(self, rewards, terminals, terminal_result, percent_burned):
-        episode_over = self.get_evaluation_string(rewards, terminals, terminal_result, percent_burned)
-
-        if episode_over and self.use_auto_train:
-            self.eval_steps += 1
-            if self.eval_steps >= self.max_eval:
-                self.logger.info("Evaluation finished, after {} evaluation steps with average reward: {}".format(self.eval_steps, np.mean(self.stats["reward"])))
-                self.sim_bridge.set("rl_mode", "train")
-                self.reset()
-
-    def get_evaluation_string(self, rewards, terminals, terminal_result, percent_burned):
-        # Log stats
-        self.stats['reward'][-1] += rewards[0]
-        self.stats['time'][-1] += 1
-        log = "Evaluation Step"
-
-        if terminal_result['EnvReset']:
-            log += "\nEpisode: {} finished with terminal state\n".format(self.stats['episode'][-1] + 1)
-            if terminal_result['OneAgentDied']:  # Drone died
-                log += "One of the Drones died.\n\n"
-                self.stats['died'][-1] += 1
-            else:  # Drone reached goal
-                log += "Drones extinguished all fires.\n"
-                self.stats['reached'][-1] += 1
-
-            self.stats['perc_burn'][-1] = percent_burned
-            # Print stats
-            log += "-----------------------------------\n"
-            log += "Episode: {}\n".format(self.stats['episode'][-1] + 1)
-            log += "Reward: {}\n".format(self.stats['reward'][-1])
-            log += "Time: {}\n".format(self.stats['time'][-1])
-            log += "Percentage burned: {}\n".format(self.stats['perc_burn'][-1])
-            log += "Died: {}\n".format(self.stats['died'][-1])
-            log += "Reached: {}\n".format(self.stats['reached'][-1])
-            log += "Total average time: {}\n".format(np.mean(self.stats['time']))
-            log += "Total average percentage burned: {}\n".format(np.mean(self.stats['perc_burn']))
-            log += "Total average reward: {}\n".format(np.mean(self.stats['reward']))
-            log += "Total died: {}\n".format(sum(self.stats['died']))
-            log += "Total reached: {}\n".format(sum(self.stats['reached']))
-            log += "-----------------------------------\n"
-
-            # Reset stats if this is not the last evaluation
-            if self.stats['episode'][-1] != self.max_eval - 1:
-                self.stats['episode'].append(self.stats['episode'][-1] + 1)
-                self.stats['died'].append(0)
-                self.stats['perc_burn'].append(0)
-                self.stats['reached'].append(0)
-                self.stats['time'].append(0)
-                self.stats['reward'].append(0)
-
-            self.logger.info(log)
-
-            return True
-        return False
 
     def restructure_data(self, observations_):
         return self.agent_type.restructure_data(observations_)

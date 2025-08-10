@@ -12,7 +12,7 @@ ExploreAgent::ExploreAgent(FireModelParameters &parameters, int id, int time_ste
 
 void ExploreAgent::Initialize(std::vector<std::shared_ptr<FlyAgent>> fly_agents, const std::shared_ptr<GridMap> &grid_map, const std::string &rl_mode) {
     fly_agents_ = std::move(fly_agents);
-//    agent_states_.clear();
+    agent_states_.clear();
     auto paths = GeneratePaths(grid_map->GetRows(), grid_map->GetCols(), fly_agents_.size(), fly_agents_.front()->GetRealPosition(),
                                  parameters_.explore_agent_view_range_);
     for (const auto& fly_agent : fly_agents_) {

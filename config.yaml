@@ -16,12 +16,12 @@ settings:
     max_eval: 1 # Maximum number of evaluations to perform
 paths:
   # This is the root_path where your NEW trained models data is stored
-  # No Loading is ever done from this folder, use the default_model_paths for each agent for that (Evaluation and resuming training)
-  # If "Resume" is set to true, this directory will NOT be used at all
-  # If you set rl_mode to "eval" it WILL overwrite the default_model_paths for the agent if you LATER switch to train !
+  # Loading for your ROOT Model (chosen hierarchy) is ALSO done from here (Eval and Resuming Training)
   # (either absolute or relative to the project root)
   model_directory: models/fly_test
-  # Leave this empty to get a default name from this config
+  # Leave this empty to get a default name from this config (best practice for training)
+  # You can fast load models with suffixes ["latest", "best_reward", "best_objective"]
+  # If you want to load a specific model, set the model_name to the name of the model file
   model_name: ""
   # Name of the CORINE dataset-file, Path to the Corine dataset file must be set in project_paths.json (generated default paths at compile time)
   corine_dataset_name: CLMS_CLCplus_RASTER_2021_010m_eu_03035_V1_1.tif
@@ -146,7 +146,9 @@ environment:
       max_speed: 10.0 # Maximum speed of the FlyAgent in m/s
       view_range: 12 # View range of the FlyAgent in cells
       default_model_folder: models/new_solved/ # Default model path for the fly_agent (either absolute or relative to the project root)
-      default_model_name: my_model_latest.pt # Default model name for the fly_agent
+      # You can fast load models with suffixes ["latest", "best_reward", "best_objective"]
+      # If you want to load a specific model, set the model_name to the name of the model file
+      default_model_name: latest
     explore_agent:
       algorithm: no_algo # Algorithm used by the explore_agent
       num_agents: 4
@@ -154,6 +156,8 @@ environment:
       max_speed: 10.0 # Maximum speed of the explore_agent in m/s
       view_range: 12 # View range of the explore_agent in cells
       default_model_folder: "" # Keep empty for future use and compatibility with pipeline lol
+      # You can fast load models with suffixes ["latest", "best_reward", "best_objective"]
+      # If you want to load a specific model, set the model_name to the name of the model file
       default_model_name: ""  # Keep empty for future use and compatibility with pipeline lol
     planner_agent:
       algorithm: PPO # Algorithm used by the planner_agent
@@ -163,4 +167,6 @@ environment:
       max_speed: 3.0 # Maximum speed of the ExtinguishAgent (low-level-agent of the Planner) in m/s
       view_range: 6 # View range of the ExtinguishAgent in cells
       default_model_folder: models/planner_kind_of_works/ # Default model path for the fly_agent (either absolute or relative to the project root)
-      default_model_name: ppo_planner_agent_latest.pt # Default model name for the fly_agent
+      # You can fast load models with suffixes ["latest", "best_reward", "best_objective"]
+      # If you want to load a specific model, set the model_name to the name of the model file
+      default_model_name: latest

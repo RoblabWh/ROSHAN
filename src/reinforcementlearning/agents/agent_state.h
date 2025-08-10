@@ -162,7 +162,7 @@ public:
     //* The Terrain is the first element of the vector, the Fire Status is the second element of the vector.
     //* The Drone View is normalized by the maximum value of the Terrain and Fire Status
     //* @return std::vector<std::vector<std::vector<int>>> The normalized Drone View of the Agent.
-    [[nodiscard]] std::vector<std::vector<std::vector<int>>> GetDroneViewNorm();
+    [[nodiscard]] std::vector<std::vector<std::vector<double>>> GetDroneViewNorm();
 
     //* Returns the normalized Distance to the next Boundary of this State
     //* The Distance to the next Boundary is the distance of the Agent to the next boundary of the map.

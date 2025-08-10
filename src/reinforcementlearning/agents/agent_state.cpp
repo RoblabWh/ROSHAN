@@ -4,16 +4,17 @@
 
 #include "agent_state.h"
 
-std::vector<std::vector<std::vector<int>>> AgentState::GetDroneViewNorm() {
+std::vector<std::vector<std::vector<double>>> AgentState::GetDroneViewNorm() {
 
-    std::vector<std::vector<std::vector<int>>> drone_view_norm(2,
-                                                               std::vector<std::vector<int>>((*drone_view_)[0].size(),
-                                                               std::vector<int>((*drone_view_)[0][0].size())));
+    std::vector<std::vector<std::vector<double>>> drone_view_norm(2,
+                                                                  std::vector<std::vector<double>>((*drone_view_)[0].size(),
+                                                            std::vector<double>((*drone_view_)[0][0].size())));
 
     for (size_t i = 0; i < (*drone_view_)[0].size(); ++i) {
         for (size_t j = 0; j < (*drone_view_)[0][i].size(); ++j) {
-            drone_view_norm[0][i][j] = static_cast<int>((*drone_view_)[0][i][j]) / int(static_cast<CellState>(CELL_STATE_COUNT - 1));
-            drone_view_norm[1][i][j] = (*drone_view_)[1][i][j];
+            drone_view_norm[0][i][j] = static_cast<double>((*drone_view_)[0][i][j]) /
+                                       static_cast<double>(static_cast<int>(CellState::CELL_STATE_COUNT) - 1);
+            drone_view_norm[1][i][j] = static_cast<double>((*drone_view_)[1][i][j]);
         }
     }
 
@@ -64,6 +65,10 @@ std::pair<double, double> AgentState::GetOrientationToGoal() const {
     double x = goal_position_.first - position_.first;
     double y = goal_position_.second - position_.second;
     double magnitude = sqrt(x * x + y * y);
+    // Check if we are at the goal position
+    if (magnitude < std::numeric_limits<double>::epsilon()) {
+        return std::make_pair(0.0, 0.0);
+    }
     return std::make_pair(x / magnitude, y / magnitude);
 }
 
@@ -110,6 +115,7 @@ double AgentState::GetDistanceToNearestBoundaryNorm() const {
 }
 
 std::vector<std::vector<double>> AgentState::GetExplorationMapNorm() const {
+    // "Normalizing" is probably not the right term here, but it is used to scale the values
     std::vector<std::vector<double>> exploration_map_norm((*exploration_map_).size(), std::vector<double>((*exploration_map_)[0].size()));
     double max_value = 255;//map_dimensions_.first * map_dimensions_.second;
     for (size_t i = 0; i < (*exploration_map_).size(); ++i) {

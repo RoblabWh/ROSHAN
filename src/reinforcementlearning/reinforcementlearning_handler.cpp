@@ -22,7 +22,6 @@ ReinforcementLearningHandler::ReinforcementLearningHandler(FireModelParameters &
                                                   return std::make_shared<PlannerAgent>(parameters, id, time_steps);
                                               });
 
-    agent_is_running_ = false;
     total_env_steps_ = parameters_.GetTotalEnvSteps();
 }
 
@@ -214,7 +213,7 @@ double> ReinforcementLearningHandler::Step(const std::string& agent_type, std::v
             double reward = agents[i]->CalculateReward();
             rewards.push_back(reward);
             // Should the Environment Reset
-            agent_terminal_states["EnvReset"] = terminal_state[0];
+            agent_terminal_states["EnvReset"] |= terminal_state[0];
             // Reset some values for the next step
             agents[i]->StepReset();
         }

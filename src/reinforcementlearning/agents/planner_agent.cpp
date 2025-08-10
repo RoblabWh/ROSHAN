@@ -13,6 +13,10 @@ PlannerAgent::PlannerAgent(FireModelParameters &parameters, int id, int time_ste
 
 void PlannerAgent::PerformPlan(PlanAction *action, const std::string &hierarchy_type,
                                const std::shared_ptr<GridMap> &gridMap) {
+
+    // Count only fires extinguished in this step
+    extinguished_fires_ = 0;
+
     // Iterate over all Actions and set a new goal for each FlyAgent
     for (const auto &fly_agent : fly_agents_) {
         // Get the goal from the action

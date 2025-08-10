@@ -31,7 +31,9 @@ FireModel::FireModel(Mode mode, const std::string& config_path) : mode_(mode)
         parameters_.SetNumberOfDrones(0);
     }
     if (mode_ == Mode::NoGUI_RL) {
-        parameters_.SetAgentIsRunning(true);
+        auto rl_status = rl_handler_->GetRLStatus();
+        rl_status[py::str("agent_is_running")] = py::bool_(true);
+        rl_handler_->SetRLStatus(rl_status);
         parameters_.check_for_model_folder_empty_ = true;
         std::cout << "Running in NoGUI_RL mode. Agent always runs." << std::endl;
     }
@@ -92,6 +94,10 @@ void FireModel::ResetGridMap(std::vector<std::vector<int>>* rasterData) {
 
     //Reset simulation time
     running_time_ = 0;
+}
+
+bool FireModel::AgentIsRunning() {
+    return rl_handler_->AgentIsRunning();
 }
 
 void FireModel::SetRenderer(SDL_Renderer* renderer) {
@@ -183,10 +189,6 @@ std::tuple<std::unordered_map<std::string, std::vector<std::deque<std::shared_pt
     return result;
 }
 
-bool FireModel::AgentIsRunning() {
-    return parameters_.GetAgentIsRunning();
-}
-
 void FireModel::Render() {
     model_renderer_->Render(rl_handler_->GetDrones());
     model_renderer_->DrawArrow(-wind_->GetCurrentAngle() * 180 / M_PI + 130);
@@ -239,7 +241,7 @@ void FireModel::ImGuiRendering(bool &update_simulation, bool &render_simulation,
 }
 
 void FireModel::HandleEvents(SDL_Event event, ImGuiIO *io) {
-    imgui_handler_->HandleEvents(event, io, gridmap_, model_renderer_, dataset_handler_, current_raster_data_, parameters_.agent_is_running_);
+    imgui_handler_->HandleEvents(event, io, gridmap_, model_renderer_, dataset_handler_, current_raster_data_);
 }
 
 std::string FireModel::GetUserInput() {

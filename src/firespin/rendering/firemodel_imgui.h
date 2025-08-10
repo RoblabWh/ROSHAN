@@ -38,7 +38,7 @@ public:
     bool ImGuiOnStartup(const std::shared_ptr<FireModelRenderer>& model_renderer, std::vector<std::vector<int>> &current_raster_data);
     void ShowParameterConfig(const std::shared_ptr<Wind>& wind);
     void HandleEvents(SDL_Event event, ImGuiIO *io, const std::shared_ptr<GridMap>& gridmap, const std::shared_ptr<FireModelRenderer>& model_renderer,
-                      const std::shared_ptr<DatasetHandler>& dataset_handler, std::vector<std::vector<int>> &current_raster_data, bool agent_is_running);
+                      const std::shared_ptr<DatasetHandler>& dataset_handler, std::vector<std::vector<int>> &current_raster_data);
     static void OpenBrowser(const std::string& url);
     void updateOnRLStatusChange();
     void DefaultModeSelected() {

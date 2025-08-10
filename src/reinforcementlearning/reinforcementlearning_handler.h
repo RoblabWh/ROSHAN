@@ -51,6 +51,7 @@ public:
     void SetGridMap(std::shared_ptr<GridMap> gridmap) { gridmap_ = std::move(gridmap); }
     void SetRLStatus(py::dict status);
     void UpdateReward();
+    bool AgentIsRunning() const { return rl_status_["agent_is_running"].cast<bool>(); }
     py::dict GetRLStatus() { return rl_status_; }
     std::shared_ptr<std::vector<std::shared_ptr<FlyAgent>>> GetDrones() {
         auto fly_agents = std::make_shared<std::vector<std::shared_ptr<FlyAgent>>>();
@@ -102,7 +103,6 @@ private:
     std::unordered_map<std::string, std::vector<std::shared_ptr<Agent>>> agents_by_type_;
 
     //Flags
-    bool agent_is_running_;
     bool eval_mode_ = false;
 
     // Rewards Collection for Debugging!
