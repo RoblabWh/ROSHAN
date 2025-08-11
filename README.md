@@ -49,7 +49,7 @@ Install SDL2 according to:
 
 `conda activate roshan`
 
-`pip install torch torchvision`
+`pip install torch torchvision tabulate`
 
 `conda install tensorboard`
 

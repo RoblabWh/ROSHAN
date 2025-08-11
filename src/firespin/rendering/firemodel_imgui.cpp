@@ -1446,6 +1446,6 @@ void ImguiHandler::OpenBrowser(const std::string& url) {
 void ImguiHandler::updateOnRLStatusChange() {
     py::dict rl_status = onGetRLStatus();
     auto model_path = rl_status["model_path"].cast<std::string>();
-    auto log_path = (std::filesystem::path(model_path) / std::filesystem::path("logging.log")).string();
+    auto log_path = (std::filesystem::path(model_path) / "logs" / std::filesystem::path("logging.log")).string();
     this->log_reader_.set_model_path(log_path);
 }

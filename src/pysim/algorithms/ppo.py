@@ -5,7 +5,8 @@ import warnings
 import numpy as np
 from algorithms.actor_critic import ActorCriticPPO, CategoricalActorCritic
 from memory import SwarmMemory
-from utils import RunningMeanStd, Logger
+from utils import RunningMeanStd
+from evaluation import TensorboardLogger
 from algorithms.rl_algorithm import RLAlgorithm
 from algorithms.rl_config import PPOConfig
 from torch.utils.data.sampler import BatchSampler, SubsetRandomSampler
@@ -103,7 +104,7 @@ class PPO(RLAlgorithm):
     def select_action_certain(self, observations):
         return self.policy.act_certain(observations)
 
-    def save(self, logger: Logger):
+    def save(self, logger: TensorboardLogger):
         if logger.is_better_reward():
             self.logger.info(f"Saving at Episode {logger.episode}, best Reward: {logger.best_metrics['best_reward']:.2f}")
             torch.save(self.policy.state_dict(), f'{os.path.join(self.get_model_path(), self.get_model_name_reward())}')

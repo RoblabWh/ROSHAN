@@ -59,7 +59,6 @@ def main(config_path_ : str = ""):
             logging.StreamHandler(sys.stdout)
         ]
     )
-    logger = logging.getLogger(__name__)
 
     # RL_Status Dictionary, sending back and forth to C++
     sim_bridge = SimulationBridge(config)

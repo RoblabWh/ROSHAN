@@ -3,10 +3,10 @@ from algorithms.iql import IQL
 from algorithms.rl_algorithm import RLAlgorithm
 from algorithms.td3 import TD3
 from algorithms.rl_config import RLConfig, PPOConfig, IQLConfig, TD3Config, NoAlgorithmConfig, override_from_dict
-from utils import SimulationBridge, Logger, get_project_paths, Evaluator, remove_suffix
-import numpy as np
-import os, logging, yaml, inspect, shutil, importlib.util
+from utils import SimulationBridge, get_project_paths, remove_suffix
+import os, logging, yaml, shutil, importlib.util
 from memory import SwarmMemory
+from evaluation import Evaluator, TensorboardLogger
 from explore_agent import ExploreAgent
 from flying_agent import FlyAgent
 from planner_agent import PlannerAgent
@@ -44,10 +44,6 @@ class AgentHandler:
         # Auto Training Parameters
         at_dict = config["settings"]["auto_train"]
         use_auto_train = at_dict["use_auto_train"]
-
-        # TODO : Check this
-        # Used for Evaluation
-        self.evaluator = Evaluator(auto_train_dict=at_dict, sim_bridge=sim_bridge)
 
         # Agent Type is either fly_agent, explore_agent or planner_agent
         drone_count = agent_dict["num_agents"]
@@ -102,7 +98,8 @@ class AgentHandler:
         # Only create a FileHandler if this is not a sub agent
         # TODO different logger files for training and evaluation? probly not needed
         if not self.is_sub_agent:
-            logging_file = os.path.join(model_path.__str__(), "logging.log")
+            logging_dir = os.path.join(model_path.__str__(), "logs")
+            logging_file = os.path.join(logging_dir, "logging.log")
             file_handler = logging.FileHandler(logging_file)
             file_handler.setLevel(logging.DEBUG)
             formatter = logging.Formatter("%(asctime)s - %(levelname)s - %(name)s - %(message)s")
@@ -190,7 +187,7 @@ class AgentHandler:
             logging_path = os.path.join(model_path, "logs")
             # If we resume training or starting in evaluation mode, we need to load the logger
             is_loading = self.resume or self.rl_mode == "eval"
-            self.tensorboard = Logger(log_dir=logging_path, resume=is_loading)
+            self.tensorboard = TensorboardLogger(log_dir=logging_path, resume=is_loading)
 
             if not is_loading:
                 root_model_path = self.algorithm.model_path
@@ -225,6 +222,8 @@ class AgentHandler:
             self.sim_bridge.set("min_update", min_update)
 
             if not self.resume: self.logger.info(f"Top Level Hierarchy: {self.agent_type.name}")
+
+            self.evaluator = Evaluator(log_dir=logging_path, auto_train_dict=at_dict, sim_bridge=self.sim_bridge, logger=self.tensorboard)
 
         if not self.resume:
             self.logger.info(f"Algorithm: {self.algorithm_name}")
@@ -506,7 +505,7 @@ class AgentHandler:
                     self.tensorboard.close()
                     model_path = self.algorithm.get_model_path()
                     logging_path = os.path.join(model_path, "logs")
-                    self.tensorboard = Logger(log_dir=logging_path)
+                    self.tensorboard = TensorboardLogger(log_dir=logging_path)
 
                 # Reset memory
                 self.memory.clear_memory()
