@@ -222,7 +222,7 @@ public:
         std::regex log_entry_start(R"(^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2},\d{3} -)");
         std::vector<std::string> lines;
         std::ifstream file(log_path, std::ios::in);
-        if (!file.is_open()) return lines;
+        if (!file.is_open()) return {"Where is the LogFile? I can't find it at: " + log_path};
 
         file.seekg(last_pos);
         std::streampos last_good_pos = file.tellg();  // before reading

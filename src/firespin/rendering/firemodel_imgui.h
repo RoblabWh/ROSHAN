@@ -20,6 +20,121 @@
 
 namespace py = pybind11;
 
+struct LogConsole {
+    ImGuiTextBuffer      Buf;
+    ImVector<int>        LineOffsets;   // Index of each line start in Buf (always starts with 0)
+    ImVector<ImU32>      LineColors;    // Color per line
+    ImGuiTextFilter      Filter;
+    bool                 AutoScroll = true;
+    bool                 ScrollToBottom = false;
+    int                  MaxLines = 200000; // ring-capacity
+
+    void Clear() {
+        Buf.clear();
+        LineColors.clear();
+        LineOffsets.clear();
+        LineOffsets.push_back(0);
+    }
+
+    void TrimToLast(int max_lines) {
+        if (LineOffsets.Size <= max_lines) return;
+        int keep = max_lines;
+        int start_idx = LineOffsets.Size - keep;
+        int start_off = LineOffsets[start_idx];
+
+        ImGuiTextBuffer new_buf;
+        new_buf.append(Buf.begin() + start_off, Buf.end());
+
+        ImVector<int> new_offsets;
+        new_offsets.resize(keep);
+        for (int i = 0; i < keep; ++i)
+            new_offsets[i] = LineOffsets[start_idx + i] - start_off;
+
+        ImVector<ImU32> new_colors;
+        new_colors.resize(keep);
+        for (int i = 0; i < keep; ++i)
+            new_colors[i] = LineColors[LineColors.Size - keep + i];
+
+        Buf = std::move(new_buf);
+        LineOffsets.swap(new_offsets);
+        LineColors.swap(new_colors);
+    }
+
+    // Append one line; '\n' if it's not present
+    void AddLine(const char* line, ImU32 color) {
+        int old_size = Buf.size();
+        Buf.append(line);
+        if (old_size == Buf.size() || Buf[Buf.size()-1] != '\n')
+            Buf.append("\n");
+        LineOffsets.push_back(Buf.size());
+        LineColors.push_back(color);
+        if (AutoScroll) ScrollToBottom = true;
+        if (LineOffsets.Size > MaxLines)
+            TrimToLast(MaxLines);
+    }
+
+    void DrawUI(const char* id, float rows = 20.0f) {
+        Filter.Draw("Filter", ImGui::GetFontSize() * 16.0f);
+        ImGui::SameLine();
+        ImGui::Checkbox("Auto Scroll", &AutoScroll);
+
+        ImGui::BeginChild(id,
+                          ImVec2(0, ImGui::GetTextLineHeightWithSpacing() * rows),
+                          true,
+                          ImGuiWindowFlags_HorizontalScrollbar);
+
+        const int line_count = LineOffsets.Size;
+        if (line_count == 0) {
+            ImGui::TextDisabled("[No logs available]");
+            this->Clear();
+            ImGui::EndChild();
+            return;
+        }
+
+        const char* buf_start = Buf.begin();
+
+        if (Filter.IsActive()) {
+            // Filtering: must test every line only draw matches
+            for (int line_no = 0; line_no < LineOffsets.Size - 1; ++line_no) {
+                const char* line_begin = buf_start + LineOffsets[line_no];
+                const char* line_end   = buf_start + LineOffsets[line_no + 1] - 1; // exclude '\n'
+                if (Filter.PassFilter(line_begin, line_end)) {
+                    ImGui::PushStyleColor(ImGuiCol_Text, LineColors[line_no]);
+                    ImGui::TextUnformatted(line_begin, line_end);
+                    ImGui::PopStyleColor();
+                }
+            }
+        } else {
+            // Use clipper to draw only visible lines
+            ImGuiListClipper clipper;
+            clipper.Begin(LineOffsets.Size - 1);
+            while (clipper.Step()) {
+                for (int line_no = clipper.DisplayStart; line_no < clipper.DisplayEnd; ++line_no) {
+                    const char* line_begin = buf_start + LineOffsets[line_no];
+                    const char* line_end   = buf_start + LineOffsets[line_no + 1] - 1;
+                    ImGui::PushStyleColor(ImGuiCol_Text, LineColors[line_no]);
+                    ImGui::TextUnformatted(line_begin, line_end);
+                    ImGui::PopStyleColor();
+                }
+            }
+        }
+        const bool was_at_bottom = ImGui::GetScrollY() >= ImGui::GetScrollMaxY() - 1.0f;
+
+        if (AutoScroll && (ScrollToBottom || was_at_bottom))
+            ImGui::SetScrollHereY(1.0f);
+        ScrollToBottom = false;
+
+        ImGui::EndChild();
+    }
+};
+
+inline ImU32 ColorFromLine(const std::string& s) {
+    if (s.find("ERROR")   != std::string::npos) return IM_COL32(255, 80,  80, 255);
+    if (s.find("WARNING") != std::string::npos) return IM_COL32(255, 180,  0, 255);
+    if (s.find("DEBUG")   != std::string::npos) return IM_COL32(180, 180,255, 255);
+    return IM_COL32(100, 230, 100, 255);
+}
+
 class __attribute__((visibility("default"))) ImguiHandler {
 public:
     ImguiHandler(Mode mode, FireModelParameters &parameters);

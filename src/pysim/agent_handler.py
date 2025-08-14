@@ -67,14 +67,12 @@ class AgentHandler:
             self.agent_type.initialize_rnd_model(vision_range, drone_count=self.num_agents,
                                                  map_size=map_size, time_steps=time_steps)
 
-        self.logger = logging.getLogger(agent_type)
-
         root_path = get_project_paths("root_path")
         loading_path, loading_name, model_path, model_name = None, None, None, None
         if self.is_sub_agent:
             # If this is a sub agent, we load the model from the default agent's model path
             loading_path = os.path.join(root_path, agent_dict["default_model_folder"])
-            loading_name = self.get_model_name(path=str(loading_path),
+            loading_name, later_logs = self.get_model_name(path=str(loading_path),
                                                model_string=agent_dict["default_model_name"],
                                                agent_type=agent_type,
                                                is_loading_name=True)
@@ -84,7 +82,7 @@ class AgentHandler:
             # If this is the main agent, we use the model path from the config
             is_loading = self.resume or self.rl_mode == "eval"
             model_path = os.path.join(root_path, config["paths"]["model_directory"])
-            model_string = self.get_model_name(path=str(model_path),
+            model_string, later_logs = self.get_model_name(path=str(model_path),
                                              model_string=config["paths"]["model_name"],
                                              agent_type=agent_type,
                                              is_loading_name=is_loading)
@@ -99,6 +97,7 @@ class AgentHandler:
 
         # Only create a FileHandler if this is not a sub agent
         # TODO different logger files for training and evaluation? probly not needed
+        logging_file = ""
         if not self.is_sub_agent:
             logging_dir = os.path.join(model_path.__str__(), "logs")
             if not os.path.exists(logging_dir):
@@ -109,6 +108,13 @@ class AgentHandler:
             formatter = logging.Formatter("%(asctime)s - %(levelname)s - %(name)s - %(message)s")
             file_handler.setFormatter(formatter)
             logging.getLogger().addHandler(file_handler)
+
+        # If this is not a sub agent, we can now log everything
+        self.logger = logging.getLogger(agent_type)
+        if not self.is_sub_agent:
+            self.logger.info(f"Logging File at {logging_file}")
+        if later_logs["msg"] is not None:
+            self.logger.log(later_logs["level"], later_logs["msg"])
 
         # TODO: If I resume the training, I need to load several things:
         # - The model
@@ -296,22 +302,25 @@ class AgentHandler:
         :param is_loading_name: If True, the model must exist at the given path.
         :return: A valid model name.
         """
+        # Return back a log_dict, this later needs to be used for logging when we know the log_path
+        log_dict = {"msg": None, "level": 0}
         found_model = False
         if model_string and model_string.endswith(".pt"):
             # If the model name is a valid .pt file, check if it exists
             full_path = os.path.join(path, model_string)
             found_model = True
             if is_loading_name and not os.path.exists(full_path):
-                self.logger.error(f"Model {full_path} does not exist. Try searching for a valid model in {path}")
+                log_dict["msg"] = f"Model {full_path} does not exist. Try searching for a valid model in {path}"
+                log_dict["level"] = 30 # WARNING level
                 found_model = False
             if found_model:
-                return model_string
+                return model_string, log_dict
 
         # Construct a default model name based on the algorithm and agent type
         # Only do this if we are not loading a model and just need a default name
         if not is_loading_name and not found_model:
             algorithm = self.algorithm_name.lower()
-            return algorithm + "_" + agent_type + ".pt"
+            return algorithm + "_" + agent_type + ".pt", log_dict
 
         # If the model name is just a string, check if it is one of the valid strings
         # This only applies if we are loading a model
@@ -319,19 +328,21 @@ class AgentHandler:
         valid_models: list[str] = [file_name for file_name in os.listdir(path) if file_name.endswith(".pt")]
 
         if len(valid_models) == 0:
-            self.logger.error(f"No valid model files found in {path}. Please check the directory.")
-            return None
+            log_dict["msg"] = f"No valid model files found in {path}. Please check the directory."
+            log_dict["level"] = 40 # ERROR level
+            return None, log_dict
 
         if model_string not in valid_strings:
-            self.logger.warning(f"Provided model_string '{model_string}' is not a valid string. "
-                                f"Valid strings are: {valid_strings}. Using first valid model found in {path}."
-                                f"Valid models found: {valid_models}")
-            return valid_models[0]  # Return the first valid model found in the directory
+            log_dict["msg"] = f"Provided model_string '{model_string}' is not a valid string. " \
+                              f"Valid strings are: {valid_strings}. Using first valid model found in {path}." \
+                              f"Valid models found: {valid_models}"
+            log_dict["level"] = 30 # WARNING level
+            return valid_models[0], log_dict  # Return the first valid model found in the directory
 
         # If the model string is one of the valid strings, construct the model name
         for model in valid_models:
             if model.split(".")[0].endswith(model_string):
-                return model
+                return model, log_dict
 
     def get_model_name_from_config(self, config):
         """

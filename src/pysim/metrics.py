@@ -10,9 +10,11 @@ class Metric:
     :meth:`compute`.
     """
 
-    def __init__(self, name: str):
+    def __init__(self, name: str = "Metric") -> None:
         self.value = None
-        self.name = name
+        self.int_like = False  # whether this metric is an integer-like value
+        self.is_percentage = False  # whether this metric is a percentage
+        self.name : str = name
         self.reset()
 
     def reset(self) -> None:
@@ -32,7 +34,10 @@ class Metric:
         std = float(np.std(vals, ddof=1)) if n > 1 else 0.0
         if n > 1:
             sem = st.sem(vals)
-            lo, hi = st.t.interval(ci, n - 1, loc=mean, scale=sem)
+            if sem == 0:
+                lo = hi = mean
+            else:
+                lo, hi = st.t.interval(ci, n - 1, loc=mean, scale=sem)
         else:
             lo = hi = mean
         return mean, std, median, lo, hi
@@ -53,6 +58,9 @@ class Metric:
         }
         return base
 
+    def is_int_like(self):
+        return self.int_like
+
 # Scalar metrics inherit default compute method
 
 class RewardMetric(Metric):
@@ -66,6 +74,7 @@ class RewardMetric(Metric):
 class TimeMetric(Metric):
     def __init__(self) -> None:
         super().__init__("Time")
+        self.int_like = True
 
     def update(self, stats: Dict[str, Any]) -> None:
         self.value += 1
@@ -81,35 +90,10 @@ class PercentBurnedMetric(Metric):
 
 # Override compute for Totals/Rates
 
-class DiedMetric(Metric):
-    def __init__(self) -> None:
-        super().__init__("Died")
-
-    def update(self, stats: Dict[str, Any]) -> None:
-        if stats["terminal_result"]["EnvReset"] and stats["terminal_result"]["OneAgentDied"]:
-            self.value = 1.0
-
-    def compute(self, history: List[Dict[str, float]]) -> Dict[str, float]:
-        total = int(sum(h[self.name] for h in history))
-        return {"Total_Died": float(total)}
-
-
-class ReachedGoalMetric(Metric):
-    def __init__(self) -> None:
-        super().__init__("Reached")
-
-    def update(self, stats: Dict[str, Any]) -> None:
-        if stats["terminal_result"]["EnvReset"] and not stats["terminal_result"]["OneAgentDied"]:
-            self.value = 1.0
-
-    def compute(self, history: List[Dict[str, float]]) -> Dict[str, float]:
-        total = int(sum(h[self.name] for h in history))
-        return {"Total_Reached": float(total)}
-
-
 class SuccessMetric(Metric):
     def __init__(self) -> None:
         super().__init__("Success")
+        self.is_percentage = True  # no need for summary stats, just 0 or 1
 
     def update(self, stats: Dict[str, Any]) -> None:
         if stats["terminal_result"]["EnvReset"]:

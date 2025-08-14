@@ -12,8 +12,8 @@ settings:
   auto_train:
     use_auto_train: true # Whether to use auto training
     train_episodes: 5 # Number of total trainings, each containing max_train train_steps
-    max_train: 10 # Maximum number of train_steps to perform
-    max_eval: 10 # Maximum number of evaluations to perform
+    max_train: 100 # Maximum number of train_steps to perform
+    max_eval: 100 # Maximum number of evaluations to perform
 paths:
   # This is the root_path where your NEW trained models data is stored
   # Loading for your ROOT Model (chosen hierarchy) is ALSO done from here (Eval and Resuming Training)

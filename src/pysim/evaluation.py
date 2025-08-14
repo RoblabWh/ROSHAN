@@ -1,34 +1,32 @@
 from torch.utils.tensorboard import SummaryWriter
 from collections import defaultdict, deque
-from typing import Union, Any, Dict, List
+from typing import Union, Any, Dict, List, Type
 import numpy as np
 from tabulate import tabulate
 import logging, os, csv
 import scipy.stats as stats
 from dataclasses import dataclass, fields
 from utils import SimulationBridge
-from metrics import Metric, RewardMetric, TimeMetric, PercentBurnedMetric, DiedMetric, ReachedGoalMetric, SuccessMetric
-
-# @dataclass
-# class EvaluationStats:
-#     """
-#     A dataclass to hold evaluation statistics.
-#     """
-#     reward: float = 0.0
-#     time: float = 0.0
-#     objective: float = 0.0
-#     perc_burned: float = 0.0
-#     died: int = 0
-#     reached_goal: int = 0
+from metrics import (
+    Metric,
+    RewardMetric,
+    TimeMetric,
+    PercentBurnedMetric,
+    SuccessMetric,
+)
 
 # Registry of all metrics used during evaluation
-METRIC_REGISTRY: List[Metric] = [
-    RewardMetric(),
-    TimeMetric(),
-    PercentBurnedMetric(),
-    # DiedMetric(),
-    # ReachedGoalMetric(),
-    SuccessMetric(),
+METRIC_REGISTRY: List[Type[Metric]] = [
+    RewardMetric,
+    TimeMetric,
+    PercentBurnedMetric,
+    SuccessMetric,
+]
+
+METRIC_REGISTRY_FLY_AGENT: List[Type[Metric]] = [
+    RewardMetric,
+    TimeMetric,
+    SuccessMetric,
 ]
 
 class TensorboardLogger:
@@ -144,7 +142,15 @@ class TensorboardLogger:
     def _load_state(self):
         state_path = os.path.join(self.log_dir_tensorboard, 'logger_state.npy')
         if os.path.exists(state_path):
-            state = np.load(state_path, allow_pickle=True).item()
+            try:
+                state = np.load(state_path, allow_pickle=True).item()
+            except Exception as e:
+                logging.warning(
+                    "Failed to load logger state from %s: %s. Continuing with default state.",
+                    state_path,
+                    e,
+                )
+                return
             self.episode = state.get("episode", 0)
             self.logging_step = state.get("logging_step", 0)
             self.objectives = deque(state.get("objectives", []), maxlen=100)
@@ -162,7 +168,10 @@ class TensorboardLogger:
             "policy_updates": self.policy_updates
         }
         state_path = os.path.join(self.log_dir_tensorboard, 'logger_state.npy')
-        np.save(state_path, state, allow_pickle=True) # type: ignore[arg-type]
+        try:
+            np.save(state_path, state, allow_pickle=True)  # type: ignore[arg-type]
+        except Exception:
+            logging.exception("Failed to save logger state to %s", state_path)
 
     def calc_current_objective(self):
         if len(self.objectives) == self.objectives.maxlen:
@@ -219,6 +228,8 @@ class Evaluator:
         self.current_episode = 0  # Current episode number
         # History of per-episode metric values
         self.history: List[Dict[str, float]] = []
+        registry = METRIC_REGISTRY_FLY_AGENT if self.sim_bridge.get("hierarchy_type") == "fly_agent" else METRIC_REGISTRY
+        self.metrics = [m() for m in registry]  # Initialize metrics from the registry
 
     def on_update(self):
         if self.sim_bridge.get("train_step") >= self.max_train and self.use_auto_train:
@@ -233,7 +244,7 @@ class Evaluator:
         self.eval_steps = 0
         self.current_episode = 0
         self.history = []
-        for metric in METRIC_REGISTRY:
+        for metric in self.metrics:
             metric.reset()
 
         if self.use_auto_train:
@@ -251,7 +262,7 @@ class Evaluator:
 
     def save_to_csv(self, path):
         """Save collected evaluation statistics to a CSV file."""
-        field_names = [m.name for m in METRIC_REGISTRY]
+        field_names = [m.name for m in self.metrics]
         with open(path, "w", newline="") as csvfile:
             writer = csv.DictWriter(csvfile, fieldnames=field_names) # type: ignore[arg-type]
             writer.writeheader()
@@ -285,17 +296,17 @@ class Evaluator:
         }
 
         metrics: Dict[str, Any] = {"episode": self.current_episode + 1, "episode_over": False}
-        for metric in METRIC_REGISTRY:
+        for metric in self.metrics:
             metric.update(step_stats)
             metrics[metric.name] = metric.value
 
         if terminal_result['EnvReset']:
             # Store final metrics for this episode
-            episode_metrics = {m.name: m.value for m in METRIC_REGISTRY}
+            episode_metrics = {m.name: m.value for m in self.metrics}
             self.history.append(episode_metrics)
 
             # Compute aggregated metrics
-            for metric in METRIC_REGISTRY:
+            for metric in self.metrics:
                 metrics.update(metric.compute(self.history))
                 metric.reset()
 
@@ -315,17 +326,18 @@ class Evaluator:
         return metrics
 
     def clean_print(self, history, last_episode:bool = False):
-        headers = ["Episode", "Reward", "Time", "% Burn", "Success Rate"]
+        metric_headers = [m.name for m in self.metrics]
+        headers = ["Episode"] + metric_headers + ["Success Rate"]
 
         local_history_ = [history[self.current_episode]] if not last_episode else history
 
         rows = [
             [
                 idx + 1 if last_episode else (self.current_episode + 1),
-                f"{s['Reward']:.2f}",
-                int(s['Time']),
-                f"{s['Percent_Burned']:.2f}",
-                "100.0%" if s['Success'] else "0.0%",
+                *[
+                    f"{s[m.name]:.2f}" if not m.is_int_like() else int(s[m.name])
+                    for m in self.metrics
+                ],
             ]
             for idx, s in enumerate(local_history_)
         ]
@@ -334,31 +346,34 @@ class Evaluator:
 
         if last_episode:
             # ---- summary over the entire history ----
-            rewards_metrics = Metric.summary_stats([s["Reward"] for s in history])
-            time_metrics = Metric.summary_stats([s["Time"] for s in history])
-            burn_metrics = Metric.summary_stats([s["Percent_Burned"] for s in history])
-            success_rate = np.mean([s["Success"] for s in history]) if history else 0.0
+            ms = {
+                    m.name: {
+                        "summary": Metric.summary_stats([s[m.name] for s in history]),
+                        "int_like": m.is_int_like()
+                    }
+                    for m in self.metrics
+                  }
 
             mean_footer = [
                 f"Summary (N={len(history)})",
-                self._fmt_mean(rewards_metrics, int_like=False),
-                self._fmt_mean(time_metrics, int_like=True),  # steps look better as ints
-                self._fmt_mean(burn_metrics, int_like=False),
-                f"{success_rate:.2%}",
+                *[
+                    self._fmt_mean(metric_stats=ms[m.name])
+                    for m in self.metrics
+                ],
             ]
             median_footer = [
                 "",
-                self._fmt_median(rewards_metrics, int_like=False),
-                self._fmt_median(time_metrics, int_like=True),  # steps look better as ints
-                self._fmt_median(burn_metrics, int_like=False),
-                "",
+                *[
+                    self._fmt_median(metric_stats=ms[m.name])
+                    for m in self.metrics
+                ],
             ]
             ci_footer = [
                 "",
-                self._fmt_ci(rewards_metrics, int_like=False),
-                self._fmt_ci(time_metrics, int_like=True),  # steps look better as ints
-                self._fmt_ci(burn_metrics, int_like=False),
-                "",
+                *[
+                    self._fmt_ci(metric_stats=ms[m.name])
+                    for m in self.metrics
+                ],
             ]
 
             tabular_data += [mean_footer] + [median_footer] + [ci_footer]
@@ -370,42 +385,28 @@ class Evaluator:
         self.logger.info("\n%s", table)
 
     @staticmethod
-    def _summary_stats(vals, ci=0.95):
-        vals = np.asarray(vals, dtype=float)
-        n = len(vals)
-        mean = float(np.mean(vals))
-        median = float(np.median(vals))
-        std = float(np.std(vals, ddof=1)) if n > 1 else 0.0
-        sem = stats.sem(vals) if n > 1 else 0.0
-        if n > 1:
-            lo, hi = stats.t.interval(ci, n - 1, loc=mean, scale=sem)
-        else:
-            lo = hi = mean
-        return mean, std, median, lo, hi
-
-    @staticmethod
-    def _fmt_mean(metric_stats, int_like=False):
+    def _fmt_mean(metric_stats):
         """Format the mean value of a metric."""
-        mean, std, _, _, _ = metric_stats
-        if int_like:
-            return f"μ{mean:.0f}±{std:.0f}"
+        mean, std, _, _, _ = metric_stats["summary"]
+        if metric_stats["int_like"]:
+            return f"μ{mean:.0f} ± σ{std:.0f}"
         else:
-            return f"μ{mean:.2f}±{std:.2f}"
+            return f"μ{mean:.2f} ± σ{std:.2f}"
 
     @staticmethod
-    def _fmt_median(metric_stats, int_like=False):
+    def _fmt_median(metric_stats):
         """Format the median value of a metric."""
-        _, _, median, _, _ = metric_stats
-        if int_like:
-            return f"mdn: {median:.0f}"
+        _, _, median, _, _ = metric_stats["summary"]
+        if metric_stats["int_like"]:
+            return f"mdn {median:.0f}"
         else:
-            return f"mdn: {median:.2f}"
+            return f"mdn {median:.2f}"
 
     @staticmethod
-    def _fmt_ci(metric_stats, int_like=False):
+    def _fmt_ci(metric_stats):
         """Format the confidence interval of a metric."""
-        _, _, _, lo, hi = metric_stats
-        if int_like:
-            return f"CI[{lo:.0f}, {hi:.0f}]"
+        _, _, _, lo, hi = metric_stats["summary"]
+        if metric_stats["int_like"]:
+            return f"CI [{lo:.0f}, {hi:.0f}]"
         else:
-            return f"CI[{lo:.2f}, {hi:.2f}]"
+            return f"CI [{lo:.2f}, {hi:.2f}]"

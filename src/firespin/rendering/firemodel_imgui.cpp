@@ -311,8 +311,7 @@ void ImguiHandler::PyConfig(std::string &user_input,
     if (show_rl_status_ && mode_ == Mode::GUI_RL && model_startup_) {
         py::dict rl_status = onGetRLStatus();
 
-        ImGuiWindowFlags window_flags =
-                ImGuiWindowFlags_HorizontalScrollbar | ImGuiWindowFlags_AlwaysVerticalScrollbar;
+        ImGuiWindowFlags window_flags = ImGuiWindowFlags_HorizontalScrollbar | ImGuiWindowFlags_AlwaysVerticalScrollbar;
         ImGui::Begin("Reinforcement Learning Status", &show_rl_status_, window_flags);
         ImGui::Spacing();
 
@@ -343,66 +342,34 @@ void ImguiHandler::PyConfig(std::string &user_input,
         }
 
         RLStatusParser(rl_status);
-        static bool auto_scroll = false;
-        static ImGuiTextFilter filter;
-        static std::vector<LogEntry> logs;
+        static LogConsole console;
+        static double next_read = 0.0;
 
         if (ImGui::BeginTabBar("RLStatus")){
             if (ImGui::BeginTabItem("Logging")) {
-                filter.Draw("Filter", ImGui::GetFontSize() * 16.0f);
-                ImGui::SameLine();
-                ImGui::Checkbox("Auto Scroll", &auto_scroll);
-                ImGui::BeginChild("scrolling", ImVec2(0, ImGui::GetTextLineHeightWithSpacing() * 20), true, ImGuiWindowFlags_HorizontalScrollbar);
 
-                std::vector<std::string> log_lines;
-
-                static int refresh = 0;
-
-                if (refresh % 1000 == 0) {
-                    log_lines = log_reader_.readNewLines();
-                    refresh = 0;
-                }
-                refresh++;
-
-                for (const auto& line : log_lines) {
-                    ImU32 color;
-                    if (line.find("ERROR") != std::string::npos)
-                        color = IM_COL32(255, 80, 80, 255);
-                    else if (line.find("WARNING") != std::string::npos)
-                        color = IM_COL32(255, 180, 0, 255);
-                    else if (line.find("DEBUG") != std::string::npos)
-                        color = IM_COL32(180, 180, 255, 255);
-                    else
-                        color = IM_COL32(100, 230, 100, 255);
-
-                    logs.push_back({line, color});
+                // Read new lines at most every 0.5s
+                double now = ImGui::GetTime();
+                if (now >= next_read) {
+                    std::vector<std::string> new_lines = log_reader_.readNewLines();
+                    for (const auto& line : new_lines)
+                        console.AddLine(line.c_str(), ColorFromLine(line));
+                    next_read = now + 0.5;
                 }
 
-                for (const auto& log : logs) {
-                    if (filter.PassFilter(log.text.c_str())) {
-                        ImGui::PushStyleColor(ImGuiCol_Text, log.color);
-                        ImGui::PushTextWrapPos(ImGui::GetWindowWidth() - ImGui::GetStyle().WindowPadding.x * 2);
-                        ImGui::TextUnformatted(log.text.c_str());
-                        ImGui::PopTextWrapPos();
-                        ImGui::PopStyleColor();
-                    }
-                }
+                console.DrawUI("scrolling", 20.0f);
 
-                if (auto_scroll)
-                    ImGui::SetScrollHereY(1.0f); // Scroll to the bottom
-
-                ImGui::EndChild();
-                ImGui::EndTabItem();
-                if (ImGui::Button("Clear Log Console")){
-                    // Clear the console output
-                    logs.clear();
+                if (ImGui::Button("Clear Log Console")) {
+                    console.Clear();
                 }
                 ImGui::SameLine();
-                if (ImGui::Button("Show All Logs") || reset_console_){
+                if (ImGui::Button("Show All Logs") || reset_console_) {
                     log_reader_.reset();
-                    logs.clear();
+                    console.Clear();
                     reset_console_ = false;
                 }
+
+                ImGui::EndTabItem();
             }
             if (parameters_.llm_support_){
                 if (ImGui::BeginTabItem("ROSHAN-AI")) {
@@ -415,8 +382,10 @@ void ImguiHandler::PyConfig(std::string &user_input,
                         // Clear the input text
                         memset(input_text, 0, sizeof(input_text));
                     }
-                    ImGui::BeginChild("scrolling", ImVec2(0, ImGui::GetTextLineHeightWithSpacing() * 15), true, ImGuiWindowFlags_HorizontalScrollbar);
+                    ImGui::BeginChild("scrolling", ImVec2(0, ImGui::GetTextLineHeightWithSpacing() * 15), true);
+                    ImGui::PushTextWrapPos(0.0f);
                     ImGui::TextWrapped("%s", model_output.c_str());
+                    ImGui::PopTextWrapPos();
                     ImGui::EndChild();
                     ImGui::EndTabItem();
                 }
