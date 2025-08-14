@@ -1,24 +1,35 @@
 from torch.utils.tensorboard import SummaryWriter
 from collections import defaultdict, deque
-from typing import Union, Any
+from typing import Union, Any, Dict, List
 import numpy as np
 from tabulate import tabulate
 import logging, os, csv
+import scipy.stats as stats
 from dataclasses import dataclass, fields
-
 from utils import SimulationBridge
+from metrics import Metric, RewardMetric, TimeMetric, PercentBurnedMetric, DiedMetric, ReachedGoalMetric, SuccessMetric
 
-@dataclass
-class EvaluationStats:
-    """
-    A dataclass to hold evaluation statistics.
-    """
-    reward: float = 0.0
-    time: float = 0.0
-    objective: float = 0.0
-    perc_burned: float = 0.0
-    died: int = 0
-    reached_goal: int = 0
+# @dataclass
+# class EvaluationStats:
+#     """
+#     A dataclass to hold evaluation statistics.
+#     """
+#     reward: float = 0.0
+#     time: float = 0.0
+#     objective: float = 0.0
+#     perc_burned: float = 0.0
+#     died: int = 0
+#     reached_goal: int = 0
+
+# Registry of all metrics used during evaluation
+METRIC_REGISTRY: List[Metric] = [
+    RewardMetric(),
+    TimeMetric(),
+    PercentBurnedMetric(),
+    # DiedMetric(),
+    # ReachedGoalMetric(),
+    SuccessMetric(),
+]
 
 class TensorboardLogger:
     """
@@ -97,19 +108,21 @@ class TensorboardLogger:
             self.objectives.append(1 if objective_reached else 0)
             self.episode_ended = True
 
-    def add_metric(self, tag, value, hist=False):
-        """Add a metric for logging.
+    def add_metric(self, tag, value=None, hist=False):
+        """Add metric(s) for logging.
 
-        Parameters
-        ----------
-        tag : str
-            Name of the metric.
-        value : Any
-            Value to log.
-        hist : bool, optional
-            If True, store the value for histogram logging. If False, the value
-            will only be tracked as a scalar metric. Defaults to False.
+        ``tag`` can either be the name of a single metric or a dictionary of
+        metric name/value pairs. This allows evaluation code to simply pass a
+        dictionary generated from the metric registry.
         """
+        if isinstance(tag, dict):
+            for t, v in tag.items():
+                self.add_metric("Evaluation/"+t, v, hist=hist)
+            return
+
+        if value is None:
+            return
+
         if hist:
             self.histograms[tag].append(value)
         self.metrics[tag].append(value)
@@ -191,7 +204,7 @@ class Evaluator:
     """
 
     def __init__(self, log_dir: str, auto_train_dict: dict, sim_bridge: SimulationBridge, logger: Union[None, TensorboardLogger] = None):
-        self.stats = [EvaluationStats()]
+        # self.stats = [EvaluationStats()]
         # Python logger for evaluation messages
         self.logger = logging.getLogger("Evaluator")
         # Optional TensorBoard style logger for metrics
@@ -200,10 +213,12 @@ class Evaluator:
         self.sim_bridge = sim_bridge
         self.eval_steps = 0
         self.use_auto_train = auto_train_dict["use_auto_train"]
-        self.max_train = auto_train_dict["max_train"] # Maximum number of training steps before switching to evaluation
-        self.max_eval = auto_train_dict["max_eval"] # Maximum number of evaluation steps
-        self.train_episodes = auto_train_dict["train_episodes"] # Number of training episodes to run before stopping Auto Training
+        self.max_train = auto_train_dict["max_train"]  # Maximum number of training steps before switching to evaluation
+        self.max_eval = auto_train_dict["max_eval"]  # Maximum number of evaluation steps
+        self.train_episodes = auto_train_dict["train_episodes"]  # Number of training episodes to run before stopping Auto Training
         self.current_episode = 0  # Current episode number
+        # History of per-episode metric values
+        self.history: List[Dict[str, float]] = []
 
     def on_update(self):
         if self.sim_bridge.get("train_step") >= self.max_train and self.use_auto_train:
@@ -217,7 +232,9 @@ class Evaluator:
         """
         self.eval_steps = 0
         self.current_episode = 0
-        self.stats = [EvaluationStats()]  # Reset the stats for the new evaluation
+        self.history = []
+        for metric in METRIC_REGISTRY:
+            metric.reset()
 
         if self.use_auto_train:
             train_episode = self.sim_bridge.get("train_episode")
@@ -226,145 +243,169 @@ class Evaluator:
                 self.sim_bridge.set("agent_online", False)
                 self.logger.info("Training finished, after {} training episodes".format(train_episode))
                 self.logger.info("Agent is now offline. Auto Training is finished")
-                return
+                return True
             else:
                 self.logger.info("Resume with next training step {}/{}".format(train_episode + 1, self.train_episodes))
                 self.sim_bridge.set("train_step", 0)
+        return False
 
     def save_to_csv(self, path):
         """Save collected evaluation statistics to a CSV file."""
-        field_names = [f.name for f in fields(EvaluationStats)] # type: ignore[arg-type]
+        field_names = [m.name for m in METRIC_REGISTRY]
         with open(path, "w", newline="") as csvfile:
             writer = csv.DictWriter(csvfile, fieldnames=field_names) # type: ignore[arg-type]
             writer.writeheader()
-            for stat in self.stats:
-                writer.writerow({name: getattr(stat, name) for name in field_names})
+            for stat in self.history:
+                writer.writerow({name: stat.get(name, 0.0) for name in field_names})
 
 
-    def evaluate(self, rewards, terminals, terminal_result, percent_burned):
-        metrics = self.update_evaluation_metrics(rewards, terminals, terminal_result, percent_burned)
+    def evaluate(self, rewards, terminal_result, percent_burned):
+        metrics = self.update_evaluation_metrics(rewards, terminal_result, percent_burned)
         flag_dict = {"auto_train": self.use_auto_train, "reset": False}
 
         if metrics.get("episode_over"):
             self.eval_steps += 1
             if self.eval_steps >= self.max_eval:
-                avg_reward = np.mean([s.reward for s in self.stats])
-                self.logger.info(
-                    "Evaluation finished, after {} evaluation steps with average reward: {}".format(self.eval_steps,
-                                                                                                    avg_reward))
-                csv_path = os.path.join(self.log_dir, "evaluation_stats.csv")
-                self.save_to_csv(csv_path)
-                self.reset()
+                avg_reward = float(np.mean([s["Reward"] for s in self.history])) if self.history else 0.0
+                self.logger.info(f"Evaluation finished, after {self.eval_steps} evaluation "
+                                 f"steps with average reward: {avg_reward}")
+                self.save_to_csv(os.path.join(self.log_dir, "evaluation_stats.csv"))
+                if self.reset():
+                    flag_dict.__setitem__("auto_train_not_finished", False)
                 self.sim_bridge.set("agent_is_running", False)
                 flag_dict.__setitem__("reset", True)
 
         return flag_dict
 
-    def update_evaluation_metrics(self, rewards, terminals, terminal_result, percent_burned):
-        stats = self.stats[self.current_episode]
-        stats.reward += float(rewards[0])
-        stats.time += 1
-
-        metrics = {
-            "episode": self.current_episode + 1,
-            "reward": float(stats.reward),
-            "time": stats.time,
-            "perc_burned": float(stats.perc_burned),
-            "died": stats.died,
-            "reached": stats.reached_goal,
-            "episode_over": False,
+    def update_evaluation_metrics(self, rewards, terminal_result, percent_burned):
+        step_stats = {
+            "rewards": rewards,
+            "terminal_result": terminal_result,
+            "percent_burned": percent_burned,
         }
 
-        if terminal_result['EnvReset']:
-            if terminal_result['OneAgentDied']:
-                stats.died += 1
-            else:
-                stats.reached_goal += 1
+        metrics: Dict[str, Any] = {"episode": self.current_episode + 1, "episode_over": False}
+        for metric in METRIC_REGISTRY:
+            metric.update(step_stats)
+            metrics[metric.name] = metric.value
 
-            stats.perc_burned = float(percent_burned)
-            completed_stats = self.stats
-            avg_time = float(np.mean([s.time for s in completed_stats]))
-            avg_perc_burned = float(np.mean([s.perc_burned for s in completed_stats]))
-            avg_reward = float(np.mean([s.reward for s in completed_stats]))
-            total_died = int(sum(s.died for s in completed_stats))
-            total_reached = int(sum(s.reached_goal for s in completed_stats))
-            success_rate = (
-                total_reached / (total_died + total_reached)
-                if (total_died + total_reached) > 0
-                else 0.0
-            )
-            metrics.update({
-                "perc_burned": stats.perc_burned,
-                "died": stats.died,
-                "reached": stats.reached_goal,
-                "avg_time": avg_time,
-                "avg_perc_burned": avg_perc_burned,
-                "avg_reward": avg_reward,
-                "total_died": total_died,
-                "total_reached": total_reached,
-                "success_rate": float(success_rate),
-            })
+        if terminal_result['EnvReset']:
+            # Store final metrics for this episode
+            episode_metrics = {m.name: m.value for m in METRIC_REGISTRY}
+            self.history.append(episode_metrics)
+
+            # Compute aggregated metrics
+            for metric in METRIC_REGISTRY:
+                metrics.update(metric.compute(self.history))
+                metric.reset()
+
             metrics["episode_over"] = True
 
-            self.clean_print(completed_stats, summary =(self.eval_steps >= self.max_eval - 1))
+            self.clean_print(self.history, last_episode=(self.eval_steps >= self.max_eval - 1))
 
             self.current_episode += 1
-            self.stats.append(EvaluationStats())
 
             # Log metrics via the optional TensorBoard logger
             if self.tb_logger is not None:
-                total = metrics["total_died"] + metrics["total_reached"]
-                success_rate = metrics["total_reached"] / total if total > 0 else 0.0
-
-                self.tb_logger.add_metric("Evaluation/Reward", metrics["reward"])
-                self.tb_logger.add_metric("Evaluation/Success_Rate", success_rate)
-                self.tb_logger.add_metric("Evaluation/Percent_Burned", metrics["perc_burned"])
-                self.tb_logger.add_metric("Evaluation/Average_Reward", metrics["avg_reward"])
-                self.tb_logger.add_metric("Evaluation/Average_Percent_Burned", metrics["avg_perc_burned"])
-                self.tb_logger.add_metric("Evaluation/Average_Time", metrics["avg_time"])
+                tb_metrics = {k: v for k, v in metrics.items() if k not in ("episode", "episode_over")}
+                self.tb_logger.add_metric(tb_metrics)
                 # Flush metrics to disk after each evaluation episode
                 self.tb_logger.summarize()
 
-            # self.logger.info(json.dumps(metrics))
-
         return metrics
 
-    def clean_print(self, completed_stats, summary:bool = False):
-        headers = ["Episode", "Reward", "Time", "Perc Burn", "Died", "Reached", "Success Rate"]
+    def clean_print(self, history, last_episode:bool = False):
+        headers = ["Episode", "Reward", "Time", "% Burn", "Success Rate"]
 
-        if not summary: completed_stats = [completed_stats[self.current_episode]]
+        local_history_ = [history[self.current_episode]] if not last_episode else history
 
         rows = [
             [
-                idx + 1 if summary else self.current_episode,
-                f"{s.reward:.2f}",
-                s.time,
-                f"{s.perc_burned:.2f}",
-                s.died,
-                s.reached_goal,
+                idx + 1 if last_episode else (self.current_episode + 1),
+                f"{s['Reward']:.2f}",
+                int(s['Time']),
+                f"{s['Percent_Burned']:.2f}",
+                "100.0%" if s['Success'] else "0.0%",
+            ]
+            for idx, s in enumerate(local_history_)
+        ]
+
+        tabular_data = rows
+
+        if last_episode:
+            # ---- summary over the entire history ----
+            rewards_metrics = Metric.summary_stats([s["Reward"] for s in history])
+            time_metrics = Metric.summary_stats([s["Time"] for s in history])
+            burn_metrics = Metric.summary_stats([s["Percent_Burned"] for s in history])
+            success_rate = np.mean([s["Success"] for s in history]) if history else 0.0
+
+            mean_footer = [
+                f"Summary (N={len(history)})",
+                self._fmt_mean(rewards_metrics, int_like=False),
+                self._fmt_mean(time_metrics, int_like=True),  # steps look better as ints
+                self._fmt_mean(burn_metrics, int_like=False),
+                f"{success_rate:.2%}",
+            ]
+            median_footer = [
+                "",
+                self._fmt_median(rewards_metrics, int_like=False),
+                self._fmt_median(time_metrics, int_like=True),  # steps look better as ints
+                self._fmt_median(burn_metrics, int_like=False),
                 "",
             ]
-            for idx, s in enumerate(completed_stats)
-        ]
-        avg_time = float(np.mean([s.time for s in completed_stats]))
-        avg_perc_burned = float(np.mean([s.perc_burned for s in completed_stats]))
-        avg_reward = float(np.mean([s.reward for s in completed_stats]))
-        total_died = int(sum(s.died for s in completed_stats))
-        total_reached = int(sum(s.reached_goal for s in completed_stats))
-        success_rate = (
-            total_reached / (total_died + total_reached)
-            if (total_died + total_reached) > 0
-            else 0.0
-        )
-        footer = [
-            f"Averages",
-            f"{avg_reward:.2f}",
-            f"{avg_time:.2f}",
-            f"{avg_perc_burned:.2f}",
-            total_died,
-            total_reached,
-            f"{success_rate:.2%}",
-        ]
-        table = tabulate(rows + [footer], headers=headers, tablefmt="github")
+            ci_footer = [
+                "",
+                self._fmt_ci(rewards_metrics, int_like=False),
+                self._fmt_ci(time_metrics, int_like=True),  # steps look better as ints
+                self._fmt_ci(burn_metrics, int_like=False),
+                "",
+            ]
+
+            tabular_data += [mean_footer] + [median_footer] + [ci_footer]
+
+        table = tabulate(tabular_data=tabular_data,
+                         headers=headers,
+                         tablefmt="rounded_grid")
+
         self.logger.info("\n%s", table)
 
+    @staticmethod
+    def _summary_stats(vals, ci=0.95):
+        vals = np.asarray(vals, dtype=float)
+        n = len(vals)
+        mean = float(np.mean(vals))
+        median = float(np.median(vals))
+        std = float(np.std(vals, ddof=1)) if n > 1 else 0.0
+        sem = stats.sem(vals) if n > 1 else 0.0
+        if n > 1:
+            lo, hi = stats.t.interval(ci, n - 1, loc=mean, scale=sem)
+        else:
+            lo = hi = mean
+        return mean, std, median, lo, hi
+
+    @staticmethod
+    def _fmt_mean(metric_stats, int_like=False):
+        """Format the mean value of a metric."""
+        mean, std, _, _, _ = metric_stats
+        if int_like:
+            return f"μ{mean:.0f}±{std:.0f}"
+        else:
+            return f"μ{mean:.2f}±{std:.2f}"
+
+    @staticmethod
+    def _fmt_median(metric_stats, int_like=False):
+        """Format the median value of a metric."""
+        _, _, median, _, _ = metric_stats
+        if int_like:
+            return f"mdn: {median:.0f}"
+        else:
+            return f"mdn: {median:.2f}"
+
+    @staticmethod
+    def _fmt_ci(metric_stats, int_like=False):
+        """Format the confidence interval of a metric."""
+        _, _, _, lo, hi = metric_stats
+        if int_like:
+            return f"CI[{lo:.0f}, {hi:.0f}]"
+        else:
+            return f"CI[{lo:.2f}, {hi:.2f}]"

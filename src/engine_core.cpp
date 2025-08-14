@@ -3,7 +3,6 @@
 //
 
 #include "engine_core.h"
-
 #include <utility>
 
 bool EngineCore::Init(int mode, const std::string& config_path){
@@ -326,6 +325,26 @@ bool EngineCore::ImGuiInit() {
     }
     io_->ConfigFlags |= ImGuiConfigFlags_NavEnableKeyboard;     // Enable Keyboard Controls
     io_->ConfigFlags |= ImGuiConfigFlags_NavEnableGamepad;      // Enable Gamepad Controls
+
+    // Change Font
+    try {
+        auto project_path = get_project_path("root_path", {});
+        auto path_to_font = project_path / "assets" / "DejaVuSansMono.ttf";
+        static const ImWchar ranges_mono[] = {
+                0x0020, 0x00FF,   // Basic Latin + Latin-1
+                0x2500, 0x257F,  // Box Drawing
+                0x2580, 0x259F,  // Block Elements
+                0x0370, 0x03FF,   // Greek (includes μ)
+                0
+        };
+        ImFont* font = io_->Fonts->AddFontFromFileTTF(path_to_font.c_str(), 13.0f, nullptr, ranges_mono);
+        if (font == nullptr) {
+            SDL_Log("Failed to load font from path: %s", path_to_font.c_str());
+        }
+        io_->Fonts->Build();
+    } catch (const std::exception& e) {
+        SDL_Log("Exception while trying to change the font: %s", e.what());
+    }
 
     // Setup Dear ImGui style
     ImGui::StyleColorsDark();

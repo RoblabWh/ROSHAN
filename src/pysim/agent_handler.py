@@ -95,12 +95,16 @@ class AgentHandler:
             if not is_loading and not os.path.exists(model_path):
                 os.makedirs(model_path)
 
+        self.root_model_path = model_path
+
         # Only create a FileHandler if this is not a sub agent
         # TODO different logger files for training and evaluation? probly not needed
         if not self.is_sub_agent:
             logging_dir = os.path.join(model_path.__str__(), "logs")
+            if not os.path.exists(logging_dir):
+                os.makedirs(logging_dir, exist_ok=True)
             logging_file = os.path.join(logging_dir, "logging.log")
-            file_handler = logging.FileHandler(logging_file)
+            file_handler = logging.FileHandler(logging_file, encoding='utf-8')
             file_handler.setLevel(logging.DEBUG)
             formatter = logging.Formatter("%(asctime)s - %(levelname)s - %(name)s - %(message)s")
             file_handler.setFormatter(formatter)
@@ -128,7 +132,7 @@ class AgentHandler:
         # Load the network architecture from the previous run if available
         if self.algorithm_name != 'no_algo':
             try:
-                network_classes = self._load_network_arch(model_path)
+                network_classes = self._load_network_arch()
             except FileNotFoundError as e:
                 self.logger.warning(f"{e}. Falling back to default network classes")
                 network_classes = self.agent_type.get_network(algorithm=self.algorithm_name)
@@ -232,7 +236,11 @@ class AgentHandler:
 
     def _save_network_arch(self, network_classes):
         # Save own Network Structure for future reference and loading
-        network_dir = os.path.join(self.algorithm.get_model_path(), "networks")
+        parent_network_dir = os.path.join(os.path.dirname(os.path.normpath(self.root_model_path)), "networks")
+        is_autotrain_path = self.root_model_path[:-1].endswith("training_")
+        use_parent_networkdir = is_autotrain_path and os.path.exists(parent_network_dir)
+        network_dir = os.path.join(str(self.root_model_path), "networks") if not use_parent_networkdir else parent_network_dir
+
         network_name = "network_" + self.agent_type.short_name + ".py"
         file_path = os.path.join(network_dir, network_name)
         if not os.path.exists(network_dir):
@@ -243,14 +251,16 @@ class AgentHandler:
             shutil.copy(src_file, network_dir)
             self.logger.info(f"Network sources archived at {network_dir}")
 
-    def _load_network_arch(self, loading_path):
+    def _load_network_arch(self):
         # network_classes = self.agent_type.get_network(algorithm=self.algorithm_name)
         # if not isinstance(network_classes, (list, tuple)):
         #     network_classes = (network_classes,)
 
         module_names = self.agent_type.get_module_names(self.algorithm_name)
-
-        network_dir_load = os.path.join(loading_path, "networks")
+        parent_network_dir = os.path.join(os.path.dirname(os.path.normpath(self.root_model_path)), "networks")
+        is_autotrain_path = self.root_model_path[:-1].endswith("training_")
+        use_parent_networkdir = is_autotrain_path and os.path.exists(parent_network_dir)
+        network_dir_load = os.path.join(str(self.root_model_path), "networks") if not use_parent_networkdir else parent_network_dir
         network_dir_std = os.path.join(get_project_paths("root_path"), "src/pysim/networks")
         network_name = "network_" + self.agent_type.short_name + ".py"
 
@@ -483,10 +493,10 @@ class AgentHandler:
 
     def eval_loop(self, engine, evaluate=False):
         actions = self.act_certain(self.current_obs)
-        obs, rewards, all_terminals, terminal_result, percent_burned = self.step_agent(engine, actions)
+        obs, rewards, _, terminal_result, percent_burned = self.step_agent(engine, actions)
         self.current_obs = obs
         if evaluate:
-            flags = self.evaluator.evaluate(rewards, all_terminals, terminal_result, percent_burned)
+            flags = self.evaluator.evaluate(rewards, terminal_result, percent_burned)
             self.check_reset(flags)
         return terminal_result["AllAgentsSucceeded"], terminal_result["EnvReset"] # True if all agents reached their goal can do "OneAgentSucceeded"
 
@@ -496,8 +506,9 @@ class AgentHandler:
         :param flags: Dictionary containing evaluation flags.
         """
         if flags.get("reset", False):
-            if flags.get("auto_train", False):
+            if flags.get("auto_train", False) and flags.get("auto_train_not_finished", True):
                 self.sim_bridge.set("rl_mode", "train")
+                self.sim_bridge.set("agent_is_running", True)
                 self.algorithm.reset()
 
                 # Reset the Logger (Only in Auto Training Case, otherwise some values might need a reset)

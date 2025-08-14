@@ -39,6 +39,9 @@ def assert_config(config):
     # Assert that resume is off when auto_train is on
     if config["settings"]["auto_train"]["use_auto_train"]:
         assert not config["settings"]["resume"], "resume cannot be True when auto_train is enabled in config.yaml."
+        assert not config["settings"]["rl_mode"] == "eval", ("rl_mode cannot be 'eval' when auto_train is enabled in config.yaml.\n"
+                                                             "While this configuration WOULD work, it is not intended to be used in this way, since it would automatically "
+                                                             "resume training from the last checkpoint, which is not what you want when evaluating a model.")
 
 def main(config_path_ : str = ""):
 
