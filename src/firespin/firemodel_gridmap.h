@@ -99,6 +99,9 @@ public:
         return *cells_[x][y];
     }
 
+    bool IsExplored(int x, int y) const {
+        return explored_map_[x][y] > 0;
+    };
 
     std::vector<std::pair<int, int>> GetMooreNeighborhood(int x, int y) const;
     int UpdateExploredAreaFromDrone(std::pair<int, int> drone_position, int drone_view_radius);
@@ -176,7 +179,7 @@ private:
 
     int GetNumUnburnableCells() const;
 
-    int UpdateExplorationMap(int i, int j);
+//    int UpdateExplorationMap(int i, int j);
 
 };
 

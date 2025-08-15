@@ -185,7 +185,9 @@ std::deque<std::pair<double, double>> FlyAgent::GetCameraTrail(FireModelCamera& 
 }
 
 void FlyAgent::Render(FireModelCamera& camera) {
-
+    if (!should_render_){
+        return;
+    }
     auto size = static_cast<int>(camera.GetCellSize());
     std::pair<double, double> agent_position = this->GetGridPositionDouble();
     std::pair<int, int> screen_position = camera.GridToScreenPosition(agent_position.first -0.5,
@@ -198,7 +200,6 @@ void FlyAgent::Render(FireModelCamera& camera) {
         goal_texture_renderer_.RenderGoal(goal_screen_position, size);
     }
     drone_texture_renderer_.Render(screen_position, size, view_range_, 0, active_, fast_drone);
-
 }
 
 std::pair<double, double> FlyAgent::GetNewVelocity(double next_speed_x, double next_speed_y) const {

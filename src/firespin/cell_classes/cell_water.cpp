@@ -5,5 +5,5 @@
 #include "cell_water.h"
 
 // Initialize static members
-int CellWater::default_noise_level_ = 60;
-int CellWater::default_noise_size_ = 3;
+int CellWater::default_noise_level_ = 50;
+int CellWater::default_noise_size_ = 5;

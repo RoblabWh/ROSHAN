@@ -124,6 +124,8 @@ private:
     void DrawEpisodeEnd(bool success);
 
     void LoadSimpleTextures();
+
+    void InitStaticCellTextures();
 };
 
 

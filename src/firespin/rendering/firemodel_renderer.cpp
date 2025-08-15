@@ -91,7 +91,8 @@ void FireModelRenderer::Render(const std::shared_ptr<std::vector<std::shared_ptr
         }
         DrawCells();
         DrawGroundstation(gridmap_->GetGroundstation());
-        DrawParticles();
+        if (parameters_.render_particles_)
+            DrawParticles();
         DrawDrones(drones);
         FlashScreen();
     }
@@ -180,7 +181,7 @@ void FireModelRenderer::DrawChangesCells() {
     gridmap_->ResetChangedCells();
 }
 
-Uint32 ModifyColorWithGradient(Uint32 base_color, int x, int y) {
+std::pair<Uint32, int> ModifyColorWithGradient(Uint32 base_color, int x, int y, Uint32 time) {
     Uint8 r = (base_color >> 24) & 0xFF;
     Uint8 g = (base_color >> 16) & 0xFF;
     Uint8 b = (base_color >> 8) & 0xFF;
@@ -191,15 +192,20 @@ Uint32 ModifyColorWithGradient(Uint32 base_color, int x, int y) {
     b = std::min(255, b + ((x + y) % 32));
 
     // Introduce a subtle flicker based on the elapsed time to animate burning cells.
-    double time = SDL_GetTicks() / 1000.0; // Convert milliseconds to seconds
-    double flicker = (std::sin(time * 5.0 + x + y) + 1.0) * 0.9; // 0..1 range
+    double burn_time = SDL_GetTicks() / 1000.0; // Convert milliseconds to seconds
+    double flicker = (std::sin(burn_time * 5.0 + x + y) + 1.0) * 0.9; // 0..1 range
     auto offset = static_cast<Uint8>(flicker * 64); // Scale to a small color offset
 
     r = std::min(255, static_cast<int>(r) + offset);
     g = std::min(255, static_cast<int>(g) + offset);
     b = std::min(255, static_cast<int>(b) + offset);
 
-    return (r << 24) | (g << 16) | (b << 8) | a;
+    int phase_offset = 0;
+    if (time > 0) {
+        phase_offset = static_cast<int>((time / 50));
+    }
+
+    return { (r << 24) | (g << 16) | (b << 8) | a, phase_offset };
 }
 
 SDL_Rect FireModelRenderer::DrawCell(int x, int y) {
@@ -210,27 +216,73 @@ SDL_Rect FireModelRenderer::DrawCell(int x, int y) {
             static_cast<int>(camera_.GetCellSize()),
             static_cast<int>(camera_.GetCellSize())
     };
-    Uint32 base_color = gridmap_->At(x, y).GetMappedColor();
-    if(parameters_.lingering_){
-        if (gridmap_->At(x, y).WasFlooded())
-            base_color = (255 << 24) | (77 << 16) | (187 << 8) | 230;
-    }
+
+    auto color_for = [&](int gx, int gy) {
+        Uint32 color = gridmap_->At(gx, gy).GetMappedColor();
+        if (parameters_.lingering_ && gridmap_->At(gx, gy).WasFlooded())
+            color = (255 << 24) | (77 << 16) | (187 << 8) | 230;
+        CellState st = gridmap_->At(gx, gy).GetCellState();
+        int phase_offset = 0;
+        if (st == CellState::GENERIC_BURNING) {
+            auto res = ModifyColorWithGradient(color, gx, gy, 0);
+            color = res.first;
+            phase_offset = res.second;
+        }
+        //TODO - Make this a parameter AND unobscure explored cells logic in gridmap wtf is that
+        // Fog of War Type Effect for unexplored Cels
+//        if (!gridmap_->IsExplored(x, y)) {
+//            Uint8 r, g, b, a;
+//            SDL_GetRGBA(color, pixel_format_, &r, &g, &b, &a);
+//            r = static_cast<Uint8>(r * 0.5);
+//            g = static_cast<Uint8>(g * 0.5);
+//            b = static_cast<Uint8>(b * 0.5);
+//            a = static_cast<Uint8>(a * 0.5);
+//            color = SDL_MapRGBA(pixel_format_, r, g, b, a);
+//        }
+        return std::pair<Uint32, int>(color, phase_offset);
+    };
+    auto base = color_for(x, y);
+    auto base_color = base.first;
+    auto phase_offset = base.second;
+
     int grid_offset = !parameters_.render_grid_ ? 0 : (camera_.GetCellSize() >= 3.0 ? -1 : 0);
-    if (gridmap_->At(x,y).HasNoise() && gridmap_->HasNoiseGenerated() && parameters_.has_noise_ && !this->needs_init_cell_noise_) {
+    bool has_noise = gridmap_->At(x, y).HasNoise() && gridmap_->HasNoiseGenerated() && parameters_.has_noise_ && !this->needs_init_cell_noise_;
+
+    if (has_noise) {
         std::vector<std::vector<int>>& noise_map = gridmap_->At(x, y).GetNoiseMap();
         if (!noise_map.empty()){
-            std::vector<std::vector<int>> scaled_noise_map = ScaleNoiseMap(noise_map, camera_.GetCellSize());
-            CellState state = gridmap_->At(x, y).GetCellState();
-            Uint32 gradient = base_color;
-            if (state == CellState::GENERIC_BURNING || state == CellState::WATER)
-                gradient = ModifyColorWithGradient(base_color, x, y);
-            pixel_buffer_->Draw(cell_rect, gradient, scaled_noise_map, grid_offset);
+            std::vector<std::vector<int>> scaled_noise_map = ScaleNoiseMap(noise_map, static_cast<int>(camera_.GetCellSize()));
+            pixel_buffer_->Draw(cell_rect, base_color, scaled_noise_map, grid_offset, phase_offset);
         } else {
             this->needs_full_redraw_ = true;
         }
     }
     else {
         pixel_buffer_->Draw(cell_rect, base_color, grid_offset);
+    }
+
+    if (parameters_.render_terrain_transition) {
+        auto this_cell_state = gridmap_->At(x, y).GetCellState();
+        if (gridmap_->IsPointInGrid(x, y - 1) && gridmap_->At(x, y - 1).GetCellState() < this_cell_state){
+            auto left_color = color_for(x, y - 1).first;
+            if (left_color != base_color)
+                pixel_buffer_->DrawBlendedEdge(cell_rect, base_color, left_color, Edge::Left);
+        }
+        if (gridmap_->IsPointInGrid(x, y + 1) && gridmap_->At(x, y + 1).GetCellState() < this_cell_state) {
+            auto right_color = color_for(x, y + 1).first;
+            if (right_color != base_color)
+                pixel_buffer_->DrawBlendedEdge(cell_rect, base_color, right_color, Edge::Right);
+        }
+        if (gridmap_->IsPointInGrid(x - 1, y) && gridmap_->At(x - 1, y).GetCellState() < this_cell_state) {
+            auto top_color = color_for(x - 1, y).first;
+            if (top_color != base_color)
+                pixel_buffer_->DrawBlendedEdge(cell_rect, base_color, top_color, Edge::Top);
+        }
+        if (gridmap_->IsPointInGrid(x + 1, y) && gridmap_->At(x + 1, y).GetCellState() < this_cell_state) {
+            auto bottom_color = color_for(x + 1, y).first;
+            if (bottom_color != base_color)
+                pixel_buffer_->DrawBlendedEdge(cell_rect, base_color, bottom_color, Edge::Bottom);
+        }
     }
 
     return cell_rect;
@@ -244,15 +296,16 @@ void FireModelRenderer::DrawCircle(int x, int y, int min_radius, double intensit
     switch (palette_) {
         case Palette::Fire: {
             Uint8 r, g, b;
+            double rel_intense = intensity;
             if (intensity <= 0.3) {
                 // Dark red to light red gradient based on intensity (0 -> dark red, 1 -> light red)
-                auto rel_intense = (intensity / 0.3);
+                rel_intense = (intensity / 0.3);
                 r = 128 + static_cast<Uint8>(127  * rel_intense);
                 g = static_cast<Uint8>(100.0 * rel_intense);
                 b = 0;
-            } else if (intensity <= 0.7) {
+            } else if (intensity <= 1 /**0.7**/) {
                 // Light red to yellow gradient based on intensity (0.3 -> light red, 0.6 -> yellow)
-                auto rel_intense = (intensity / 0.7);
+                rel_intense = (intensity / 0.7);
                 r = 255;
                 g = 128 + static_cast<Uint8>(127 * rel_intense);
                 b = 0;
@@ -262,7 +315,7 @@ void FireModelRenderer::DrawCircle(int x, int y, int min_radius, double intensit
                 g = 255;
                 b = static_cast<Uint8>(128 * intensity);
             }
-            color = SDL_Color{r, g, b, static_cast<Uint8>(255.0 * (0.6 + 0.4 * intensity))};
+            color = SDL_Color{r, g, b, static_cast<Uint8>(255.0 * (0.6 + 0.4 * rel_intense))};
             break;
         }
         case Palette::Trail: {
@@ -325,14 +378,14 @@ void FireModelRenderer::DrawParticles() {
 }
 
 void FireModelRenderer::DrawEpisodeEnd(bool success) {
-    auto width = width_ - 300;
-    auto height = 0 + 100;
+    auto width = width_ - 100;
+    auto height = 20;
 
     if (success) {
-        SDL_Rect destRect = {width, height, 200, 200}; // x, y, width and height of the arrow
+        SDL_Rect destRect = {width, height, 100, 100}; // x, y, width and height of the arrow
         SDL_RenderCopyEx(renderer_, episode_succeeded_texture_, nullptr, &destRect, 0, nullptr, SDL_FLIP_NONE);
     } else {
-        SDL_Rect destRect = {width, height, 200, 200}; // x, y, width and height of the arrow
+        SDL_Rect destRect = {width, height, 100, 100}; // x, y, width and height of the arrow
         SDL_RenderCopyEx(renderer_, episode_failed_texture_, nullptr, &destRect, 0, nullptr, SDL_FLIP_NONE);
     }
 }
@@ -394,10 +447,6 @@ void FireModelRenderer::DrawTrail(const std::deque<std::pair<double, double>>& t
             const int ys = static_cast<int>(y1 + dy * t);
             DrawCircle(xs, ys, base_thickness, intensity);
         }
-
-        // Optional , extra smoot
-//        DrawCircle(x1, y1, base_thickness, intensity);
-//        DrawCircle(x2, y2, base_thickness, intensity);
     }
 
     this->SetPalette(Palette::Fire);

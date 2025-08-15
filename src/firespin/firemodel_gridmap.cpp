@@ -153,6 +153,10 @@ void GridMap::UpdateCells() {
             ++it;
         }
         changed_cells_.emplace_back(x, y);
+        auto neighbors = GetMooreNeighborhood(x, y);
+        for (const auto& neighbor : neighbors) {
+            changed_cells_.emplace_back(neighbor.first, neighbor.second);
+        }
     }
     // Iterate over ticking cells and ignite them if their ignition time has come
     for (auto it = ticking_cells_.begin(); it != ticking_cells_.end(); ) {
@@ -193,6 +197,10 @@ void GridMap::UpdateCells() {
             num_burned_cells_++;
             it = burning_cells_.erase(it);
             changed_cells_.emplace_back(x, y);
+            auto neighbors = GetMooreNeighborhood(x, y);
+            for (const auto& neighbor : neighbors) {
+                changed_cells_.emplace_back(neighbor.first, neighbor.second);
+            }
         } else {
             ++it;
         }
@@ -207,6 +215,10 @@ bool GridMap::WaterDispension(int x, int y) {
         burning_cells_.erase(Point(x, y));
         EraseParticles(x, y);
         changed_cells_.emplace_back(x, y);
+        auto neighbors = GetMooreNeighborhood(x, y);
+        for (const auto& neighbor : neighbors) {
+            changed_cells_.emplace_back(neighbor.first, neighbor.second);
+        }
         
         flooded_cells_.insert(Point(x, y));
         cells_[x][y]->Flood();
@@ -221,6 +233,10 @@ bool GridMap::WaterDispension(int x, int y) {
         cells_[x][y]->Flood();
         EraseParticles(x, y);
         changed_cells_.emplace_back(x, y);
+        auto neighbors = GetMooreNeighborhood(x, y);
+        for (const auto& neighbor : neighbors) {
+            changed_cells_.emplace_back(neighbor.first, neighbor.second);
+        }
         // There was no fire in the cell so flood the cell and return false
         return false;
     }
@@ -258,6 +274,10 @@ void GridMap::ExtinguishCell(int x, int y) {
     EraseParticles(x, y);
 
     changed_cells_.emplace_back(x, y);
+    auto neighbors = GetMooreNeighborhood(x, y);
+    for (const auto& neighbor : neighbors) {
+        changed_cells_.emplace_back(neighbor.first, neighbor.second);
+    }
 }
 
 std::shared_ptr<const std::vector<std::vector<std::vector<int>>>> GridMap::GetDroneView(std::pair<int, int> drone_position, int drone_view_radius) {
@@ -288,14 +308,14 @@ std::shared_ptr<const std::vector<std::vector<std::vector<int>>>> GridMap::GetDr
     return std::make_shared<const std::vector<std::vector<std::vector<int>>>>(view);
 }
 
-int GridMap::UpdateExplorationMap(int x, int y) {
-//    int difference = parameters_.GetExplorationTime() - explored_map_[x][y];
-//    explored_map_[x][y] = parameters_.GetExplorationTime();
-    // If this part of the map was previously not seen by the drone, return 1
-    auto newly_visited = explored_map_[x][y] > 0 ? 0 : 1;
-    explored_map_[x][y] = 1; //parameters_.GetExplorationTime();
-    return newly_visited;
-}
+//int GridMap::UpdateExplorationMap(int x, int y) {
+////    int difference = parameters_.GetExplorationTime() - explored_map_[x][y];
+////    explored_map_[x][y] = parameters_.GetExplorationTime();
+//    // If this part of the map was previously not seen by the drone, return 1
+//    auto newly_visited = explored_map_[x][y] > 0 ? 0 : 1;
+//    explored_map_[x][y] = 1; //parameters_.GetExplorationTime();
+//    return newly_visited;
+//}
 
 [[maybe_unused]] void GridMap::UpdateCellDiminishing() {
     for (int x = 0; x < rows_; ++x) {

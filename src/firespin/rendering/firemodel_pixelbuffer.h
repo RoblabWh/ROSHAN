@@ -10,13 +10,16 @@
 #include <algorithm>
 #include "imgui.h"
 
+enum class Edge { Left, Right, Top, Bottom };
+
 class PixelBuffer {
 public:
     PixelBuffer(int width, int height, SDL_Color background_color, SDL_PixelFormat* format);
     ~PixelBuffer() = default;
 
     void Draw(SDL_Rect rect, Uint32 base_color, int grid_offset = 0);
-    void Draw(SDL_Rect rect, Uint32 base_color, const std::vector<std::vector<int>>& noise_map, int grid_offset = 0);
+    void Draw(SDL_Rect rect, Uint32 base_color, const std::vector<std::vector<int>>& noise_map, int grid_offset = 0, int phase_offset = 0);
+    void DrawBlendedEdge(const SDL_Rect& rect, Uint32 base_color, Uint32 neighbor_color, Edge edge);
     void Reset();
     void Resize(int width, int height);
     [[nodiscard]] int GetPitch() const { return static_cast<int>(width_ * sizeof(Uint32)); }

@@ -304,6 +304,8 @@ class AgentHandler:
         """
         # Return back a log_dict, this later needs to be used for logging when we know the log_path
         log_dict = {"msg": None, "level": 0}
+        if self.algorithm_name == 'no_algo':
+            return "no_algo.pt", log_dict
         found_model = False
         if model_string and model_string.endswith(".pt"):
             # If the model name is a valid .pt file, check if it exists

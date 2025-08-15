@@ -59,6 +59,11 @@ public:
     void SetGoalTextureRenderer(SDL_Renderer* renderer) { goal_texture_renderer_ = TextureRenderer(renderer, "../assets/goal.png"); }
     //void Render(std::pair<int, int> position, std::pair<int, int> goal_position_screen, int size);
     void Render(FireModelCamera& camera);
+    void SetRender(bool should_render) {
+        if (should_render_ && !should_render) {
+            trail_.clear(); // Clear the trail when rendering is disabled
+        }
+        should_render_ = should_render; }
     void SetActive(bool active) { active_ = active; }
     void SetTrailLength(int length) { trail_length_ = length; }
     void AppendTrail(std::pair<int, int> position);
@@ -157,6 +162,7 @@ private:
 
     // Currently just for Debugging
     int last_step_total_revisited_cells_of_all_agents_{};
+    bool should_render_ = true; // If false, the agent will not render anything
     std::string agent_type_;
 };
 

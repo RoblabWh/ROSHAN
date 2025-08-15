@@ -87,18 +87,38 @@ void ImguiHandler::ImGuiSimulationControls(const std::shared_ptr<GridMap>& gridm
                 ImGui::EndTabItem();
             }
             if(ImGui::BeginTabItem("Render Options")) {
-                if(ImGui::Checkbox("Render Grid", &parameters_.render_grid_)){
-                    model_renderer->SetFullRedraw();
-                }
-                if(ImGui::Checkbox("Render Noise", &parameters_.has_noise_)){
-                    model_renderer->SetInitCellNoise();
-                    model_renderer->SetFullRedraw();
-                }
-                if(ImGui::Checkbox("Lingering", &parameters_.lingering_)){
-                    model_renderer->SetFullRedraw();
-                }
-                if(ImGui::Checkbox("Episode Termination Indicator", &parameters_.episode_termination_indicator_)){
-                    model_renderer->SetFlashScreen(parameters_.episode_termination_indicator_);
+                if(ImGui::BeginTable("RenderOptionsTable", 2, ImGuiTableFlags_SizingStretchSame)) {
+                    ImGui::TableNextColumn();
+                    if(ImGui::Checkbox("Render Grid", &parameters_.render_grid_)) {
+                        model_renderer->SetFullRedraw();
+                    }
+
+                    ImGui::TableNextColumn();
+                    if(ImGui::Checkbox("Render Noise", &parameters_.has_noise_)) {
+                        model_renderer->SetInitCellNoise();
+                        model_renderer->SetFullRedraw();
+                    }
+
+                    ImGui::TableNextColumn();
+                    if(ImGui::Checkbox("Lingering", &parameters_.lingering_)) {
+                        model_renderer->SetFullRedraw();
+                    }
+                    ImGui::TableNextRow();
+                    ImGui::TableNextColumn();
+                    if(ImGui::Checkbox("Episode Termination Indicator", &parameters_.episode_termination_indicator_)) {
+                        model_renderer->SetFlashScreen(parameters_.episode_termination_indicator_);
+                    }
+
+                    ImGui::TableNextColumn();
+                    if(ImGui::Checkbox("Render Particles", &parameters_.render_particles_)) {
+                        model_renderer->SetFullRedraw();
+                    }
+
+                    ImGui::TableNextColumn();
+                    if(ImGui::Checkbox("Render Terrain Transition", &parameters_.render_terrain_transition)) {
+                        model_renderer->SetFullRedraw();
+                    }
+                    ImGui::EndTable();
                 }
                 ImGui::EndTabItem();
             }

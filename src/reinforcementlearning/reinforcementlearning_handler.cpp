@@ -237,6 +237,11 @@ void ReinforcementLearningHandler::SetRLStatus(py::dict status) {
     rl_status_ = std::move(status);
     auto rl_mode = rl_status_[py::str("rl_mode")].cast<std::string>();
     eval_mode_ = rl_mode == "eval";
+    // Find ExplorerFlyAgents and set their render mode
+    auto explore_fly_agents = CastAgents<FlyAgent>(agents_by_type_["ExploreFlyAgent"]);
+    for (const auto& agent : explore_fly_agents) {
+        agent->SetRender(eval_mode_);
+    }
     this->onUpdateRLStatus();
 }
 

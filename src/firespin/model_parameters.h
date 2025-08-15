@@ -159,6 +159,8 @@ public:
     bool render_grid_{};
     bool has_noise_{};
     bool lingering_{};
+    bool render_particles_=false;
+    bool render_terrain_transition=true;
     int noise_level_{};
     int noise_size_{};
     SDL_Color background_color_{};
