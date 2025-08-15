@@ -88,14 +88,16 @@ class PPO(RLAlgorithm):
         self.policy.train()
 
     def load(self):
-        path: str = os.path.join(self.loading_path, self.loading_name).__str__()
         try:
-            # self.policy.load_state_dict(torch.load(path, map_location=lambda storage, loc: storage))
+            path: str = os.path.join(self.loading_path, self.loading_name).__str__()
             self.policy.load_state_dict(torch.load(path, map_location=self.device))
             self.policy.to(self.device)
             return True
         except FileNotFoundError:
             self.logger.warning(f"Could not load model from {path}. Falling back to train mode.")
+            return False
+        except TypeError:
+            self.logger.warn(f"TypeError while loading model.")
             return False
 
     def select_action(self, observations):

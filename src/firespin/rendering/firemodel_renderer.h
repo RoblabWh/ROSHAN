@@ -39,6 +39,8 @@
 
 class FlyAgent;
 
+enum class Palette {Fire, Trail};
+
 class FireModelRenderer {
 public:
     FireModelRenderer(SDL_Renderer* renderer, FireModelParameters& parameters);
@@ -66,6 +68,7 @@ public:
     void SetInitCellNoise() { gridmap_->GenerateNoiseMap(); }
     void ResizeEvent();
     void DrawArrow(double angle);
+    void SetPalette(Palette p) {palette_ = p;}
 
     // Flash Screen
     void SetFlashScreen(bool flash_screen) { flash_screen_ = flash_screen; }
@@ -85,7 +88,9 @@ private:
     SDL_Texture* texture_;
     PixelBuffer* pixel_buffer_;
     SDL_PixelFormat* pixel_format_;
-    SDL_Texture* arrow_texture_;
+    SDL_Texture* arrow_texture_{};
+    SDL_Texture * episode_succeeded_texture_{};
+    SDL_Texture * episode_failed_texture_{};
 
     std::shared_ptr<GridMap> gridmap_;
     int width_{};
@@ -99,7 +104,9 @@ private:
     bool show_green_flash_ = false;
     bool show_red_flash_ = false;
     Uint32 flash_start_time_ = 0;
-    Uint32 flash_duration_ = 300;
+    Uint32 flash_duration_ = 400;
+
+    Palette palette_ = Palette::Fire;
 
     void DrawAllCells(int grid_left, int grid_right, int grid_top, int grid_bottom);
     void DrawChangesCells();
@@ -111,6 +118,12 @@ private:
     void DrawGroundstation(const std::shared_ptr<Groundstation>& groundstation);
 
     void FlashScreen();
+
+    void DrawTrail(const std::deque<std::pair<double, double>>& trail);
+
+    void DrawEpisodeEnd(bool success);
+
+    void LoadSimpleTextures();
 };
 
 

@@ -72,8 +72,8 @@ void ReinforcementLearningHandler::ResetEnvironment(Mode mode) {
             // Initialize fly_agent
             auto agent_speed = parameters_.fly_agent_speed_;
             auto view_range = parameters_.fly_agent_view_range_;
-            fly_agent->Initialize(mode, agent_speed, view_range, gridmap_, model_renderer_, rl_mode);
             fly_agent->SetAgentType("fly_agent");
+            fly_agent->Initialize(mode, agent_speed, view_range, gridmap_, model_renderer_, rl_mode);
             agents_by_type_["fly_agent"].push_back(fly_agent);
         }
     }
@@ -92,8 +92,8 @@ void ReinforcementLearningHandler::ResetEnvironment(Mode mode) {
             // Initialize fly_agent
             auto agent_speed = parameters_.explore_agent_speed_;
             auto view_range = parameters_.explore_agent_view_range_;
-            fly_agent->Initialize(mode, agent_speed, view_range, gridmap_, model_renderer_, rl_mode);
             fly_agent->SetAgentType("ExploreFlyAgent");
+            fly_agent->Initialize(mode, agent_speed, view_range, gridmap_, model_renderer_, rl_mode);
             agents_by_type_["ExploreFlyAgent"].push_back(fly_agent);
         }
         // Create explore_agent
@@ -124,8 +124,8 @@ void ReinforcementLearningHandler::ResetEnvironment(Mode mode) {
                 // Initialize FlyAgent
                 auto agent_speed = parameters_.extinguisher_speed_;
                 auto view_range = parameters_.extinguisher_view_range_;
-                fly_agent->Initialize(mode, agent_speed, view_range, gridmap_, model_renderer_, rl_mode);
                 fly_agent->SetAgentType("PlannerFlyAgent");
+                fly_agent->Initialize(mode, agent_speed, view_range, gridmap_, model_renderer_, rl_mode);
                 agents_by_type_["PlannerFlyAgent"].push_back(fly_agent);
             }
             // Create planner_agent

@@ -55,10 +55,14 @@ public:
     // TODO Tidy UP !!!
 
     //Rendering
-    void SetDroneTextureRenderer(SDL_Renderer* renderer) { drone_texture_renderer_ = TextureRenderer(renderer, "../assets/drone.png"); }
-    void SetGoalTextureRenderer(SDL_Renderer* renderer) { goal_texture_renderer_ = TextureRenderer(renderer, "../assets/Xmarksthespot.png"); }
-    void Render(std::pair<int, int> position, std::pair<int, int> goal_position_screen, int size);
+    void SetDroneTextureRenderer(SDL_Renderer* renderer, const std::string& texture_path) { drone_texture_renderer_ = TextureRenderer(renderer, texture_path.c_str()); }
+    void SetGoalTextureRenderer(SDL_Renderer* renderer) { goal_texture_renderer_ = TextureRenderer(renderer, "../assets/goal.png"); }
+    //void Render(std::pair<int, int> position, std::pair<int, int> goal_position_screen, int size);
+    void Render(FireModelCamera& camera);
     void SetActive(bool active) { active_ = active; }
+    void SetTrailLength(int length) { trail_length_ = length; }
+    void AppendTrail(std::pair<int, int> position);
+    std::deque<std::pair<double, double>> GetCameraTrail(FireModelCamera &camera);
 
     // Fly Agent functions that other Classes need in some way too
     void Step(double speed_x, double speed_y, const std::shared_ptr<GridMap>& gridmap);
@@ -130,6 +134,8 @@ private:
 
     TextureRenderer drone_texture_renderer_;
     TextureRenderer goal_texture_renderer_;
+    std::deque<std::pair<double, double>> trail_;
+    int trail_length_ = 50;
 
     // Possibly Deprecated
     bool extinguished_fire_{};

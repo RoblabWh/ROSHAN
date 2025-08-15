@@ -22,7 +22,11 @@ void FlyAgent::Initialize(int mode,
                           const std::shared_ptr<FireModelRenderer>& model_renderer,
                           const std::string& rl_mode) {
     if (mode == Mode::GUI_RL) {
-        this->SetDroneTextureRenderer(model_renderer->GetRenderer());
+        auto asset_path = "../assets/ext_drone.png";
+        if (agent_type_ != "PlannerFlyAgent") {
+            asset_path = "../assets/looker_drone.png";
+        }
+        this->SetDroneTextureRenderer(model_renderer->GetRenderer(), asset_path);
         this->SetGoalTextureRenderer(model_renderer->GetRenderer());
     }
 
@@ -162,12 +166,39 @@ double FlyAgent::CalculateReward() {
 
 //TODO TIDY UP !!!!
 
-void FlyAgent::Render(std::pair<int, int> position, std::pair<int, int> goal_position_screen, int size) {
-    auto fast_drone = this->GetAgentType() == "ExploreFlyAgent";
-    drone_texture_renderer_.Render(position, size, view_range_, 0, active_, fast_drone);
-    if (!fast_drone) {
-        goal_texture_renderer_.RenderGoal(goal_position_screen, size);
+void FlyAgent::AppendTrail(std::pair<int, int> position) {
+    trail_.push_back(std::make_pair<double, double>(position.first / parameters_.GetCellSize(), position.second / parameters_.GetCellSize()));
+    if (trail_.size() > static_cast<size_t>(trail_length_)) {
+        trail_.pop_front();
     }
+}
+
+std::deque<std::pair<double, double>> FlyAgent::GetCameraTrail(FireModelCamera& camera) {
+    std::deque<std::pair<double, double>> screen_trail;
+    if (trail_.size() > 1) {
+        for (const auto& pos : trail_) {
+            auto screen_trail_pos = camera.GridToScreenPosition(pos.first, pos.second);
+            screen_trail.emplace_back(screen_trail_pos.first, screen_trail_pos.second);
+        }
+    }
+    return screen_trail;
+}
+
+void FlyAgent::Render(FireModelCamera& camera) {
+
+    auto size = static_cast<int>(camera.GetCellSize());
+    std::pair<double, double> agent_position = this->GetGridPositionDouble();
+    std::pair<int, int> screen_position = camera.GridToScreenPosition(agent_position.first -0.5,
+                                                                       agent_position.second - 0.5);
+    std::pair<int, int> goal_screen_position = camera.GridToScreenPosition(goal_position_.first -0.5,
+                                                                           goal_position_.second - 0.5);
+
+    auto fast_drone = this->GetAgentType() == "ExploreFlyAgent";
+    if (!fast_drone) {
+        goal_texture_renderer_.RenderGoal(goal_screen_position, size);
+    }
+    drone_texture_renderer_.Render(screen_position, size, view_range_, 0, active_, fast_drone);
+
 }
 
 std::pair<double, double> FlyAgent::GetNewVelocity(double next_speed_x, double next_speed_y) const {
@@ -193,6 +224,7 @@ std::pair<double, double> FlyAgent::MovementStep(double netout_x, double netout_
     auto adjusted_vel_vector = std::make_pair(velocity_vector.first * parameters_.GetDt(), velocity_vector.second * parameters_.GetDt());
     position_.first += adjusted_vel_vector.first;
     position_.second += adjusted_vel_vector.second;
+    this->AppendTrail(std::make_pair(static_cast<int>(position_.first), static_cast<int>(position_.second)));
     return adjusted_vel_vector;
 }
 

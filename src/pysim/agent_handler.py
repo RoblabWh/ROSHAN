@@ -86,7 +86,7 @@ class AgentHandler:
                                              model_string=config["paths"]["model_name"],
                                              agent_type=agent_type,
                                              is_loading_name=is_loading)
-            model_name = model_string if not is_loading else remove_suffix(model_string)
+            model_name = model_string if not is_loading or not model_string else remove_suffix(model_string)
             loading_path = model_path if is_loading else None
             loading_name = model_string if is_loading else None
             # If this is the main agent and a fresh training, we need to create the model path

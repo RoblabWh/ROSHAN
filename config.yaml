@@ -12,8 +12,8 @@ settings:
   auto_train:
     use_auto_train: true # Whether to use auto training
     train_episodes: 5 # Number of total trainings, each containing max_train train_steps
-    max_train: 100 # Maximum number of train_steps to perform
-    max_eval: 100 # Maximum number of evaluations to perform
+    max_train: 100 # Maximum number of train_steps(NOT policy steps) to perform
+    max_eval: 100 # Maximum number of evaluations(one evaluation = one environment completed) to perform
 paths:
   # This is the root_path where your NEW trained models data is stored
   # Loading for your ROOT Model (chosen hierarchy) is ALSO done from here (Eval and Resuming Training)
@@ -34,8 +34,8 @@ algorithm:
     memory_size: 1.0e+5 # Size of the Replay Buffer
     lr: 4.0e-4 # Learning rate for the optimizer
     batch_size: 2048 # Batch size for the optimizer
-    horizon: 200 #12800 # Number of steps to collect before updating the model
-    k_epochs: 32 #8 # Number of epochs to update the model
+    horizon: 12800 # Number of steps to collect before updating the model
+    k_epochs: 14 #8 # Number of epochs to update the model
     entropy_coeff: 0.0006 # Coefficient for the entropy loss
     value_loss_coef: 0.5 # Coefficient for the value loss
     separate_optimizers: false # Whether to use separate optimizers for the policy and value networks

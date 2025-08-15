@@ -16,9 +16,10 @@ public:
     ~TextureRenderer() = default;
     void Render(std::pair<int, int> position, int size, int view_range, double angle, bool active=false, bool fast_drone=false);
     void RenderGoal(std::pair<double, double> position, int size);
+    SDL_Renderer* GetRenderer() const { return renderer_; }
 private:
     std::shared_ptr<SDL_Texture> texture_;
-    SDL_Renderer* renderer_;
+    SDL_Renderer* renderer_{};
 };
 
 
