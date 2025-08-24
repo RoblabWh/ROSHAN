@@ -86,7 +86,7 @@ class AgentHandler:
                                              model_string=config["paths"]["model_name"],
                                              agent_type=agent_type,
                                              is_loading_name=is_loading)
-            model_name = model_string if not is_loading or not model_string else remove_suffix(model_string)
+            model_name = model_string if not is_loading else remove_suffix(model_string)
             loading_path = model_path if is_loading else None
             loading_name = model_string if is_loading else None
             # If this is the main agent and a fresh training, we need to create the model path
@@ -332,6 +332,8 @@ class AgentHandler:
         if len(valid_models) == 0:
             log_dict["msg"] = f"No valid model files found in {path}. Please check the directory."
             log_dict["level"] = 40 # ERROR level
+            if is_loading_name:
+                raise FileNotFoundError(log_dict["msg"])
             return None, log_dict
 
         if model_string not in valid_strings:
@@ -470,13 +472,13 @@ class AgentHandler:
 
     def train_loop(self, engine):
         actions, action_logprobs = self.act(self.current_obs)
-        next_obs, rewards, all_terminals, terminal_result, percent_burned = self.step_agent(engine, actions)
+        next_obs, rewards, terminals_vector, terminal_result, percent_burned = self.step_agent(engine, actions)
         intrinsic_reward = None
         if self.use_intrinsic_reward:
             intrinsic_reward = self.agent_type.get_intrinsic_reward(self.current_obs)
             # The environment has not been reset so we can send the intrinsic
             # reward to the model (only for displaying purposes)
-            if not any(all_terminals):
+            if not any(terminals_vector):
                 intrinsic_reward = intrinsic_reward.detach().cpu().numpy().tolist()
                 self.sim_bridge.set("intrinsic_reward", intrinsic_reward)
                 engine.SendRLStatusToModel(self.sim_bridge.status)
@@ -486,7 +488,7 @@ class AgentHandler:
             n_obs = next_obs
         # Memory Adding
         self.add_memory_entry(self.current_obs, actions, action_logprobs,
-                              rewards, all_terminals, next_obs=n_obs, intrinsic_rewards=intrinsic_reward)
+                              rewards, terminals_vector, next_obs=n_obs, intrinsic_rewards=intrinsic_reward)
 
         # Update the Logger before checking if we should train, so that the logger has the latest information
         # to calculate the objective percentage and best reward
@@ -501,7 +503,7 @@ class AgentHandler:
             if self.algorithm.clear_memory:
                 self.memory.clear_memory()
         self.current_obs = next_obs
-        self.env_reset = terminal_result["EnvReset"]
+        self.env_reset = terminal_result.env_reset
         self.handle_env_reset()
 
     def eval_loop(self, engine, evaluate=False):
@@ -511,7 +513,7 @@ class AgentHandler:
         if evaluate:
             flags = self.evaluator.evaluate(rewards, terminal_result, percent_burned)
             self.check_reset(flags)
-        return terminal_result["AllAgentsSucceeded"], terminal_result["EnvReset"] # True if all agents reached their goal can do "OneAgentSucceeded"
+        return terminal_result.any_succeeded, terminal_result.env_reset
 
     def check_reset(self, flags):
         """
@@ -543,15 +545,22 @@ class AgentHandler:
 
     def step_agent(self, engine, actions):
         self.agent_actions = self.get_action(actions)
-        observations, rewards, all_terminals, terminal_result, percent_burned = engine.Step(self.agent_type.name, self.agent_actions)
+        # observations, rewards, all_terminals, terminal_result, percent_burned = engine.Step(self.agent_type.name, self.agent_actions)
+        env_step = engine.Step(self.agent_type.name, self.agent_actions)
+        rewards = env_step.rewards
+        observations = env_step.observations
+        percent_burned = env_step.percent_burned
+        terminals = env_step.terminals
+        terminal_result = env_step.summary
+        all_terminals = [t.is_terminal for t in terminals if t is not None]
         obs = self.restructure_data(observations)
         self.env_step += 1
         return obs, rewards, all_terminals, terminal_result, percent_burned
 
     def step_without_network(self, engine):
         agent_actions = self.get_action([[0,0] for _ in range(self.num_agents)])
-        _, _, _, terminal_result, _ = engine.Step(self.agent_type.name, agent_actions)
-        self.env_reset = terminal_result["EnvReset"]
+        env_step = engine.Step(self.agent_type.name, agent_actions)
+        self.env_reset = env_step.summary.env_reset
         self.handle_env_reset()
 
     # Possibly unused

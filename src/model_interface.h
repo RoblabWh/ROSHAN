@@ -14,6 +14,7 @@
 #include "reinforcementlearning/actions/action.h"
 #include <memory>
 #include "externals/pybind11/include/pybind11/pybind11.h"
+#include "utils.h"
 
 class IModel {
 public:
@@ -21,11 +22,12 @@ public:
 
     virtual void Update() = 0;
     virtual void SimStep(std::vector<std::shared_ptr<Action>> actions) = 0;
-    virtual std::tuple<std::unordered_map<std::string,std::vector<std::deque<std::shared_ptr<State>>>>,
-    std::vector<double>,
-    std::vector<bool>,
-    std::unordered_map<std::string, bool>,
-    double> Step(const std::string& agent_type, std::vector<std::shared_ptr<Action>> actions) = 0;
+//    virtual std::tuple<std::unordered_map<std::string,std::vector<std::deque<std::shared_ptr<State>>>>,
+//    std::vector<double>,
+//    std::vector<bool>,
+//    std::unordered_map<std::string, bool>,
+//    double>
+    virtual StepResult Step(const std::string& agent_type, std::vector<std::shared_ptr<Action>> actions) = 0;
     virtual std::unordered_map<std::string, std::vector<std::deque<std::shared_ptr<State>>>> GetObservations() = 0;
     virtual void Render() = 0;
     virtual bool GetEarlyClosing() = 0;

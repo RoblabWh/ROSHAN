@@ -80,7 +80,7 @@ public:
     std::pair<int, int> GetRandomPointInGrid() {
         std::uniform_int_distribution<> dis_x(0, rows_ - 1);
         std::uniform_int_distribution<> dis_y(0, cols_ - 1);
-        return std::make_pair(dis_x(gen_), dis_y(gen_));
+        return std::make_pair(dis_x(parameters_.gen_), dis_y(parameters_.gen_));
     }
 
     std::pair<int, int> GetNonGroundStationCorner() {
@@ -152,10 +152,6 @@ private:
     std::unordered_set<Point> flooded_cells_;
     std::vector<Point> changed_cells_;
     std::shared_ptr<Groundstation> groundstation_;
-
-    // Random decives and Generators for the Cells
-    std::random_device rd_;
-    std::mt19937 gen_;
 
     std::vector<VirtualParticle> virtual_particles_;
     std::vector<RadiationParticle> radiation_particles_;

@@ -6,8 +6,8 @@
 #include "firemodel_firecell.h"
 
 
-FireCell::FireCell(int x, int y, std::mt19937& gen, FireModelParameters &parameters, int raster_value)
-: parameters_(parameters), gen_(gen) {
+FireCell::FireCell(int x, int y, FireModelParameters &parameters, int raster_value)
+: parameters_(parameters){
     surface_ = SDL_CreateRGBSurfaceWithFormat(0, 1, 1, 32, SDL_PIXELFORMAT_ARGB8888);
 
     //Cell State
@@ -38,8 +38,8 @@ FireCell::FireCell(int x, int y, std::mt19937& gen, FireModelParameters &paramet
     real_dis_ = std::uniform_real_distribution<>(0.0, 1.0);
     std::uniform_real_distribution<> dis(0.1, 0.2);
     std::uniform_int_distribution<> sign_dis(-1, 1);
-    burning_duration_ += sign_dis(gen_) * burning_duration_ * dis(gen_);
-    tau_ign_ += sign_dis(gen_) * tau_ign_ * dis(gen_);
+    burning_duration_ += sign_dis(parameters_.gen_) * burning_duration_ * dis(parameters_.gen_);
+    tau_ign_ += sign_dis(parameters_.gen_) * tau_ign_ * dis(parameters_.gen_);
     tau_ign_start_ = tau_ign_;
 
     convection_particle_emission_threshold_ = (burning_duration_ - 1) / num_convection_particles_;
@@ -126,8 +126,8 @@ void FireCell::Ignite() {
 }
 
 VirtualParticle FireCell::EmitConvectionParticle() {
-    double x_pos_rnd = real_dis_(gen_);
-    double y_pos_rnd = real_dis_(gen_);
+    double x_pos_rnd = real_dis_(parameters_.gen_);
+    double y_pos_rnd = real_dis_(parameters_.gen_);
     double cell_size = (parameters_.GetCellSize());
     double x_pos = x_ + (cell_size * x_pos_rnd);
     double y_pos = y_ + (cell_size * y_pos_rnd);
@@ -139,14 +139,14 @@ VirtualParticle FireCell::EmitConvectionParticle() {
 }
 
 RadiationParticle FireCell::EmitRadiationParticle() {
-    double x_pos_rnd = real_dis_(gen_);
-    double y_pos_rnd = real_dis_(gen_);
+    double x_pos_rnd = real_dis_(parameters_.gen_);
+    double y_pos_rnd = real_dis_(parameters_.gen_);
     double cell_size = (parameters_.GetCellSize());
     double x_pos = x_ + (cell_size * x_pos_rnd);
     double y_pos = y_ + (cell_size * y_pos_rnd);
     auto radiation_length = mother_cell_->GetRadiationLength();
     RadiationParticle radiation_particle(x_pos, y_pos, radiation_length.first, radiation_length.second, mother_cell_->GetSf0Mean(), mother_cell_->GetSf0Std(),
-                                         parameters_.GetYStRad(), parameters_.GetYLimRad(), gen_);
+                                         parameters_.GetYStRad(), parameters_.GetYLimRad(), parameters_.gen_);
 
     return radiation_particle;
 }
@@ -332,7 +332,7 @@ void FireCell::GenerateNoiseMap() {
     std::uniform_int_distribution<> dist(-noise_level, noise_level);
     for (int y = 0; y < size; ++y) {
         for (int x = 0; x < size; ++x) {
-            noise_map_[y][x] = dist(gen_);
+            noise_map_[y][x] = dist(parameters_.gen_);
         }
     }
 }

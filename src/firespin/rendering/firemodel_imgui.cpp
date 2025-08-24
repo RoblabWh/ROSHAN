@@ -675,26 +675,25 @@ void ImguiHandler::PyConfig(std::string &user_input,
 
                     ImGui::TableNextRow();
                     ImGui::TableNextColumn(); ImGui::Text("Fire Percentage");
-                    ImGui::TableNextColumn(); ImGui::SetNextItemWidth(-1); ImGui::SliderFloat("##fire_percentage_map", &parameters_.fire_percentage_, 0, 100);
+                    ImGui::TableNextColumn(); ImGui::SetNextItemWidth(-1); ImGui::SliderFloat("##fire_percentage_map", &parameters_.fire_percentage_, -0.001, 1);
 
                     ImGui::TableNextRow();
                     ImGui::TableNextColumn(); ImGui::Text("Fire Spread Probability");
-                    ImGui::TableNextColumn(); ImGui::SetNextItemWidth(-1); ImGui::SliderFloat("##fire_spread_prob", &parameters_.fire_spread_prob_, 0, 1);
+                    ImGui::TableNextColumn(); ImGui::SetNextItemWidth(-1); ImGui::SliderFloat("##fire_spread_prob", &parameters_.fire_spread_prob_, -0.001, 1);
 
                     ImGui::TableNextRow();
                     ImGui::TableNextColumn(); ImGui::Text("Fire Noise");
-                    ImGui::TableNextColumn(); ImGui::SetNextItemWidth(-1); ImGui::SliderFloat("##fire_noise", &parameters_.fire_noise_, -1, 1);
+                    ImGui::TableNextColumn(); ImGui::SetNextItemWidth(-1); ImGui::SliderFloat("##fire_noise", &parameters_.fire_noise_, -0.001, 1);
 
                     ImGui::TableNextRow();
-                    ImGui::TableNextColumn(); ImGui::Text("Ignite only Single Cells");
-                    ImGui::TableNextColumn(); ImGui::SetCursorPosX(ImGui::GetCursorPosX() + (ImGui::GetContentRegionAvail().x / 2) - 10);
-                    ImGui::Checkbox("##SingleCellIgnite", &parameters_.ignite_single_cells_);
+                    ImGui::TableNextColumn(); ImGui::Text("Number of Fire Clusters");
+                    ImGui::TableNextColumn(); ImGui::SetNextItemWidth(-1); ImGui::SliderInt("##num_fire_clusters", &parameters_.num_fire_clusters_, 0, 20);
 
                     ImGui::TableNextRow();
                     ImGui::TableNextColumn(); ImGui::Text("Start new Fires");
                     ImGui::TableNextColumn();
                     ImGui::SetCursorPosX(ImGui::GetCursorPosX() + (ImGui::GetContentRegionAvail().x / 2) - 50);
-                    if (ImGui::Button("##StartFires", ImVec2(100, 17))) { this->startFires(parameters_.fire_percentage_);}
+                    if (ImGui::Button("##StartFires", ImVec2(100, 17))) { this->startFires();}
                     if (ImGui::IsItemHovered()){ ImGui::SetTooltip("Click to start some fires");}
                     ImGui::EndTable();
                 }

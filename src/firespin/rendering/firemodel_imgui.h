@@ -169,7 +169,7 @@ public:
     std::function<void()> onFillRasterWithEnum;
     std::function<void(int,double,double,int)> onMoveDrone;
     std::function<void(CellState, int, int)> onSetNoise;
-    std::function<void(float)> startFires;
+    std::function<void()> startFires;
     std::function<py::dict()> onGetRLStatus;
     std::function<void(py::dict)> onSetRLStatus;
 

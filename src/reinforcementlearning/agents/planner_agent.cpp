@@ -50,46 +50,42 @@ void PlannerAgent::Initialize(std::shared_ptr<ExploreAgent> explore_agent, std::
     InitializePlannerAgentStates(grid_map);
 }
 
-std::vector<bool>
+AgentTerminal
 PlannerAgent::GetTerminalStates(bool eval_mode, const std::shared_ptr<GridMap> &grid_map, int env_steps_remaining) {
-    std::vector<bool> terminal_states;
-    bool terminal_state = false;
-    bool agent_died = false;
-    bool agent_succeeded = false;
-//    int num_burning_cells = grid_map->GetNumBurningCells();
-//    int num_explored_fires = grid_map->GetNumExploredFires();
+    AgentTerminal t;
+    //    int num_burning_cells = grid_map->GetNumBurningCells();
+    //    int num_explored_fires = grid_map->GetNumExploredFires();
     explored_fires_equals_actual_fires_ = false; //grid_map->ExploredFiresEqualsActualFires();
 
     // If the agent has finished his objective(calculated in the PlanAction) it has reached a terminal state and succeeded
     if (objective_reached_) {
-        terminal_state = true;
-        agent_succeeded = true;
+        t.is_terminal = true;
     }
 
     if (grid_map->PercentageBurned() > 0.3) {
         // If the agent let the map burn too much it has reached a terminal state and died
-        terminal_state = true;
-        agent_died = true;
+        t.is_terminal = true;
+        t.reason = FailureReason::Burnout;
     }
 
     // If the agent has taken too long it has reached a terminal state and died
     if (env_steps_remaining <= 0 && !eval_mode) {
-        terminal_state = true;
-        agent_died = true;
+        t.is_terminal = true;
+        t.reason = FailureReason::Timeout;
     }
 
     if (!grid_map->HasBurningFires() && !objective_reached_) {
-        // Map has burned down on it's own
-        terminal_state = true;
-        agent_died = false;
+        // Map has burned down on its own
+        t.is_terminal = true;
     }
 
-    terminal_states.push_back(terminal_state);
-    terminal_states.push_back(agent_died);
-    terminal_states.push_back(agent_succeeded);
-    agent_terminal_state_ = terminal_state;
+    if (t.is_terminal && t.reason != FailureReason::None) { t.kind = TerminationKind::Failed; }
+    else if (t.is_terminal) { t.kind = TerminationKind::Succeeded; }
+    else { t.kind = TerminationKind::None; }
+
+    agent_terminal_state_ = t.is_terminal;
     env_steps_remaining_ = env_steps_remaining;
-    return terminal_states;
+    return t;
 }
 
 double PlannerAgent::CalculateReward() {

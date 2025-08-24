@@ -20,7 +20,13 @@ public:
     void init(const std::string& yaml_path) {
         YAML::Node config = YAML::LoadFile(yaml_path);
 
+        // Settings
         llm_support_ = config["settings"]["llm_support"].as<bool>();
+        seed_ = config["settings"]["seed"].as<int>();
+        if (seed_ == -1) {
+            seed_ = static_cast<int>(std::random_device{}());
+        }
+        gen_.seed(seed_);
 
         // Paths
         auto paths = config["paths"];
@@ -89,7 +95,7 @@ public:
             std::random_device rd;
             std::mt19937 gen(rd());
             std::uniform_real_distribution<> dis(0.0, 360.0);
-            degrees_wind_angle = dis(gen);
+            degrees_wind_angle = dis(gen_);
         }
         wind_angle_ = degrees_wind_angle * M_PI / 180.0; // Convert degrees to radians
         wind_a_ = wind["wind_a"].as<double>();
@@ -98,7 +104,7 @@ public:
         auto environment = config["environment"];
         auto fire_behaviour = environment["fire_behaviour"];
         frame_skips_ = environment["frame_skips"].as<int>();
-        ignite_single_cells_ = fire_behaviour["ignite_single_cells"].as<bool>();
+        num_fire_clusters_ = fire_behaviour["num_fire_clusters"].as<int>();
         fire_percentage_ = fire_behaviour["fire_percentage"].as<float>();
         fire_spread_prob_ = fire_behaviour["fire_spread_prob"].as<float>();
         fire_noise_ = fire_behaviour["fire_noise"].as<float>();
@@ -133,6 +139,9 @@ public:
         corner_start_percentage_ = agent_behaviour["corner_start_percentage"].as<float>();
         fire_goal_percentage_ = agent_behaviour["fire_goal_percentage"].as<float>();
     }
+
+    //Settings
+    int seed_{};
 
     // Paths
     std::string corine_dataset_name_{};
@@ -248,16 +257,27 @@ public:
         y_real = y_grid * this->GetCellSize();
     }
 
+    // Random Generator
+    std::mt19937 gen_{std::random_device{}()};
+
 
     //
     // Environment Controls
     //
-    bool ignite_single_cells_{};
+    int num_fire_clusters_{};
     float fire_goal_percentage_{}; // in percent (%)
     float fire_percentage_{}; // in percent (%)
     float fire_spread_prob_{}; // in percent (%)
     float fire_noise_{};
     bool recharge_time_active_{};
+
+    float SampleFirePercentage() { return std::uniform_real_distribution<float>(0.0, 1.0)(gen_); }
+    float SampleFireSpreadProb() { return std::uniform_real_distribution<float>(0.0, 1.0)(gen_); }
+    float SampleFireNoise() { return std::uniform_real_distribution<float>(-1.0, 1.0)(gen_); }
+
+    float GetFirePercentage() {return fire_percentage_ < 0 ? this->SampleFirePercentage() : fire_percentage_;}
+    float GetFireSpreadProb() {return fire_spread_prob_ < 0 ? this->SampleFireSpreadProb() : fire_spread_prob_;}
+    float GetFireNoise() {return fire_noise_ < 0 ? this->SampleFireNoise() : fire_noise_;}
 
     // Parameters for the groundstation
     float groundstation_start_percentage_{};

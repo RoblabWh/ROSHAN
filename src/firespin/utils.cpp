@@ -384,3 +384,10 @@ std::filesystem::path get_project_path(const std::string &config_key, const std:
 
     return project_path;
 }
+
+void RandomBuffer::fillBuffer(){
+    std::normal_distribution<double> dist(0.0, 1.0);
+    for (auto &num : buffer_) {
+        num = dist(parameters_.gen_);
+    }
+}

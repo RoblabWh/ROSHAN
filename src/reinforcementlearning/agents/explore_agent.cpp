@@ -162,11 +162,9 @@ double ExploreAgent::CalculateReward() {
     return total_reward;
 }
 
-std::vector<bool> ExploreAgent::GetTerminalStates(bool eval_mode, const std::shared_ptr<GridMap>& grid_map, int total_env_steps) {
+AgentTerminal ExploreAgent::GetTerminalStates(bool eval_mode, const std::shared_ptr<GridMap>& grid_map, int total_env_steps) {
     std::vector<bool> terminal_states;
-    bool terminal_state = false;
-    bool drone_died = false;
-    bool drone_succeeded = false;
+    AgentTerminal t;
 //    int num_burning_cells = grid_map->GetNumBurningCells();
 //    int num_explored_fires = grid_map->GetNumExploredFires();
     explored_fires_equals_actual_fires_ = false; //grid_map->ExploredFiresEqualsActualFires();
@@ -175,18 +173,17 @@ std::vector<bool> ExploreAgent::GetTerminalStates(bool eval_mode, const std::sha
     // TODO currently hard-coded to false, this is because the agent is currently not network controlled
     if (false) {
         if (total_env_steps <= 0 && !eval_mode) {
-            terminal_state = true;
-            drone_died = true;
+            t.is_terminal = true;
+            t.reason = FailureReason::Timeout;
         }
 
         if (objective_reached_) {
-            terminal_state = true;
-            drone_succeeded = true;
+            t.is_terminal = true;
         }
+        if (t.is_terminal && t.reason != FailureReason::None) { t.kind = TerminationKind::Failed; }
+        else if (t.is_terminal) { t.kind = TerminationKind::Succeeded; }
+        else { t.kind = TerminationKind::None; }
     }
 
-    terminal_states.push_back(terminal_state);
-    terminal_states.push_back(drone_died);
-    terminal_states.push_back(drone_succeeded);
-    return terminal_states;
+    return t;
 }

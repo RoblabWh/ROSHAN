@@ -38,7 +38,7 @@
 class FireCell {
 
 public:
-    FireCell(int x, int y, std::mt19937& gen, FireModelParameters &parameters, int raster_value = 0);
+    FireCell(int x, int y, FireModelParameters &parameters, int raster_value = 0);
     ~FireCell();
 
     CellState GetIgnitionState();
@@ -50,7 +50,7 @@ public:
     bool CanIgnite();
     [[nodiscard]] bool IsBurning() const { return cell_state_ == CellState::GENERIC_BURNING; }
     void Ignite();
-    std::pair<bool, bool> ShouldEmitNextParticles() const;
+    [[nodiscard]] std::pair<bool, bool> ShouldEmitNextParticles() const;
     VirtualParticle EmitConvectionParticle();
     RadiationParticle EmitRadiationParticle();
     Uint32 GetMappedColor();
@@ -99,7 +99,6 @@ private:
     std::vector<std::vector<int>> noise_map_;
 
     // Random Generator for the particles
-    std::mt19937& gen_;
     std::uniform_real_distribution<> real_dis_;
 
     ICell *GetCell();

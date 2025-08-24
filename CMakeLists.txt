@@ -136,6 +136,7 @@ set(FIREMODEL_SOURCES
         src/firespin/firemodel_firecell.cpp src/firespin/firemodel_firecell.h
         src/firespin/particles/virtual_particle.cpp src/firespin/particles/virtual_particle.h
         src/firespin/particles/radiation_particle.cpp src/firespin/particles/radiation_particle.h
+        src/firespin/fire_generator.cpp src/firespin/fire_generator.h
         src/firespin/wind.cpp src/firespin/wind.h
         src/firespin/utils.h src/firespin/utils.cpp
         src/firespin/model_parameters.h

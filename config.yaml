@@ -1,5 +1,6 @@
 settings:
   mode: 0 # 0: GUI_RL, 2: NoGUI_RL, # Mode 1 is GUI and Mode 2 is NoGUI (ONLY Simulation)
+  seed: 42 # Random seed for reproducibility (-1 for random seed)
   rl_mode: train # either "train" or "eval"
   # Whether to resume training from the last checkpoint
   # If set to true, the training will continue from the last checkpoint
@@ -18,7 +19,7 @@ paths:
   # This is the root_path where your NEW trained models data is stored
   # Loading for your ROOT Model (chosen hierarchy) is ALSO done from here (Eval and Resuming Training)
   # (either absolute or relative to the project root)
-  model_directory: models/fly_test
+  model_directory: models/fly_test_1
   # Leave this empty to get a default name from this config (best practice for training)
   # You can fast load models with suffixes ["latest", "best_reward", "best_objective"]
   # If you want to load a specific model, set the model_name to the name of the model file
@@ -119,13 +120,22 @@ fire_model:
 
 # Environment Parameters
 environment:
-  # TODO Reimplement this this is not correctly implemented !
-  frame_skips: 1 # Number of frames to skip in the environment (1 for no skipping)
+  frame_skips: 1 # Number of frames to skip in the environment (1 for no skipping) # TODO Reimplement this this is not correctly implemented !
+  # These parameters are used to configure the fire START behaviour in the environment
+  # It does NOT affect the actual fire spread during simulation
   fire_behaviour:
-    # These parameters are used to configure the fire behaviour in the environment
-    fire_percentage: 0.5 # Percentage of cells that should be ignited at the start of the simulation
-    ignite_single_cells: false # Whether to ignite single cells or ignite clusters
+    # Percentage of cells that should be ignited at the start of the simulation [0.0 - 1.0]
+    # Setting this to < 0.0 will lead to randomly generated fire_percentage between (0, 1]
+    fire_percentage: 0.01
+    # How many clusters of fire should be started at the beginning of the simulation
+    # Setting this to <= 0 will lead to single cells being ignited randomly according to fire_percentage
+    num_fire_clusters: 3
+    # This probability is used to determine if a fire spreads to a neighboring cell
+    # It is only used to control starting Fire Clusters, not the actual fire spread during simulation
+    # Setting this to < 0.0 will lead to random fire_noise between 0 and 1
     fire_spread_prob: 0.095
+    # Noise ([-0.5, 0,5]*noise) for the fire spread probability, to introduce randomness in the fire spread
+    # Setting this to < 0.0 will lead to random fire_noise between 0 and 1
     fire_noise: 1
     recharge_time_active: false
   agent_behaviour:
@@ -133,15 +143,12 @@ environment:
     groundstation_start_percentage: 0.0
     corner_start_percentage: 0.9
   agent:
-    number_of_drones: 1 # Number of fly_agents; ONLY USED FOR TRAINING fly_agents
-    number_of_explorers: 4
-    number_of_extinguishers: 3
     water_capacity: 10 # Number of water units a drone can carry (one unit extinguishes one cell)
     max_velocity: 10.0 # Maximum Velocity for a drone agent in m/s
     extinguish_all_fires: false # Whether a fly_agent should extinguish all fires in Evaluation Mode (not really relevant)
     fly_agent:
       algorithm: PPO # Algorithm used by the fly_agent
-      num_agents: 1
+      num_agents: 3
       time_steps: 3 # Number of time steps to consider in the FlyAgent's memory
       max_speed: 10.0 # Maximum speed of the FlyAgent in m/s
       view_range: 12 # View range of the FlyAgent in cells

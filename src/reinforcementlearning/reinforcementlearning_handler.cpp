@@ -155,11 +155,6 @@ void ReinforcementLearningHandler::StepDroneManual(int drone_idx, double speed_x
     }
 }
 
-// TODO why is this in this class?
-void ReinforcementLearningHandler::InitFires() const {
-        this->startFires(parameters_.fire_percentage_);
-}
-
 // TODO Why is this unused?
 void ReinforcementLearningHandler::SimStep(std::vector<std::shared_ptr<Action>> actions){
     if (gridmap_ == nullptr || agents_by_type_.find("fly_agent") == agents_by_type_.end()) {
@@ -174,63 +169,49 @@ void ReinforcementLearningHandler::SimStep(std::vector<std::shared_ptr<Action>> 
     }
 }
 
-std::tuple<
-std::unordered_map<std::string, std::vector<std::deque<std::shared_ptr<State>>>>,
-std::vector<double>,
-std::vector<bool>,
-std::unordered_map<std::string, bool>,
-double> ReinforcementLearningHandler::Step(const std::string& agent_type, std::vector<std::shared_ptr<Action>> actions) {
-    //TODO return std::unordered_map<std::string, std::vector<double>> instead of vector
+StepResult ReinforcementLearningHandler::Step(const std::string& agent_type, std::vector<std::shared_ptr<Action>> actions) {
+
     if (gridmap_ == nullptr || agents_by_type_.find(agent_type) == agents_by_type_.end()) {
         std::cerr << "No agents of type " << agent_type << " or invalid GridMap.\n";
         return {};
     }
 
-    // TODO make this a separate function because multiple different agents may step at the same time
+    StepResult result;
+
     total_env_steps_ -= 1;
     parameters_.SetCurrentEnvSteps(parameters_.GetTotalEnvSteps() - total_env_steps_);
-    //init bool vector that is size of drones_
-    std::vector<bool> terminals, something_failed, something_succeeded;
-    std::vector<double> rewards;
-    std::unordered_map<std::string, bool> agent_terminal_states;
-    agent_terminal_states["EnvReset"] = false;
 
-    // Step through all the Agents and update their states, then calculate their reward
-    auto& agents = agents_by_type_[agent_type];
+    auto &agents = agents_by_type_[agent_type];
     auto hierarchy_type = parameters_.GetHierarchyType();
 
+    result.rewards.reserve(agents.size());
+    result.terminals.resize(agents.size());
+
+    // Step through all the Agents and update their states, then calculate their reward
     for (size_t i = 0; i < agents.size(); ++i) {
-        agents[i]->ExecuteAction(actions[i], hierarchy_type, gridmap_);
+        auto &agent = agents[i];
+        agent->ExecuteAction(actions[i], hierarchy_type, gridmap_);
 
-        // Check for Agent Terminal States
-        auto terminal_state = agents[i]->GetTerminalStates(eval_mode_, gridmap_, total_env_steps_);
-        terminals.push_back(terminal_state[0]);
-        something_failed.push_back(terminal_state[1]);
-        something_succeeded.push_back(terminal_state[2]);
+        // Get Terminal State from the Agent
+        auto terminal_state = agent->GetTerminalStates(eval_mode_, gridmap_, total_env_steps_);
+        result.terminals[i] = terminal_state;
 
-        // Has the current agent performed a Hierarchy Action?
-        if (agents[i]->GetPerformedHierarchyAction()) {
-            double reward = agents[i]->CalculateReward();
-            rewards.push_back(reward);
-            // Should the Environment Reset
-            agent_terminal_states["EnvReset"] |= terminal_state[0];
-            // Reset some values for the next step
-            agents[i]->StepReset();
+        if (agent->GetPerformedHierarchyAction()) {
+            result.rewards.push_back(agent->CalculateReward());
+            // Summary is only relevant for the highest Hierarchy Agent
+            // (e.g. PlannerAgent -> Environment Reset doesn't trigger when FlyAgents reach their GoalPos)
+            result.summary.env_reset = result.summary.env_reset || terminal_state.is_terminal;
+            result.summary.any_failed |= terminal_state.kind == TerminationKind::Failed;
+            result.summary.reason = terminal_state.reason;
+            result.summary.any_succeeded |= terminal_state.kind == TerminationKind::Succeeded;
+            agent->StepReset();
         }
     }
 
-    // Build Terminal States
-    bool one_agent_died = std::any_of(something_failed.begin(), something_failed.end(), [](bool d){ return d; });
-    bool one_agent_succeeded = std::any_of(something_succeeded.begin(), something_succeeded.end(), [](bool s){ return s; });
-    bool all_agents_died = std::all_of(something_failed.begin(), something_failed.end(), [](bool d){ return d; });
-    bool all_agents_succeeded = std::all_of(something_succeeded.begin(), something_succeeded.end(), [](bool s){ return s; });
-
-    agent_terminal_states["OneAgentDied"] = one_agent_died;
-    agent_terminal_states["OneAgentSucceeded"] = one_agent_succeeded;
-    agent_terminal_states["AllAgentsDied"] = all_agents_died;
-    agent_terminal_states["AllAgentsSucceeded"] = all_agents_succeeded;
-
-    return {this->GetObservations(), rewards, terminals, agent_terminal_states, gridmap_->PercentageBurned()};
+    // Could now add other metrics here like Extinguished Fires or Explored Percentage
+    result.observations = this->GetObservations();
+    result.percent_burned = gridmap_->PercentageBurned();
+    return result;
 }
 
 void ReinforcementLearningHandler::SetRLStatus(py::dict status) {

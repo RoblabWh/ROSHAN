@@ -28,7 +28,7 @@ public:
         did_hierarchy_step = false;
     }
 
-    std::vector<bool> GetTerminalStates(bool eval_mode, const std::shared_ptr<GridMap>& grid_map, int total_env_steps) override;
+    AgentTerminal GetTerminalStates(bool eval_mode, const std::shared_ptr<GridMap>& grid_map, int total_env_steps) override;
 
 private:
     void InitializeExploreAgentStates();

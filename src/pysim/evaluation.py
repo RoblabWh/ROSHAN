@@ -13,6 +13,7 @@ from metrics import (
     TimeMetric,
     PercentBurnedMetric,
     SuccessMetric,
+    FailureReason,
 )
 
 # Registry of all metrics used during evaluation
@@ -27,6 +28,7 @@ METRIC_REGISTRY_FLY_AGENT: List[Type[Metric]] = [
     RewardMetric,
     TimeMetric,
     SuccessMetric,
+    FailureReason,
 ]
 
 class TensorboardLogger:
@@ -92,18 +94,16 @@ class TensorboardLogger:
 
         self.writer.add_hparams(hparams, {"hparam/metric": 0.0})
 
-    def log_step(self, terminal_result: dict):
+    def log_step(self, terminal_result):
         """
         Marks the end of an episode and logs the episode length and objective.
         :param terminal_result: Dictionary containing terminal results of the episode.
         """
         self.episode_steps += 1
-        env_done = terminal_result["EnvReset"]
 
-        if env_done:
+        if terminal_result.env_reset:
             self.episode += 1
-            objective_reached = not terminal_result["OneAgentDied"]
-            self.objectives.append(1 if objective_reached else 0)
+            self.objectives.append(1 if terminal_result.any_succeeded else 0)
             self.episode_ended = True
 
     def add_metric(self, tag, value=None, hist=False):
@@ -269,6 +269,69 @@ class Evaluator:
             for stat in self.history:
                 writer.writerow({name: stat.get(name, 0.0) for name in field_names})
 
+    def plot_metrics(self, output_dir: str):
+        """Create boxplots and additional visualizations for collected metrics.
+
+        For each metric, a boxplot, line plot, and histogram are generated from
+        the per-episode values stored in ``self.history``.  Figures are saved in
+        ``output_dir`` with descriptive filenames.
+
+        Parameters
+        ----------
+        output_dir: str
+            Directory where the plots will be stored. The directory will be
+            created if it does not already exist.
+        """
+
+        if not self.history:
+            return
+
+        try:
+            mpl_logger = logging.getLogger("matplotlib")
+            mpl_logger.setLevel(logging.WARNING)  # Suppress matplotlib warnings
+            pil_logger = logging.getLogger("PIL")
+            pil_logger.setLevel(logging.WARNING)  # Suppress PIL warnings
+            import matplotlib.pyplot as plt  # type: ignore[import]
+        except Exception as e:
+            self.logger.warning("matplotlib is required for plotting metrics: %s", e)
+            return
+
+        os.makedirs(output_dir, exist_ok=True)
+
+        for metric in self.metrics:
+            values = [h[metric.name] for h in self.history if metric.name in h]
+            if not values:
+                continue
+
+            # Boxplot
+            plt.figure()
+            plt.boxplot(values)
+            plt.title(f"{metric.name} Distribution")
+            plt.ylabel(metric.name)
+            boxplot_path = os.path.join(output_dir, f"{metric.name}_boxplot.png")
+            plt.savefig(boxplot_path)
+            plt.close()
+
+            # Line plot over episodes
+            plt.figure()
+            plt.plot(range(1, len(values) + 1), values, marker="o")
+            plt.title(f"{metric.name} per Episode")
+            plt.xlabel("Episode")
+            plt.ylabel(metric.name)
+            lineplot_path = os.path.join(output_dir, f"{metric.name}_lineplot.png")
+            plt.savefig(lineplot_path)
+            plt.close()
+
+            # Histogram of values
+            plt.figure()
+            plt.hist(values, bins="auto")
+            plt.title(f"{metric.name} Histogram")
+            plt.xlabel(metric.name)
+            plt.ylabel("Frequency")
+            hist_path = os.path.join(output_dir, f"{metric.name}_hist.png")
+            plt.savefig(hist_path)
+            plt.close()
+
 
     def evaluate(self, rewards, terminal_result, percent_burned):
         metrics = self.update_evaluation_metrics(rewards, terminal_result, percent_burned)
@@ -281,6 +344,7 @@ class Evaluator:
                 self.logger.info(f"Evaluation finished, after {self.eval_steps} evaluation "
                                  f"steps with average reward: {avg_reward}")
                 self.save_to_csv(os.path.join(self.log_dir, "evaluation_stats.csv"))
+                self.plot_metrics(self.log_dir)
                 if self.reset():
                     flag_dict.__setitem__("auto_train_not_finished", False)
                 self.sim_bridge.set("agent_is_running", False)
@@ -300,7 +364,7 @@ class Evaluator:
             metric.update(step_stats)
             metrics[metric.name] = metric.value
 
-        if terminal_result['EnvReset']:
+        if terminal_result.env_reset:
             # Store final metrics for this episode
             episode_metrics = {m.name: m.value for m in self.metrics}
             self.history.append(episode_metrics)
@@ -312,30 +376,35 @@ class Evaluator:
 
             metrics["episode_over"] = True
 
-            self.clean_print(self.history, last_episode=(self.eval_steps >= self.max_eval - 1))
+            self.clean_print()
 
             self.current_episode += 1
 
             # Log metrics via the optional TensorBoard logger
             if self.tb_logger is not None:
-                tb_metrics = {k: v for k, v in metrics.items() if k not in ("episode", "episode_over")}
+                tb_metrics = {k: v for k, v in metrics.items() if k not in ("episode", "episode_over", "Failure_Reason", "Failure_Reason_counts", "Failure_Reason_perc", "Failure_Reason_n")}
                 self.tb_logger.add_metric(tb_metrics)
                 # Flush metrics to disk after each evaluation episode
                 self.tb_logger.summarize()
 
         return metrics
 
-    def clean_print(self, history, last_episode:bool = False):
+    def clean_print(self):
+        last_episode = (self.eval_steps >= self.max_eval - 1)
         metric_headers = [m.name for m in self.metrics]
         headers = ["Episode"] + metric_headers + ["Success Rate"]
 
-        local_history_ = [history[self.current_episode]] if not last_episode else history
+        local_history_ = [self.history[self.current_episode]] if not last_episode else self.history
 
         rows = [
             [
                 idx + 1 if last_episode else (self.current_episode + 1),
                 *[
-                    f"{s[m.name]:.2f}" if not m.is_int_like() else int(s[m.name])
+                    f"{s[m.name]:.4f}" if m.dtype == "float"
+                    else f"{s[m.name]:.2f}" if m.dtype == "percent"
+                    else int(s[m.name]) if m.dtype == "int"
+                    else f"{s[m.name]}" if m.dtype == "string"
+                    else f"Undefined {m.name}"
                     for m in self.metrics
                 ],
             ]
@@ -345,68 +414,18 @@ class Evaluator:
         tabular_data = rows
 
         if last_episode:
-            # ---- summary over the entire history ----
-            ms = {
-                    m.name: {
-                        "summary": Metric.summary_stats([s[m.name] for s in history]),
-                        "int_like": m.is_int_like()
-                    }
-                    for m in self.metrics
-                  }
-
-            mean_footer = [
-                f"Summary (N={len(history)})",
+            end_footer = [
+                f"Total(N={len(self.history)})",
                 *[
-                    self._fmt_mean(metric_stats=ms[m.name])
-                    for m in self.metrics
-                ],
-            ]
-            median_footer = [
-                "",
-                *[
-                    self._fmt_median(metric_stats=ms[m.name])
-                    for m in self.metrics
-                ],
-            ]
-            ci_footer = [
-                "",
-                *[
-                    self._fmt_ci(metric_stats=ms[m.name])
+                    m.get_compute_string(m.compute(self.history))
                     for m in self.metrics
                 ],
             ]
 
-            tabular_data += [mean_footer] + [median_footer] + [ci_footer]
+            tabular_data += [end_footer]
 
         table = tabulate(tabular_data=tabular_data,
                          headers=headers,
                          tablefmt="rounded_grid")
 
         self.logger.info("\n%s", table)
-
-    @staticmethod
-    def _fmt_mean(metric_stats):
-        """Format the mean value of a metric."""
-        mean, std, _, _, _ = metric_stats["summary"]
-        if metric_stats["int_like"]:
-            return f"μ{mean:.0f} ± σ{std:.0f}"
-        else:
-            return f"μ{mean:.2f} ± σ{std:.2f}"
-
-    @staticmethod
-    def _fmt_median(metric_stats):
-        """Format the median value of a metric."""
-        _, _, median, _, _ = metric_stats["summary"]
-        if metric_stats["int_like"]:
-            return f"mdn {median:.0f}"
-        else:
-            return f"mdn {median:.2f}"
-
-    @staticmethod
-    def _fmt_ci(metric_stats):
-        """Format the confidence interval of a metric."""
-        _, _, _, lo, hi = metric_stats["summary"]
-        if metric_stats["int_like"]:
-            return f"CI [{lo:.0f}, {hi:.0f}]"
-        else:
-            return f"CI [{lo:.2f}, {hi:.2f}]"

@@ -84,9 +84,10 @@ void FireModel::ResetGridMap(std::vector<std::vector<int>>* rasterData) {
     if (mode_ == Mode::GUI_RL || mode_ == Mode::NoGUI_RL) {
         gridmap_->SetGroundstation();
         rl_handler_->SetGridMap(gridmap_);
+        fire_generator_ = std::make_shared<FireGenerator>(gridmap_, parameters_);
 #ifndef SPEEDTEST
         // Starting Conditions for Fires
-        rl_handler_->InitFires();
+        fire_generator_->StartFires();
 #endif
         // Init drones
         rl_handler_->ResetEnvironment(mode_);
@@ -158,11 +159,7 @@ void FireModel::SimStep(std::vector<std::shared_ptr<Action>> actions){
     rl_handler_->SimStep(std::move(actions));
 }
 
-std::tuple<std::unordered_map<std::string, std::vector<std::deque<std::shared_ptr<State>>>>,
-        std::vector<double>,
-        std::vector<bool>,
-        std::unordered_map<std::string, bool>,
-        double> FireModel::Step(const std::string& agent_type, std::vector<std::shared_ptr<Action>> actions){
+StepResult FireModel::Step(const std::string& agent_type, std::vector<std::shared_ptr<Action>> actions){
 #ifdef SPEEDTEST
     // Construct a new action for each drone with 0, 0
     std::vector<std::shared_ptr<Action>> actions2;
@@ -174,11 +171,11 @@ std::tuple<std::unordered_map<std::string, std::vector<std::deque<std::shared_pt
     auto result = rl_handler_->Step(agent_type, std::move(actions));
 #ifndef SPEEDTEST
     // Check if any element in terminals is true, if so some agent reached a terminal state
-    if (std::get<3>(result)["EnvReset"]) {
+    if (result.summary.env_reset) {
         ResetGridMap(&current_raster_data_);
         // Check if died or reached goal
         if (mode_ == Mode::GUI_RL) {
-            if (std::get<3>(result)["OneAgentDied"]){
+            if (result.summary.any_failed){
                 model_renderer_->ShowRedFlash();
             } else {
                 model_renderer_->ShowGreenFlash();
@@ -210,7 +207,6 @@ void FireModel::LoadMap(const std::string& path) {
 
 void FireModel::setupRLHandler() {
     rl_handler_ = ReinforcementLearningHandler::Create(parameters_);
-    rl_handler_->startFires = [this](float percentage) {StartFires(percentage);};
     std::cout << "Created ReinforcementLearning Handler" << std::endl;
 }
 
@@ -223,7 +219,7 @@ void FireModel::setupImGui() {
     imgui_handler_->onSetUniformRasterData = [this]() {SetUniformRasterData();};
     imgui_handler_->onMoveDrone = [this](int drone_idx, double speed_x, double speed_y, int water_dispense) {return rl_handler_->StepDroneManual(
             drone_idx, speed_x, speed_y, water_dispense);};
-    imgui_handler_->startFires = [this](float percentage) {StartFires(percentage);};
+    imgui_handler_->startFires = [this]() { fire_generator_->StartFires(); };
     imgui_handler_->onSetNoise = [this](CellState state, int noise_level, int noise_size) {GridMap::SetCellNoise(state, noise_level, noise_size);};
     imgui_handler_->onSetRLStatus = [this](py::dict status) {rl_handler_->SetRLStatus(std::move(status));};
     rl_handler_->onUpdateRLStatus = [this]() {imgui_handler_->updateOnRLStatusChange();};
@@ -277,7 +273,7 @@ void FireModel::TestBurndownHeadless() {
         timer_.AppendDuration(duration);
         // Reset the simulation
         ResetGridMap(&current_raster_data_);
-        StartFires(parameters_.fire_percentage_);
+        fire_generator_->StartFires();
         timer_.Start();
     }
     if (timer_.GetTimeSteps() == 0){
@@ -289,82 +285,6 @@ void FireModel::TestBurndownHeadless() {
         std::cout << std::endl;
         std::cout << "Average: " << timer_.GetAverageDuration() << std::endl;
         exit(0);
-    }
-}
-
-void FireModel::StartFires(float percentage) {
-    int cells = gridmap_->GetNumCells();
-    double perc = percentage * 0.01;
-    int fires = static_cast<int>(cells * perc);
-    if (!gridmap_->CanStartFires(fires)){
-        std::cout << "Map is incapable of burning that much. Please choose a lower percentage." << std::endl;
-        return;
-    }
-    if (!parameters_.ignite_single_cells_) {
-        this->IgniteFireCluster(fires);
-    } else {
-        for(int i = 0; i < fires;) {
-            std::pair<int, int> point = gridmap_->GetRandomPointInGrid();
-            if (gridmap_->CellCanIgnite(point.first, point.second)) {
-                gridmap_->IgniteCell(point.first, point.second);
-                i++;
-            }
-        }
-    }
-}
-
-void FireModel::IgniteFireCluster(int fires) {
-    std::pair<int, int> point = gridmap_->GetRandomPointInGrid();
-    std::set<std::pair<int, int>> visited;
-    std::queue<std::pair<int, int>> to_visit;
-
-    std::random_device rd;
-    std::mt19937 gen(rd());
-    std::uniform_real_distribution<double> dist(0.0, 1.0);
-
-    to_visit.push(point);
-    visited.insert(point);
-
-    int ignited = 0;
-
-    while (!to_visit.empty() && ignited < fires) {
-        auto current = to_visit.front();
-        to_visit.pop();
-
-        if (gridmap_->CellCanIgnite(current.first, current.second)) {
-            gridmap_->IgniteCell(current.first, current.second);
-            ignited++;
-        }
-
-        // Get Moore Neighborhood
-        auto neighbors = gridmap_->GetMooreNeighborhood(current.first, current.second);
-        std::vector<std::pair<int, int>> ignitable_neighbors;
-
-        // Collect neighbors we can ignite
-        for (auto& neighbor : neighbors) {
-            if (visited.find(neighbor) == visited.end() && gridmap_->CellCanIgnite(neighbor.first, neighbor.second)) {
-                ignitable_neighbors.push_back(neighbor);
-            }
-        }
-
-        // If we need more fires and the queue is about to run dry, force-push a neighbor
-        if (to_visit.empty() && ignited < fires && !ignitable_neighbors.empty()) {
-            // Randomly select one neighbor to guarantee some spread
-            std::shuffle(ignitable_neighbors.begin(), ignitable_neighbors.end(), gen);
-            to_visit.push(ignitable_neighbors.front());
-            visited.insert(ignitable_neighbors.front());
-            continue;
-        }
-
-        // Otherwise, do regular probabilistic addition
-        for (auto& neighbor : ignitable_neighbors) {
-            double randomValue = dist(gen);
-            double fireProbability = parameters_.fire_spread_prob_ + (dist(gen) - 0.5) * parameters_.fire_noise_;
-            if (randomValue < fireProbability) {
-                to_visit.push(neighbor);
-                visited.insert(neighbor);
-            }
-        }
     }
 }
 

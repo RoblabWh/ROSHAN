@@ -10,25 +10,20 @@
 GridMap::GridMap(std::shared_ptr<Wind> wind, FireModelParameters &parameters,
                  std::vector<std::vector<int>>* rasterData) :
                  parameters_(parameters),
-                 buffer_(rasterData->size() * ((rasterData->empty()) ? 0 : (*rasterData)[0].size()) * 30){
+                 buffer_(rasterData->size() * ((rasterData->empty()) ? 0 : (*rasterData)[0].size()) * 30, parameters) {
     int cols = static_cast<int>(rasterData->size()); //x NO IT'S Y
     int rows = (rasterData->empty()) ? 0 : static_cast<int>((*rasterData)[0].size()); //y NO IT'S X (this confusion stems from the map being transposed in memory)
     // Cols and Rows are swapped in Renderer to match GEO representation
     wind_ = std::move(wind);
-
-    // Generate a normally-distributed random number for phi_r
-    gen_ = std::mt19937(rd_());
-
     cells_ = std::vector<std::vector<std::shared_ptr<FireCell>>>(rows, std::vector<std::shared_ptr<FireCell>>(cols));
     explored_map_ = std::vector<std::vector<int>>(rows, std::vector<int>(cols, 0));
     step_explored_map_ = std::vector<std::vector<int>>(rows, std::vector<int>(cols, 0));
     fire_map_ = std::vector<std::vector<int>>(rows, std::vector<int>(cols, 0));
     visited_cells_ = std::vector<std::vector<bool>>(rows, std::vector<bool>(cols, false));
-//    std::cout << "GridMap: " << rows << " " << cols << std::endl;
 
     for (int x = 0; x < rows; ++x) {
         for (int y = 0; y < cols; ++y) {
-            cells_[x][y] = std::make_shared<FireCell>(x, y, gen_, parameters_, (*rasterData)[y][x]);
+            cells_[x][y] = std::make_shared<FireCell>(x, y, parameters_, (*rasterData)[y][x]);
         }
     }
     cols_ = cols;
@@ -561,8 +556,8 @@ std::pair<int, int> GridMap::GetRandomCorner() {
     // Returns a random corner of the grid with offset of 1 cell
     std::uniform_int_distribution<> dis_x(0, 1);
     std::uniform_int_distribution<> dis_y(0, 1);
-    int x = dis_x(gen_);
-    int y = dis_y(gen_);
+    int x = dis_x(parameters_.gen_);
+    int y = dis_y(parameters_.gen_);
     return std::make_pair(((1 - x) * (rows_ - 2)) + x, ((1 - y) * (cols_ - 2)) + y);
 }
 

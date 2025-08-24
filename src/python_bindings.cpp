@@ -70,6 +70,40 @@ PYBIND11_MODULE(firesim, m) {
             .def_property_readonly("fire_positions", &AgentState::get_fire_positions)
             .def_property_readonly("goal_positions", &AgentState::get_goal_positions);
 
+
+    py::enum_<TerminationKind>(m, "TerminationKind")
+            .value("None", TerminationKind::None)
+            .value("Failed", TerminationKind::Failed)
+            .value("Succeeded", TerminationKind::Succeeded);
+
+    py::enum_<FailureReason>(m, "FailureReason")
+            .value("None", FailureReason::None)
+            .value("Timeout", FailureReason::Timeout)
+            .value("BoundaryExit", FailureReason::BoundaryExit)
+            .value("Burnout", FailureReason::Burnout)
+            .value("Collision", FailureReason::Collision)
+            .value("Stuck", FailureReason::Stuck)
+            .value("NoProgress", FailureReason::NoProgress)
+            .value("Other", FailureReason::Other);
+
+    py::class_<AgentTerminal>(m, "AgentTerminal")
+            .def_readonly("is_terminal", &AgentTerminal::is_terminal)
+            .def_readonly("kind",        &AgentTerminal::kind)
+            .def_readonly("reason",      &AgentTerminal::reason);
+
+    py::class_<EpisodeSummary>(m, "EpisodeSummary")
+            .def_readonly("env_reset",       &EpisodeSummary::env_reset)
+            .def_readonly("any_failed",      &EpisodeSummary::any_failed)
+            .def_readonly("any_succeeded",   &EpisodeSummary::any_succeeded)
+            .def_readonly("reason",          &EpisodeSummary::reason);
+
+    py::class_<StepResult>(m, "StepResult")
+            .def_readonly("observations",   &StepResult::observations)
+            .def_readonly("rewards",        &StepResult::rewards)
+            .def_readonly("terminals",      &StepResult::terminals)
+            .def_readonly("summary",        &StepResult::summary)
+            .def_readonly("percent_burned", &StepResult::percent_burned);
+
     py::class_<EngineCore>(m, "EngineCore")
             .def(py::init<>())
             .def("Init", &EngineCore::Init, py::arg("mode"), py::arg("config_path") = "../config.yaml")

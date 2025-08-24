@@ -179,12 +179,7 @@ bool EngineCore::AgentIsRunning() {
     }
 }
 
-std::tuple<std::unordered_map<std::string,std::vector<std::deque<std::shared_ptr<State>>>>,
-    std::vector<double>,
-    std::vector<bool>,
-        std::unordered_map<std::string, bool>,
-    double>
-EngineCore::Step(const std::string& agent_type, std::vector<std::shared_ptr<Action>> actions) {
+StepResult EngineCore::Step(const std::string& agent_type, std::vector<std::shared_ptr<Action>> actions) {
     return model_->Step(agent_type, std::move(actions));
 }
 

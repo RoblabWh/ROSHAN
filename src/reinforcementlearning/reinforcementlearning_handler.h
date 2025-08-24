@@ -42,11 +42,12 @@ public:
     void ResetEnvironment(Mode mode);
     void InitFires() const;
     void SimStep(std::vector<std::shared_ptr<Action>> actions);
-    std::tuple<std::unordered_map<std::string, std::vector<std::deque<std::shared_ptr<State>>>>,
-            std::vector<double>,
-            std::vector<bool>,
-            std::unordered_map<std::string, bool>,
-            double> Step(const std::string& agent_type, std::vector<std::shared_ptr<Action>> actions);
+//    std::tuple<std::unordered_map<std::string, std::vector<std::deque<std::shared_ptr<State>>>>,
+//            std::vector<double>,
+//            std::vector<bool>,
+//            std::unordered_map<std::string, bool>,
+//            double> Step(const std::string& agent_type, std::vector<std::shared_ptr<Action>> actions);
+    StepResult Step(const std::string& agent_type, std::vector<std::shared_ptr<Action>> actions);
     void SetModelRenderer(std::shared_ptr<FireModelRenderer> model_renderer) { model_renderer_ = std::move(model_renderer); }
     void SetGridMap(std::shared_ptr<GridMap> gridmap) { gridmap_ = std::move(gridmap); }
     void SetRLStatus(py::dict status);
@@ -94,7 +95,6 @@ public:
         }
         return fly_agents;
     }
-    std::function<void(float)> startFires;
     std::function<void()> onUpdateRLStatus;
 private:
     std::shared_ptr<GridMap> gridmap_;

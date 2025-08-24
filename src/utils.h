@@ -9,13 +9,8 @@
 #include <unordered_set>
 #include <functional>
 #include <memory>
-
-enum Mode {
-    GUI_RL = 0,
-    GUI = 1,
-    NoGUI_RL = 2,
-    NoGUI = 3
-};
+#include <deque>
+#include "state.h"
 
 class Timer {
 public:
@@ -91,5 +86,45 @@ namespace std {
         }
     };
 }
+
+// --- Enums & helpers ---
+
+enum Mode { GUI_RL, GUI, NoGUI_RL, NoGUI };
+enum class TerminationKind : uint8_t { None, Failed, Succeeded };
+
+// Maybe allow multi failure reasons in the future, but for now we keep it simple
+enum class FailureReason : uint8_t { None, Timeout, BoundaryExit, Burnout, Collision, Stuck, NoProgress, Other };
+
+// --- Per-agent terminal payload ---
+struct AgentTerminal {
+    bool is_terminal{false};
+    TerminationKind kind{TerminationKind::None};
+    FailureReason reason{FailureReason::None};   // meaningful iff kind==Failed
+};
+
+// --- Episode summary ---
+struct EpisodeSummary {
+    bool env_reset{false};
+    bool any_failed{false};
+    bool any_succeeded{false};
+    FailureReason reason{FailureReason::None};
+    // These two are no longer needed, but this would be the place to add them when you would change the behavior
+    // from ONE agent fails/succeeds to ALL agents must fail/succeed -> but this requires huge changes in alot of
+    // places. Python-side we deal with irregular tensor-shapes which is a hassle and I don't want to deal with that
+//    bool all_failed{true};
+//    bool all_succeeded{true};
+};
+
+// --- Whole step result ---
+using Observations =
+        std::unordered_map<std::string, std::vector<std::deque<std::shared_ptr<State>>>>;
+
+struct StepResult {
+    Observations observations;
+    std::vector<double> rewards;        // aligned with agents vector
+    std::vector<AgentTerminal> terminals; // aligned with agents vector
+    EpisodeSummary summary;
+    double percent_burned{0.0};
+};
 
 #endif //ROSHAN_UTILS2_H

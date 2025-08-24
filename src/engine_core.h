@@ -57,12 +57,7 @@ public:
     std::string GetUserInput();
     void SimStep(std::vector<std::shared_ptr<Action>> actions);
     std::unordered_map<std::string, std::vector<std::deque<std::shared_ptr<State>>>> GetObservations();
-    std::tuple<std::unordered_map<std::string, std::vector<std::deque<std::shared_ptr<State>>>>,
-            std::vector<double>,
-            std::vector<bool>,
-            std::unordered_map<std::string, bool>,
-            double>
-    Step(const std::string& agent_type, std::vector<std::shared_ptr<Action>> actions);
+    StepResult Step(const std::string& agent_type, std::vector<std::shared_ptr<Action>> actions);
 
     [[nodiscard]] inline bool IsRunning() const { return is_running_; }
     bool InitialModeSelectionDone();

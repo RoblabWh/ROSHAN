@@ -5,8 +5,7 @@
 #include "fly_agent.h"
 
 FlyAgent::FlyAgent(FireModelParameters &parameters, int id, int time_steps) :
-Agent(parameters, 300),
-gen_(std::random_device{}()){
+Agent(parameters, 300){
     id_ = id;
     agent_type_ = "fly_agent";
     time_steps_ = time_steps;
@@ -31,7 +30,7 @@ void FlyAgent::Initialize(int mode,
     }
 
     std::uniform_real_distribution<double> dist(0.0, 1.0);
-    double rng_number = dist(gen_);
+    double rng_number = dist(parameters_.gen_);
     std::pair<int, int> point;
 
     max_speed_ = std::make_pair(speed, speed);
@@ -388,56 +387,58 @@ void FlyAgent::FlyPolicy(const std::shared_ptr<GridMap>& gridmap){
     }
 }
 
-std::vector<bool> FlyAgent::GetTerminalStates(bool eval_mode, const std::shared_ptr<GridMap>& grid_map, int env_steps_remaining) {
+AgentTerminal FlyAgent::GetTerminalStates(bool eval_mode, const std::shared_ptr<GridMap>& grid_map, int env_steps_remaining) {
     std::vector<bool> terminal_states;
     bool terminal_state = false;
     bool drone_died = false;
     bool drone_succeeded = false;
     bool eval = eval_mode && parameters_.extinguish_all_fires_;
 
+    AgentTerminal t;
+
     // If the agent has flown out of the grid it has reached a terminal state and died
     if (GetOutOfAreaCounter() > 1) {
-        terminal_state = true;
-        drone_died = true;
+        t.is_terminal = true;
+        t.reason = FailureReason::BoundaryExit;
     }
+
     // If the drone has reached the goal and it is not in evaluation mode
     // the goal is reached because the fly agent is trained that way
-    if (objective_reached_) {
-        if (!eval){
-            terminal_state = true;
-        }
-        drone_succeeded = true;
+    if (objective_reached_ && !eval) {
+        t.is_terminal = true;
     }
     // If the agent has taken too long it has reached a terminal state and died
     if (env_steps_remaining <= 0) {
-        terminal_state = true;
-        drone_died = true;
+        t.is_terminal = true;
+        t.reason = FailureReason::Timeout;
     }
 
     // TODO CHANGE LATER
     // Terminals only for evaluation lustiges loeschverhalten
     if (eval){
         if (grid_map->PercentageBurned() > 0.30) {
-            terminal_state = true;
-            drone_died = true;
+            t.is_terminal = true;
+            t.reason = FailureReason::Burnout;
         }
         if (extinguished_last_fire_) {
             //  Don't use gridmap_->IsBurning() because it is not reliable since it returns false when there
             //  are particles in the air. Instead, check if the drone has extinguished the last fire on the map.
             //  This also makes sure that only the drone that actually extinguished the fire gets the reward
-            terminal_state = true;
+            t.is_terminal = true;
         }
         if (!grid_map->IsBurning()) {
-            terminal_state = true;
+            t.is_terminal = true;
         }
     }
 
-    terminal_states.push_back(terminal_state);
-    terminal_states.push_back(drone_died);
-    terminal_states.push_back(drone_succeeded);
-    agent_terminal_state_ = terminal_state;
+    if (t.is_terminal && t.reason != FailureReason::None) { t.kind = TerminationKind::Failed; }
+    else if (t.is_terminal) { t.kind = TerminationKind::Succeeded; }
+    else { t.kind = TerminationKind::None; }
+
+    agent_terminal_state_ = t.is_terminal;
     env_steps_remaining_ = env_steps_remaining;
-    return terminal_states;
+
+    return t;
 }
 
 std::pair<double, double> FlyAgent::CalculateLocalGoal(double global_x, double global_y) {

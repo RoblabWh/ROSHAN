@@ -21,6 +21,9 @@
 #include <fstream>
 #include <regex>
 #include "json.hpp"
+#include "firespin/model_parameters.h"
+
+class FireModelParameters;
 
 std::string formatTime(int seconds);
 
@@ -173,24 +176,12 @@ private:
 
 class RandomBuffer {
 public:
-    explicit RandomBuffer(size_t size) : index_(0) {
+    RandomBuffer(size_t size, FireModelParameters &parameters) : index_(0), parameters_(parameters) {
         buffer_.resize(size);
-
         fillBuffer();
     }
 
-    void fillBuffer(){
-        // TODO PCG is faster, but not by very much
-        //std::minstd_rand rng(std::random_device{}());
-        std::mt19937 rng(std::random_device{}());
-//        pcg32 rng;
-//        pcg_extras::seed_seq_from<std::random_device> seed_source;
-//        rng.seed(seed_source);
-        std::normal_distribution<double> dist(0.0, 1.0);
-        for (auto &num : buffer_) {
-            num = dist(rng);
-        }
-    }
+    void fillBuffer();
 
     // Check if there are enough numbers from the current index to the end of the buffer
     [[maybe_unused]] bool hasEnough(size_t n) {
@@ -198,17 +189,13 @@ public:
     }
 
     double getNext() {
-        // Shuffle buffer if end is reached
-//        if (index_ >= buffer_.size()) {
-//            std::shuffle(buffer_.begin(), buffer_.end(), std::mt19937(std::random_device()()));
-//            index_ = 0;
-//        }
-//        // Wrap around if buffer end is reached
+        // Wrap around if buffer end is reached
         if (index_ >= buffer_.size()) index_ = 0;
         return buffer_[index_++];
     }
 
 private:
+    FireModelParameters &parameters_;
     std::vector<double> buffer_;
     size_t index_;
 };

@@ -14,6 +14,7 @@
 #include <unordered_map>
 #include "firespin/model_parameters.h"
 #include "firespin/utils.h"
+#include "src/utils.h"
 #include "agent_state.h"
 
 class Action;
@@ -30,9 +31,8 @@ public:
     virtual void
     ExecuteAction(std::shared_ptr<Action> action, std::string hierarchy_type, std::shared_ptr<GridMap> gridMap) = 0;
 
-    virtual std::vector<bool>
-    GetTerminalStates(bool eval_mode, const std::shared_ptr<GridMap> &grid_map, int total_env_steps) = 0;
-
+    virtual AgentTerminal GetTerminalStates(bool eval_mode, const std::shared_ptr<GridMap> &grid_map, int total_env_steps) = 0;
+    
     virtual bool GetPerformedHierarchyAction() const { return did_hierarchy_step; };
     virtual double CalculateReward() = 0;
     virtual void StepReset() = 0;
@@ -62,6 +62,7 @@ protected:
     bool objective_reached_ = false; // This is the Agents Objective, must be set to true when the agent reaches its goal,
                                      // this COULD be a desired reached positional goal, or another objective
     bool agent_terminal_state_ = false;
+    std::unordered_map<std::string, bool> agent_terminal_states_;
 
     int env_steps_remaining_ = 0;
     bool did_hierarchy_step = false; // Was the last action a hierarchy step? Determines if reward needs to be calculated
