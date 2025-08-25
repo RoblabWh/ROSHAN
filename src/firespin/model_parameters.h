@@ -27,6 +27,7 @@ public:
             seed_ = static_cast<int>(std::random_device{}());
         }
         gen_.seed(seed_);
+        init_rl_mode_ = config["settings"]["rl_mode"].as<std::string>();
 
         // Paths
         auto paths = config["paths"];
@@ -142,6 +143,7 @@ public:
 
     //Settings
     int seed_{};
+    std::string init_rl_mode_{};
 
     // Paths
     std::string corine_dataset_name_{};
@@ -149,6 +151,7 @@ public:
     //
     //Flags
     //
+    int mode_{};
     bool map_is_uniform_{};
     bool skip_gui_init_{};
     bool exit_carefully_ = false;

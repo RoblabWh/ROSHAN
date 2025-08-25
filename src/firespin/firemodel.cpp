@@ -12,6 +12,7 @@ FireModel::FireModel(Mode mode, const std::string& config_path) : mode_(mode)
     timer_.Start();
 
     parameters_.init(config_path);
+    parameters_.mode_ = mode_;
     dataset_handler_ = std::make_shared<DatasetHandler>(parameters_.corine_dataset_name_);
     parameters_.SetCorineLoaded(dataset_handler_->HasCorineLoaded());
     model_renderer_ = nullptr;
@@ -22,6 +23,9 @@ FireModel::FireModel(Mode mode, const std::string& config_path) : mode_(mode)
     model_output_ = "Hey, let's talk.";
 
     this->setupRLHandler();
+    last_rl_mode_ = parameters_.init_rl_mode_;
+    auto rl_status = rl_handler_->GetRLStatus();
+    rl_status[py::str("rl_mode")] = py::str(last_rl_mode_);
 
     if(mode_ == Mode::GUI || mode_ == Mode::GUI_RL){
         this->setupImGui();
@@ -31,15 +35,14 @@ FireModel::FireModel(Mode mode, const std::string& config_path) : mode_(mode)
         parameters_.SetNumberOfDrones(0);
     }
     if (mode_ == Mode::NoGUI_RL) {
-        auto rl_status = rl_handler_->GetRLStatus();
         rl_status[py::str("agent_is_running")] = py::bool_(true);
-        rl_handler_->SetRLStatus(rl_status);
         parameters_.check_for_model_folder_empty_ = true;
         std::cout << "Running in NoGUI_RL mode. Agent always runs." << std::endl;
     }
     if (parameters_.skip_gui_init_ && (mode_ != Mode::NoGUI_RL && mode_ != Mode::NoGUI)) {
         imgui_handler_->DefaultModeSelected();
     }
+    rl_handler_->SetRLStatus(rl_status);
     std::cout << "Created FireModel" << std::endl;
 }
 
@@ -139,6 +142,12 @@ void FireModel::FillRasterWithEnum() {
 }
 
 void FireModel::Update() {
+    // Reset the Simulation IF the RL mode changed or the last step(RL) was terminal
+    if (reset_next_step_ || last_rl_mode_ != rl_handler_->GetRLMode()) {
+        ResetGridMap(&current_raster_data_);
+        reset_next_step_ = false;
+        last_rl_mode_ = rl_handler_->GetRLMode();
+    }
     // Simulation time step update
     running_time_ += parameters_.GetDt();
     // Update the fire particles and the cell states
@@ -172,7 +181,7 @@ StepResult FireModel::Step(const std::string& agent_type, std::vector<std::share
 #ifndef SPEEDTEST
     // Check if any element in terminals is true, if so some agent reached a terminal state
     if (result.summary.env_reset) {
-        ResetGridMap(&current_raster_data_);
+        reset_next_step_ = true;
         // Check if died or reached goal
         if (mode_ == Mode::GUI_RL) {
             if (result.summary.any_failed){

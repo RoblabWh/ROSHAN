@@ -264,7 +264,7 @@ class AgentHandler:
 
         module_names = self.agent_type.get_module_names(self.algorithm_name)
         parent_network_dir = os.path.join(os.path.dirname(os.path.normpath(self.root_model_path)), "networks")
-        is_autotrain_path = self.root_model_path[:-1].endswith("training_")
+        is_autotrain_path = self.root_model_path.split(os.sep)[-1].split("_")[0] == "training"
         use_parent_networkdir = is_autotrain_path and os.path.exists(parent_network_dir)
         network_dir_load = os.path.join(str(self.root_model_path), "networks") if not use_parent_networkdir else parent_network_dir
         network_dir_std = os.path.join(get_project_paths("root_path"), "src/pysim/networks")
@@ -532,6 +532,7 @@ class AgentHandler:
                     model_path = self.algorithm.get_model_path()
                     logging_path = os.path.join(model_path, "logs")
                     self.tensorboard = TensorboardLogger(log_dir=logging_path)
+                    self.evaluator.tb_logger = self.tensorboard
 
                 # Reset memory
                 self.memory.clear_memory()

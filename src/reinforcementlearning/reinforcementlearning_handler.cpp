@@ -58,7 +58,7 @@ void ReinforcementLearningHandler::ResetEnvironment(Mode mode) {
     // Create fly_agents [always present]
     // Calculate the number of fly_agents based on the chosen Hierarchy TODO currently not implemented
     if (parameters_.GetHierarchyType() == "fly_agent") {
-        int num_fly_agents = parameters_.GetNumberOfFlyAgents();
+        int num_fly_agents = rl_status_["rl_mode"].cast<std::string>() == "eval" ? 1 : parameters_.GetNumberOfFlyAgents();
         for (int i = 0; i < num_fly_agents; ++i){
             auto time_steps = parameters_.fly_agent_time_steps_;
             // TODO rl_mode shouldn't be used here

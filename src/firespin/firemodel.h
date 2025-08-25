@@ -84,6 +84,8 @@ private:
 
     // Flags
     Mode mode_;
+    bool reset_next_step_ = false;
+    std::string last_rl_mode_{};
 
     // Dirty Variables
     std::string user_input_;

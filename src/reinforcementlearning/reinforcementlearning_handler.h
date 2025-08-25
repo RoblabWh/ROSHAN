@@ -40,7 +40,6 @@ public:
     std::unordered_map<std::string, std::vector<std::deque<std::shared_ptr<State>>>> GetObservations();
     void StepDroneManual(int drone_idx, double speed_x, double speed_y, int water_dispense);
     void ResetEnvironment(Mode mode);
-    void InitFires() const;
     void SimStep(std::vector<std::shared_ptr<Action>> actions);
 //    std::tuple<std::unordered_map<std::string, std::vector<std::deque<std::shared_ptr<State>>>>,
 //            std::vector<double>,
@@ -54,6 +53,7 @@ public:
     void UpdateReward();
     bool AgentIsRunning() const { return rl_status_["agent_is_running"].cast<bool>(); }
     py::dict GetRLStatus() { return rl_status_; }
+    std::string GetRLMode() const { return rl_status_["rl_mode"].cast<std::string>(); }
     std::shared_ptr<std::vector<std::shared_ptr<FlyAgent>>> GetDrones() {
         auto fly_agents = std::make_shared<std::vector<std::shared_ptr<FlyAgent>>>();
 

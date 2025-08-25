@@ -162,8 +162,9 @@ def main(config_path_ : str = ""):
                 hierarchy_manager.train(engine)
             else:
                 hierarchy_manager.eval(engine)
-            engine.SendRLStatusToModel(sim_bridge.get_status())
 
+            hierarchy_manager.update_status()
+            engine.SendRLStatusToModel(sim_bridge.get_status())
 
         if config["settings"]["llm_support"]:
             user_input = engine.GetUserInput()
