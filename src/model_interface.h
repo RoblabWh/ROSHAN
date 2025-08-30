@@ -21,7 +21,6 @@ public:
     virtual ~IModel() = default;
 
     virtual void Update() = 0;
-    virtual void SimStep(std::vector<std::shared_ptr<Action>> actions) = 0;
 //    virtual std::tuple<std::unordered_map<std::string,std::vector<std::deque<std::shared_ptr<State>>>>,
 //    std::vector<double>,
 //    std::vector<bool>,
@@ -42,6 +41,7 @@ public:
     virtual std::string GetUserInput() = 0;
     virtual void InitializeMap() = 0;
     virtual bool InitialModeSelectionDone() = 0;
+    virtual void CheckReset() = 0;
 };
 
 

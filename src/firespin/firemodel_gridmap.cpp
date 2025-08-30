@@ -42,7 +42,54 @@ GridMap::GridMap(std::shared_ptr<Wind> wind, FireModelParameters &parameters,
     flooded_cells_.reserve(1000);
 
     noise_generated_ = false;
+    last_has_noise_ = parameters_.has_noise_;
 }
+
+void GridMap::Reset(std::vector<std::vector<int>>* rasterData) {
+    int cols = static_cast<int>(rasterData->size());
+    int rows = (rasterData->empty()) ? 0 : static_cast<int>((*rasterData)[0].size());
+
+    if (cols != cols_ || rows != rows_ || cells_.empty()) {
+        cells_.assign(rows, std::vector<std::shared_ptr<FireCell>>(cols));
+        explored_map_.assign(rows, std::vector<int>(cols, 0));
+        step_explored_map_.assign(rows, std::vector<int>(cols, 0));
+        fire_map_.assign(rows, std::vector<int>(cols, 0));
+        visited_cells_.assign(rows, std::vector<bool>(cols, false));
+        cols_ = cols;
+        rows_ = rows;
+    }
+
+    for (int x = 0; x < rows_; ++x) {
+        for (int y = 0; y < cols_; ++y) {
+            if (cells_[x][y]) {
+                cells_[x][y]->Reset((*rasterData)[y][x]);
+            } else {
+                cells_[x][y] = std::make_shared<FireCell>(x, y, parameters_, (*rasterData)[y][x]);
+            }
+            explored_map_[x][y] = 0;
+            step_explored_map_[x][y] = 0;
+            fire_map_[x][y] = 0;
+            visited_cells_[x][y] = false;
+        }
+    }
+
+    num_cells_ = cols_ * rows_;
+    parameters_.SetGridNxNy(rows_, cols_);
+    y_off_ = 2 * (1 - ((cols_ - 0.5) / cols_));
+    x_off_ = 2 * (1 - ((rows_ - 0.5) / rows_));
+    num_burned_cells_ = 0;
+    num_unburnable_ = this->GetNumUnburnableCells();
+
+    virtual_particles_.clear();
+    radiation_particles_.clear();
+    ticking_cells_.clear();
+    burning_cells_.clear();
+    flooded_cells_.clear();
+    changed_cells_.clear();
+
+    buffer_.fillBuffer();
+}
+
 
 template <typename ParticleType>
 void GridMap::UpdateVirtualParticles(std::vector<ParticleType> &particles, std::vector<std::vector<bool>> &visited_cells) {
@@ -455,15 +502,24 @@ void GridMap::SetCellNoise(CellState state, int noise_level, int noise_size) {
 }
 
 void GridMap::GenerateNoiseMap() {
-    if (!this->noise_generated_ && parameters_.has_noise_){
-        for(const auto& cell_row : cells_) {
-            for(const auto& cell : cell_row) {
-                if(cell->HasNoise()){
-                    cell->GenerateNoiseMap();
+    if (!noise_generated_ || parameters_.has_noise_ != last_has_noise_) {
+        if (parameters_.has_noise_) {
+            int rows = static_cast<int>(cells_.size());
+#pragma omp parallel for
+            for(int i = 0; i < rows; ++i) {
+                const auto& cell_row = cells_[i];
+//        for(const auto& cell_row : cells_) {
+                for(const auto& cell : cell_row) {
+                    if(cell->HasNoise()) {
+                        cell->GenerateNoiseMap();
+                    }
                 }
             }
+            this->noise_generated_ = true;
+        } else {
+            this->noise_generated_ = false;
         }
-        this->noise_generated_ = true;
+        last_has_noise_ = parameters_.has_noise_;
     }
 }
 

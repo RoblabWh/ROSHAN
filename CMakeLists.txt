@@ -1,31 +1,49 @@
 cmake_minimum_required(VERSION 3.25)
-project(ROSHAN)
+project(ROSHAN LANGUAGES CXX)
 
 # Specify the C++ standard
 set(CMAKE_CXX_STANDARD 17)
-set(CMAKE_CXX_STANDARD_REQUIRED True)
+set(CMAKE_CXX_STANDARD_REQUIRED ON)
+set(CMAKE_POSITION_INDEPENDENT_CODE ON)
 
 # Set the build path
 set(MY_CPP_BUILD_PATH "${CMAKE_BINARY_DIR}")
-
-# Set the models path
-get_filename_component(PARENT_DIR "${MY_CPP_BUILD_PATH}" DIRECTORY)
-set(MODELS_PATH "${PARENT_DIR}/models")
 
 # Set CMAKE Module Path for FindSDL2_image.cmake
 set(CMAKE_MODULE_PATH ${CMAKE_MODULE_PATH} "${CMAKE_SOURCE_DIR}/cmake/")
 
 # Enable optimizations
-#set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -O3 -march=native -flto -funroll-loops -ffast-math")
+set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -O3 -march=native -flto -funroll-loops \
+        -fno-omit-frame-pointer -ffunction-sections -fdata-sections")
+set(CMAKE_EXE_LINKER_FLAGS "${CMAKE_EXE_LINKER_FLAGS} -Wl,-O2 -Wl,--as-needed -Wl,--gc-sections")
+set(CMAKE_SHARED_LINKER_FLAGS "${CMAKE_SHARED_LINKER_FLAGS} -Wl,-O2 -Wl,--as-needed -Wl,--gc-sections")
 # Enable faster-build optimizations
 #set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -O3")
 # Development flags
 #set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -O2")
-set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -g -O0")
+#set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -g -O0")
 
-# Set the path to SDL2 and SDL2_image
-find_package(SDL2 REQUIRED)
-find_package(SDL2_image REQUIRED)
+find_program(CCACHE_PROGRAM ccache)
+if (CCACHE_PROGRAM)
+    set(CMAKE_CXX_COMPILER_LAUNCHER ${CCACHE_PROGRAM})
+endif()
+
+# Third parties
+find_package(SDL2 REQUIRED)                      # provides SDL2::SDL2
+find_package(SDL2_image REQUIRED)                # provides SDL2_image::SDL2_image
+find_package(OpenGL REQUIRED)                    # provides OpenGL::GL
+find_package(CURL REQUIRED)                      # provides CURL::libcurl (newer CMake) or use ${CURL_LIBRARIES}
+find_package(GDAL REQUIRED)                      # may give GDAL::GDAL if recent, else vars
+find_package(Python3 COMPONENTS Interpreter Development REQUIRED)
+find_package(Threads REQUIRED)
+find_package(OpenMP REQUIRED)
+
+if (Python3_FOUND)
+    message(STATUS "Found Python: ${Python3_EXECUTABLE} (found version ${Python3_VERSION})")
+    include_directories(${Python3_INCLUDE_DIRS})
+else()
+    message(FATAL_ERROR "Python3 not found")
+endif()
 
 if (SDL2_FOUND AND SDL2_IMAGE_FOUND)
     message(STATUS "SDL2 Include Directories: ${SDL2_INCLUDE_DIRS}")
@@ -38,16 +56,40 @@ else()
     message(FATAL_ERROR "SDL2 or SDL2_image not found")
 endif()
 
-# Generate a JSON configuration file
-set(CONFIG_FILE "${PARENT_DIR}/project_paths.json")
+add_subdirectory(externals/pybind11)            # pybind11::module etc.
+add_subdirectory(externals/yaml-cpp)            # yaml-cpp target
+
+# ImGui
+file(GLOB IMGUI_SOURCES CONFIGURE_DEPENDS
+        ${CMAKE_SOURCE_DIR}/externals/imgui/*.cpp
+)
+add_library(imgui_external ${IMGUI_SOURCES}
+        externals/imgui/backends/imgui_impl_sdl2.cpp
+        externals/imgui/backends/imgui_impl_opengl3.cpp
+        externals/imgui/backends/imgui_impl_opengl3.h
+        externals/imgui/backends/imgui_impl_sdl2.h
+        externals/imgui/backends/imgui_impl_sdlrenderer2.cpp
+        externals/ImGuiFileDialog/ImGuiFileDialog.cpp
+)
+target_include_directories(imgui_external PUBLIC
+        ${CMAKE_SOURCE_DIR}/externals/imgui
+        ${CMAKE_SOURCE_DIR}/externals/imgui/backends
+)
+# ImGui backends include SDL/OpenGL headers; surface those requirements:
+target_link_libraries(imgui_external PUBLIC
+        ${SDL2_LIBRARIES}
+        ${SDL2_IMAGE_LIBRARY}
+        OpenGL::GL
+)
 
 # Populate the paths config file if it does not exist
+get_filename_component(PARENT_DIR "${MY_CPP_BUILD_PATH}" DIRECTORY)
+set(CONFIG_FILE "${PARENT_DIR}/project_paths.json")
 set(ROOT_PATH "${PARENT_DIR}")
 set(MODULE_DIRECTORY "${MY_CPP_BUILD_PATH}")
 set(MAPS_DIRECTORY "${PARENT_DIR}/maps")
 set(OSM_DATA "${PARENT_DIR}/openstreetmap/data.json")
 set(DATASET_PATH "${CMAKE_SOURCE_DIR}/assets/dataset/") # Default path for dataset_directory
-
 configure_file(
         "${CMAKE_SOURCE_DIR}/project_paths.json.in"
         "${CONFIG_FILE}"
@@ -61,55 +103,17 @@ include_directories(${CMAKE_SOURCE_DIR}/externals/imgui/backends)
 include_directories(${CMAKE_SOURCE_DIR}/externals/nlohmann)
 include_directories(${CMAKE_SOURCE_DIR}/externals/yaml-cpp)
 
-# Find Python
-find_package(Python3 COMPONENTS Interpreter Development)
-
-if (Python3_FOUND)
-    message(STATUS "Found Python: ${Python3_EXECUTABLE} (found version ${Python3_VERSION})")
-    include_directories(${Python3_INCLUDE_DIRS})
-else()
-    message(FATAL_ERROR "Python3 not found")
-endif()
-
-# Add subdirectory for pybind11
-add_subdirectory(externals/pybind11)
 set(PYTHON_EXECUTABLE "$ENV{CONDA_PREFIX}/bin/python")
-
-# Add subdirectory for YAML-CPP
-add_subdirectory(externals/yaml-cpp)
-
-# Find and link against OpenGL
-find_package(OpenGL REQUIRED)
-
-# Add the imgui library
-file(GLOB IMGUI_SOURCES ${CMAKE_SOURCE_DIR}/externals/imgui/*.cpp)
-add_library(imgui_external ${IMGUI_SOURCES}
-        externals/imgui/backends/imgui_impl_sdl2.cpp
-        externals/imgui/backends/imgui_impl_opengl3.cpp
-        externals/imgui/backends/imgui_impl_opengl3.h
-        externals/imgui/backends/imgui_impl_sdl2.h
-        externals/imgui/backends/imgui_impl_sdlrenderer2.cpp)
-target_include_directories(imgui_external PUBLIC ${CMAKE_SOURCE_DIR}/externals/imgui ${CMAKE_SOURCE_DIR}/externals/imgui/backends/)
-
-# Find CURL (required by GDAL)
-find_package(CURL REQUIRED)
-
-# GDAL
-find_package(GDAL REQUIRED)
-include_directories(${GDAL_INCLUDE_DIRS})
 
 # Core sources
 set(CORE_SOURCES
-        src/main.cpp
         src/utils.h
         src/engine_core.cpp src/engine_core.h
         src/corine/dataset_handler.cpp src/corine/dataset_handler.h
-        externals/ImGuiFileDialog/ImGuiFileDialog.cpp externals/ImGuiFileDialog/ImGuiFileDialog.h
         src/model_interface.h
 )
 
 # Agent sources
-#src/reinforcementlearning/drone_agent/rendering/DroneRenderer.cpp src/reinforcementlearning/drone_agent/rendering/DroneRenderer.h
 set(AGENT_SOURCES
         src/state.h
         src/reinforcementlearning/agents/agent.h src/reinforcementlearning/agents/agent.cpp
@@ -161,56 +165,42 @@ set(FIREMODEL_SOURCES
         src/firespin/rendering/firemodel_imgui.cpp src/firespin/rendering/firemodel_imgui.h
 )
 
-# Python bindings
-pybind11_add_module(firesim src/python_bindings.cpp
+# Core library
+add_library(roshan_core STATIC
         ${CORE_SOURCES}
         ${AGENT_SOURCES}
-        ${FIREMODEL_SOURCES}
-        ${IMGUI_SOURCES}
+        ${FIREMODEL_SOURCES})
+set_target_properties(roshan_core PROPERTIES
+        UNITY_BUILD ON                # batch-compile sources (cuts memory spikes)
 )
-
-target_include_directories(firesim PRIVATE
+target_include_directories(roshan_core PUBLIC
         ${CMAKE_SOURCE_DIR}
-        ${CMAKE_SOURCE_DIR}/externals/imgui
-        ${CMAKE_SOURCE_DIR}/externals/imgui/backends/
-        /usr/local/include/SDL2
-        ${GDAL_INCLUDE_DIRS}
-)
-
-target_link_libraries(firesim PRIVATE
-        ${SDL2_LIBRARIES}
-        ${SDL2_IMAGE_LIBRARY}
-        ${CURL_LIBRARIES}
-        ${GDAL_LIBRARIES}
-        ${X11_LIBRARIES}
-        OpenGL::GL
+        ${GDAL_INCLUDE_DIRS})
+target_link_libraries(roshan_core
+        PUBLIC
         imgui_external
         yaml-cpp
+        SDL2::SDL2
+        ${SDL2_IMAGE_LIBRARY}
+        OpenGL::GL
+        Threads::Threads
+        GDAL::GDAL          # if found as target, else use ${GDAL_LIBRARIES}
+        PRIVATE
+        CURL::libcurl                # if not defined, use ${CURL_LIBRARIES}
+        OpenMP::OpenMP_CXX
 )
+
+# Python module
+pybind11_add_module(firesim src/python_bindings.cpp)
+target_link_libraries(firesim PRIVATE roshan_core)
 
 # Main executable
-add_executable(ROSHAN
-        ${CORE_SOURCES}
-        ${AGENT_SOURCES}
-        ${FIREMODEL_SOURCES}
-)
-
-target_include_directories(ROSHAN PRIVATE
-        ${CMAKE_SOURCE_DIR}
-        ${CMAKE_SOURCE_DIR}/externals/nlohmann
-)
+add_executable(ROSHAN src/main.cpp)
+target_include_directories(ROSHAN PRIVATE ${CMAKE_SOURCE_DIR}/externals/nlohmann)
 
 # Link against libraries
-target_link_libraries(ROSHAN PRIVATE
-        ${SDL2_LIBRARIES}
-        ${SDL2_IMAGE_LIBRARY}
-        ${X11_LIBRARIES}
-        ${Python3_LIBRARIES}
-        OpenGL::GL
-        imgui_external
-        yaml-cpp
-        ${CURL_LIBRARIES}
-        ${GDAL_LIBRARIES}
+target_link_libraries(ROSHAN PRIVATE roshan_core
+        Python3::Python
         dl
         tiff
         ffi

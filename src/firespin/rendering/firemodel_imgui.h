@@ -165,7 +165,7 @@ public:
     // Callbacks
     std::function<void()> onResetDrones;
     std::function<void()> onSetUniformRasterData;
-    std::function<void(std::vector<std::vector<int>>*)> onResetGridMap;
+    std::function<void(std::vector<std::vector<int>>*, bool)> onResetGridMap;
     std::function<void()> onFillRasterWithEnum;
     std::function<void(int,double,double,int)> onMoveDrone;
     std::function<void(CellState, int, int)> onSetNoise;

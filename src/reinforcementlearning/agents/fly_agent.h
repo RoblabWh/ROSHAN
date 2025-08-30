@@ -42,6 +42,11 @@ public:
                     const std::shared_ptr<GridMap>& grid_map,
                     const std::shared_ptr<FireModelRenderer>& model_renderer,
                     const std::string& rl_mode);
+    void Reset(Mode mode,
+               const std::shared_ptr<GridMap>& grid_map,
+               const std::shared_ptr<FireModelRenderer>& model_renderer,
+               const std::string& rl_mode) override;
+
     void InitializeFlyAgentStates(const std::shared_ptr<GridMap>& grid_map);
 
     void PerformFly(FlyAction* action, const std::string& hierarchy_type, const std::shared_ptr<GridMap>& gridMap);
@@ -83,11 +88,9 @@ public:
     bool GetDroneInGrid() const { return drone_in_grid_; }
     std::pair<int, int> GetGridPosition();
     double GetDistanceToGoal();
-    std::pair<double, double> GetGridPositionDouble() { return this->GetLastState().GetGridPositionDouble(); };
-    std::pair<double, double> GetPositionDoubleNorm() { return this->GetLastState().GetGridPositionDoubleNorm(); }
-    std::pair<double, double> GetRealPosition() { return position_; };
+    std::pair<double, double> GetGridPositionDouble() { return std::make_pair<double, double>(position_.first / parameters_.GetCellSize(), position_.second / parameters_.GetCellSize()); }//{ return this->GetLastState().GetGridPositionDouble(); }
+    std::pair<double, double> GetRealPosition() { return position_; }
     std::pair<double, double> GetGoalPosition() { return goal_position_; }
-    std::pair<double, double> GetGoalPositionDoubleNorm() { return this->GetLastState().GetGoalPositionNorm(); }
     std::string GetAgentType() const { return agent_type_; }
 
     std::pair<int, int> GetGoalPositionInt() const { return std::make_pair((int)goal_position_.first, (int)goal_position_.second); }
@@ -106,8 +109,6 @@ public:
     void SetAgentType(const std::string& agent_type) { agent_type_ = agent_type; }
     void SetSpeed(std::pair<double, double> speed) { max_speed_ = speed; }
 private:
-    void UpdateStates(const std::shared_ptr<GridMap>& grid_map, std::pair<double, double> velocity_vector, int water_dispense);
-
     //Fly Agent specific
     void FlyPolicy(const std::shared_ptr<GridMap> &gridmap);
     std::pair<double, double> MovementStep(double netout_x, double netout_y);
@@ -119,7 +120,6 @@ private:
     double last_distance_to_goal_{};
     bool drone_in_grid_ = true; //* Is the Drone in the Grid?
     int view_range_{}; //* View Range of the Agent in Grid Cells (10m each)
-    int frame_skips_{}; //* Number of frames the simulation repeates a low level action
     std::pair<double, double> max_speed_{}; //* Value for the maximum velocity of an Agent in x and y direction
 
     // Possibly Deprecated
@@ -128,11 +128,13 @@ private:
     bool dispensed_water_{};
 
     std::pair<double, double> position_; // x, y in (m)
+    std::pair<double, double> vel_vector_;
     std::pair<double, double> goal_position_;
     int newly_explored_cells_{};
     int out_of_area_counter_;
     double water_capacity_;
-    int policy_type_{}; // 0 = extinguish fire, 1 = fly to groundstation, 2 = recharge, 3 = explore
+    enum policy_types {EXTINGUISH_FIRE, FLY_TO_GROUNDSTATION, RECHARGE, EXPLORE};
+    int policy_type_ = policy_types::EXTINGUISH_FIRE;
     bool extinguished_last_fire_ = false;
     bool active_ = false;
 
@@ -156,8 +158,7 @@ private:
     //* @return std::pair<double, double> New Velocity
     std::pair<double, double> GetNewVelocity(double next_speed_x, double next_speed_y) const;
 
-    std::shared_ptr<AgentState>
-    BuildAgentState(const std::shared_ptr<GridMap> &grid_map, std::pair<double, double> velocity, int water_dispense);
+    std::shared_ptr<AgentState> BuildAgentState(const std::shared_ptr<GridMap> &grid_map) override;
 
     // Currently just for Debugging
     int last_step_total_revisited_cells_of_all_agents_{};

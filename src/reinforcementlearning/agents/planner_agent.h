@@ -11,6 +11,7 @@
 
 
 class GridMap;
+class FireModelRenderer;
 
 class PlannerAgent : public Agent {
 public:
@@ -21,6 +22,11 @@ public:
     }
 
     void Initialize(std::shared_ptr<ExploreAgent> explore_agent, std::vector<std::shared_ptr<FlyAgent>> fly_agents, const std::shared_ptr<GridMap> &grid_map, const std::string &rl_mode);
+
+    void Reset(Mode mode,
+               const std::shared_ptr<GridMap>& grid_map,
+               const std::shared_ptr<FireModelRenderer>& model_renderer,
+               const std::string& rl_mode) override;
 
     void PerformPlan(PlanAction* action, const std::string& hierarchy_type, const std::shared_ptr<GridMap>& gridMap);
     bool GetPerformedHierarchyAction() const override { return did_hierarchy_step; }
@@ -51,8 +57,7 @@ private:
     bool explored_fires_equals_actual_fires_ = false;
     bool extinguished_last_fire_ = false;
 
-    void UpdateStates(const std::shared_ptr<GridMap> &grid_map);
-    std::shared_ptr<AgentState> BuildAgentState(const std::shared_ptr<GridMap> &grid_map);
+    std::shared_ptr<AgentState> BuildAgentState(const std::shared_ptr<GridMap> &grid_map) override;
 };
 
 #endif //ROSHAN_PLANNER_AGENT_H

@@ -10,6 +10,7 @@
 #include "reinforcementlearning/actions/explore_action.h"
 
 class GridMap;
+class FireModelRenderer;
 
 class ExploreAgent : public Agent {
 public:
@@ -20,6 +21,11 @@ public:
     }
 
     void Initialize(std::vector<std::shared_ptr<FlyAgent>> fly_agents, const std::shared_ptr<GridMap> &grid_map, const std::string &rl_mode);
+    void Reset(Mode mode,
+               const std::shared_ptr<GridMap>& grid_map,
+               const std::shared_ptr<FireModelRenderer>& model_renderer,
+               const std::string& rl_mode) override;
+
 
     void PerformExplore(ExploreAction* action, const std::string& hierarchy_type, const std::shared_ptr<GridMap>& gridMap);
     bool GetPerformedHierarchyAction() const override { return did_hierarchy_step; }
@@ -31,8 +37,6 @@ public:
     AgentTerminal GetTerminalStates(bool eval_mode, const std::shared_ptr<GridMap>& grid_map, int total_env_steps) override;
 
 private:
-    void InitializeExploreAgentStates();
-
     bool did_hierarchy_step = false;
     std::vector<std::shared_ptr<FlyAgent>> fly_agents_;
     std::vector<std::deque<std::pair<double, double>>> perfect_goals_;
@@ -42,11 +46,10 @@ private:
     // Rewards Collection for Debugging!
     bool explored_fires_equals_actual_fires_ = false;
 
-    void UpdateStates(const std::shared_ptr<GridMap> &grid_map);
     static std::pair<double, double> GetGoalFromAction(const ExploreAction* action, const std::shared_ptr<GridMap> &grid_map);
     std::pair<double, double> GetGoalFromCertain(std::deque<std::pair<double, double>> &goals, const std::shared_ptr<GridMap>& gridMap);
     void InitializeExploreAgentStates(const std::shared_ptr<GridMap> &grid_map);
-    std::shared_ptr<AgentState> BuildAgentState(const std::shared_ptr<GridMap> &grid_map);
+    std::shared_ptr<AgentState> BuildAgentState(const std::shared_ptr<GridMap> &grid_map) override;
 };
 
 

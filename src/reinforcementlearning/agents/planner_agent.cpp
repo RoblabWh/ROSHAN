@@ -9,6 +9,8 @@ PlannerAgent::PlannerAgent(FireModelParameters &parameters, int id, int time_ste
     id_ = id;
     agent_type_ = "planner_agent";
     time_steps_ = time_steps;
+    frame_skips_ = parameters_.planner_agent_frame_skips_;
+    frame_ctrl_ = 0;
 }
 
 void PlannerAgent::PerformPlan(PlanAction *action, const std::string &hierarchy_type,
@@ -36,7 +38,6 @@ void PlannerAgent::PerformPlan(PlanAction *action, const std::string &hierarchy_
     if (hierarchy_type == "planner_agent") {
         did_hierarchy_step = true;
     }
-    this->UpdateStates(gridMap);
     if (!gridMap->HasBurningFires() && extinguished_last_fire_){
         objective_reached_ = true;
     }
@@ -48,6 +49,25 @@ void PlannerAgent::Initialize(std::shared_ptr<ExploreAgent> explore_agent, std::
     fly_agents_ = std::move(fly_agents);
     // Initialize the agent states with the current grid map
     InitializePlannerAgentStates(grid_map);
+}
+
+void PlannerAgent::Reset(Mode mode,
+                         const std::shared_ptr<GridMap>& grid_map,
+                         const std::shared_ptr<FireModelRenderer>& model_renderer,
+                         const std::string& rl_mode) {
+    (void)mode; (void)model_renderer; // unused
+    objective_reached_ = false;
+    agent_terminal_state_ = false;
+    did_hierarchy_step = false;
+    reward_components_.clear();
+    goal_idx_ = 0;
+    revisited_cells_ = 0;
+    extinguished_fires_ = 0;
+    frame_ctrl_ = 0;
+    extinguished_last_fire_ = false;
+    perfect_goals_.clear();
+    agent_states_.clear();
+    Initialize(explore_agent_, fly_agents_, grid_map, rl_mode);
 }
 
 AgentTerminal
@@ -141,23 +161,14 @@ void PlannerAgent::InitializePlannerAgentStates(const std::shared_ptr<GridMap> &
     }
 }
 
-void PlannerAgent::UpdateStates(const std::shared_ptr<GridMap> &grid_map) {
-    agent_states_.push_front(BuildAgentState(grid_map));
-
-    // Maximum number of states i.e. memory
-    if (agent_states_.size() > time_steps_) {
-        agent_states_.pop_back();
-    }
-}
-
 std::shared_ptr<AgentState> PlannerAgent::BuildAgentState(const std::shared_ptr<GridMap> &grid_map) {
     auto state = std::make_shared<AgentState>();
 
     std::vector<std::pair<double, double>> drone_positions;
     std::vector<std::pair<double, double>> drone_goals;
     for (const auto &fly_agent : fly_agents_) {
-        drone_positions.push_back(fly_agent->GetPositionDoubleNorm());
-        drone_goals.push_back(fly_agent->GetGoalPositionDoubleNorm());
+        drone_positions.push_back(fly_agent->GetLastState().GetGridPositionDoubleNorm());
+        drone_goals.push_back(fly_agent->GetLastState().GetGoalPositionNorm());
     }
 //    auto fire_positions = explore_agent_->GetLastState().GetFirePositionsFromFireMap();
     auto fire_positions = grid_map->GetFirePositionsFromBurningCells();

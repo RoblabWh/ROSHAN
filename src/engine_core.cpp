@@ -129,6 +129,9 @@ void EngineCore::HandleEvents() {
             }
         }
     }
+    if (model_ != nullptr) {
+        model_->CheckReset();
+    }
 }
 
 void EngineCore::InitializeMap() {
@@ -163,7 +166,7 @@ void EngineCore::StopServer() {
 
     std::string kill_command = "kill " + std::to_string(pid);
     std::cout << "OSM-Server-Process with ID " << std::to_string(pid) << " stopped." << std::endl;
-    std::system(kill_command.c_str());
+    auto c = std::system(kill_command.c_str());
 }
 
 
@@ -359,10 +362,4 @@ bool EngineCore::ImGuiInit() {
         return false;
     }
     return true;
-}
-
-void EngineCore::SimStep(std::vector<std::shared_ptr<Action>> actions) {
-    if(model_ != nullptr){
-        model_->SimStep(std::move(actions));
-    }
 }

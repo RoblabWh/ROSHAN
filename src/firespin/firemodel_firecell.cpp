@@ -330,9 +330,14 @@ void FireCell::GenerateNoiseMap() {
     int size = cell_->GetNoiseSize();
     noise_map_.resize(size, std::vector<int>(size));
     std::uniform_int_distribution<> dist(-noise_level, noise_level);
+
+    std::seed_seq seq{static_cast<unsigned int>(parameters_.seed_),
+                      static_cast<unsigned int>(x_),
+                      static_cast<unsigned int>(y_)};
+    std::mt19937 gen(seq);
     for (int y = 0; y < size; ++y) {
         for (int x = 0; x < size; ++x) {
-            noise_map_[y][x] = dist(parameters_.gen_);
+            noise_map_[y][x] = dist(gen);
         }
     }
 }
@@ -347,4 +352,49 @@ FireCell::~FireCell() {
         SDL_FreeSurface(surface_);
         surface_ = nullptr;
     }
+}
+
+void FireCell::Reset(int raster_value) {
+    cell_initial_state_ = CellState(raster_value);
+    cell_state_ = cell_initial_state_;
+
+    delete cell_;
+    delete mother_cell_;
+    cell_ = GetCell();
+    mother_cell_ = GetCell();
+
+    has_burned_down_ = false;
+    ticking_duration_ = 0;
+    burning_tick_ = 0;
+
+    num_convection_particles_ = mother_cell_->GetNumConvectionParticles();
+    num_radiation_particles = mother_cell_->GetNumRadiationParticles();
+
+    if (parameters_.map_is_uniform_) {
+        burning_duration_ = parameters_.GetCellBurningDuration();
+        tau_ign_ = parameters_.GetIgnitionDelayTime();
+    } else {
+        burning_duration_ = cell_->GetCellBurningDuration();
+        tau_ign_ = cell_->GetIgnitionDelayTime();
+    }
+
+    real_dis_ = std::uniform_real_distribution<>(0.0, 1.0);
+    std::uniform_real_distribution<> dis(0.1, 0.2);
+    std::uniform_int_distribution<> sign_dis(-1, 1);
+    burning_duration_ += sign_dis(parameters_.gen_) * burning_duration_ * dis(parameters_.gen_);
+    tau_ign_ += sign_dis(parameters_.gen_) * tau_ign_ * dis(parameters_.gen_);
+    tau_ign_start_ = tau_ign_;
+
+    convection_particle_emission_threshold_ = (burning_duration_ - 1) / num_convection_particles_;
+    if (convection_particle_emission_threshold_ < 1)
+        convection_particle_emission_threshold_ = 1;
+
+    radiation_particle_emission_threshold_ = (burning_duration_ - 1) / num_radiation_particles;
+    if (radiation_particle_emission_threshold_ < 1)
+        radiation_particle_emission_threshold_ = 1;
+
+    flood_duration_ = parameters_.GetFloodDuration();
+    flood_timer_ = flood_duration_;
+    tau_ign_tmp_ = 0;
+    was_flooded_ = false;
 }

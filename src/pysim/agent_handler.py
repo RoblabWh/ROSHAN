@@ -15,8 +15,6 @@ from planner_agent import PlannerAgent
 class AgentHandler:
     def __init__(self, config: dict, sim_bridge: SimulationBridge, agent_type: str = None, subtype: str = None, mode: str = None, is_sub_agent: bool = True):
 
-        # Past Agent Actions
-        self.agent_actions = None
         self.sim_bridge = sim_bridge
         # A sub agent is an agent that is part of a lower hierarchy level,
         # e.g. a PlannerFlyAgent is a sub agent of ExploreFlyAgent or PlannerFlyAgent
@@ -29,6 +27,13 @@ class AgentHandler:
         time_steps = agent_dict["time_steps"]
         algorithm = agent_dict["algorithm"]
         map_size = config["fire_model"]["simulation"]["grid"]["exploration_map_size"]
+
+        # Frame skips for the agent, e.g. if frame_skips=2, the agent repeats the same action for 2 environment steps
+        self.frame_skips = agent_dict["frame_skips"]
+        self.ctrl_ctr = 0
+        self.cached_actions = None
+        self.cached_logprobs = None
+        self.summed_rewards = None
 
         # Probably can be discarded, but kept for compatibility now
         self.original_algo = algorithm
@@ -58,6 +63,8 @@ class AgentHandler:
 
         # Other variables (need resetting)
         self.current_obs = None
+        self.cached_logprobs = None
+        self.cached_actions = None
         self.env_step = 0
         self.hierarchy_steps = 0
         self.hierarchy_early_stop = False
@@ -258,10 +265,6 @@ class AgentHandler:
             self.logger.info(f"Network sources archived at {network_dir}")
 
     def _load_network_arch(self):
-        # network_classes = self.agent_type.get_network(algorithm=self.algorithm_name)
-        # if not isinstance(network_classes, (list, tuple)):
-        #     network_classes = (network_classes,)
-
         module_names = self.agent_type.get_module_names(self.algorithm_name)
         parent_network_dir = os.path.join(os.path.dirname(os.path.normpath(self.root_model_path)), "networks")
         is_autotrain_path = self.root_model_path.split(os.sep)[-1].split("_")[0] == "training"
@@ -460,10 +463,14 @@ class AgentHandler:
         model_name = self.sim_bridge.get("model_name")
         self.algorithm.set_paths(model_path, model_name)
 
-        self.sim_bridge.set("obs_collected", len(self.memory) + 1)
+        self.sim_bridge.set("obs_collected", len(self.memory))
 
         if self.sim_bridge.get("rl_mode") != self.rl_mode:
             self.logger.warning(f"RL Mode changed from {self.rl_mode} to {self.sim_bridge.get('rl_mode')}")
+            self.ctrl_ctr = 0  # Reset control counter to avoid issues
+            self.cached_actions = None
+            self.cached_logprobs = None
+            self.summed_rewards = None
             self.rl_mode = self.sim_bridge.get("rl_mode")
             self.algorithm.set_train() if self.rl_mode == "train" else self.algorithm.set_eval()
 
@@ -471,8 +478,32 @@ class AgentHandler:
         self.current_obs = self.restructure_data(observations)
 
     def train_loop(self, engine):
-        actions, action_logprobs = self.act(self.current_obs)
-        next_obs, rewards, terminals_vector, terminal_result, percent_burned = self.step_agent(engine, actions)
+        # Only sample new action at the start of the control
+        start_of_control = self.ctrl_ctr % self.frame_skips == 0
+        if start_of_control:
+            actions, action_logprobs = self.act(self.current_obs)
+            self.cached_actions = actions
+            self.cached_logprobs = action_logprobs
+
+        next_obs_, rewards, terminals_vector, terminal_result, percent_burned = self.step_agent(engine, self.cached_actions)
+
+        if self.summed_rewards is None:
+            self.summed_rewards = rewards
+        else:
+            self.summed_rewards = [a + b for a, b in zip(self.summed_rewards, rewards)]
+
+        self.ctrl_ctr += 1
+        end_of_control = terminal_result.env_reset or ((self.ctrl_ctr % self.frame_skips) == 0)
+
+        if not end_of_control:
+            # No memory adding or training until the end of the control
+            return
+
+        # Only increase env_step if num_frame_skips observations have been collected
+        self.env_step += 1
+        next_obs = self.restructure_data(next_obs_)
+
+        # Intrinsic Reward Calculation (optinoal)
         intrinsic_reward = None
         if self.use_intrinsic_reward:
             intrinsic_reward = self.agent_type.get_intrinsic_reward(self.current_obs)
@@ -483,12 +514,16 @@ class AgentHandler:
                 self.sim_bridge.set("intrinsic_reward", intrinsic_reward)
                 engine.SendRLStatusToModel(self.sim_bridge.status)
                 engine.UpdateReward()
-        n_obs = None
-        if self.use_next_obs:
-            n_obs = next_obs
+
         # Memory Adding
-        self.add_memory_entry(self.current_obs, actions, action_logprobs,
-                              rewards, terminals_vector, next_obs=n_obs, intrinsic_rewards=intrinsic_reward)
+        n_obs = next_obs if self.use_next_obs else None
+        self.add_memory_entry(self.current_obs,
+                              self.cached_actions,
+                              self.cached_logprobs,
+                              self.summed_rewards,
+                              terminals_vector,
+                              next_obs=n_obs,
+                              intrinsic_rewards=intrinsic_reward)
 
         # Update the Logger before checking if we should train, so that the logger has the latest information
         # to calculate the objective percentage and best reward
@@ -499,20 +534,41 @@ class AgentHandler:
             self.update(mini_batch_size=self.algorithm.batch_size, next_obs=next_obs)
             if self.use_intrinsic_reward and self.algorithm == 'PPO':
                 self.agent_type.update_rnd_model(self.memory, self.algorithm.horizon, self.algorithm.batch_size)
-            # Clear memory
             if self.algorithm.clear_memory:
                 self.memory.clear_memory()
+
+        # Advance to the next step
         self.current_obs = next_obs
+        self.summed_rewards = None
         self.env_reset = terminal_result.env_reset
         self.handle_env_reset()
 
     def eval_loop(self, engine, evaluate=False):
-        actions = self.act_certain(self.current_obs)
-        obs, rewards, _, terminal_result, percent_burned = self.step_agent(engine, actions)
-        self.current_obs = obs
+
+        start_of_control = self.ctrl_ctr % self.frame_skips == 0
+        if start_of_control:
+            self.cached_actions = self.act_certain(self.current_obs)
+
+        obs_, rewards, _, terminal_result, percent_burned = self.step_agent(engine, self.cached_actions)
+
+        if self.summed_rewards is None:
+            self.summed_rewards = rewards
+        else:
+            self.summed_rewards = [a + b for a, b in zip(self.summed_rewards, rewards)]
+
+        self.ctrl_ctr += 1
+        end_of_control = terminal_result.env_reset or ((self.ctrl_ctr % self.frame_skips) == 0)
+
+        if not end_of_control:
+            # No Evaluation until the end of the control
+            return False, False
+
+        self.current_obs = self.restructure_data(obs_)
         if evaluate:
             flags = self.evaluator.evaluate(rewards, terminal_result, percent_burned)
             self.check_reset(flags)
+
+        self.summed_rewards = None
         return terminal_result.any_succeeded, terminal_result.env_reset
 
     def check_reset(self, flags):
@@ -538,25 +594,26 @@ class AgentHandler:
                 self.memory.clear_memory()
 
             self.hierarchy_steps = 0
+            self.ctrl_ctr = 0  # Reset control counter to avoid issues
+            self.cached_actions = None
+            self.cached_logprobs = None
+            self.summed_rewards = None
             self.env_step = 0
             self.current_obs = None
-            self.agent_actions = None
             self.env_reset = True
             # self.sim_bridge.set("env_reset", True)
 
     def step_agent(self, engine, actions):
-        self.agent_actions = self.get_action(actions)
-        # observations, rewards, all_terminals, terminal_result, percent_burned = engine.Step(self.agent_type.name, self.agent_actions)
-        env_step = engine.Step(self.agent_type.name, self.agent_actions)
+        env_step = engine.Step(self.agent_type.name, self.get_action(actions))
+
         rewards = env_step.rewards
         observations = env_step.observations
         percent_burned = env_step.percent_burned
         terminals = env_step.terminals
         terminal_result = env_step.summary
         all_terminals = [t.is_terminal for t in terminals if t is not None]
-        obs = self.restructure_data(observations)
-        self.env_step += 1
-        return obs, rewards, all_terminals, terminal_result, percent_burned
+
+        return observations, rewards, all_terminals, terminal_result, percent_burned
 
     def step_without_network(self, engine):
         agent_actions = self.get_action([[0,0] for _ in range(self.num_agents)])
@@ -564,13 +621,13 @@ class AgentHandler:
         self.env_reset = env_step.summary.env_reset
         self.handle_env_reset()
 
-    # Possibly unused
-    def sim_step(self, engine):
-        engine.SimStep(self.agent_actions)
-
     def handle_env_reset(self):
         if self.env_reset:
             self.sim_bridge.set("current_episode", self.sim_bridge.get("current_episode") + 1)
+            self.ctrl_ctr = 0  # Reset control counter to avoid issues
+            self.cached_actions = None
+            self.cached_logprobs = None
+            self.summed_rewards = None
 
     def update(self, mini_batch_size, next_obs):
         self.algorithm.update(self.memory, mini_batch_size, next_obs, self.tensorboard)

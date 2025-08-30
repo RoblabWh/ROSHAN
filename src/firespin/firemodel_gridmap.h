@@ -28,6 +28,7 @@ public:
 
     int GetRows() const { return rows_; } // (x)
     int GetCols() const { return cols_; } // (y)
+    void Reset(std::vector<std::vector<int>> *rasterData);
     void IgniteCell(int x, int y);
     bool WaterDispension(int x, int y);
     void ExtinguishCell(int x, int y);
@@ -167,6 +168,7 @@ private:
 
     //Noise handling
     bool noise_generated_;
+    bool last_has_noise_;
 
     //Optimization
     RandomBuffer buffer_;

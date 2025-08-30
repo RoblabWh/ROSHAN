@@ -1,7 +1,6 @@
 import os
 import torch.nn as nn
 import torch
-from utils import initialize_output_weights
 
 if os.getenv("PYTORCH_DETECT_ANOMALY", "").lower() in ("1", "true"):
     torch.autograd.set_detect_anomaly(True)
@@ -22,9 +21,7 @@ class Inputspace(nn.Module):
         self.fire_emb = nn.Linear(2, hidden_dim)
         self.id_emb = nn.Embedding(drone_dim, hidden_dim)
         self.cross_attn = nn.MultiheadAttention(embed_dim=hidden_dim, num_heads=4, batch_first=True)
-
         self.out_features = hidden_dim
-
 
     def prepare_tensor(self, states):
         drone_states, goal_positions, fire_states = states
@@ -94,7 +91,7 @@ class Actor(nn.Module):
         self.in_features = self.Inputspace.out_features
         # Mu
         self.mu_move = nn.Linear(in_features=self.in_features, out_features=2)
-        initialize_output_weights(self.mu_move, 'actor')
+        self.mu_move._init_gain = 0.1
 
         # Logstd
         self.log_std = nn.Parameter(torch.zeros(2, ))
@@ -117,6 +114,7 @@ class CriticPPO(nn.Module):
         self.in_features = self.Inputspace.out_features
 
         self.value_head = nn.Linear(in_features=self.in_features, out_features=1)
+        self.value_head._init_gain = 1.0
 
     def forward(self, states, masks=None):
         x, _ = self.Inputspace(states, masks)

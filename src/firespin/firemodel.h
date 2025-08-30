@@ -38,7 +38,6 @@ public:
     ~FireModel() override;
 
     void Update() override;
-    void SimStep(std::vector<std::shared_ptr<Action>> actions) override;
 //    std::tuple<std::unordered_map<std::string,std::vector<std::deque<std::shared_ptr<State>>>>,
 //    std::vector<double>,
 //    std::vector<bool>,
@@ -60,7 +59,7 @@ public:
     void InitializeMap() override;
     void LoadMap(const std::string& path);
     bool InitialModeSelectionDone() override;
-
+    void CheckReset() override;
 private:
 
     // GridMap for the FireModel
@@ -74,7 +73,7 @@ private:
     static std::shared_ptr<FireModel> instance_;
     double running_time_;
 
-    void ResetGridMap(std::vector<std::vector<int>>* rasterData = nullptr);
+    void ResetGridMap(std::vector<std::vector<int>>* rasterData = nullptr, bool full_reset = false);
 
     //Current RasterData for the GridMap
     std::vector<std::vector<int>> current_raster_data_;
@@ -103,7 +102,6 @@ private:
     void TestBurndownHeadless();
 
     void setupRLHandler();
-
 };
 
 

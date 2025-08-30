@@ -1,11 +1,7 @@
 import os
 import numpy as np
 import torch.nn as nn
-import torch.nn.functional as F
 import torch
-
-from networks.network_fly import DeterministicActor
-from utils import initialize_output_weights, get_in_features_2d, get_in_features_3d
 
 if os.getenv("PYTORCH_DETECT_ANOMALY", "").lower() in ("1", "true"):
     torch.autograd.set_detect_anomaly(True)
@@ -112,7 +108,7 @@ class Actor(nn.Module):
         super(Actor, self).__init__()
         self.Inputspace = Inputspace(drone_count=drone_count, map_size=map_size, time_steps=time_steps)
         self.mu_goal = nn.Linear(in_features=self.Inputspace.out_features, out_features=2)
-        initialize_output_weights(self.mu_goal, 'actor')
+        self.mu_goal._init_gain = 0.1
 
         # Logstd
         self.log_std = nn.Parameter(torch.zeros(2, ))
@@ -136,11 +132,9 @@ class DeterministicActor(nn.Module):
 
         # Mu
         self.l1 = nn.Linear(in_features=self.in_features, out_features=400)
-        initialize_output_weights(self.l1, 'actor')
         self.l2 = nn.Linear(in_features=400, out_features=300)
-        initialize_output_weights(self.l2, 'actor')
         self.l3 = nn.Linear(in_features=300, out_features=2)
-        initialize_output_weights(self.l3, 'actor')
+        self.l3._init_gain = 0.1
 
     def forward(self, states):
         x = self.Inputspace(states)
@@ -171,7 +165,7 @@ class CriticPPO(Critic):
 
         # Value
         self.value = nn.Linear(in_features=self.in_features, out_features=1)
-        initialize_output_weights(self.value, 'critic')
+        self.value._init_gain = 1.0
 
     def forward(self, states):
         x = self.Inputspace(states)
@@ -189,7 +183,7 @@ class OffPolicyCritic(Critic):
         self.fc1 = nn.Linear(self.in_features + action_dim, 256)
         self.fc2 = nn.Linear(256, 256)
         self.q_value = nn.Linear(256, 1)
-        initialize_output_weights(self.q_value, 'critic')
+        self.q_value._init_gain = 1.0
 
     def forward(self, state, action):
         x = self.Inputspace(state)
@@ -237,8 +231,7 @@ class Value(nn.Module):
         self.fc1 = nn.Linear(self.in_features, 256)
         self.fc2 = nn.Linear(256, 256)
         self.v_value = nn.Linear(256, 1)
-
-        initialize_output_weights(self.v_value, 'value')
+        self.v_value._init_gain = 1.0
 
     def forward(self, state):
         x = self.Inputspace(state)

@@ -9,8 +9,9 @@ Agent(parameters, 300){
     id_ = id;
     agent_type_ = "fly_agent";
     time_steps_ = time_steps;
-    frame_skips_ = parameters_.frame_skips_;
     water_capacity_ = parameters_.GetWaterCapacity();
+    frame_skips_ = parameters_.fly_agent_frame_skips_;
+    frame_ctrl_ = 0;
     out_of_area_counter_ = 0;
 }
 
@@ -69,14 +70,27 @@ void FlyAgent::Initialize(int mode,
     this->last_distance_to_goal_ = this->GetDistanceToGoal();
 }
 
-std::shared_ptr<AgentState> FlyAgent::BuildAgentState(const std::shared_ptr<GridMap>& grid_map,
-                                                      std::pair<double, double> velocity,
-                                                      int water_dispense) {
+void FlyAgent::Reset(Mode mode,
+                     const std::shared_ptr<GridMap>& grid_map,
+                     const std::shared_ptr<FireModelRenderer>& model_renderer,
+                     const std::string& rl_mode) {
+    objective_reached_ = false;
+    agent_terminal_state_ = false;
+    did_hierarchy_step = false;
+    reward_components_.clear();
+    trail_.clear();
+    newly_explored_cells_ = 0;
+    frame_ctrl_ = 0;
+    out_of_area_counter_ = 0;
+    extinguished_last_fire_ = false;
+    water_capacity_ = parameters_.GetWaterCapacity();
+    agent_states_.clear();
+    Initialize(mode, max_speed_.first, view_range_, grid_map, model_renderer, rl_mode);
+}
+
+std::shared_ptr<AgentState> FlyAgent::BuildAgentState(const std::shared_ptr<GridMap>& grid_map) {
     auto state = std::make_shared<AgentState>();
-    velocity.first *= frame_skips_;
-    velocity.second *= frame_skips_;
-    state->SetVelocity(velocity);
-    state->SetWaterDispense(water_dispense);
+    state->SetVelocity(this->vel_vector_);
     state->SetDroneView(grid_map->GetDroneView(GetGridPosition(), GetViewRange()));
     state->SetTotalDroneView(grid_map->GetInterpolatedDroneView(GetGridPosition(), GetViewRange()));
     state->SetExplorationMap(grid_map->GetExploredMap());
@@ -91,30 +105,14 @@ std::shared_ptr<AgentState> FlyAgent::BuildAgentState(const std::shared_ptr<Grid
 
 void FlyAgent::InitializeFlyAgentStates(const std::shared_ptr<GridMap>& grid_map) {
     for(int i = 0; i < time_steps_; ++i) {
-        agent_states_.push_front(BuildAgentState(grid_map, {0, 0}, 0));
-    }
-}
-
-void FlyAgent::UpdateStates(const std::shared_ptr<GridMap>& grid_map,
-                            std::pair<double, double> velocity_vector,
-                            int water_dispense) {
-    agent_states_.push_front(BuildAgentState(grid_map, velocity_vector, water_dispense));
-
-    // Maximum number of states i.e. memory
-    if (agent_states_.size() > time_steps_) {
-        agent_states_.pop_back();
+        agent_states_.push_front(BuildAgentState(grid_map));
     }
 }
 
 void FlyAgent::PerformFly(FlyAction* action, const std::string& hierarchy_type, const std::shared_ptr<GridMap>& gridMap) {
-    // Get the speed and water dispense from the action
-    double speed_x = action->GetSpeedX(); // change this to "real" speed
-    double speed_y = action->GetSpeedY();
-    if (hierarchy_type == "Stepper") {
-        this->MovementStep(speed_x, speed_y);
-    } else {
-        this->Step(speed_x, speed_y, gridMap);
-    }
+
+    this->Step(action->GetSpeedX(), action->GetSpeedY(), gridMap);
+
     if (hierarchy_type == "fly_agent") {
         this->FlyPolicy(gridMap);
         did_hierarchy_step = true;
@@ -278,7 +276,7 @@ std::pair<int, int> FlyAgent::GetGridPosition() {
 
 // Checks whether the drone sees fire in the current fire status and return how much
 int FlyAgent::DroneSeesFire() {
-    std::vector<std::vector<int>> fire_status = GetLastState().GetFireView();
+    std::vector<std::vector<int>> fire_status = this->GetLastState().GetFireView();
     int count = std::accumulate(fire_status.begin(), fire_status.end(), 0,
                                 [](int acc, const std::vector<int>& vec) {
                                     return acc + std::count(vec.begin(), vec.end(), 1);
@@ -290,7 +288,7 @@ int FlyAgent::DroneSeesFire() {
 double FlyAgent::FindNearestFireDistance() {
     std::pair<int, int> drone_grid_position = GetGridPosition();
     double min_distance = std::numeric_limits<double>::max();
-    std::vector<std::vector<int>> fire_status = GetLastState().GetFireView();
+    std::vector<std::vector<int>> fire_status = this->GetLastState().GetFireView();
 
     for (int y = 0; y <= view_range_; ++y) {
         for (int x = 0; x <= view_range_; ++x) {
@@ -320,8 +318,14 @@ double FlyAgent::FindNearestFireDistance() {
 void FlyAgent::CalcMaxDistanceFromMap() {
     max_distance_from_map_ = 0;
     if (!drone_in_grid_) {
-        out_of_area_counter_++;
-        std::pair<double, double> pos = GetLastState().GetGridPositionDoubleNorm();
+        // TODO: This calculation really should be put in it's separate function, but for now it works here
+        auto cell_size = parameters_.GetCellSize();
+        auto norm_x = position_.first / cell_size;
+        auto norm_y = position_.second / cell_size;
+        auto map_dims = this->GetLastState().get_map_dimensions();
+        norm_x = (2 * norm_x / map_dims.first) - 1;
+        norm_y = (2 * norm_y / map_dims.second) - 1;
+        std::pair<double, double> pos = std::make_pair(norm_x, norm_y);
         double max_distance1 = 0;
         double max_distance2 = 0;
         if (pos.first < 0 || pos.second < 0) {
@@ -330,8 +334,6 @@ void FlyAgent::CalcMaxDistanceFromMap() {
             max_distance2 = std::max(pos.first, pos.second) - 1;
         }
         max_distance_from_map_ = std::max(max_distance1, max_distance2);
-    } else {
-        out_of_area_counter_ = 0;
     }
 }
 
@@ -342,46 +344,49 @@ double FlyAgent::GetDistanceToGoal() {
 }
 
 void FlyAgent::Step(double speed_x, double speed_y, const std::shared_ptr<GridMap>& gridmap) {
-    std::pair<double, double> vel_vector = this->MovementStep(speed_x, speed_y);
+    this->vel_vector_ = this->MovementStep(speed_x, speed_y);
     this->newly_explored_cells_ += gridmap->UpdateExploredAreaFromDrone(this->GetGridPosition(), this->GetViewRange());
-    this->UpdateStates(gridmap, vel_vector, 0);
     // Calculates if the Drone is in the grid and if not how far it is away from the grid
     // These values are used to calculate the reward
     std::pair<int, int> drone_position = GetGridPosition();
     drone_in_grid_ = gridmap->IsPointInGrid(drone_position.first, drone_position.second);
-    CalcMaxDistanceFromMap();
+    if (!drone_in_grid_) {out_of_area_counter_++;}
+    else {out_of_area_counter_ = 0;}
+//    CalcMaxDistanceFromMap();
 }
 
 void FlyAgent::FlyPolicy(const std::shared_ptr<GridMap>& gridmap){
     objective_reached_ = false;
-    if(this->policy_type_ == 0) {
-        if (this->almostEqual(this->GetGoalPosition(), this->GetGridPositionDouble())) {
+    if(this->policy_type_ == policy_types::EXTINGUISH_FIRE) {
+        if (FlyAgent::almostEqual(this->GetGoalPosition(), this->GetGridPositionDouble())) {
             objective_reached_ = true;
             this->DispenseWaterCertain(gridmap);
             if (this->water_capacity_ <= 0) {
                 auto groundstation_position = gridmap->GetGroundstation()->GetGridPositionDouble();
                 this->SetGoalPosition(groundstation_position);
-                this->policy_type_ = 1;
+                this->policy_type_ = policy_types::FLY_TO_GROUNDSTATION;
             } else {
                 auto next_fire = gridmap->GetNextFire(this->GetGridPosition());
                 this->SetGoalPosition(next_fire);
             }
         }
-    } else if (this->policy_type_ == 1) {
+    }
+    else if (this->policy_type_ == policy_types::FLY_TO_GROUNDSTATION) {
         if (this->GetGoalPositionInt() == this->GetGridPosition()) {
-            this->policy_type_ = 2;
+            this->policy_type_ = policy_types::RECHARGE;
         }
-    } else if (this->policy_type_ == 2) {
+    }
+    else if (this->policy_type_ == policy_types::RECHARGE) {
         if (parameters_.recharge_time_active_) {
             if (this->water_capacity_ < parameters_.GetWaterCapacity()) {
                 this->water_capacity_ += parameters_.GetWaterRefillDt();
             } else {
-                this->policy_type_ = 0;
+                this->policy_type_ = policy_types::EXTINGUISH_FIRE;
                 this->SetGoalPosition(gridmap->GetNextFire(this->GetGridPosition()));
             }
         } else {
             this->water_capacity_ = parameters_.GetWaterCapacity();
-            this->policy_type_ = 0;
+            this->policy_type_ = policy_types::EXTINGUISH_FIRE;
             this->SetGoalPosition(gridmap->GetNextFire(this->GetGridPosition()));
         }
     }

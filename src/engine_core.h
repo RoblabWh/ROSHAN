@@ -55,7 +55,6 @@ public:
     // Observe the current state of the environment
     bool AgentIsRunning();
     std::string GetUserInput();
-    void SimStep(std::vector<std::shared_ptr<Action>> actions);
     std::unordered_map<std::string, std::vector<std::deque<std::shared_ptr<State>>>> GetObservations();
     StepResult Step(const std::string& agent_type, std::vector<std::shared_ptr<Action>> actions);
 

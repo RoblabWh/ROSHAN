@@ -1,9 +1,7 @@
 import os
-import numpy as np
 import torch.nn as nn
 import torch.nn.functional as F
 import torch
-from utils import initialize_output_weights, get_in_features_2d, get_in_features_3d
 
 if os.getenv("PYTORCH_DETECT_ANOMALY", "").lower() in ("1", "true"):
     torch.autograd.set_detect_anomaly(True)
@@ -22,9 +20,7 @@ class Inputspace(nn.Module):
 
         mid_layer_out_features = 64
         self.hidden_layer1 = nn.Linear(in_features=4, out_features=mid_layer_out_features)
-        initialize_output_weights(self.hidden_layer1, 'hidden')
         self.hidden_layer2 = nn.Linear(in_features=mid_layer_out_features, out_features=mid_layer_out_features)
-        initialize_output_weights(self.hidden_layer2, 'hidden')
         self.out_features = mid_layer_out_features * self.time_steps
 
         self.flatten = nn.Flatten()
@@ -51,9 +47,6 @@ class Inputspace(nn.Module):
 
         delta_position = delta_goal - velocity
         x = torch.cat((velocity, delta_position), dim=-1)
-        # x = x.permute(0, 2, 1)  # Change shape to (batch_size, channels, time_steps)
-        # x = self.temporal_conv(x)
-        # output_vision = x.view(x.size(0), -1)  # Flatten the output
         x = F.relu(self.hidden_layer1(x), inplace=True)
         x = F.relu(self.hidden_layer2(x), inplace=True)
         output_vision = torch.flatten(x, start_dim=1)
@@ -71,7 +64,7 @@ class Actor(nn.Module):
         self.in_features = self.Inputspace.out_features
         # Mu
         self.mu_move = nn.Linear(in_features=self.in_features, out_features=2)
-        initialize_output_weights(self.mu_move, 'actor')
+        self.mu_move._init_gain = 0.1
 
         # Logstd
         self.log_std = nn.Parameter(torch.zeros(2, ))
@@ -95,11 +88,9 @@ class DeterministicActor(nn.Module):
 
         # Mu
         self.l1 = nn.Linear(in_features=self.in_features, out_features=400)
-        initialize_output_weights(self.l1, 'actor')
         self.l2 = nn.Linear(in_features=400, out_features=300)
-        initialize_output_weights(self.l2, 'actor')
         self.l3 = nn.Linear(in_features=300, out_features=2)
-        initialize_output_weights(self.l3, 'actor')
+        self.l1._init_gain = 0.1
 
     def forward(self, states):
         x = self.Inputspace(states)
@@ -130,7 +121,7 @@ class CriticPPO(Critic):
 
         # Value
         self.value = nn.Linear(in_features=self.in_features, out_features=1)
-        initialize_output_weights(self.value, 'critic')
+        self.value._init_gain = 1.0
 
     def forward(self, states):
         x = self.Inputspace(states)
@@ -148,11 +139,13 @@ class OffPolicyCritic(Critic):
         self.l1 = nn.Linear(self.in_features + action_dim, 256)
         self.l2 = nn.Linear(256, 256)
         self.l3 = nn.Linear(256, 1)
+        self.l3._init_gain = 1.0
 
         # Q2 architecture
         self.l4 = nn.Linear(self.in_features + action_dim, 256)
         self.l5 = nn.Linear(256, 256)
         self.l6 = nn.Linear(256, 1)
+        self.l6._init_gain = 1.0
 
     def forward(self, state, action):
         x = self.Inputspace(state)
@@ -190,8 +183,7 @@ class Value(nn.Module):
         self.fc1 = nn.Linear(self.in_features, 256)
         self.fc2 = nn.Linear(256, 256)
         self.v_value = nn.Linear(256, 1)
-
-        initialize_output_weights(self.v_value, 'value')
+        self.v_value._init_gain = 1.0
 
     def forward(self, state):
         x = self.Inputspace(state)

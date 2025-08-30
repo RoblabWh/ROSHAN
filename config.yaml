@@ -1,6 +1,6 @@
 settings:
   mode: 0 # 0: GUI_RL, 2: NoGUI_RL, # Mode 1 is GUI and Mode 2 is NoGUI (ONLY Simulation)
-  seed: 42 # Random seed for reproducibility (-1 for random seed)
+  seed: -1 # Random seed for reproducibility (-1 for random seed)
   rl_mode: train # either "train" or "eval"
   # Whether to resume training from the last checkpoint
   # If set to true, the training will continue from the last checkpoint
@@ -12,14 +12,14 @@ settings:
   pytorch_detect_anomaly: false # Enable PyTorch autograd anomaly detection
   auto_train:
     use_auto_train: true # Whether to use auto training
-    train_episodes: 5 # Number of total trainings, each containing max_train train_steps
-    max_train: 100 # Maximum number of train_steps(NOT policy steps) to perform
-    max_eval: 100 # Maximum number of evaluations(one evaluation = one environment completed) to perform
+    train_episodes: 10 # Number of total trainings, each containing max_train train_steps
+    max_train: 25 # Maximum number of train_steps(NOT policy steps) to perform
+    max_eval: 200 # Maximum number of evaluations(one evaluation = one environment completed) to perform
 paths:
   # This is the root_path where your NEW trained models data is stored
   # Loading for your ROOT Model (chosen hierarchy) is ALSO done from here (Eval and Resuming Training)
   # (either absolute or relative to the project root)
-  model_directory: models/fly_test_1
+  model_directory: models/fly_attn_network_test
   # Leave this empty to get a default name from this config (best practice for training)
   # You can fast load models with suffixes ["latest", "best_reward", "best_objective"]
   # If you want to load a specific model, set the model_name to the name of the model file
@@ -34,8 +34,8 @@ algorithm:
   PPO:
     memory_size: 1.0e+5 # Size of the Replay Buffer
     lr: 4.0e-4 # Learning rate for the optimizer
-    batch_size: 2048 # Batch size for the optimizer
-    horizon: 12800 # Number of steps to collect before updating the model
+    batch_size: 256 # Batch size for the optimizer
+    horizon: 12800 #12800 # Number of steps to collect before updating the model
     k_epochs: 14 #8 # Number of epochs to update the model
     entropy_coeff: 0.0006 # Coefficient for the entropy loss
     value_loss_coef: 0.5 # Coefficient for the value loss
@@ -120,7 +120,6 @@ fire_model:
 
 # Environment Parameters
 environment:
-  frame_skips: 1 # Number of frames to skip in the environment (1 for no skipping) # TODO Reimplement this this is not correctly implemented !
   # These parameters are used to configure the fire START behaviour in the environment
   # It does NOT affect the actual fire spread during simulation
   fire_behaviour:
@@ -129,11 +128,11 @@ environment:
     fire_percentage: 0.01
     # How many clusters of fire should be started at the beginning of the simulation
     # Setting this to <= 0 will lead to single cells being ignited randomly according to fire_percentage
-    num_fire_clusters: 3
+    num_fire_clusters: 1
     # This probability is used to determine if a fire spreads to a neighboring cell
     # It is only used to control starting Fire Clusters, not the actual fire spread during simulation
     # Setting this to < 0.0 will lead to random fire_noise between 0 and 1
-    fire_spread_prob: 0.095
+    fire_spread_prob: 0.5
     # Noise ([-0.5, 0,5]*noise) for the fire spread probability, to introduce randomness in the fire spread
     # Setting this to < 0.0 will lead to random fire_noise between 0 and 1
     fire_noise: 1
@@ -147,8 +146,9 @@ environment:
     max_velocity: 10.0 # Maximum Velocity for a drone agent in m/s
     extinguish_all_fires: false # Whether a fly_agent should extinguish all fires in Evaluation Mode (not really relevant)
     fly_agent:
+      frame_skips: 1 # Determines the frequency of action selection (1 = every frame, 2 = every 2nd frame, etc.)
       algorithm: PPO # Algorithm used by the fly_agent
-      num_agents: 3
+      num_agents: 5
       time_steps: 3 # Number of time steps to consider in the FlyAgent's memory
       max_speed: 10.0 # Maximum speed of the FlyAgent in m/s
       view_range: 12 # View range of the FlyAgent in cells
@@ -157,6 +157,7 @@ environment:
       # If you want to load a specific model, set the model_name to the name of the model file
       default_model_name: latest
     explore_agent:
+      frame_skips: 1 # Determines the frequency of action selection (1 = every frame, 2 = every 2nd frame, etc.)
       algorithm: no_algo # Algorithm used by the explore_agent
       num_agents: 4
       time_steps: 2 # Number of time steps to consider in the ExploreAgent's memory
@@ -167,6 +168,7 @@ environment:
       # If you want to load a specific model, set the model_name to the name of the model file
       default_model_name: ""  # Keep empty for future use and compatibility with pipeline lol
     planner_agent:
+      frame_skips: 1 # Determines the frequency of action selection (1 = every frame, 2 = every 2nd frame, etc.)
       algorithm: PPO # Algorithm used by the planner_agent
       # These parameters are used to configure the planner_agents LOW-LEVEL AGENTS
       num_agents: 3

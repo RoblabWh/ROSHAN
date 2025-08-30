@@ -70,14 +70,27 @@ void FireModel::InitializeMap() {
     }
 }
 
-void FireModel::ResetGridMap(std::vector<std::vector<int>>* rasterData) {
-    gridmap_ = std::make_shared<GridMap>(wind_, parameters_, rasterData);
+void FireModel::CheckReset() {
+    // Reset the Simulation IF the RL mode changed or the last step(RL) was terminal
+    if (reset_next_step_ || (last_rl_mode_ != rl_handler_->GetRLMode())) {
+        ResetGridMap(&current_raster_data_);
+        reset_next_step_ = false;
+        last_rl_mode_ = rl_handler_->GetRLMode();
+    }
+}
+
+void FireModel::ResetGridMap(std::vector<std::vector<int>>* rasterData, bool full_reset) {
+    if (!gridmap_ || full_reset) {
+        gridmap_ = std::make_shared<GridMap>(wind_, parameters_, rasterData);
+    } else {
+        gridmap_->Reset(rasterData);
+    }
     wind_->SetRandomAngle();
     parameters_.wind_angle_ = wind_->GetCurrentAngle();
     if (mode_ == Mode::GUI || mode_ == Mode::GUI_RL) {
         model_renderer_->SetGridMap(gridmap_);
         gridmap_->GenerateNoiseMap();
-        gridmap_->SetNoiseGenerated(parameters_.has_noise_);
+//        gridmap_->SetNoiseGenerated(parameters_.has_noise_);
     }
 
     if (mode_ == Mode::GUI_RL) {
@@ -113,7 +126,7 @@ void FireModel::SetUniformRasterData() {
     parameters_.SetGridNxNyStd();
     current_raster_data_ = std::vector<std::vector<int>>(parameters_.GetGridNx(), std::vector<int>(parameters_.GetGridNy(), GENERIC_UNBURNED));
     parameters_.map_is_uniform_ = true;
-    ResetGridMap(&current_raster_data_);
+    ResetGridMap(&current_raster_data_, true);
 }
 
 void FireModel::FillRasterWithEnum() {
@@ -142,12 +155,6 @@ void FireModel::FillRasterWithEnum() {
 }
 
 void FireModel::Update() {
-    // Reset the Simulation IF the RL mode changed or the last step(RL) was terminal
-    if (reset_next_step_ || last_rl_mode_ != rl_handler_->GetRLMode()) {
-        ResetGridMap(&current_raster_data_);
-        reset_next_step_ = false;
-        last_rl_mode_ = rl_handler_->GetRLMode();
-    }
     // Simulation time step update
     running_time_ += parameters_.GetDt();
     // Update the fire particles and the cell states
@@ -162,10 +169,6 @@ void FireModel::Update() {
 
 std::unordered_map<std::string, std::vector<std::deque<std::shared_ptr<State>>>> FireModel::GetObservations() {
     return rl_handler_->GetObservations();
-}
-
-void FireModel::SimStep(std::vector<std::shared_ptr<Action>> actions){
-    rl_handler_->SimStep(std::move(actions));
 }
 
 StepResult FireModel::Step(const std::string& agent_type, std::vector<std::shared_ptr<Action>> actions){
@@ -211,7 +214,7 @@ void FireModel::LoadMap(const std::string& path) {
     dataset_handler_->LoadMapDataset(rasterData);
     current_raster_data_.clear();
     current_raster_data_ = rasterData;
-    ResetGridMap(&current_raster_data_);
+    ResetGridMap(&current_raster_data_, true);
 }
 
 void FireModel::setupRLHandler() {
@@ -223,7 +226,7 @@ void FireModel::setupImGui() {
     imgui_handler_ = std::make_shared<ImguiHandler>(mode_, parameters_);
     imgui_handler_->onGetRLStatus = [this]() {return rl_handler_->GetRLStatus();};
     imgui_handler_->onResetDrones = [this]() { rl_handler_->ResetEnvironment(mode_);};
-    imgui_handler_->onResetGridMap = [this](std::vector<std::vector<int>>* rasterData) {ResetGridMap(rasterData);};
+    imgui_handler_->onResetGridMap = [this](std::vector<std::vector<int>>* rasterData, bool full_reset=false) {ResetGridMap(rasterData, full_reset);};
     imgui_handler_->onFillRasterWithEnum = [this]() {FillRasterWithEnum();};
     imgui_handler_->onSetUniformRasterData = [this]() {SetUniformRasterData();};
     imgui_handler_->onMoveDrone = [this](int drone_idx, double speed_x, double speed_y, int water_dispense) {return rl_handler_->StepDroneManual(

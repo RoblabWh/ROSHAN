@@ -59,7 +59,7 @@ void ImguiHandler::ImGuiSimulationControls(const std::shared_ptr<GridMap>& gridm
         }
         ImGui::SameLine();
         if(ImGui::Button("Reset GridMap"))
-            onResetGridMap(&current_raster_data);
+            onResetGridMap(&current_raster_data, false);
         if (ImGui::IsItemHovered())
             ImGui::SetTooltip("Resets the GridMap to the initial state of the currently loaded map.");
         if (ImGui::BeginTabBar("SimStatus")){
@@ -148,18 +148,18 @@ void ImguiHandler::ImGuiModelMenu(std::vector<std::vector<int>> &current_raster_
                 }
                 if (ImGui::MenuItem("Load Uniform Map")) {
                     onSetUniformRasterData();
-                    onResetGridMap(&current_raster_data);
+//                    onResetGridMap(&current_raster_data, true);
                 }
                 if (ImGui::MenuItem("Load Map with Classes")) {
                     onFillRasterWithEnum();
-                    onResetGridMap(&current_raster_data);
+                    onResetGridMap(&current_raster_data, true);
                 }
                 if (ImGui::MenuItem("Save Map")) {
                     open_file_dialog_ = true;
                     save_map_to_disk_ = true;
                 }
                 if (ImGui::MenuItem("Reset GridMap"))
-                    onResetGridMap(&current_raster_data);
+                    onResetGridMap(&current_raster_data, true);
                 ImGui::EndMenu();
             }
             if (ImGui::BeginMenu("Model Particles")) {
@@ -300,11 +300,9 @@ void ImguiHandler::RLStatusParser(const py::dict& rl_status) {
         if (ImGui::IsItemHovered())
             ImGui::SetTooltip("The best Objective might go lower sometimes, this behaviour is intended and occurs because it is recalculated at policy update.");
     }
-    ImGui::Text("Environment Steps before Failure: %d/%d",parameters_.GetCurrentEnvSteps(), parameters_.GetTotalEnvSteps());
+    ImGui::Text("Environment Steps before Failure: %d/%d",parameters_.GetCurrentEnvSteps(), parameters_.total_env_steps_);
     if (ImGui::IsItemHovered())
-        ImGui::SetTooltip("The number of steps the environment will take before the episode is considered a failure.\n"
-                          "This number is calculated by the size of the map and the simulation time:\n"
-                          "sqrt(grid_nx_ * grid_nx_ + grid_ny_ * grid_ny_) * (20 / (max_velocity * dt_)");
+        ImGui::SetTooltip("Number of EnvSteps until Termination::TimeOut. Calculated like this:\n%s", parameters_.env_step_string_.c_str());
     ImGui::Separator();
     if(auto_train){
         ImGui::Separator();
@@ -1076,7 +1074,7 @@ bool ImguiHandler::ImGuiOnStartup(const std::shared_ptr<FireModelRenderer>& mode
                 onSetUniformRasterData();
                 // TODO I don't really know why this works, but it does. If I don't call this function, everything works fine
                 //  until I reset the GridMap again, which works fine as well. But if I then try to zoom in it crashes.
-                onResetGridMap(&current_raster_data);
+                onResetGridMap(&current_raster_data, true);
                 still_no_init = false;
                 model_startup_ = true;
                 show_controls_ = true;
@@ -1234,7 +1232,7 @@ void ImguiHandler::ShowPopups(const std::shared_ptr<GridMap>& gridmap, std::vect
                 ImGui::SliderInt("Noise Level", &noise_level, 1, 200);
                 ImGui::SliderInt("Noise Size", &noise_size, 1, 200);
                 if (ImGui::Button("Reset Map")) {
-                    onResetGridMap(&current_raster_data);
+                    onResetGridMap(&current_raster_data, false);
                 }
                 if (ImGui::Button("Add Noise")) {
                     CellState state = gridmap->GetCellState(it->first, it->second);
@@ -1247,7 +1245,7 @@ void ImguiHandler::ShowPopups(const std::shared_ptr<GridMap>& gridmap, std::vect
     }
     if(init_gridmap_) {
         init_gridmap_ = false;
-        onResetGridMap(&current_raster_data);
+        onResetGridMap(&current_raster_data, true);
     }
 }
 
@@ -1326,7 +1324,7 @@ void ImguiHandler::HandleEvents(SDL_Event event, ImGuiIO *io, const std::shared_
             current_raster_data = rasterData;
             browser_selection_flag_ = false;
             parameters_.map_is_uniform_ = false;
-            onResetGridMap(&current_raster_data);
+            onResetGridMap(&current_raster_data, true);
         }
     }
 }

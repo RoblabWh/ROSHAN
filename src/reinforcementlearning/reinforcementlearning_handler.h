@@ -40,7 +40,6 @@ public:
     std::unordered_map<std::string, std::vector<std::deque<std::shared_ptr<State>>>> GetObservations();
     void StepDroneManual(int drone_idx, double speed_x, double speed_y, int water_dispense);
     void ResetEnvironment(Mode mode);
-    void SimStep(std::vector<std::shared_ptr<Action>> actions);
 //    std::tuple<std::unordered_map<std::string, std::vector<std::deque<std::shared_ptr<State>>>>,
 //            std::vector<double>,
 //            std::vector<bool>,
@@ -104,6 +103,8 @@ private:
 
     //Flags
     bool eval_mode_ = false;
+    int frame_ctrl_ = 0;
+    bool last_tick_was_terminal_ = false;
 
     // Rewards Collection for Debugging!
     int total_env_steps_;

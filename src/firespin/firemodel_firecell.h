@@ -41,6 +41,7 @@ public:
     FireCell(int x, int y, FireModelParameters &parameters, int raster_value = 0);
     ~FireCell();
 
+    void Reset(int raster_value);
     CellState GetIgnitionState();
     CellState GetCellState() { return cell_state_; }
     bool IsBurning() { return GetIgnitionState() == CellState::GENERIC_BURNING; }

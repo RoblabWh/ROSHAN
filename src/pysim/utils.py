@@ -192,6 +192,21 @@ def get_in_features_3d(h_in, w_in, d_in, layers_dict):
 
     return d_in * h_in * w_in
 
+def init_fn(m : torch.nn.Module):
+    """
+    Initialize the weights of a neural network layer using orthogonal initialization.
+    :param m: the layer to initialize
+    """
+    if isinstance(m, torch.nn.Linear):
+        gain = getattr(m, "_init_gain", torch.nn.init.calculate_gain('relu'))
+        torch.nn.init.orthogonal_(m.weight, gain=gain)
+        if m.bias is not None:
+            torch.nn.init.zeros_(m.bias)
+    elif isinstance(m, torch.nn.Conv2d) or isinstance(m, torch.nn.Conv3d):
+        torch.nn.init.kaiming_normal_(m.weight, mode='fan_out', nonlinearity='relu')
+        if m.bias is not None:
+            torch.nn.init.zeros_(m.bias)
+
 def initialize_output_weights(m, out_type):
     """
     Initialize the weights of the output layer of the actor and critic networks

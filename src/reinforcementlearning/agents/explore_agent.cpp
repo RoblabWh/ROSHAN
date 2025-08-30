@@ -8,6 +8,8 @@ ExploreAgent::ExploreAgent(FireModelParameters &parameters, int id, int time_ste
     id_ = id;
     agent_type_ = "explore_agent";
     time_steps_ = time_steps;
+    frame_skips_ = parameters_.explore_agent_frame_skips_;
+    frame_ctrl_ = 0;
 }
 
 void ExploreAgent::Initialize(std::vector<std::shared_ptr<FlyAgent>> fly_agents, const std::shared_ptr<GridMap> &grid_map, const std::string &rl_mode) {
@@ -29,6 +31,23 @@ void ExploreAgent::Initialize(std::vector<std::shared_ptr<FlyAgent>> fly_agents,
     goal_idx_ < perfect_goals_[0].size() - 1 ? goal_idx_++ : goal_idx_ = 0;
 
     InitializeExploreAgentStates(grid_map);
+}
+
+void ExploreAgent::Reset(Mode mode,
+                         const std::shared_ptr<GridMap>& grid_map,
+                         const std::shared_ptr<FireModelRenderer>& model_renderer,
+                         const std::string& rl_mode) {
+    (void)mode; (void)model_renderer; // unused
+    objective_reached_ = false;
+    agent_terminal_state_ = false;
+    did_hierarchy_step = false;
+    reward_components_.clear();
+    goal_idx_ = 0;
+    revisited_cells_ = 0;
+    frame_ctrl_ = 0;
+    perfect_goals_.clear();
+    agent_states_.clear();
+    Initialize(fly_agents_, grid_map, rl_mode);
 }
 
 std::pair<double, double>
@@ -91,7 +110,6 @@ void ExploreAgent::PerformExplore(ExploreAction *action, const std::string& hier
     if(hierarchy_type == "explore_agent") {
         did_hierarchy_step = true;
     }
-    this->UpdateStates(gridMap);
     // Pick first agent to get the exploration map scalar
     auto explore_map_scalar = GetLastState().GetExplorationMapScalar();
     if (explore_map_scalar >= 0.99) {
@@ -124,15 +142,6 @@ std::shared_ptr<AgentState> ExploreAgent::BuildAgentState(const std::shared_ptr<
 void ExploreAgent::InitializeExploreAgentStates(const std::shared_ptr<GridMap>& grid_map) {
     for(int i = 0; i < time_steps_; ++i) {
         agent_states_.push_front(BuildAgentState(grid_map));
-    }
-}
-
-void ExploreAgent::UpdateStates(const std::shared_ptr<GridMap>& grid_map) {
-    agent_states_.push_front(BuildAgentState(grid_map));
-
-    // Maximum number of states i.e. memory
-    if (agent_states_.size() > time_steps_) {
-        agent_states_.pop_back();
     }
 }
 

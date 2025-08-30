@@ -1,6 +1,7 @@
 import torch
 import torch.nn as nn
 import numpy as np
+from utils import init_fn
 from torch.distributions import MultivariateNormal, Bernoulli, Normal, Independent
 
 class CategoricalActorCritic(nn.Module):
@@ -11,7 +12,9 @@ class CategoricalActorCritic(nn.Module):
         super(CategoricalActorCritic, self).__init__()
         self.device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
         self.actor = Actor(vision_range, drone_count, map_size, time_steps).to(self.device)
+        self.actor.apply(init_fn)
         self.critic = Critic(vision_range, drone_count, map_size, time_steps).to(self.device)
+        self.critic.apply(init_fn)
 
     def act(self, state):
         """
@@ -87,14 +90,15 @@ class CategoricalActorCritic(nn.Module):
 
         return action_logprob, state_value, dist_entropy
 
-class StochasticActorCritic(nn.Module):
+class StochasticActor(nn.Module):
     """
     A PyTorch Module that represents the actor-critic network of a PPO agent.
     """
     def __init__(self, Actor, Critic, vision_range, drone_count, map_size, time_steps):
-        super(StochasticActorCritic, self).__init__()
+        super(StochasticActor, self).__init__()
         self.device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
         self.actor = Actor(vision_range, drone_count, map_size, time_steps).to(self.device)
+        self.actor.apply(init_fn)
 
     def act(self, state):
         """
@@ -149,7 +153,9 @@ class DeterministicActorCritic(nn.Module):
         super(DeterministicActorCritic, self).__init__()
         self.device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
         self.actor = Actor(vision_range, drone_count, map_size, time_steps).to(self.device)
+        self.actor.apply(init_fn)
         self.critic = Critic(vision_range, drone_count, map_size, time_steps, action_dim).to(self.device)
+        self.critic.apply(init_fn)
         self.exploration_noise = exploration_noise
 
     def act(self, state):
@@ -180,7 +186,7 @@ class DeterministicActorCritic(nn.Module):
 
         return action.detach().cpu().numpy()
 
-class ActorCriticPPO(StochasticActorCritic):
+class ActorCriticPPO(StochasticActor):
     """
     A PyTorch Module that represents the actor-critic network of a PPO agent.
     """
@@ -188,6 +194,7 @@ class ActorCriticPPO(StochasticActorCritic):
         super(ActorCriticPPO, self).__init__(Actor, Critic, vision_range, drone_count, map_size, time_steps)
 
         self.critic = Critic(vision_range, drone_count, map_size, time_steps).to(self.device)
+        self.critic.apply(init_fn)
 
     def evaluate(self, state, action, masks=None):
         """
@@ -221,7 +228,7 @@ class ActorCriticPPO(StochasticActorCritic):
 
         return action_logprob, state_value, dist_entropy
 
-class ActorCriticIQL(StochasticActorCritic):
+class ActorCriticIQL(StochasticActor):
     """
     A PyTorch Module that represents the actor-critic network of an IQL agent.
     """
@@ -229,7 +236,9 @@ class ActorCriticIQL(StochasticActorCritic):
         super(ActorCriticIQL, self).__init__(Actor, Critic, vision_range, drone_count, map_size, time_steps)
 
         self.critic = Critic(vision_range, drone_count, map_size, time_steps, action_dim).to(self.device)
+        self.critic.apply(init_fn)
         self.value = Value(vision_range, drone_count, map_size, time_steps).to(self.device)
+        self.value.apply(init_fn)
 
     def get_logprobs(self, states, actions):
         # Get action means and variances from the actor network

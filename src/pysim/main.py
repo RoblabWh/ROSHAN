@@ -146,9 +146,9 @@ def main(config_path_ : str = ""):
         engine.SendRLStatusToModel(sim_bridge.get_status())
 
     while engine.IsRunning() and sim_bridge.get("agent_online"):
-        engine.HandleEvents()
         engine.Update()
         engine.Render()
+        engine.HandleEvents()
 
         # C++ Python Interface & Controls
         sim_bridge.set_status(engine.GetRLStatusFromModel())
