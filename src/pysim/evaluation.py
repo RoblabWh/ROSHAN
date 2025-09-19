@@ -416,20 +416,20 @@ class MetricsPlotter:
         self.save_fig(fig, output_dir, "reward_boxplot_runs.png")
 
         # Finish-within-T curve (pooled)
-        def finish_within_curve(times):
-            t_sorted = np.sort(times)
-            y = np.arange(1, len(t_sorted) + 1) / len(t_sorted)
-            return t_sorted, y
-
-        all_t = np.concatenate(run_times).astype(float) if run_times else np.array([])
-        fig, ax = plt.subplots()
-        x, y = finish_within_curve(all_t)
-        if x.size:
-            ax.plot(x, y)
-        ax.set_xlabel("Time budget T")
-        ax.set_ylabel("P(finish ≤ T)")
-        ax.set_title("Finish-within-T (pooled)")
-        self.save_fig(fig, output_dir, "finish_within_T.png")
+        # def finish_within_curve(times):
+        #     t_sorted = np.sort(times)
+        #     y = np.arange(1, len(t_sorted) + 1) / len(t_sorted)
+        #     return t_sorted, y
+        #
+        # all_t = np.concatenate(run_times).astype(float) if run_times else np.array([])
+        # fig, ax = plt.subplots()
+        # x, y = finish_within_curve(all_t)
+        # if x.size:
+        #     ax.plot(x, y)
+        # ax.set_xlabel("Time budget T")
+        # ax.set_ylabel("P(finish ≤ T)")
+        # ax.set_title("Finish-within-T (pooled)")
+        # self.save_fig(fig, output_dir, "finish_within_T.png")
 
         # pooled terminal Pareto (multi-run)
         pooled_fail = Counter(r for run in run_failures for r in run)
@@ -838,7 +838,7 @@ class Evaluator:
 
             # Log metrics via the optional TensorBoard logger
             if self.tb_logger is not None:
-                tb_metrics = {k: v for k, v in metrics.items() if k not in ("episode", "episode_over", "Failure_Reason", "Failure_Reason_counts", "Failure_Reason_perc", "Failure_Reason_n")}
+                tb_metrics = {k: v for k, v in metrics.items() if k not in ("episode", "episode_over", "Failure_Reason" , "Failure_Reason_counts", "Failure_Reason_perc", "Failure_Reason_n")}
                 self.tb_logger.add_metric(tb_metrics)
                 # Flush metrics to disk after each evaluation episode
                 self.tb_logger.summarize()

@@ -13,15 +13,15 @@ set(MY_CPP_BUILD_PATH "${CMAKE_BINARY_DIR}")
 set(CMAKE_MODULE_PATH ${CMAKE_MODULE_PATH} "${CMAKE_SOURCE_DIR}/cmake/")
 
 # Enable optimizations
-set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -O3 -march=native -flto -funroll-loops \
-        -fno-omit-frame-pointer -ffunction-sections -fdata-sections")
-set(CMAKE_EXE_LINKER_FLAGS "${CMAKE_EXE_LINKER_FLAGS} -Wl,-O2 -Wl,--as-needed -Wl,--gc-sections")
-set(CMAKE_SHARED_LINKER_FLAGS "${CMAKE_SHARED_LINKER_FLAGS} -Wl,-O2 -Wl,--as-needed -Wl,--gc-sections")
+#set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -O3 -march=native -flto -funroll-loops \
+#        -fno-omit-frame-pointer -ffunction-sections -fdata-sections")
+#set(CMAKE_EXE_LINKER_FLAGS "${CMAKE_EXE_LINKER_FLAGS} -Wl,-O2 -Wl,--as-needed -Wl,--gc-sections")
+#set(CMAKE_SHARED_LINKER_FLAGS "${CMAKE_SHARED_LINKER_FLAGS} -Wl,-O2 -Wl,--as-needed -Wl,--gc-sections")
 # Enable faster-build optimizations
 #set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -O3")
 # Development flags
 #set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -O2")
-#set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -g -O0")
+set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -g -O0")
 
 find_program(CCACHE_PROGRAM ccache)
 if (CCACHE_PROGRAM)
@@ -84,17 +84,34 @@ target_link_libraries(imgui_external PUBLIC
 
 # Populate the paths config file if it does not exist
 get_filename_component(PARENT_DIR "${MY_CPP_BUILD_PATH}" DIRECTORY)
-set(CONFIG_FILE "${PARENT_DIR}/project_paths.json")
+set(CONFIG_DIR  "${PARENT_DIR}")
+set(CONFIG_FILE "${CONFIG_DIR}/project_paths.json")
+
 set(ROOT_PATH "${PARENT_DIR}")
 set(MODULE_DIRECTORY "${MY_CPP_BUILD_PATH}")
 set(MAPS_DIRECTORY "${PARENT_DIR}/maps")
 set(OSM_DATA "${PARENT_DIR}/openstreetmap/data.json")
 set(DATASET_PATH "${CMAKE_SOURCE_DIR}/assets/dataset/") # Default path for dataset_directory
+
+set(LOCK_FILE "${CONFIG_DIR}/.project_paths.json.lock")
+set(TMP_FILE  "${CONFIG_DIR}/.project_paths.json.tmp")
+set(GEN_FILE  "${CMAKE_BINARY_DIR}/project_paths.json.gen")  # staging inside build dir
+
 configure_file(
         "${CMAKE_SOURCE_DIR}/project_paths.json.in"
-        "${CONFIG_FILE}"
-        @ONLY
+        "${GEN_FILE}"
+        @ONLY NEWLINE_STYLE UNIX
 )
+
+file(READ "${GEN_FILE}" _json)
+# This errors out if JSON is malformed (stops configure early).
+string(JSON _check GET "${_json}" root_path)
+
+file(LOCK "${LOCK_FILE}" GUARD PROCESS TIMEOUT 30)
+# Copy to TMP next to the final file, then rename = atomic on most filesystems.
+file(COPY_FILE "${GEN_FILE}" "${TMP_FILE}")     # CMake ≥3.21; otherwise use execute_process with -E copy
+file(RENAME    "${TMP_FILE}" "${CONFIG_FILE}")
+file(LOCK "${LOCK_FILE}" RELEASE)
 
 # Include directories Externals and SRC
 include_directories(${CMAKE_SOURCE_DIR}/src)
@@ -116,6 +133,7 @@ set(CORE_SOURCES
 # Agent sources
 set(AGENT_SOURCES
         src/state.h
+        src/reinforcementlearning/start_goal_strategy.h
         src/reinforcementlearning/agents/agent.h src/reinforcementlearning/agents/agent.cpp
         src/reinforcementlearning/agents/agent_factory.h
         src/reinforcementlearning/agents/fly_agent.h src/reinforcementlearning/agents/fly_agent.cpp
@@ -128,8 +146,8 @@ set(AGENT_SOURCES
         src/reinforcementlearning/agents/agent_state.cpp src/reinforcementlearning/agents/agent_state.h
         src/reinforcementlearning/texturerenderer.cpp src/reinforcementlearning/texturerenderer.h
         src/reinforcementlearning/groundstation.h src/reinforcementlearning/groundstation.cpp
-        src/reinforcementlearning/reinforcementlearning_handler.cpp
-        src/reinforcementlearning/reinforcementlearning_handler.h)
+        src/reinforcementlearning/rl_handler.cpp
+        src/reinforcementlearning/rl_handler.h)
 
 # Fire model sources
 set(FIREMODEL_SOURCES

@@ -21,12 +21,13 @@ public:
         action->ExecuteOn(shared_from_this(), hierarchy_type, gridMap);
     }
 
-    void Initialize(std::shared_ptr<ExploreAgent> explore_agent, std::vector<std::shared_ptr<FlyAgent>> fly_agents, const std::shared_ptr<GridMap> &grid_map, const std::string &rl_mode);
+    void Initialize(std::shared_ptr<ExploreAgent> explore_agent,
+                    std::vector<std::shared_ptr<FlyAgent>> fly_agents,
+                    const std::shared_ptr<GridMap> &grid_map);
 
     void Reset(Mode mode,
                const std::shared_ptr<GridMap>& grid_map,
-               const std::shared_ptr<FireModelRenderer>& model_renderer,
-               const std::string& rl_mode) override;
+               const std::shared_ptr<FireModelRenderer>& model_renderer) override;
 
     void PerformPlan(PlanAction* action, const std::string& hierarchy_type, const std::shared_ptr<GridMap>& gridMap);
     bool GetPerformedHierarchyAction() const override { return did_hierarchy_step; }

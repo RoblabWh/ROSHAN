@@ -46,6 +46,7 @@ class FlyAgent(Agent):
 
         velocities = [[state.GetVelocityNorm() for state in group] for group in drone_state_groups]
         delta_goals = [[state.GetDeltaGoal() for state in group] for group in drone_state_groups]
+        distances_to_others = [[state.GetDistancesToOtherAgents() for state in group] for group in drone_state_groups]
 
         all_velocities = np.stack(velocities)
         all_delta_goals = np.stack(delta_goals)

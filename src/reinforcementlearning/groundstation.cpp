@@ -11,7 +11,7 @@ Groundstation::Groundstation(std::pair<int, int> point, FireModelParameters &par
 }
 
 void Groundstation::Render(std::pair<int, int> position, int size) {
-    renderer_.Render(position, size, 0, 0);
+    renderer_.RenderGroundStation(position, size);
 }
 
 std::pair<double, double> Groundstation::GetGridPositionDouble() {

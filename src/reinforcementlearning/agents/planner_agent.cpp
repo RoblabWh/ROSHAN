@@ -7,7 +7,8 @@
 
 PlannerAgent::PlannerAgent(FireModelParameters &parameters, int id, int time_steps) : Agent(parameters, 300) {
     id_ = id;
-    agent_type_ = "planner_agent";
+    agent_sub_type_ = "planner_agent";
+    agent_type_ = PLANNER_AGENT;
     time_steps_ = time_steps;
     frame_skips_ = parameters_.planner_agent_frame_skips_;
     frame_ctrl_ = 0;
@@ -20,9 +21,10 @@ void PlannerAgent::PerformPlan(PlanAction *action, const std::string &hierarchy_
     extinguished_fires_ = 0;
 
     // Iterate over all Actions and set a new goal for each FlyAgent
-    for (const auto &fly_agent : fly_agents_) {
+    for (int i = 0; i < fly_agents_.size(); ++i) {
+        auto fly_agent = fly_agents_[i];
         // Get the goal from the action
-        auto goal = action->GetGoalFromAction(fly_agent->GetId());
+        auto goal = action->GetGoalFromAction(i);
         if (goal == std::make_pair(-1.0, -1.0)) {
             // If the goal is (-1.0, -1.0) we set the goal to the groundstation
             goal = gridMap->GetGroundstation()->GetGridPositionDouble();
@@ -43,8 +45,7 @@ void PlannerAgent::PerformPlan(PlanAction *action, const std::string &hierarchy_
     }
 }
 
-void PlannerAgent::Initialize(std::shared_ptr<ExploreAgent> explore_agent, std::vector<std::shared_ptr<FlyAgent>> fly_agents, const std::shared_ptr<GridMap> &grid_map,
-                              const std::string &rl_mode) {
+void PlannerAgent::Initialize(std::shared_ptr<ExploreAgent> explore_agent, std::vector<std::shared_ptr<FlyAgent>> fly_agents, const std::shared_ptr<GridMap> &grid_map) {
     explore_agent_ = std::move(explore_agent);
     fly_agents_ = std::move(fly_agents);
     // Initialize the agent states with the current grid map
@@ -53,8 +54,7 @@ void PlannerAgent::Initialize(std::shared_ptr<ExploreAgent> explore_agent, std::
 
 void PlannerAgent::Reset(Mode mode,
                          const std::shared_ptr<GridMap>& grid_map,
-                         const std::shared_ptr<FireModelRenderer>& model_renderer,
-                         const std::string& rl_mode) {
+                         const std::shared_ptr<FireModelRenderer>& model_renderer) {
     (void)mode; (void)model_renderer; // unused
     objective_reached_ = false;
     agent_terminal_state_ = false;
@@ -67,7 +67,7 @@ void PlannerAgent::Reset(Mode mode,
     extinguished_last_fire_ = false;
     perfect_goals_.clear();
     agent_states_.clear();
-    Initialize(explore_agent_, fly_agents_, grid_map, rl_mode);
+    Initialize(explore_agent_, fly_agents_, grid_map);
 }
 
 AgentTerminal

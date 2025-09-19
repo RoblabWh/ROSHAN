@@ -19,7 +19,7 @@ paths:
   # This is the root_path where your NEW trained models data is stored
   # Loading for your ROOT Model (chosen hierarchy) is ALSO done from here (Eval and Resuming Training)
   # (either absolute or relative to the project root)
-  model_directory: models/fly_attn_network_test
+  model_directory: models/test
   # Leave this empty to get a default name from this config (best practice for training)
   # You can fast load models with suffixes ["latest", "best_reward", "best_objective"]
   # If you want to load a specific model, set the model_name to the name of the model file
@@ -138,21 +138,21 @@ environment:
     fire_noise: 1
     recharge_time_active: false
   agent_behaviour:
-    fire_goal_percentage: 0.0
-    groundstation_start_percentage: 0.0
-    corner_start_percentage: 0.9
+    fire_goal_percentage: 0.1
+    groundstation_start_percentage: 0.9
   agent:
     water_capacity: 10 # Number of water units a drone can carry (one unit extinguishes one cell)
     max_velocity: 10.0 # Maximum Velocity for a drone agent in m/s
     extinguish_all_fires: false # Whether a fly_agent should extinguish all fires in Evaluation Mode (not really relevant)
+    drone_size: 2 # Size of the drone in m (used for rendering and collision detection); for convenience, all drones have the same size
     fly_agent:
       frame_skips: 1 # Determines the frequency of action selection (1 = every frame, 2 = every 2nd frame, etc.)
       algorithm: PPO # Algorithm used by the fly_agent
       num_agents: 5
       time_steps: 3 # Number of time steps to consider in the FlyAgent's memory
       max_speed: 10.0 # Maximum speed of the FlyAgent in m/s
-      view_range: 12 # View range of the FlyAgent in cells
-      default_model_folder: models/new_solved/ # Default model path for the fly_agent (either absolute or relative to the project root)
+      view_range: 10 # View range of the FlyAgent in cells
+      default_model_folder: models/fly_agent/training_1 # Default model path for the fly_agent (either absolute or relative to the project root)
       # You can fast load models with suffixes ["latest", "best_reward", "best_objective"]
       # If you want to load a specific model, set the model_name to the name of the model file
       default_model_name: latest

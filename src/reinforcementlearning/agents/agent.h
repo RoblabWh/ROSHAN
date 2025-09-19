@@ -22,6 +22,12 @@ class State;
 class GridMap;
 class FireModelRenderer;
 
+enum AgentType {
+    FLY_AGENT,
+    EXPLORE_AGENT,
+    PLANNER_AGENT
+};
+
 class Agent : public std::enable_shared_from_this<Agent> {
 public:
     explicit Agent(FireModelParameters &parameters, int buffer_size = 300) :
@@ -39,11 +45,11 @@ public:
     virtual void StepReset() = 0;
     virtual void Reset(Mode mode,
                        const std::shared_ptr<GridMap>& grid_map,
-                       const std::shared_ptr<FireModelRenderer>& model_renderer,
-                       const std::string& rl_mode) = 0;
+                       const std::shared_ptr<FireModelRenderer>& model_renderer) = 0;
     int GetFrameSkips() const { return frame_skips_; }
     int GetFrameCtrl() const { return frame_ctrl_; }
     void SetFrameControl(int frame_ctrl) { frame_ctrl_ = frame_ctrl; }
+    AgentType GetAgentType() const { return agent_type_; }
     std::deque<std::shared_ptr<State>> GetObservations();
     void UpdateStates(const std::shared_ptr<GridMap>& grid_map);
 
@@ -59,6 +65,7 @@ public:
     AgentState GetLastState() { return *agent_states_[0]; }
 //    std::deque<AgentState> GetStates() { return agent_states_; }
 protected:
+    AgentType agent_type_{};
     FireModelParameters& parameters_;
     int id_{};
     std::deque<std::shared_ptr<AgentState>> agent_states_;
@@ -79,7 +86,7 @@ protected:
     int env_steps_remaining_ = 0;
     bool did_hierarchy_step = false; // Was the last action a hierarchy step? Determines if reward needs to be calculated
     std::unordered_map<std::string, double> reward_components_;
-    std::string agent_type_;
+    std::string agent_sub_type_;
     int time_steps_{};
 };
 

@@ -21,6 +21,7 @@ GridMap::GridMap(std::shared_ptr<Wind> wind, FireModelParameters &parameters,
     fire_map_ = std::vector<std::vector<int>>(rows, std::vector<int>(cols, 0));
     visited_cells_ = std::vector<std::vector<bool>>(rows, std::vector<bool>(cols, false));
 
+#pragma omp parallel for collapse(2)
     for (int x = 0; x < rows; ++x) {
         for (int y = 0; y < cols; ++y) {
             cells_[x][y] = std::make_shared<FireCell>(x, y, parameters_, (*rasterData)[y][x]);
@@ -59,6 +60,7 @@ void GridMap::Reset(std::vector<std::vector<int>>* rasterData) {
         rows_ = rows;
     }
 
+#pragma omp parallel for collapse(2)
     for (int x = 0; x < rows_; ++x) {
         for (int y = 0; y < cols_; ++y) {
             if (cells_[x][y]) {

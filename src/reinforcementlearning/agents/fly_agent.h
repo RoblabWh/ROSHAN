@@ -40,12 +40,10 @@ public:
                     double speed,
                     int view_range,
                     const std::shared_ptr<GridMap>& grid_map,
-                    const std::shared_ptr<FireModelRenderer>& model_renderer,
-                    const std::string& rl_mode);
+                    const std::shared_ptr<FireModelRenderer>& model_renderer);
     void Reset(Mode mode,
                const std::shared_ptr<GridMap>& grid_map,
-               const std::shared_ptr<FireModelRenderer>& model_renderer,
-               const std::string& rl_mode) override;
+               const std::shared_ptr<FireModelRenderer>& model_renderer) override;
 
     void InitializeFlyAgentStates(const std::shared_ptr<GridMap>& grid_map);
 
@@ -63,7 +61,7 @@ public:
     void SetDroneTextureRenderer(SDL_Renderer* renderer, const std::string& texture_path) { drone_texture_renderer_ = TextureRenderer(renderer, texture_path.c_str()); }
     void SetGoalTextureRenderer(SDL_Renderer* renderer) { goal_texture_renderer_ = TextureRenderer(renderer, "../assets/goal.png"); }
     //void Render(std::pair<int, int> position, std::pair<int, int> goal_position_screen, int size);
-    void Render(FireModelCamera& camera);
+    void Render(const FireModelCamera& camera);
     void SetRender(bool should_render) {
         if (should_render_ && !should_render) {
             trail_.clear(); // Clear the trail when rendering is disabled
@@ -71,8 +69,8 @@ public:
         should_render_ = should_render; }
     void SetActive(bool active) { active_ = active; }
     void SetTrailLength(int length) { trail_length_ = length; }
-    void AppendTrail(std::pair<int, int> position);
-    std::deque<std::pair<double, double>> GetCameraTrail(FireModelCamera &camera);
+    void AppendTrail(const std::pair<int, int> &position);
+    std::deque<std::pair<double, double>> GetCameraTrail(const FireModelCamera &camera) const;
 
     // Fly Agent functions that other Classes need in some way too
     void Step(double speed_x, double speed_y, const std::shared_ptr<GridMap>& gridmap);
@@ -91,7 +89,8 @@ public:
     std::pair<double, double> GetGridPositionDouble() { return std::make_pair<double, double>(position_.first / parameters_.GetCellSize(), position_.second / parameters_.GetCellSize()); }//{ return this->GetLastState().GetGridPositionDouble(); }
     std::pair<double, double> GetRealPosition() { return position_; }
     std::pair<double, double> GetGoalPosition() { return goal_position_; }
-    std::string GetAgentType() const { return agent_type_; }
+    std::string GetAgentSubType() const { return agent_sub_type_; }
+    double GetDroneSize() const { return parameters_.drone_size_ / parameters_.GetCellSize(); } // like GetGridPositionDouble
 
     std::pair<int, int> GetGoalPositionInt() const { return std::make_pair((int)goal_position_.first, (int)goal_position_.second); }
     int GetNewlyExploredCells() const { return newly_explored_cells_; }
@@ -104,10 +103,14 @@ public:
     bool GetExtinguishedLastFire() const { return extinguished_last_fire_; }
     //** Setter **//
     void SetGoalPosition(std::pair<double, double> goal_position) { goal_position_ = goal_position; }
-    void SetPosition(std::pair<int, int> point) { position_ = std::make_pair((point.first + 0.5) * parameters_.GetCellSize(), (point.second + 0.5) * parameters_.GetCellSize()); }
+    void SetPosition(std::pair<double, double> point) { position_ = std::make_pair((point.first) * parameters_.GetCellSize(), (point.second) * parameters_.GetCellSize()); }
     void SetRevisitedCells(int revisited_cells) { last_step_total_revisited_cells_of_all_agents_ = revisited_cells; }
-    void SetAgentType(const std::string& agent_type) { agent_type_ = agent_type; }
-    void SetSpeed(std::pair<double, double> speed) { max_speed_ = speed; }
+    void SetAgentSubType(const std::string& agent_type) { agent_sub_type_ = agent_type; }
+    void SetSpeed(const std::pair<double, double> &speed) { max_speed_ = speed; }
+    void SetCollision(bool collision) { collision_occurred_ = collision; }
+    void ClearDistances() { distance_to_other_agents_.clear(); }
+    void AppendDistance(std::pair<double,double> dist) {distance_to_other_agents_.push_back(dist);}
+    std::vector<std::pair<double,double>> GetDistancesToOtherAgents() const { return distance_to_other_agents_; }
 private:
     //Fly Agent specific
     void FlyPolicy(const std::shared_ptr<GridMap> &gridmap);
@@ -130,11 +133,13 @@ private:
     std::pair<double, double> position_; // x, y in (m)
     std::pair<double, double> vel_vector_;
     std::pair<double, double> goal_position_;
+    std::vector<std::pair<double,double>> distance_to_other_agents_;
     int newly_explored_cells_{};
     int out_of_area_counter_;
+    bool collision_occurred_ = false;
     double water_capacity_;
     enum policy_types {EXTINGUISH_FIRE, FLY_TO_GROUNDSTATION, RECHARGE, EXPLORE};
-    int policy_type_ = policy_types::EXTINGUISH_FIRE;
+    int policy_type_ = EXTINGUISH_FIRE;
     bool extinguished_last_fire_ = false;
     bool active_ = false;
 
@@ -163,8 +168,6 @@ private:
     // Currently just for Debugging
     int last_step_total_revisited_cells_of_all_agents_{};
     bool should_render_ = true; // If false, the agent will not render anything
-    std::string agent_type_;
 };
-
 
 #endif //ROSHAN_FLY_AGENT_H

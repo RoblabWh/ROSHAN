@@ -7,12 +7,8 @@
 
 #include <utility>
 #include <vector>
-#include <cmath>
-#include <array>
 #include <iostream>
-#include <numeric>
 #include <algorithm>
-#include "firespin/utils.h"
 #include "state.h"
 
 
@@ -33,29 +29,30 @@ public:
             drone_view_(std::make_shared<std::vector<std::vector<std::vector<int>>>>()),
             total_drone_view_(std::make_shared<std::vector<std::vector<double>>>()),
             exploration_map_(std::make_shared<std::vector<std::vector<int>>>()),
-            fire_map_(std::make_shared<std::vector<std::vector<double>>>()),
             explored_fires_(std::make_shared<std::vector<std::pair<int, int>>>()),
+            fire_map_(std::make_shared<std::vector<std::vector<double>>>()),
             drone_positions_(std::make_shared<std::vector<std::pair<double, double>>>()),
             fire_positions_(std::make_shared<std::vector<std::pair<double, double>>>())
     {};
 
     //** Setter Functions for the states (better readability, than a massive Constructor) **//
-    void SetVelocity(std::pair<double, double> velocity) { velocity_ = velocity; }
+    void SetVelocity(const std::pair<double, double> &velocity) { velocity_ = velocity; }
     void SetDroneView(std::shared_ptr<const std::vector<std::vector<std::vector<int>>>> drone_view) { drone_view_ = std::move(drone_view); }
     void SetTotalDroneView(std::shared_ptr<const std::vector<std::vector<double>>> total_drone_view) { total_drone_view_ = std::move(total_drone_view); }
     void SetExplorationMap(std::shared_ptr<const std::vector<std::vector<int>>> exploration_map) { exploration_map_ = std::move(exploration_map); }
     void SetExploredFires(std::shared_ptr<const std::vector<std::pair<int, int>>> explored_fires) { explored_fires_ = std::move(explored_fires); }
     void SetFireMap(std::shared_ptr<const std::vector<std::vector<double>>> fire_map) { fire_map_ = std::move(fire_map); }
-    void SetPosition(std::pair<double, double> position) { position_ = position; }
-    void SetGoalPosition(std::pair<double, double> goal_position) { goal_position_ = goal_position; }
+    void SetPosition(const std::pair<double, double> &position) { position_ = position; }
+    void SetGoalPosition(const std::pair<double, double> &goal_position) { goal_position_ = goal_position; }
     void SetWaterDispense(int water_dispense) { water_dispense_ = water_dispense; }
-    void SetMapDimensions(std::pair<double, double> map_dimensions) { map_dimensions_ = map_dimensions; }
+    void SetMapDimensions(const std::pair<double, double> &map_dimensions) { map_dimensions_ = map_dimensions; }
     void SetCellSize(double cell_size) { cell_size_ = cell_size; }
     void SetMultipleTotalDroneView(std::vector<std::shared_ptr<const std::vector<std::vector<double>>>> total_drone_view) { multiple_total_drone_views_ = std::move(total_drone_view); }
     void SetPerfectGoals(std::vector<std::deque<std::pair<double, double>>> perfect_goals) { perfect_goals_ = std::move(perfect_goals); }
     void SetDronePositions(std::shared_ptr<std::vector<std::pair<double, double>>> drone_positions) { drone_positions_ = std::move(drone_positions); }
     void SetFirePositions(std::shared_ptr<std::vector<std::pair<double, double>>> fire_positions) { fire_positions_ = std::move(fire_positions); }
     void SetGoalPositions(std::shared_ptr<std::vector<std::pair<double, double>>> goal_positions) { goal_positions_ = std::move(goal_positions); }
+    void SetDistancesToOtherAgents(std::shared_ptr<std::vector<std::pair<double,double>>> distances_to_other_agents) { distances_to_other_agents_ = std::move(distances_to_other_agents); }
 
     //** These functions are for the states **//
     [[nodiscard]] std::vector<std::vector<std::vector<double>>> GetMultipleTotalDroneView() const {
@@ -120,15 +117,15 @@ public:
 
     //* Returns the Grid Position of this State
     //* The Grid Position is the position of the Agent in the grid.
-    //* The Grid Position is a continous value between the grid cells.
-    //* @return std::pair<double, double> The continous Grid Position of the Agent.
+    //* The Grid Position is a continuous value between the grid cells.
+    //* @return std::pair<double, double> The continuous Grid Position of the Agent.
     [[nodiscard]] std::pair<double, double> GetGridPositionDouble() const;
 
     //* Returns the Grid Position of this State
     //* The Grid Position is the position of the Agent in the grid.
-    //* The Grid Position is a continous value between the grid cells.
+    //* The Grid Position is a continuous value between the grid cells.
     //* The Grid Position is normalized by the map dimensions. It is in the range of [0, 1]
-    //* @return std::pair<double, double> The normalized continous Grid Position of the Agent.
+    //* @return std::pair<double, double> The normalized continuous Grid Position of the Agent.
     [[nodiscard]] std::pair<double, double> GetGridPositionDoubleNorm() const;
 
     //* Returns the Goal Position of this State
@@ -183,6 +180,7 @@ public:
     [[nodiscard]] std::vector<std::pair<double, double>> GetDronePositions() const { return *drone_positions_; }
     [[nodiscard]] std::vector<std::pair<double, double>> GetFirePositions() const { return *fire_positions_; }
     [[nodiscard]] std::vector<std::pair<double, double>> GetGoalPositions() const { return *goal_positions_; }
+    [[nodiscard]] std::vector<std::pair<double,double>> GetDistancesToOtherAgents() const { return *distances_to_other_agents_; }
 
     //** These functions are only for Python Debugger Visibility **//
     [[nodiscard]] std::pair<double, double> get_velocity() const { return velocity_; }
@@ -202,6 +200,7 @@ public:
     [[nodiscard]] std::vector<std::pair<double, double>> get_drone_positions() const { return *drone_positions_;}
     [[nodiscard]] std::vector<std::pair<double, double>> get_fire_positions() const { return *fire_positions_;}
     [[nodiscard]] std::vector<std::pair<double, double>> get_goal_positions() const { return *goal_positions_; }
+    [[nodiscard]] std::vector<std::pair<double,double>> get_distances_to_other_agents() const { return *distances_to_other_agents_; }
 private:
     //* State Value for the velocity of an Agent in x and y direction
     std::pair<double, double> velocity_;
@@ -212,6 +211,7 @@ private:
     std::pair<double, double> position_; // x, y
     std::pair<double, double> goal_position_;
     std::pair<double, double> orientation_vector_; // x, y
+    std::shared_ptr<std::vector<std::pair<double,double>>> distances_to_other_agents_;
     std::shared_ptr<const std::vector<std::vector<std::vector<int>>>> drone_view_;
     std::vector<std::shared_ptr<const std::vector<std::vector<double>>>> multiple_total_drone_views_;
     std::shared_ptr<const std::vector<std::vector<double>>> total_drone_view_;

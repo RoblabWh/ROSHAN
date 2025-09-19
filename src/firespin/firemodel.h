@@ -21,7 +21,7 @@
 #include "wind.h"
 #include "corine/dataset_handler.h"
 #include "reinforcementlearning/actions/fly_action.h"
-#include "reinforcementlearning/reinforcementlearning_handler.h"
+#include "reinforcementlearning/rl_handler.h"
 #include "src/utils.h"
 #include "fire_generator.h"
 

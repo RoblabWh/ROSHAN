@@ -18,8 +18,91 @@
 #include "src/reinforcementlearning/agents/agent_state.h"
 #include "reinforcementlearning/actions/fly_action.h"
 #include "src/utils.h"
+#include "src/reinforcementlearning/start_goal_strategy.h"
 
 namespace py = pybind11;
+
+// Squared distance (no sqrt)
+inline double dist2(const std::pair<double,double>& a,
+                    const std::pair<double,double>& b) {
+    const double dx = a.first  - b.first;
+    const double dy = a.second - b.second;
+    return dx*dx + dy*dy;
+}
+
+// X,Y distance
+inline std::pair<double,double> dist_vec(const std::pair<double,double>& a,
+                   const std::pair<double,double>& b) {
+    return {(b.first - a.first),
+            (b.second - a.second)};
+}
+
+// True collision (discs touching/overlapping)
+inline bool circlesCollide(const double d1, double r1, double r2) {
+    const double R = r1 + r2;
+    return d1 <= R*R;
+}
+
+// “Almost” collision (early warning / safety buffer)
+inline bool almostCollide(const std::pair<double,double>& p1, double r1,
+                          const std::pair<double,double>& p2, double r2,
+                          double safety_margin = 0.25) {
+    const double R = r1 + r2 + safety_margin;
+    return dist2(p1, p2) <= R*R;
+}
+
+
+// Same, but for early warnings
+inline std::vector<std::pair<int,int>> findAlmostCollisions(const std::vector<std::shared_ptr<FlyAgent>>& agents, double safety_margin = 0.25) {
+    std::vector<std::pair<int,int>> hits;
+    const int n = static_cast<int>(agents.size());
+    for (int i = 0; i < n; ++i) {
+        for (int j = i+1; j < n; ++j) {
+            if (almostCollide(agents[i]->GetGridPositionDouble(), agents[i]->GetDroneSize(),
+                               agents[j]->GetGridPositionDouble(), agents[j]->GetDroneSize(),
+                               safety_margin))  {
+                hits.emplace_back(i, j);
+                              }
+        }
+    }
+    return hits;
+}
+
+// Returns pairs of indices that are actually colliding
+inline std::vector<std::pair<int,int>> findCollisions(const std::vector<std::shared_ptr<FlyAgent>>& agents) {
+    std::vector<std::pair<int,int>> hits;
+    const int n = static_cast<int>(agents.size());
+    auto view_range = agents[0]->GetViewRange();
+    auto view_range_h = view_range / 2.0;
+    // first loop through all agents and clear their distance records
+    for (auto & agent : agents) {
+        agent->ClearDistances();
+    }
+    for (int i = 0; i < n; ++i) {
+        for (int j = i+1; j < n; ++j) {
+            auto vec_dist = dist_vec(agents[i]->GetGridPositionDouble(), agents[j]->GetGridPositionDouble());
+            if (std::fabs(vec_dist.first) < view_range_h && std::fabs(vec_dist.second) < view_range_h) {
+                agents[i]->AppendDistance({vec_dist.first / view_range, vec_dist.second / view_range});
+                agents[j]->AppendDistance({-vec_dist.first / view_range, -vec_dist.second / view_range});
+                if (circlesCollide(dist2(agents[i]->GetGridPositionDouble(), agents[j]->GetGridPositionDouble()), agents[i]->GetDroneSize(), agents[j]->GetDroneSize())) {
+                    hits.emplace_back(i, j);
+                }
+            }
+        }
+    }
+    for (auto collision : hits) {
+        agents[collision.first]->SetCollision(true);
+        agents[collision.second]->SetCollision(true);
+    }
+    return hits;
+}
+
+inline void handleCollisions(const std::vector<std::pair<int,int>>& collisions, const std::vector<std::shared_ptr<FlyAgent>>& agents) {
+    for (auto collision : collisions) {
+        agents[collision.first]->SetCollision(true);
+        agents[collision.second]->SetCollision(true);
+    }
+}
 
 class __attribute__((visibility("default"))) ReinforcementLearningHandler {
 
@@ -104,7 +187,6 @@ private:
     //Flags
     bool eval_mode_ = false;
     int frame_ctrl_ = 0;
-    bool last_tick_was_terminal_ = false;
 
     // Rewards Collection for Debugging!
     int total_env_steps_;

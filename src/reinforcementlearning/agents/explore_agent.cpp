@@ -6,13 +6,14 @@
 
 ExploreAgent::ExploreAgent(FireModelParameters &parameters, int id, int time_steps) : Agent(parameters, 300) {
     id_ = id;
-    agent_type_ = "explore_agent";
+    agent_sub_type_ = "explore_agent";
+    agent_type_ = EXPLORE_AGENT;
     time_steps_ = time_steps;
     frame_skips_ = parameters_.explore_agent_frame_skips_;
     frame_ctrl_ = 0;
 }
 
-void ExploreAgent::Initialize(std::vector<std::shared_ptr<FlyAgent>> fly_agents, const std::shared_ptr<GridMap> &grid_map, const std::string &rl_mode) {
+void ExploreAgent::Initialize(std::vector<std::shared_ptr<FlyAgent>> fly_agents, const std::shared_ptr<GridMap> &grid_map) {
     fly_agents_ = std::move(fly_agents);
     agent_states_.clear();
     auto paths = GeneratePaths(grid_map->GetRows(), grid_map->GetCols(), fly_agents_.size(), fly_agents_.front()->GetRealPosition(),
@@ -35,8 +36,7 @@ void ExploreAgent::Initialize(std::vector<std::shared_ptr<FlyAgent>> fly_agents,
 
 void ExploreAgent::Reset(Mode mode,
                          const std::shared_ptr<GridMap>& grid_map,
-                         const std::shared_ptr<FireModelRenderer>& model_renderer,
-                         const std::string& rl_mode) {
+                         const std::shared_ptr<FireModelRenderer>& model_renderer) {
     (void)mode; (void)model_renderer; // unused
     objective_reached_ = false;
     agent_terminal_state_ = false;
@@ -47,7 +47,7 @@ void ExploreAgent::Reset(Mode mode,
     frame_ctrl_ = 0;
     perfect_goals_.clear();
     agent_states_.clear();
-    Initialize(fly_agents_, grid_map, rl_mode);
+    Initialize(fly_agents_, grid_map);
 }
 
 std::pair<double, double>

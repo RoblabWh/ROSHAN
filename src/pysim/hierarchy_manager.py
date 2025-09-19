@@ -43,7 +43,7 @@ class HierarchyManager:
     def _train_medium(self, engine):
         medium = self.hierarchy["medium"]
         if self._should_reset(medium):
-            medium.step_without_network()
+            medium.step_without_network(engine=engine)
             self._reset_agent(medium)
 
         medium.hierarchy_early_stop, _ = self.hierarchy["explore_low"].eval_loop(engine=engine, evaluate=False)

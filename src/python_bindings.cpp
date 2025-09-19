@@ -52,6 +52,7 @@ PYBIND11_MODULE(firesim, m) {
             .def("GetDronePositions", &AgentState::GetDronePositions)
             .def("GetFirePositions", &AgentState::GetFirePositions)
             .def("GetGoalPositions", &AgentState::GetGoalPositions)
+            .def("GetDistancesToOtherAgents", &AgentState::GetDistancesToOtherAgents)
             .def_property_readonly("velocity", &AgentState::get_velocity)
             .def_property_readonly("drone_view", &AgentState::get_drone_view)
             .def_property_readonly("total_drone_view", &AgentState::get_total_drone_view)
@@ -68,7 +69,8 @@ PYBIND11_MODULE(firesim, m) {
             .def_property_readonly("multiple_total_drone_views", &AgentState::get_multiple_total_drone_view)
             .def_property_readonly("drone_positions", &AgentState::get_drone_positions)
             .def_property_readonly("fire_positions", &AgentState::get_fire_positions)
-            .def_property_readonly("goal_positions", &AgentState::get_goal_positions);
+            .def_property_readonly("goal_positions", &AgentState::get_goal_positions)
+            .def_property_readonly("distances_to_other_agents", &AgentState::get_distances_to_other_agents);
 
 
     py::enum_<TerminationKind>(m, "TerminationKind")

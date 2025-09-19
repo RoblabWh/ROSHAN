@@ -103,6 +103,11 @@ void ImguiHandler::ImGuiSimulationControls(const std::shared_ptr<GridMap>& gridm
                     if(ImGui::Checkbox("Lingering", &parameters_.lingering_)) {
                         model_renderer->SetFullRedraw();
                     }
+                    ImGui::TableNextColumn();
+                    ImGui::Checkbox("Small Drones", &parameters_.show_small_drones_);
+                    ImGui::TableNextRow();
+                    ImGui::TableNextColumn();
+                    ImGui::Checkbox("Show Drone Circles", &parameters_.show_drone_circles_);
                     ImGui::TableNextRow();
                     ImGui::TableNextColumn();
                     if(ImGui::Checkbox("Episode Termination Indicator", &parameters_.episode_termination_indicator_)) {
@@ -425,7 +430,7 @@ void ImguiHandler::PyConfig(std::string &user_input,
                     std::vector<std::string> drone_names;
                     for (const auto &drone: *drones) {
                         drone->SetActive(false);
-                        drone_names.push_back(drone->GetAgentType() + "_" + std::to_string(drone->GetId()));
+                        drone_names.push_back(drone->GetAgentSubType() + "_" + std::to_string(drone->GetId()));
                     }
 
                     // Create a combo box for selecting a drone
@@ -511,7 +516,7 @@ void ImguiHandler::PyConfig(std::string &user_input,
 
                         ImGui::TableNextRow();
                         ImGui::TableNextColumn(); ImGui::Text("Agent Type");
-                        ImGui::TableNextColumn(); ImGui::Text("%s", selected_drone->GetAgentType().c_str());
+                        ImGui::TableNextColumn(); ImGui::Text("%s", selected_drone->GetAgentSubType().c_str());
 
                         ImGui::TableNextRow();
                         ImGui::TableNextColumn(); ImGui::Text("GetOutOfAreaCounter");
@@ -658,6 +663,12 @@ void ImguiHandler::PyConfig(std::string &user_input,
                 }
                 ImGui::EndChild();
                 ImGui::EndTabItem();
+            } else {
+                if (!drones->empty()) {
+                    for (const auto &drone: *drones) {
+                        drone->SetActive(false);
+                    }
+                }
             }
             if (ImGui::BeginTabItem("Env Controls")){
                 ImVec4 color = ImVec4(0.33f, 0.67f, 0.86f, 1.0f);
@@ -695,9 +706,31 @@ void ImguiHandler::PyConfig(std::string &user_input,
                     if (ImGui::IsItemHovered()){ ImGui::SetTooltip("Click to start some fires");}
                     ImGui::EndTable();
                 }
+
                 ImGui::SetWindowFontScale(1.5f);
                 ImGui::PushStyleColor(ImGuiCol_Text, color);
-                ImGui::TextColored(color, "Start and Goal Controls");
+                ImGui::TextColored(color, "Start Controls");
+                ImGui::SetWindowFontScale(1.0f);
+                ImGui::PopStyleColor();
+                if (ImGui::BeginTable("##StartControl", 2, ImGuiTableFlags_Borders | ImGuiTableFlags_RowBg)) {
+                    ImGui::TableSetupColumn("Label", ImGuiTableColumnFlags_WidthFixed, 200.0f);
+                    ImGui::TableSetupColumn("Control", ImGuiTableColumnFlags_WidthStretch);
+                    ImGui::TableHeadersRow();
+
+                    ImGui::TableNextRow();
+                    ImGui::TableNextColumn(); ImGui::Text("Groundstation Start \nPercentage");
+                    ImGui::TableNextColumn(); ImGui::SetNextItemWidth(-1); ImGui::SliderFloat("##groundstation_start_perc", &parameters_.groundstation_start_percentage_, 0, 1);
+                    ImGui::TableNextRow(); ImGui::TableNextColumn(); ImGui::TableNextColumn(); ImGui::Text("Groundstation: %s %%\nRandom: %s %%",
+                                                                                                            std::to_string(static_cast<int>(parameters_.groundstation_start_percentage_ * 100)).c_str(),
+                                                                                                            std::to_string(static_cast<int>((1 - parameters_.groundstation_start_percentage_) * 100)).c_str());
+
+                    ImGui::EndTable();
+
+                }
+
+                ImGui::SetWindowFontScale(1.5f);
+                ImGui::PushStyleColor(ImGuiCol_Text, color);
+                ImGui::TextColored(color, "Goal Controls");
                 ImGui::SetWindowFontScale(1.0f);
                 ImGui::PopStyleColor();
                 if (ImGui::BeginTable("##GoalControl", 2, ImGuiTableFlags_Borders | ImGuiTableFlags_RowBg)) {
@@ -707,32 +740,20 @@ void ImguiHandler::PyConfig(std::string &user_input,
 
                     ImGui::TableNextRow();
                     ImGui::TableNextColumn(); ImGui::Text("Fire Goal Percentage");
-                    ImGui::TableNextColumn(); ImGui::SetNextItemWidth(-1); if(ImGui::SliderFloat("##fire_goal_perc", &parameters_.fire_goal_percentage_, 0, 1))
-                    {
-                        if(parameters_.fire_goal_percentage_ != 1) {
-                            parameters_.groundstation_start_percentage_ = 0;
-                        }
-                    }
+                    ImGui::TableNextColumn(); ImGui::SetNextItemWidth(-1); ImGui::SliderFloat("##fire_goal_perc", &parameters_.fire_goal_percentage_, 0, 1);
                     if (ImGui::IsItemHovered())
                         ImGui::SetTooltip("The percentage of goals that are set to a fire location, rather than a \n"
-                                          "ground station. Set this to 0 to disable fire goals or to 1 to disable all \n"
-                                          "groundstation goals.");
-
-                    ImGui::TableNextRow();
-                    ImGui::TableNextColumn(); ImGui::Text("Groundstation Start \nPercentage");
-                    ImGui::TableNextColumn(); ImGui::SetNextItemWidth(-1); if(ImGui::SliderFloat("##groundstation_start_perc", &parameters_.groundstation_start_percentage_, 0, 1)){
-                        if(parameters_.groundstation_start_percentage_ != 0) {
-                            parameters_.fire_goal_percentage_ = 1;
-                        }
-                    }
-
-                    ImGui::TableNextRow();
-                    ImGui::TableNextColumn(); ImGui::Text("Non Groundstation Corner \nStart Percentage");
-                    ImGui::TableNextColumn(); ImGui::SetNextItemWidth(-1); ImGui::SliderFloat("##corner_start_perc", &parameters_.corner_start_percentage_, 0, 1);
+                                              "non-ground-station corner. Set this to 0 to disable fire goals or to 1 to disable all \n"
+                                              "non-groundstation goals.");
+                    ImGui::TableNextRow(); ImGui::TableNextColumn(); ImGui::TableNextColumn(); ImGui::Text("Fire Goals: %s %%\nNon-Fire Goals: %s %%",
+                                                                                                            std::to_string(static_cast<int>(parameters_.fire_goal_percentage_ * 100)).c_str(),
+                                                                                                            std::to_string(static_cast<int>((1 - parameters_.fire_goal_percentage_) * 100)).c_str());
 
                     ImGui::EndTable();
 
                 }
+
+
                 ImGui::SetWindowFontScale(1.5f);
                 ImGui::PushStyleColor(ImGuiCol_Text, color);
                 ImGui::TextColored(color, "fly_agent Behaviour");
@@ -1297,7 +1318,7 @@ void ImguiHandler::HandleEvents(SDL_Event event, ImGuiIO *io, const std::shared_
         }
     }
     // TODO Manual Drone Control for exploration flyers
-    else if (event.type == SDL_KEYDOWN && parameters_.GetNumberOfFlyAgents() == 1 && !io->WantTextInput) {
+    else if (event.type == SDL_KEYDOWN && !io->WantTextInput) {
         if (event.key.keysym.sym == SDLK_w)
             onMoveDrone(0, -1, 0, 0);
         // MoveDroneByAngle(0, 0.25, 0, 0);

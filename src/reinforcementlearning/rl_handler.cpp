@@ -1,0 +1,373 @@
+//
+// Created by nex on 04.06.24.
+//
+
+#include "rl_handler.h"
+
+#include <utility>
+
+ReinforcementLearningHandler::ReinforcementLearningHandler(FireModelParameters &parameters) : parameters_(parameters){
+
+    AgentFactory::GetInstance().RegisterAgent("fly_agent",
+                                              [](auto& parameters, int drone_id, int time_steps) {
+                                                  return std::make_shared<FlyAgent>(parameters, drone_id, time_steps);
+                                              });
+    AgentFactory::GetInstance().RegisterAgent("explore_agent",
+                                              [](auto& parameters, int id, int time_steps) {
+                                                  return std::make_shared<ExploreAgent>(parameters, id, time_steps);
+                                              });
+
+    AgentFactory::GetInstance().RegisterAgent("planner_agent",
+                                              [](auto& parameters, int id, int time_steps) {
+                                                  return std::make_shared<PlannerAgent>(parameters, id, time_steps);
+                                              });
+
+    total_env_steps_ = 1;
+}
+
+std::unordered_map<std::string, std::vector<std::deque<std::shared_ptr<State>>>>
+ReinforcementLearningHandler::GetObservations() {
+    std::unordered_map<std::string, std::vector<std::deque<std::shared_ptr<State>>>> observations;
+    observations.reserve(agents_by_type_.size());
+
+    for (const auto& [key, agents] : agents_by_type_) {
+        std::vector<std::deque<std::shared_ptr<State>>> agent_states;
+        agent_states.reserve(agents.size());
+
+        for (const auto& agent : agents) {
+            agent_states.push_back(agent->GetObservations());
+        }
+        observations.emplace(key, std::move(agent_states));
+    }
+
+    return observations;
+}
+
+void ReinforcementLearningHandler::ResetEnvironment(Mode mode) {
+    if (mode == Mode::GUI_RL) {
+        gridmap_->SetGroundstationRenderer(model_renderer_->GetRenderer());
+    }
+
+    StartPlanner start_planner(parameters_, gridmap_);
+    GoalSelector goal_selector(gridmap_);
+
+    SpawnConfig spawn_config;
+    spawn_config.drone_radius_m = parameters_.drone_size_;
+    spawn_config.groundstation_start_percentage_ = parameters_.groundstation_start_percentage_;
+
+    GoalConfig goal_config;
+    goal_config.fire_goal_pct = parameters_.fire_goal_percentage_;
+
+    auto hierarchy_type = rl_status_["hierarchy_type"].cast<std::string>();
+    rl_status_["env_reset"] = true;
+    parameters_.SetHierarchyType(hierarchy_type);
+    const auto rl_mode = rl_status_["rl_mode"].cast<std::string>();
+    total_env_steps_ = parameters_.GetTotalEnvSteps(rl_mode == "eval");
+
+    // --- Helpers -------------------------------------------------------------
+
+    auto assign_start_and_goal = [&](FlyAgent& fly, int id) {
+        auto start_pos = start_planner.assign_start(spawn_config, id);
+        fly.SetPosition(start_pos.pos_grid_double);
+
+        auto goal = goal_selector.pick_goal(
+                goal_config,
+                rl_mode,
+                fly.GetGridPositionDouble(),
+                parameters_.gen_
+        );
+        fly.SetGoalPosition(goal);
+    };
+
+    // Ensure a vector<T> has exactly count agents of T derived from fly_agent bucket,
+    // either resetting existing or recreating from scratch.
+    auto ensure_fly_group =
+            [&](const std::string& bucket_key,
+                int count,
+                int id_offset,
+                const std::string& agent_type_label,
+                double speed,
+                int view_range,
+                int time_steps) -> std::vector<std::shared_ptr<FlyAgent>>
+            {
+                auto& bucket = agents_by_type_[bucket_key];
+
+                // Reserve for target size (so we don’t reallocate in loops)
+                if (bucket.capacity() < static_cast<size_t>(count)) {
+                    bucket.reserve(static_cast<size_t>(count));
+                }
+
+                std::vector<std::shared_ptr<FlyAgent>> out; out.reserve(static_cast<size_t>(count));
+
+                const bool sizes_match = (static_cast<int>(bucket.size()) == count);
+
+                if (sizes_match) {
+                    // Reset path
+                    for (auto& base_ptr : bucket) {
+                        auto fly = std::dynamic_pointer_cast<FlyAgent>(base_ptr);
+                        if (!fly) continue;
+
+                        assign_start_and_goal(*fly, fly->GetId());
+                        fly->SetAgentSubType(agent_type_label);
+                        out.push_back(fly);
+                    }
+                    auto fly_agents = CastAgents<FlyAgent>(bucket);
+                    auto hits = findCollisions(fly_agents);
+                    for (auto& fly : fly_agents) {
+                        fly->Reset(mode, gridmap_, model_renderer_);
+                    }
+                } else {
+                    // Recreate path
+                    bucket.clear();
+                    for (int i = 0; i < count; ++i) {
+                        const int agent_id = id_offset + i;
+                        auto agent = AgentFactory::GetInstance().CreateAgent("fly_agent", parameters_, agent_id, time_steps);
+                        auto fly   = std::dynamic_pointer_cast<FlyAgent>(agent);
+                        if (!fly) { std::cerr << "Failed to create fly_agent\n"; continue; }
+
+                        assign_start_and_goal(*fly, agent_id);
+                        fly->SetAgentSubType(agent_type_label);
+
+                        bucket.push_back(fly);
+                        out.push_back(fly);
+                    }
+                    auto fly_agents = CastAgents<FlyAgent>(bucket);
+                    auto hits = findCollisions(fly_agents);
+                    for (auto& fly : fly_agents) {
+                        fly->Initialize(mode, speed, view_range, gridmap_, model_renderer_);
+                    }
+                }
+                return out;
+            };
+
+    // Reset or create exactly one manager agent in bucket_key.
+    // init_fn is called only on creation. reset_fn only on reset.
+    auto ensure_singleton =
+            [&](const std::string& bucket_key,
+                const std::function<void(std::shared_ptr<Agent>&)>& init_fn,
+                const std::function<void(std::shared_ptr<Agent>&)>& reset_fn)
+            {
+                auto& bucket = agents_by_type_[bucket_key];
+                if (bucket.size() == 1) {
+                    // Reset existing
+                    auto& a = bucket[0];
+                    reset_fn(a);
+                    return;
+                }
+
+                // (Re)create 1
+                bucket.clear();
+                auto agent = AgentFactory::GetInstance().CreateAgent(bucket_key, parameters_, 0, 1);
+                if (!agent) { std::cerr << "Failed to create " << bucket_key << "\n"; return; }
+                init_fn(agent);
+                bucket.push_back(agent);
+            };
+
+    // small helper to clear buckets don't needed in current mode
+    auto clear_buckets = [&](std::initializer_list<const char*> keys) {
+        for (auto* k : keys) { agents_by_type_[k].clear(); }
+    };
+
+    // --- Flows ---------------------------------------------------------------
+
+    if (parameters_.GetHierarchyType() == "fly_agent") {
+        const int desired_fly = (rl_mode == "eval") ? 1 : parameters_.GetNumberOfFlyAgents();
+        spawn_config.group_size = desired_fly;
+
+        // Ensure the flat fly_agent group
+        (void) ensure_fly_group(
+                "fly_agent",
+                desired_fly,
+                /*id_offset*/ 0,
+                /*label*/ "fly_agent",
+                parameters_.fly_agent_speed_,
+                parameters_.fly_agent_view_range_,
+                parameters_.fly_agent_time_steps_
+        );
+
+        // Clear others we don’t use in this mode
+        clear_buckets({"ExploreFlyAgent","PlannerFlyAgent","explore_agent","planner_agent"});
+    }
+    else {
+        // We’re in hierarchical mode: explore + maybe planner
+        const int num_explore = parameters_.GetNumberOfExplorers();
+        int total_group = num_explore;
+
+        const bool is_planner = (parameters_.GetHierarchyType() == "planner_agent");
+        if (is_planner) {
+            total_group += parameters_.GetNumberOfExtinguishers();
+        }
+        spawn_config.group_size = total_group;
+
+        // ExploreFlyAgent group
+        auto explore_fly_agents = ensure_fly_group(
+                "ExploreFlyAgent",
+                num_explore,
+                /*id_offset*/ 0,
+                /*label*/ "ExploreFlyAgent",
+                parameters_.explore_agent_speed_,
+                parameters_.explore_agent_view_range_,
+                parameters_.fly_agent_time_steps_
+        );
+
+        // explore_agent singleton
+        ensure_singleton(
+                "explore_agent",
+                // init
+                [&](std::shared_ptr<Agent>& a){
+                    auto explore = std::dynamic_pointer_cast<ExploreAgent>(a);
+                    if (!explore) { std::cerr << "Failed to cast explore_agent\n"; return; }
+                    auto flys = CastAgents<FlyAgent>(agents_by_type_["ExploreFlyAgent"]);
+                    explore->Initialize(flys, gridmap_);
+                },
+                // reset
+                [&](std::shared_ptr<Agent>& a){
+                    auto explore = std::dynamic_pointer_cast<ExploreAgent>(a);
+                    if (explore) explore->Reset(mode, gridmap_, model_renderer_);
+                }
+        );
+
+        // If we are in planner mode, ensure the planner buckets
+        if (is_planner) {
+            // PlannerFlyAgent group (extinguishers), with ID offset after explorers
+            const int num_ext = parameters_.GetNumberOfExtinguishers();
+            auto planner_fly_agents = ensure_fly_group(
+                    "PlannerFlyAgent",
+                    num_ext,
+                    /*id_offset*/ num_explore,
+                    /*label*/ "PlannerFlyAgent",
+                    parameters_.extinguisher_speed_,
+                    parameters_.extinguisher_view_range_,
+                    parameters_.fly_agent_time_steps_
+            );
+
+            // planner_agent singleton
+            ensure_singleton(
+                    "planner_agent",
+                    // init
+                    [&](std::shared_ptr<Agent>& a){
+                        auto planner = std::dynamic_pointer_cast<PlannerAgent>(a);
+                        if (!planner) { std::cerr << "Failed to cast planner_agent\n"; return; }
+                        planner->SetGridMap(gridmap_);
+                        auto explore_mgr = std::dynamic_pointer_cast<ExploreAgent>(agents_by_type_["explore_agent"].front());
+                        auto fly_agents = CastAgents<FlyAgent>(agents_by_type_["PlannerFlyAgent"]);
+                        planner->Initialize(explore_mgr, fly_agents, gridmap_);
+                    },
+                    // reset
+                    [&](std::shared_ptr<Agent>& a){
+                        auto planner = std::dynamic_pointer_cast<PlannerAgent>(a);
+                        if (planner) planner->Reset(mode, gridmap_, model_renderer_);
+                    }
+            );
+        } else {
+            // Not planner mode: clear planner buckets if they exist
+            clear_buckets({"PlannerFlyAgent","planner_agent"});
+        }
+
+        // We never keep the flat "fly_agent" bucket in hierarchical flows
+        clear_buckets({"fly_agent"});
+    }
+}
+
+void ReinforcementLearningHandler::StepDroneManual(int drone_idx, double speed_x, double speed_y, int water_dispense) {
+
+    if (agents_by_type_.find("fly_agent") == agents_by_type_.end() || gridmap_ == nullptr) {
+        std::cerr << "No fly_agents or invalid GridMap.\n";
+        return;
+    }
+
+    auto &agents = agents_by_type_["fly_agent"];
+    auto fly_agents = CastAgents<FlyAgent>(agents);
+
+    if (drone_idx < agents_by_type_["fly_agent"].size()) {
+        auto agent = std::dynamic_pointer_cast<FlyAgent>(agents_by_type_["fly_agent"][drone_idx]);
+        agent->Step(speed_x, speed_y, gridmap_);
+        agent->DispenseWater(gridmap_, water_dispense);
+        // Always Update States. Manual control doesn't have frame skipping and will most likely botch training
+        // So just use it for Debugging!
+        auto hits = findCollisions(fly_agents);
+        auto distances_to_other_agents = agent->GetDistancesToOtherAgents();
+        std::cout << "Distances to other agents: \n";
+        for (const auto& dist : distances_to_other_agents) {
+            std::cout << dist.first << ", " << dist.second << "\n";
+        }
+        agent->UpdateStates(gridmap_);
+    }
+}
+
+StepResult ReinforcementLearningHandler::Step(const std::string& agent_type, std::vector<std::shared_ptr<Action>> actions) {
+
+    if (gridmap_ == nullptr || agents_by_type_.find(agent_type) == agents_by_type_.end()) {
+        std::cerr << "No agents of type " << agent_type << " or invalid GridMap.\n";
+        return {};
+    }
+
+    StepResult result;
+
+    total_env_steps_ -= 1;
+    parameters_.SetCurrentEnvSteps(parameters_.total_env_steps_ - total_env_steps_);
+
+    auto &agents = agents_by_type_[agent_type];
+    auto hierarchy_type = parameters_.GetHierarchyType();
+
+    result.rewards.reserve(agents.size());
+    result.terminals.resize(agents.size());
+
+    // Step through all the Agents and update their states, then calculate their reward
+    for (size_t i = 0; i < agents.size(); ++i) {
+        auto &agent = agents[i];
+        agent->ExecuteAction(actions[i], hierarchy_type, gridmap_);
+        // Increase the frame control for frame skipping
+        agent->SetFrameControl(agent->GetFrameCtrl() + 1);
+
+        // Get Terminal State from the Agent
+        auto terminal_state = agent->GetTerminalStates(eval_mode_, gridmap_, total_env_steps_);
+        result.terminals[i] = terminal_state;
+
+        if (agent->GetPerformedHierarchyAction()) {
+            result.rewards.push_back(agent->CalculateReward());
+            // Summary is only relevant for the highest Hierarchy Agent
+            // (e.g. PlannerAgent -> Environment Reset doesn't trigger when FlyAgents reach their GoalPos)
+            result.summary.env_reset = result.summary.env_reset || terminal_state.is_terminal;
+            result.summary.any_failed |= terminal_state.kind == TerminationKind::Failed;
+            result.summary.reason = terminal_state.reason;
+            result.summary.any_succeeded |= terminal_state.kind == TerminationKind::Succeeded;
+            agent->StepReset();
+        }
+    }
+
+    if (agents[0]->GetAgentType() == FLY_AGENT) {
+        auto fly_agents = CastAgents<FlyAgent>(agents);
+        auto hits = findCollisions(fly_agents);
+    }
+
+    for (const auto &agent : agents) {
+        // Update the Agent States for the next observation
+        if (result.summary.env_reset || (agent->GetFrameCtrl() % agent->GetFrameSkips() == 0)) agent->UpdateStates(gridmap_);
+    }
+
+    // Could now add other metrics here like Extinguished Fires or Explored Percentage
+    result.observations = this->GetObservations();
+    result.percent_burned = gridmap_->PercentageBurned();
+    return result;
+}
+
+void ReinforcementLearningHandler::SetRLStatus(py::dict status) {
+    rl_status_ = std::move(status);
+    auto rl_mode = rl_status_[py::str("rl_mode")].cast<std::string>();
+    eval_mode_ = rl_mode == "eval";
+    // Find ExplorerFlyAgents and set their render mode
+    auto explore_fly_agents = CastAgents<FlyAgent>(agents_by_type_["ExploreFlyAgent"]);
+    for (const auto& agent : explore_fly_agents) {
+        agent->SetRender(eval_mode_);
+    }
+    this->onUpdateRLStatus();
+}
+
+void ReinforcementLearningHandler::UpdateReward() {
+    auto intrinsic_reward = rl_status_["intrinsic_reward"].cast<std::vector<double>>();
+    // TODO this very ugly decide on how to display rewards in the GUI
+    for (const auto& drone: agents_by_type_["fly_agent"]) {
+        std::dynamic_pointer_cast<FlyAgent>(drone)->ModifyReward(intrinsic_reward[std::dynamic_pointer_cast<FlyAgent>(drone)->GetId()]);
+    }
+}

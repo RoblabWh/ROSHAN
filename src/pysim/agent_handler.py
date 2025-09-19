@@ -243,9 +243,10 @@ class AgentHandler:
             self.evaluator = Evaluator(log_dir=logging_path, auto_train_dict=at_dict, sim_bridge=self.sim_bridge, logger=self.tensorboard)
 
         if not self.resume:
-            self.logger.info(f"Algorithm: {self.algorithm_name}")
             self.logger.info(f"{self.agent_type.name} initialized")
-            self.logger.info(f"{self.num_agents} Agents control {drone_count} Drones")
+            if not self.is_sub_agent:
+                self.logger.info(f"Algorithm: {self.algorithm_name}")
+                self.logger.info(f"{self.num_agents} Agents control {drone_count} Drones")
 
     def _save_network_arch(self, network_classes):
         # Save own Network Structure for future reference and loading
@@ -265,9 +266,12 @@ class AgentHandler:
             self.logger.info(f"Network sources archived at {network_dir}")
 
     def _load_network_arch(self):
+        # Get the modules that need to be loaded
         module_names = self.agent_type.get_module_names(self.algorithm_name)
+
         parent_network_dir = os.path.join(os.path.dirname(os.path.normpath(self.root_model_path)), "networks")
         is_autotrain_path = self.root_model_path.split(os.sep)[-1].split("_")[0] == "training"
+
         use_parent_networkdir = is_autotrain_path and os.path.exists(parent_network_dir)
         network_dir_load = os.path.join(str(self.root_model_path), "networks") if not use_parent_networkdir else parent_network_dir
         network_dir_std = os.path.join(get_project_paths("root_path"), "src/pysim/networks")

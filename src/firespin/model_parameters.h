@@ -112,7 +112,7 @@ public:
 
         // Agent parameters
         auto agent = environment["agent"];
-
+        drone_size_ = agent["drone_size"].as<double>();
         auto flyagent = agent["fly_agent"];
         number_of_flyagents_ = flyagent["num_agents"].as<int>();
         fly_agent_frame_skips_ = flyagent["frame_skips"].as<int>();
@@ -139,8 +139,8 @@ public:
 
         auto agent_behaviour = environment["agent_behaviour"];
         groundstation_start_percentage_ = agent_behaviour["groundstation_start_percentage"].as<float>();
-        corner_start_percentage_ = agent_behaviour["corner_start_percentage"].as<float>();
         fire_goal_percentage_ = agent_behaviour["fire_goal_percentage"].as<float>();
+        std::cout << "Imported all Config Parameters\n";
     }
 
     //Settings
@@ -156,6 +156,8 @@ public:
     int mode_{};
     bool map_is_uniform_{};
     bool skip_gui_init_{};
+    bool show_small_drones_ = true;
+    bool show_drone_circles_ = false;
     bool exit_carefully_ = false;
     bool check_for_model_folder_empty_ = false;
     bool corine_loaded_ = false;
@@ -286,13 +288,13 @@ public:
 
     // Parameters for the groundstation
     float groundstation_start_percentage_{};
-    float corner_start_percentage_{};
 
     // Parameters for the agent
     int fly_agent_frame_skips_{};
     int explore_agent_frame_skips_{};
     int planner_agent_frame_skips_{};
     std::string hierarchy_type{};
+    double drone_size_{};
     void SetHierarchyType(std::string type) { hierarchy_type = std::move(type);}
     [[nodiscard]] std::string GetHierarchyType() const {return hierarchy_type;}
     int current_env_steps_ = 0;
@@ -311,7 +313,7 @@ public:
     double slack_ = 1.1; // Slack factor to allow for exploration and other tasks
     std::string env_step_string_;
 
-    int GetTotalEnvSteps() {
+    int GetTotalEnvSteps(bool is_eval) {
         const double D = cell_size_ * std::hypot((double)grid_nx_, (double)grid_ny_); // Diagonal distance in meters
         auto max_speed = hierarchy_type == "fly_agent" ? fly_agent_speed_ : hierarchy_type == "explore_agent" ? explore_agent_speed_ : extinguisher_speed_;
         const double base_time = D / max_speed * k_turn_; // Base time in seconds
@@ -320,6 +322,12 @@ public:
 
         if (hierarchy_type == "fly_agent") {
             T_Task = (int)std::ceil(slack_ * T_physical);
+            if (extinguish_all_fires_ && is_eval) {
+                const double beta = 0.23;
+                const int F = (int)std::ceil(fire_percentage_ * (double)(grid_nx_ * grid_ny_));
+                T_Task *= (int)std::ceil(beta * std::sqrt(std::max(1e-9, (double)(grid_nx_ * grid_ny_))) * std::sqrt((double)F) / (max_speed * dt_));
+            }
+
         }
         else if (hierarchy_type == "explore_agent") {
             const double A = (double)grid_nx_ * (double)grid_ny_;
@@ -329,8 +337,8 @@ public:
         }
         else if (hierarchy_type == "planner_agent") {
             const double area_m2 = (grid_nx_ * cell_size_) * (grid_ny_ * cell_size_);
-            const double beta = 0.72; // BHH constant
-            const double fire_time = 300; // Time a fire burns in seconds
+            const double beta = 0.3; // BHH constant
+            const double fire_time = 200; // Time a fire burns in seconds
             const int F = (int)std::ceil(fire_percentage_ * (double)(grid_nx_ * grid_ny_));
             double L = beta * std::sqrt(std::max(1e-9, area_m2)) * std::sqrt((double)F);
             double t_move = L / std::max(1e-6, max_speed);

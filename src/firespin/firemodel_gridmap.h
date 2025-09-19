@@ -20,7 +20,6 @@
 #include <memory>
 #include "src/reinforcementlearning/groundstation.h"
 
-
 class GridMap {
 public:
     GridMap(std::shared_ptr<Wind> wind, FireModelParameters &parameters, std::vector<std::vector<int>>* rasterData = nullptr);
@@ -84,11 +83,14 @@ public:
         return std::make_pair(dis_x(parameters_.gen_), dis_y(parameters_.gen_));
     }
 
-    std::pair<int, int> GetNonGroundStationCorner() {
-        std::pair<int, int> corner = GetRandomCorner();
-        while (corner == groundstation_->GetGridPosition()) {
+    std::pair<double, double> GetNonGroundStationCorner() {
+        std::pair<double, double> corner = GetRandomCorner();
+        while (static_cast<int>(corner.first) == groundstation_->GetGridPosition().first &&
+               static_cast<int>(corner.second) == groundstation_->GetGridPosition().second) {
             corner = GetRandomCorner();
         }
+        corner.first += 0.5;
+        corner.second += 0.5;
         return corner;
     }
 

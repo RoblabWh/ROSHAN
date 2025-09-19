@@ -10,6 +10,7 @@
 #include <functional>
 #include <memory>
 #include <deque>
+#include <utility>
 #include "state.h"
 
 class Timer {
@@ -126,5 +127,4 @@ struct StepResult {
     EpisodeSummary summary;
     double percent_burned{0.0};
 };
-
 #endif //ROSHAN_UTILS2_H

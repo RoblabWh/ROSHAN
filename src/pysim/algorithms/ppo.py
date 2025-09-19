@@ -99,6 +99,9 @@ class PPO(RLAlgorithm):
         except TypeError:
             self.logger.warn(f"TypeError while loading model.")
             return False
+        except RuntimeError:
+            self.logger.warn(f"RuntimeError while loading model. Possibly due to architecture mismatch.")
+            return False
 
     def select_action(self, observations):
         return self.policy.act(observations)
