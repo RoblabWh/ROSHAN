@@ -1,4 +1,4 @@
-from networks.network_fly import Actor, CriticPPO, OffPolicyCritic, DeterministicActor, Value
+from networks.network_fly_old import Actor, CriticPPO, OffPolicyCritic, DeterministicActor, Value
 import numpy as np
 import firesim
 from agent import Agent
@@ -46,9 +46,18 @@ class FlyAgent(Agent):
 
         velocities = [[state.GetVelocityNorm() for state in group] for group in drone_state_groups]
         delta_goals = [[state.GetDeltaGoal() for state in group] for group in drone_state_groups]
+        cos_sin_to_goal = [[state.GetCosSinToGoal() for state in group] for group in drone_state_groups]
+        speed = [[state.GetSpeed() for state in group] for group in drone_state_groups]
+        distance_to_goal = [[state.GetDistanceToGoal() for state in group] for group in drone_state_groups]
         distances_to_others = [[state.GetDistancesToOtherAgents() for state in group] for group in drone_state_groups]
+        distances_mask = [[state.GetDistancesMask() for state in group] for group in drone_state_groups]
 
         all_velocities = np.stack(velocities)
         all_delta_goals = np.stack(delta_goals)
+        all_cos_sin_to_goal = np.stack(cos_sin_to_goal)
+        all_speed = np.stack(speed)
+        all_distance_to_goal = np.stack(distance_to_goal)
+        all_distances_to_others = np.stack(distances_to_others)
+        all_distances_mask = np.stack(distances_mask)
 
-        return all_velocities, all_delta_goals
+        return all_velocities, all_delta_goals, all_cos_sin_to_goal, all_speed, all_distance_to_goal, all_distances_to_others, all_distances_mask

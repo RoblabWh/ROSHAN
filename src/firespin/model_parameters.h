@@ -164,6 +164,9 @@ public:
     bool initial_mode_selection_done_ = false;
     bool episode_termination_indicator_ = true;
     bool llm_support_{};
+    bool adaptive_start_position_ = false;
+    bool adaptive_goal_position_ = false;
+    bool random_start_goal_variables_ = false;
 
     void SetCorineLoaded(bool loaded) {corine_loaded_ = loaded;}
     [[nodiscard]] bool GetCorineLoaded() const {return corine_loaded_;}
@@ -277,6 +280,8 @@ public:
     float fire_spread_prob_{}; // in percent (%)
     float fire_noise_{};
     bool recharge_time_active_{};
+    bool manual_control_{false};
+    int active_drone_{0};
 
     float SampleFirePercentage() { return std::uniform_real_distribution<float>(0.0, 1.0)(gen_); }
     float SampleFireSpreadProb() { return std::uniform_real_distribution<float>(0.0, 1.0)(gen_); }
@@ -309,8 +314,8 @@ public:
 
     double coverage_eff = 0.7; // Efficiency factor for exploration agents
     int total_env_steps_ = 0;
-    double k_turn_ = 1.1; // Factor to account for turns and non-optimal paths
-    double slack_ = 1.1; // Slack factor to allow for exploration and other tasks
+    double k_turn_ = 1.5; // Factor to account for turns and non-optimal paths
+    double slack_ = 2.0; // Slack factor to allow for exploration and other tasks
     std::string env_step_string_;
 
     int GetTotalEnvSteps(bool is_eval) {

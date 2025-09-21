@@ -69,24 +69,47 @@ inline std::vector<std::pair<int,int>> findAlmostCollisions(const std::vector<st
 }
 
 // Returns pairs of indices that are actually colliding
-inline std::vector<std::pair<int,int>> findCollisions(const std::vector<std::shared_ptr<FlyAgent>>& agents) {
+inline void findCollisions(const std::vector<std::shared_ptr<FlyAgent>>& agents, const std::shared_ptr<GridMap>& gridmap, const int view_range_ = -1, const bool init = false) {
     std::vector<std::pair<int,int>> hits;
     const int n = static_cast<int>(agents.size());
-    auto view_range = agents[0]->GetViewRange();
+    auto view_range = view_range_ == -1 ? agents[0]->GetViewRange() : view_range_;
     auto view_range_h = view_range / 2.0;
     // first loop through all agents and clear their distance records
     for (auto & agent : agents) {
         agent->ClearDistances();
+        agent->ClearMask();
+        std::vector<double> bvec_norm;
+        auto mask = agent->GetDistanceToNearestBoundaryNorm(gridmap->GetRows(), gridmap->GetCols(), view_range, bvec_norm);
+        agent->AppendDistance(bvec_norm);  // e.g., store alongside neighbor features
+        agent->AppendMask(mask);
     }
     for (int i = 0; i < n; ++i) {
         for (int j = i+1; j < n; ++j) {
             auto vec_dist = dist_vec(agents[i]->GetGridPositionDouble(), agents[j]->GetGridPositionDouble());
             if (std::fabs(vec_dist.first) < view_range_h && std::fabs(vec_dist.second) < view_range_h) {
-                agents[i]->AppendDistance({vec_dist.first / view_range, vec_dist.second / view_range});
-                agents[j]->AppendDistance({-vec_dist.first / view_range, -vec_dist.second / view_range});
+                std::pair<double, double> a_j_dvx;
+                std::pair<double, double> a_i_dvx;
+                // If this is a reset or init we don't have set the speed to normalize yet (BAD but works for now)
+                if (!init) {
+                    a_j_dvx = agents[j]->GetVelocityVecNorm();
+                    a_i_dvx = agents[i]->GetVelocityVecNorm();
+                } else {
+                    a_j_dvx = {0.0, 0.0};
+                    a_i_dvx = {0.0, 0.0};
+                }
+
+                agents[i]->AppendDistance({vec_dist.first / view_range, vec_dist.second / view_range, a_j_dvx.first, a_j_dvx.second});
+                agents[j]->AppendDistance({-vec_dist.first / view_range, -vec_dist.second / view_range, a_i_dvx.first, a_i_dvx.second});
+                agents[i]->AppendMask(true);
+                agents[j]->AppendMask(true);
                 if (circlesCollide(dist2(agents[i]->GetGridPositionDouble(), agents[j]->GetGridPositionDouble()), agents[i]->GetDroneSize(), agents[j]->GetDroneSize())) {
                     hits.emplace_back(i, j);
                 }
+            } else {
+                agents[i]->AppendDistance({0.0, 0.0, 0.0, 0.0});
+                agents[j]->AppendDistance({0.0, 0.0, 0.0, 0.0});
+                agents[i]->AppendMask(false);
+                agents[j]->AppendMask(false);
             }
         }
     }
@@ -94,7 +117,6 @@ inline std::vector<std::pair<int,int>> findCollisions(const std::vector<std::sha
         agents[collision.first]->SetCollision(true);
         agents[collision.second]->SetCollision(true);
     }
-    return hits;
 }
 
 inline void handleCollisions(const std::vector<std::pair<int,int>>& collisions, const std::vector<std::shared_ptr<FlyAgent>>& agents) {

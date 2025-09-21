@@ -62,7 +62,7 @@ public:
 
     std::unordered_map<std::string, double> GetRewardComponents() { return reward_components_; }
 
-    AgentState GetLastState() { return *agent_states_[0]; }
+    AgentState GetLastState() const { return *agent_states_[0]; }
 //    std::deque<AgentState> GetStates() { return agent_states_; }
 protected:
     AgentType agent_type_{};

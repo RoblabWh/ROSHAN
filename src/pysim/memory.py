@@ -16,7 +16,7 @@ class SwarmMemory(object):
         self.memory = [Memory(action_dim=action_dim, max_size=max_size, use_intrinsic_reward=use_intrinsic_reward, use_next_obs=use_next_obs) for _ in range(num_agents)]
 
     @staticmethod
-    # TODO WATCH THIS!! DOES THIS EVEN WORK AS INTENDED???
+    # TODO WATCH THIS!! DOES THIS EVEN WORK AS INTENDED??? I THINK IT DOES??
     def get_agent_state(state, agent_id):
         if isinstance(state, tuple):
             tuple_state = tuple()
@@ -210,8 +210,13 @@ class Memory(object):
         mask_tensor = torch.empty(0, dtype=torch.bool, device=self.device)
 
         for field_list in state_fields:
-            tensor_list = [torch.as_tensor(f, dtype=torch.float32) for f in field_list]
+            tensor_list = [torch.as_tensor(f) if f.dtype==bool else torch.as_tensor(f, dtype=torch.float32) for f in field_list]#[torch.as_tensor(f) for f in field_list]
             shapes = [t.shape for t in tensor_list]
+
+            # Strip extra dimensions from big brain storage solution
+            if len(shapes[0]) > 0 and all(s[:1] == (1,) for s in shapes):
+                tensor_list = [t.squeeze(0) for t in tensor_list]
+                shapes = [t.shape for t in tensor_list]
 
             # Determine which axis varies in length across samples. We only pad
             # the *first* such axis encountered; remaining axes are assumed to

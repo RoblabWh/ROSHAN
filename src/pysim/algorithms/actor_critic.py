@@ -190,10 +190,12 @@ class ActorCriticPPO(StochasticActor):
     """
     A PyTorch Module that represents the actor-critic network of a PPO agent.
     """
-    def __init__(self, Actor, Critic, vision_range, drone_count, map_size, time_steps):
+    def __init__(self, Actor, Critic, vision_range, drone_count, map_size, time_steps, share_encoder=False):
         super(ActorCriticPPO, self).__init__(Actor, Critic, vision_range, drone_count, map_size, time_steps)
 
-        self.critic = Critic(vision_range, drone_count, map_size, time_steps).to(self.device)
+        inputspace = None if not share_encoder else self.actor.Inputspace
+
+        self.critic = Critic(vision_range, drone_count, map_size, time_steps, inputspace).to(self.device)
         self.critic.apply(init_fn)
 
     def evaluate(self, state, action, masks=None):

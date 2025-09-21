@@ -6,45 +6,6 @@ import torch
 if os.getenv("PYTORCH_DETECT_ANOMALY", "").lower() in ("1", "true"):
     torch.autograd.set_detect_anomaly(True)
 
-class NeighborEncoder(nn.Module):
-    """Permutation-invariant neighbor set encoder with masking."""
-    def __init__(self, use_attention=False):
-        super().__init__()
-        self.use_attention = use_attention
-        # in_features = [dx, dy, dvx, dvy, dist]
-        hidden = 64
-        self.out_dim = 64
-        self.mlp = nn.Sequential(
-            nn.Linear(5, hidden), nn.ReLU(inplace=True),
-            nn.Linear(hidden, hidden), nn.ReLU(inplace=True),
-            nn.Linear(hidden, self.out_dim)
-        )
-        if use_attention:
-            self.attn = nn.Sequential(
-                nn.Linear(self.out_dim, self.out_dim), nn.Tanh(),
-                nn.Linear(self.out_dim, 1)  # scalar score
-            )
-
-    def forward(self, neigh_feats, mask):
-        """
-        neigh_feats: (B, K, F) where F = [dx, dy, dvx, dvy, dist]
-        mask: (B, K) bool; True for valid neighbors
-        """
-        B, K, Fdim = neigh_feats.shape
-        h = self.mlp(neigh_feats)                        # (B, K, D)
-        # zero-out invalid rows
-        h = h * mask.unsqueeze(-1)                       # (B, K, D)
-        if self.use_attention:
-            scores = self.attn(h).squeeze(-1)            # (B, K)
-            scores = scores.masked_fill(~mask, -1e9)
-            w = torch.softmax(scores, dim=1).unsqueeze(-1)
-            pooled = (w * h).sum(dim=1)                  # (B, D)
-        else:
-            # mean pool over valid neighbors; avoid /0
-            denom = mask.sum(dim=1).clamp(min=1).unsqueeze(-1)
-            pooled = h.sum(dim=1) / denom                # (B, D)
-        return pooled  # (B, D)
-
 class Inputspace(nn.Module):
 
     def __init__(self, vision_range, time_steps):
@@ -57,48 +18,37 @@ class Inputspace(nn.Module):
         self.vision_range = vision_range
         self.time_steps = time_steps
 
-        hidden = 64
-        out = 64
-
-        self.neigh_encoder = NeighborEncoder(use_attention=True)
-
-        self.self_mlp = nn.Sequential(
-            nn.Linear(4, hidden), nn.ReLU(inplace=True),
-            nn.Linear(hidden, hidden), nn.ReLU(inplace=True),
-        )
-
-        self.fuse = nn.Sequential(
-            nn.Linear(hidden + self.neigh_encoder.out_dim, hidden), nn.ReLU(inplace=True),
-            nn.Linear(hidden, out), nn.ReLU(inplace=True),
-        )
-
-        self.out_features = hidden * self.time_steps
+        mid_layer_out_features = 64
+        self.hidden_layer1 = nn.Linear(in_features=4, out_features=mid_layer_out_features)
+        self.hidden_layer2 = nn.Linear(in_features=mid_layer_out_features, out_features=mid_layer_out_features)
+        self.out_features = mid_layer_out_features * self.time_steps
 
         self.flatten = nn.Flatten()
 
     def prepare_tensor(self, states):
-        velocity, delta_goal = states
+        velocity, position = states
 
         if not torch.is_tensor(velocity):
             velocity = torch.as_tensor(velocity, dtype=torch.float32)
 
-        if not torch.is_tensor(delta_goal):
-            delta_goal = torch.as_tensor(delta_goal, dtype=torch.float32)
+        if not torch.is_tensor(position):
+            position = torch.as_tensor(position, dtype=torch.float32)
 
         # Only move if needed
         if velocity.device != self.device:
             velocity = velocity.to(self.device)
-        if delta_goal.device != self.device:
-            delta_goal = delta_goal.to(self.device)
+        if position.device != self.device:
+            position = position.to(self.device)
 
-        return velocity, delta_goal
+        return velocity, position
 
     def forward(self, states):
         velocity, delta_goal = self.prepare_tensor(states)
 
         delta_position = delta_goal - velocity
         x = torch.cat((velocity, delta_position), dim=-1)
-        x = self.self_mlp(x)  # (B, T, H)
+        x = F.relu(self.hidden_layer1(x), inplace=True)
+        x = F.relu(self.hidden_layer2(x), inplace=True)
         output_vision = torch.flatten(x, start_dim=1)
 
         return output_vision
@@ -140,7 +90,7 @@ class DeterministicActor(nn.Module):
         self.l1 = nn.Linear(in_features=self.in_features, out_features=400)
         self.l2 = nn.Linear(in_features=400, out_features=300)
         self.l3 = nn.Linear(in_features=300, out_features=2)
-        self.l3._init_gain = 0.1
+        self.l1._init_gain = 0.1
 
     def forward(self, states):
         x = self.Inputspace(states)

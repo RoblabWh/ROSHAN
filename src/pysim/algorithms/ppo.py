@@ -232,7 +232,7 @@ class PPO(RLAlgorithm):
             for i in range(memory.num_agents):
                 _, values_, _ = self.policy.evaluate(states[i], actions[i], variable_state_masks[0] if self.use_variable_state_masks and len(variable_state_masks[0]) > 0 else None)
                 if masks[i][-1] == 1:
-                    last_state = tuple(torch.FloatTensor(np.array(state)).to(self.device) for state in memory.get_agent_state(next_obs, i))
+                    last_state = tuple(torch.FloatTensor(np.array(state)).to(self.device) if np.array(state).dtype!=bool else torch.BoolTensor(np.array(state)).to(self.device) for state in memory.get_agent_state(next_obs, i))
                     bootstrapped_value = self.policy.critic(last_state).detach()
                     if bootstrapped_value.dim() != 1:
                         bootstrapped_value = bootstrapped_value.mean(dim=1)

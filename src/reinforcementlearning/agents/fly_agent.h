@@ -91,6 +91,8 @@ public:
     std::pair<double, double> GetGoalPosition() { return goal_position_; }
     std::string GetAgentSubType() const { return agent_sub_type_; }
     double GetDroneSize() const { return parameters_.drone_size_ / parameters_.GetCellSize(); } // like GetGridPositionDouble
+    bool GetDistanceToNearestBoundaryNorm(int rows, int cols, double view_range_half, std::vector<double>& out_norm);
+
 
     std::pair<int, int> GetGoalPositionInt() const { return std::make_pair((int)goal_position_.first, (int)goal_position_.second); }
     int GetNewlyExploredCells() const { return newly_explored_cells_; }
@@ -101,6 +103,7 @@ public:
         return nec;
     }
     bool GetExtinguishedLastFire() const { return extinguished_last_fire_; }
+    std::pair<double, double> GetVelocityVecNorm() const { return {vel_vector_.first / max_speed_.first / norm_scale_, vel_vector_.second / max_speed_.second / norm_scale_}; }
     //** Setter **//
     void SetGoalPosition(std::pair<double, double> goal_position) { goal_position_ = goal_position; }
     void SetPosition(std::pair<double, double> point) { position_ = std::make_pair((point.first) * parameters_.GetCellSize(), (point.second) * parameters_.GetCellSize()); }
@@ -109,12 +112,16 @@ public:
     void SetSpeed(const std::pair<double, double> &speed) { max_speed_ = speed; }
     void SetCollision(bool collision) { collision_occurred_ = collision; }
     void ClearDistances() { distance_to_other_agents_.clear(); }
-    void AppendDistance(std::pair<double,double> dist) {distance_to_other_agents_.push_back(dist);}
-    std::vector<std::pair<double,double>> GetDistancesToOtherAgents() const { return distance_to_other_agents_; }
+    void ClearMask() { distance_mask_.clear(); }
+    void AppendDistance(const std::vector<double> &dist) {distance_to_other_agents_.push_back(dist);}
+    void AppendMask(bool mask) {distance_mask_.push_back(mask);}
+    std::vector<std::vector<double>> GetDistancesToOtherAgents() const { return distance_to_other_agents_; }
+    std::vector<bool> GetDistanceMask() const { return distance_mask_; }
 private:
     //Fly Agent specific
     void FlyPolicy(const std::shared_ptr<GridMap> &gridmap);
     std::pair<double, double> MovementStep(double netout_x, double netout_y);
+
     void CalcMaxDistanceFromMap();
     static bool almostEqual(const std::pair<double, double>& p1, const std::pair<double, double>& p2, double epsilon = 0.25) {
         return std::fabs(p1.first - p2.first) < epsilon && std::fabs(p1.second - p2.second) < epsilon;
@@ -133,7 +140,8 @@ private:
     std::pair<double, double> position_; // x, y in (m)
     std::pair<double, double> vel_vector_;
     std::pair<double, double> goal_position_;
-    std::vector<std::pair<double,double>> distance_to_other_agents_;
+    std::vector<std::vector<double>> distance_to_other_agents_;
+    std::vector<bool> distance_mask_;
     int newly_explored_cells_{};
     int out_of_area_counter_;
     bool collision_occurred_ = false;
@@ -147,6 +155,7 @@ private:
     TextureRenderer goal_texture_renderer_;
     std::deque<std::pair<double, double>> trail_;
     int trail_length_ = 50;
+    double norm_scale_{};
 
     // Possibly Deprecated
     bool extinguished_fire_{};

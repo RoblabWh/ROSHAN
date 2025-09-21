@@ -52,10 +52,12 @@ void ReinforcementLearningHandler::ResetEnvironment(Mode mode) {
     GoalSelector goal_selector(gridmap_);
 
     SpawnConfig spawn_config;
+    parameters_.groundstation_start_percentage_ = parameters_.adaptive_start_position_ ? rl_status_["objective"].cast<double>() : parameters_.groundstation_start_percentage_;
     spawn_config.drone_radius_m = parameters_.drone_size_;
     spawn_config.groundstation_start_percentage_ = parameters_.groundstation_start_percentage_;
 
     GoalConfig goal_config;
+    parameters_.fire_goal_percentage_ = parameters_.adaptive_goal_position_ ? 1 - rl_status_["objective"].cast<double>() : parameters_.fire_goal_percentage_;
     goal_config.fire_goal_pct = parameters_.fire_goal_percentage_;
 
     auto hierarchy_type = rl_status_["hierarchy_type"].cast<std::string>();
@@ -109,12 +111,12 @@ void ReinforcementLearningHandler::ResetEnvironment(Mode mode) {
 
                         assign_start_and_goal(*fly, fly->GetId());
                         fly->SetAgentSubType(agent_type_label);
-                        out.push_back(fly);
                     }
                     auto fly_agents = CastAgents<FlyAgent>(bucket);
-                    auto hits = findCollisions(fly_agents);
+                    findCollisions(fly_agents, gridmap_, view_range, true);
                     for (auto& fly : fly_agents) {
                         fly->Reset(mode, gridmap_, model_renderer_);
+                        out.push_back(fly);
                     }
                 } else {
                     // Recreate path
@@ -129,12 +131,12 @@ void ReinforcementLearningHandler::ResetEnvironment(Mode mode) {
                         fly->SetAgentSubType(agent_type_label);
 
                         bucket.push_back(fly);
-                        out.push_back(fly);
                     }
                     auto fly_agents = CastAgents<FlyAgent>(bucket);
-                    auto hits = findCollisions(fly_agents);
+                    findCollisions(fly_agents, gridmap_, view_range, true);
                     for (auto& fly : fly_agents) {
                         fly->Initialize(mode, speed, view_range, gridmap_, model_renderer_);
+                        out.push_back(fly);
                     }
                 }
                 return out;
@@ -171,7 +173,7 @@ void ReinforcementLearningHandler::ResetEnvironment(Mode mode) {
     // --- Flows ---------------------------------------------------------------
 
     if (parameters_.GetHierarchyType() == "fly_agent") {
-        const int desired_fly = (rl_mode == "eval") ? 1 : parameters_.GetNumberOfFlyAgents();
+        const int desired_fly = (rl_mode == "eval") ? parameters_.GetNumberOfFlyAgents() : parameters_.GetNumberOfFlyAgents();
         spawn_config.group_size = desired_fly;
 
         // Ensure the flat fly_agent group
@@ -207,7 +209,7 @@ void ReinforcementLearningHandler::ResetEnvironment(Mode mode) {
                 /*label*/ "ExploreFlyAgent",
                 parameters_.explore_agent_speed_,
                 parameters_.explore_agent_view_range_,
-                parameters_.fly_agent_time_steps_
+                parameters_.explore_agent_time_steps_
         );
 
         // explore_agent singleton
@@ -285,12 +287,7 @@ void ReinforcementLearningHandler::StepDroneManual(int drone_idx, double speed_x
         agent->DispenseWater(gridmap_, water_dispense);
         // Always Update States. Manual control doesn't have frame skipping and will most likely botch training
         // So just use it for Debugging!
-        auto hits = findCollisions(fly_agents);
-        auto distances_to_other_agents = agent->GetDistancesToOtherAgents();
-        std::cout << "Distances to other agents: \n";
-        for (const auto& dist : distances_to_other_agents) {
-            std::cout << dist.first << ", " << dist.second << "\n";
-        }
+        findCollisions(fly_agents, gridmap_);
         agent->UpdateStates(gridmap_);
     }
 }
@@ -330,7 +327,9 @@ StepResult ReinforcementLearningHandler::Step(const std::string& agent_type, std
             // (e.g. PlannerAgent -> Environment Reset doesn't trigger when FlyAgents reach their GoalPos)
             result.summary.env_reset = result.summary.env_reset || terminal_state.is_terminal;
             result.summary.any_failed |= terminal_state.kind == TerminationKind::Failed;
-            result.summary.reason = terminal_state.reason;
+            if (terminal_state.is_terminal) {
+                result.summary.reason = terminal_state.reason;
+            }
             result.summary.any_succeeded |= terminal_state.kind == TerminationKind::Succeeded;
             agent->StepReset();
         }
@@ -338,7 +337,7 @@ StepResult ReinforcementLearningHandler::Step(const std::string& agent_type, std
 
     if (agents[0]->GetAgentType() == FLY_AGENT) {
         auto fly_agents = CastAgents<FlyAgent>(agents);
-        auto hits = findCollisions(fly_agents);
+        findCollisions(fly_agents, gridmap_);
     }
 
     for (const auto &agent : agents) {

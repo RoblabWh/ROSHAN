@@ -11,7 +11,7 @@ settings:
   skip_gui_init: true # Uses this config as default and skips the GUI setup
   pytorch_detect_anomaly: false # Enable PyTorch autograd anomaly detection
   auto_train:
-    use_auto_train: true # Whether to use auto training
+    use_auto_train: false # Whether to use auto training
     train_episodes: 10 # Number of total trainings, each containing max_train train_steps
     max_train: 25 # Maximum number of train_steps(NOT policy steps) to perform
     max_eval: 200 # Maximum number of evaluations(one evaluation = one environment completed) to perform
@@ -19,7 +19,7 @@ paths:
   # This is the root_path where your NEW trained models data is stored
   # Loading for your ROOT Model (chosen hierarchy) is ALSO done from here (Eval and Resuming Training)
   # (either absolute or relative to the project root)
-  model_directory: models/test
+  model_directory: models/test7
   # Leave this empty to get a default name from this config (best practice for training)
   # You can fast load models with suffixes ["latest", "best_reward", "best_objective"]
   # If you want to load a specific model, set the model_name to the name of the model file
@@ -34,9 +34,9 @@ algorithm:
   PPO:
     memory_size: 1.0e+5 # Size of the Replay Buffer
     lr: 4.0e-4 # Learning rate for the optimizer
-    batch_size: 256 # Batch size for the optimizer
+    batch_size: 128 #256 # Batch size for the optimizer
     horizon: 12800 #12800 # Number of steps to collect before updating the model
-    k_epochs: 14 #8 # Number of epochs to update the model
+    k_epochs: 8 #8 # Number of epochs to update the model
     entropy_coeff: 0.0006 # Coefficient for the entropy loss
     value_loss_coef: 0.5 # Coefficient for the value loss
     separate_optimizers: false # Whether to use separate optimizers for the policy and value networks

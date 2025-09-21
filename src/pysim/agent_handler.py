@@ -485,6 +485,8 @@ class AgentHandler:
         # Only sample new action at the start of the control
         start_of_control = self.ctrl_ctr % self.frame_skips == 0
         if start_of_control:
+            if self.current_obs is None:
+                self.current_obs = self.restructure_data(engine.GetObservations())
             actions, action_logprobs = self.act(self.current_obs)
             self.cached_actions = actions
             self.cached_logprobs = action_logprobs
@@ -551,6 +553,8 @@ class AgentHandler:
 
         start_of_control = self.ctrl_ctr % self.frame_skips == 0
         if start_of_control:
+            if self.current_obs is None:
+                self.current_obs = self.restructure_data(engine.GetObservations())
             self.cached_actions = self.act_certain(self.current_obs)
 
         obs_, rewards, _, terminal_result, percent_burned = self.step_agent(engine, self.cached_actions)
@@ -629,6 +633,7 @@ class AgentHandler:
         if self.env_reset:
             self.sim_bridge.set("current_episode", self.sim_bridge.get("current_episode") + 1)
             self.ctrl_ctr = 0  # Reset control counter to avoid issues
+            self.current_obs = None
             self.cached_actions = None
             self.cached_logprobs = None
             self.summed_rewards = None

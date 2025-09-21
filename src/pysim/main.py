@@ -156,7 +156,7 @@ def main(config_path_ : str = ""):
 
         if engine.AgentIsRunning() and sim_bridge.get("agent_online"):
             # Initial Observation
-            hierarchy_manager.restruct_current_obs(engine.GetObservations())
+            # hierarchy_manager.restruct_current_obs(engine.GetObservations())
 
             if sim_bridge.get("rl_mode") == "train":
                 hierarchy_manager.train(engine)

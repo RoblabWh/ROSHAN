@@ -35,6 +35,9 @@ class RLConfig:
     lr: float = 4e-4 #2.45e-05 #3e-4
     batch_size: int = 32 #1024 #500
 
+    # Algorithm parameters
+    share_encoder: bool = False
+
 @dataclass
 class NoAlgorithmConfig(RLConfig):
     """

@@ -14,6 +14,7 @@ Agent(parameters, 300){
     frame_skips_ = parameters_.fly_agent_frame_skips_;
     frame_ctrl_ = 0;
     out_of_area_counter_ = 0;
+    vel_vector_ = {0.0, 0.0};
 }
 
 void FlyAgent::Initialize(int mode,
@@ -33,9 +34,10 @@ void FlyAgent::Initialize(int mode,
 
     max_speed_ = std::make_pair(speed, speed);
     view_range_ = view_range;
+    norm_scale_ = view_range_ / 2;
 
-    this->InitializeFlyAgentStates(grid_map);
     this->last_distance_to_goal_ = this->GetDistanceToGoal();
+    this->InitializeFlyAgentStates(grid_map);
 }
 
 void FlyAgent::Reset(Mode mode,
@@ -44,7 +46,9 @@ void FlyAgent::Reset(Mode mode,
     objective_reached_ = false;
     agent_terminal_state_ = false;
     did_hierarchy_step = false;
+    collision_occurred_ = false;
     reward_components_.clear();
+    vel_vector_ = {0.0, 0.0};
     // DONT clear this here, because we must calculate the distances before we call this function!
     // distance_to_other_agents_.clear();
     trail_.clear();
@@ -59,6 +63,8 @@ void FlyAgent::Reset(Mode mode,
 
 std::shared_ptr<AgentState> FlyAgent::BuildAgentState(const std::shared_ptr<GridMap>& grid_map) {
     auto state = std::make_shared<AgentState>();
+    state->SetNormScale(norm_scale_);
+    state->SetMaxSpeed(max_speed_);
     state->SetVelocity(this->vel_vector_);
     state->SetDroneView(grid_map->GetDroneView(GetGridPosition(), GetViewRange()));
     state->SetTotalDroneView(grid_map->GetInterpolatedDroneView(GetGridPosition(), GetViewRange()));
@@ -68,7 +74,8 @@ std::shared_ptr<AgentState> FlyAgent::BuildAgentState(const std::shared_ptr<Grid
     state->SetGoalPosition(goal_position_);
     state->SetMapDimensions({grid_map->GetRows(), grid_map->GetCols()});
     state->SetCellSize(parameters_.GetCellSize());
-    state->SetDistancesToOtherAgents(std::make_shared<std::vector<std::pair<double,double>>>(distance_to_other_agents_));
+    state->SetDistancesToOtherAgents(std::make_shared<std::vector<std::vector<double>>>(distance_to_other_agents_));
+    state->SetDistancesMask(std::make_shared<std::vector<bool>>(distance_mask_));
 
     return state;
 }
@@ -107,11 +114,15 @@ double FlyAgent::CalculateReward() {
     }
 
     if (!drone_in_grid && agent_terminal_state_) {
-        reward_components["BoundaryTerminal"] = -2;
+        reward_components["BoundaryTerminal"] = -1;
     }
 
     if (agent_terminal_state_ && (env_steps_remaining_ <= 0)) {
-        reward_components["TimeOut"] = -2;
+        reward_components["TimeOut"] = -1;
+    }
+
+    if (collision_occurred_) {
+        reward_components["Collision"] = -1;
     }
 
     if (delta_distance > 0) {
@@ -143,6 +154,11 @@ AgentTerminal FlyAgent::GetTerminalStates(bool eval_mode, const std::shared_ptr<
     if (GetOutOfAreaCounter() > 1) {
         t.is_terminal = true;
         t.reason = FailureReason::BoundaryExit;
+    }
+
+    if (collision_occurred_) {
+        t.is_terminal = true;
+        t.reason = FailureReason::Collision;
     }
 
     // If the drone has reached the goal and it is not in evaluation mode
@@ -377,6 +393,41 @@ std::pair<double, double> FlyAgent::MovementStep(double netout_x, double netout_
     position_.second += adjusted_vel_vector.second;
     this->AppendTrail(std::make_pair(static_cast<int>(position_.first), static_cast<int>(position_.second)));
     return adjusted_vel_vector;
+}
+
+bool FlyAgent::GetDistanceToNearestBoundaryNorm(int rows, int cols, double view_range, std::vector<double>& out_norm) {
+    auto position = this->GetGridPositionDouble();
+    double x = position.first;
+    double y = position.second;
+    auto view_range_half = view_range * 0.5;
+
+    // Displacements to each boundary line (only one axis nonzero)
+    const double dxL = -x;          // to left   (x=0)
+    const double dxR =  cols - x;   // to right  (x=cols)
+    const double dyT = -y;          // to top    (y=0)
+    const double dyB =  rows - y;   // to bottom (y=rows)
+
+    // Pick the nearest by absolute distance
+    double cand_vals[4] = { std::fabs(dxL), std::fabs(dxR), std::fabs(dyT), std::fabs(dyB) };
+    int argmin = 0;
+    for (int i = 1; i < 4; ++i) if (cand_vals[i] < cand_vals[argmin]) argmin = i;
+
+    std::pair<double,double> v; // unnormalized displacement
+    switch (argmin) {
+        case 0: v = { dxL, 0.0 }; break;
+        case 1: v = { dxR, 0.0 }; break;
+        case 2: v = { 0.0, dyT }; break;
+        default:v = { 0.0, dyB }; break;
+    }
+
+    // Visibility inside rectangular view (axis-aligned), half-size = view_range_half
+    if (std::fabs(v.first)  <= view_range_half && std::fabs(v.second) <= view_range_half) {
+        // Don't use internal view_range here, because at some points this function is called, it's not initialized
+        out_norm = { v.first / view_range_half, v.second / view_range_half, 0.0, 0.0 }; // same scaling as neighbors
+        return true;
+    }
+    out_norm = { 0.0, 0.0, 0.0, 0.0 };
+    return false;
 }
 
 void FlyAgent::CalcMaxDistanceFromMap() {

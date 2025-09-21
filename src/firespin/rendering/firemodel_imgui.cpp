@@ -440,10 +440,13 @@ void ImguiHandler::PyConfig(std::string &user_input,
                         *out_text = names[idx].c_str();
                         return true;
                     }, &drone_names, static_cast<int>(drone_names.size()));
-
+                    ImGui::SameLine();
+                    ImGui::Checkbox("ManualControl", &parameters_.manual_control_);
                     // Get the currently selected drone
                     auto &selected_drone = (*drones)[current_drone_index];
+
                     selected_drone->SetActive(true);
+                    parameters_.active_drone_ = current_drone_index;
 
                     if (show_exploration_map){
                         if (ImGui::Begin("Exploration & Fire Map")) {
@@ -593,16 +596,45 @@ void ImguiHandler::PyConfig(std::string &user_input,
                         ImGui::TableHeadersRow();
 
                         ImGui::TableNextRow();
-                        ImGui::TableNextColumn(); ImGui::Text("GetDeltaGoal");
+                        ImGui::TableNextColumn(); ImGui::Text("VelocityNorm");
+                        ImGui::TableNextColumn(); ImGui::Text("%.6f, %.6f",
+                                                              selected_drone->GetLastState().GetVelocityNorm().first,
+                                                              selected_drone->GetLastState().GetVelocityNorm().second);
+
+                        ImGui::TableNextRow();
+                        ImGui::TableNextColumn(); ImGui::Text("DeltaGoal");
                         ImGui::TableNextColumn(); ImGui::Text("(%.6f, %.6f)",
                                                               selected_drone->GetLastState().GetDeltaGoal().first,
                                                               selected_drone->GetLastState().GetDeltaGoal().second);
 
                         ImGui::TableNextRow();
-                        ImGui::TableNextColumn(); ImGui::Text("GetVelocityNorm");
+                        ImGui::TableNextColumn(); ImGui::Text("CosSinToGoal");
                         ImGui::TableNextColumn(); ImGui::Text("%.6f, %.6f",
-                                                              selected_drone->GetLastState().GetVelocityNorm().first,
-                                                              selected_drone->GetLastState().GetVelocityNorm().second);
+                                                              selected_drone->GetLastState().GetCosSinToGoal().first,
+                                                              selected_drone->GetLastState().GetCosSinToGoal().second);
+
+                        ImGui::TableNextRow();
+                        ImGui::TableNextColumn(); ImGui::Text("Speed");
+                        ImGui::TableNextColumn(); ImGui::Text("%.6f",
+                                                              selected_drone->GetLastState().GetSpeed());
+
+                        ImGui::TableNextRow();
+                        ImGui::TableNextColumn(); ImGui::Text("DistanceToGoal");
+                        ImGui::TableNextColumn(); ImGui::Text("%.6f",
+                                                              selected_drone->GetLastState().GetDistanceToGoal());
+
+                        auto distances_to_other_agents = selected_drone->GetLastState().GetDistancesToOtherAgents();
+                        auto masks = selected_drone->GetLastState().GetDistancesMask();
+                        for (size_t i = 0; i < distances_to_other_agents.size(); ++i) {
+                            ImGui::TableNextRow();
+                            ImGui::TableNextColumn(); ImGui::Text("Distance_%d", static_cast<int>(i));
+                            ImGui::TableNextColumn(); ImGui::Text("[dx,dy]: (%.6f, %.6f)\n[dvx, dvy]: (%.6f, %.6f)\n(Mask: %d)",
+                                                                  distances_to_other_agents[i][0],
+                                                                  distances_to_other_agents[i][1],
+                                                                  distances_to_other_agents[i][2],
+                                                                  distances_to_other_agents[i][3],
+                                                                  static_cast<bool>(masks[i]));
+                        }
 
                         ImGui::EndTable();
                     }
@@ -724,6 +756,14 @@ void ImguiHandler::PyConfig(std::string &user_input,
                                                                                                             std::to_string(static_cast<int>(parameters_.groundstation_start_percentage_ * 100)).c_str(),
                                                                                                             std::to_string(static_cast<int>((1 - parameters_.groundstation_start_percentage_) * 100)).c_str());
 
+                    ImGui::TableNextRow(); ImGui::TableNextColumn(); ImGui::Text("Adaptive Starting Position");
+                    ImGui::TableNextColumn(); ImGui::SetCursorPosX(ImGui::GetCursorPosX() + (ImGui::GetContentRegionAvail().x / 2) - 10);
+                    ImGui::Checkbox("##AdaptiveStartingPosition", &parameters_.adaptive_start_position_);
+                    if (ImGui::IsItemHovered())
+                        ImGui::SetTooltip("If checked the Starting Position is calculated with the current Objective\n"
+                                          "and changes each Episode. This is minor curriculum learning since random positions\n"
+                                          "are easier to solve than groundstation starts.");
+
                     ImGui::EndTable();
 
                 }
@@ -749,6 +789,13 @@ void ImguiHandler::PyConfig(std::string &user_input,
                                                                                                             std::to_string(static_cast<int>(parameters_.fire_goal_percentage_ * 100)).c_str(),
                                                                                                             std::to_string(static_cast<int>((1 - parameters_.fire_goal_percentage_) * 100)).c_str());
 
+                    ImGui::TableNextRow(); ImGui::TableNextColumn(); ImGui::Text("Adaptive Goal Positions");
+                    ImGui::TableNextColumn(); ImGui::SetCursorPosX(ImGui::GetCursorPosX() + (ImGui::GetContentRegionAvail().x / 2) - 10);
+                    ImGui::Checkbox("##AdaptiveGoalPosition", &parameters_.adaptive_goal_position_);
+                    if (ImGui::IsItemHovered())
+                        ImGui::SetTooltip("If checked the Goal Position is calculated with the current Objective\n"
+                                          "and changes each Episode. This is minor curriculum learning since random positions\n"
+                                          "are easier to solve than corner goals.");
                     ImGui::EndTable();
 
                 }
@@ -1317,23 +1364,22 @@ void ImguiHandler::HandleEvents(SDL_Event event, ImGuiIO *io, const std::shared_
             model_renderer->ResizeEvent();
         }
     }
-    // TODO Manual Drone Control for exploration flyers
-    else if (event.type == SDL_KEYDOWN && !io->WantTextInput) {
+    // Manual Control
+    else if (event.type == SDL_KEYDOWN && !io->WantTextInput && parameters_.manual_control_) {
         if (event.key.keysym.sym == SDLK_w)
-            onMoveDrone(0, -1, 0, 0);
+            onMoveDrone(parameters_.active_drone_, -1, 0, 0);
         // MoveDroneByAngle(0, 0.25, 0, 0);
         if (event.key.keysym.sym == SDLK_s)
-            onMoveDrone(0, 1, 0, 0);
+            onMoveDrone(parameters_.active_drone_, 1, 0, 0);
         // MoveDroneByAngle(0, -0.25, 0, 0);
         if (event.key.keysym.sym == SDLK_a)
-            onMoveDrone(0, 0, -1, 0);
+            onMoveDrone(parameters_.active_drone_, 0, -1, 0);
         // MoveDroneByAngle(0, 0, -0.25, 0);
         if (event.key.keysym.sym == SDLK_d)
-            onMoveDrone(0, 0, 1, 0);
-        // MoveDroneByAngle(0, 0, 0.25, 0);
+            onMoveDrone(parameters_.active_drone_, 0, 1, 0);
+        // Water Dispense
         if (event.key.keysym.sym == SDLK_SPACE)
-            onMoveDrone(0, 0, 0, 1);
-        // MoveDroneByAngle(0, 0, 0, 1);
+            onMoveDrone(parameters_.active_drone_, 0, 0, 1);
     }
     // Browser Events
     // TODO: Eventloop only gets executed when Application is in Focus. Fix this.
