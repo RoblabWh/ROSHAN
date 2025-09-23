@@ -111,10 +111,10 @@ class PPO(RLAlgorithm):
 
     def save(self, logger: TensorboardLogger):
         if logger.is_better_reward():
-            self.logger.info(f"Saving at Episode {logger.episode}, best Reward: {logger.best_metrics['best_reward']:.2f}")
+            self.logger.info(f"Saving at Episode {logger.episode}/Train Step {logger.train_step}, best Reward: {logger.best_metrics['best_reward']:.2f}")
             torch.save(self.policy.state_dict(), f'{os.path.join(self.get_model_path(), self.get_model_name_reward())}')
         if logger.is_better_objective():
-            self.logger.info(f"Saving at Episode {logger.episode}, best Objective {logger.best_metrics['best_objective']:.2f}")
+            self.logger.info(f"Saving at Episode {logger.episode}/Train Step {logger.train_step}, best Objective {logger.best_metrics['best_objective']:.2f}")
             torch.save(self.policy.state_dict(), f'{os.path.join(self.get_model_path(), self.get_model_name_obj())}')
         torch.save(self.policy.state_dict(), f'{os.path.join(self.get_model_path(), self.get_model_name_latest())}')
 

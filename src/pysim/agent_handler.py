@@ -240,7 +240,12 @@ class AgentHandler:
 
             if not self.resume: self.logger.info(f"Top Level Hierarchy: {self.agent_type.name}")
 
-            self.evaluator = Evaluator(log_dir=logging_path, auto_train_dict=at_dict, sim_bridge=self.sim_bridge, logger=self.tensorboard)
+            self.evaluator = Evaluator(log_dir=logging_path,
+                                       auto_train_dict=at_dict,
+                                       no_gui=config["settings"]["mode"] == 2,
+                                       start_eval=self.rl_mode == "eval",
+                                       sim_bridge=self.sim_bridge,
+                                       logger=self.tensorboard)
 
         if not self.resume:
             self.logger.info(f"{self.agent_type.name} initialized")
@@ -333,7 +338,7 @@ class AgentHandler:
 
         # If the model name is just a string, check if it is one of the valid strings
         # This only applies if we are loading a model
-        valid_strings = ["latest", "best_reward", "best_objective"]
+        valid_strings = ["latest", "best_reward", "best_obj"]
         valid_models: list[str] = [file_name for file_name in os.listdir(path) if file_name.endswith(".pt")]
 
         if len(valid_models) == 0:
@@ -610,6 +615,13 @@ class AgentHandler:
             self.current_obs = None
             self.env_reset = True
             # self.sim_bridge.set("env_reset", True)
+
+    def get_final_metric(self, metric_name: str):
+        if not self.is_sub_agent:
+            return self.evaluator.final_metrics()[metric_name]
+        else:
+            self.logger.warning("Sub agents do not have a Tensorboard Logger, returning None")
+            return None
 
     def step_agent(self, engine, actions):
         env_step = engine.Step(self.agent_type.name, self.get_action(actions))

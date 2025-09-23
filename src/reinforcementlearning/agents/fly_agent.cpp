@@ -110,7 +110,7 @@ double FlyAgent::CalculateReward() {
     double total_reward = 0;
 
     if (objective_reached_) {
-        reward_components["GoalReached"] = 5;
+        reward_components["GoalReached"] = 1;
     }
 
     if (!drone_in_grid && agent_terminal_state_) {
@@ -127,7 +127,7 @@ double FlyAgent::CalculateReward() {
 
     if (delta_distance > 0) {
 //        auto safety_factor = std::tanh(10 * distance_to_boundary);
-        reward_components["DistanceImprovement"] = 0.2 * delta_distance; // * safety_factor;
+        reward_components["DistanceImprovement"] = 0.1 * delta_distance; // * safety_factor;
     }
 
 //    if (distance_to_boundary < 0.125) {
@@ -403,9 +403,9 @@ bool FlyAgent::GetDistanceToNearestBoundaryNorm(int rows, int cols, double view_
 
     // Displacements to each boundary line (only one axis nonzero)
     const double dxL = -x;          // to left   (x=0)
-    const double dxR =  cols - x;   // to right  (x=cols)
+    const double dxR =  rows - x;   // to right  (x=cols)
     const double dyT = -y;          // to top    (y=0)
-    const double dyB =  rows - y;   // to bottom (y=rows)
+    const double dyB =  cols - y;   // to bottom (y=rows)
 
     // Pick the nearest by absolute distance
     double cand_vals[4] = { std::fabs(dxL), std::fabs(dxR), std::fabs(dyT), std::fabs(dyB) };

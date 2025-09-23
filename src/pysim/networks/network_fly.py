@@ -66,41 +66,6 @@ class NeighborEncoder(nn.Module):
         pooled = torch.cat([pooled, no_neigh_flag], dim=-1)  # (BT, D+1)
         return pooled.reshape(B, T, -1)
 
-    # def forward(self, neigh_feats, mask):
-    #     """
-    #     neigh_feats: (B, K, F) where F = [dx, dy, dvx, dvy, dist]
-    #     mask: (B, K) bool; True for valid neighbors
-    #     """
-    #     B, T, K, F = neigh_feats.shape
-    #     D = self.out_dim
-    #
-    #     # Flatten time into batch
-    #     x = neigh_feats.reshape(B*T, K, F)
-    #     m = mask.reshape(B*T, K)
-    #
-    #     h = self.mlp(x)
-    #     # zero-out invalid rows
-    #     h = h * m.unsqueeze(-1)
-    #     if self.use_attention:
-    #         scores = self.attn(h).squeeze(-1)            # (BT, K)
-    #         scores = scores.masked_fill(~m, float("-inf"))
-    #         has_any = m.any(dim=1)  # (BT,)
-    #
-    #         pooled = torch.zeros(h.size(0), h.size(-1), device=h.device, dtype=h.dtype)  # (BT, D)
-    #         if has_any.any():
-    #             # Only comupte softmax for rows with valid obstacle
-    #             idx = has_any.nonzero(as_tuple=True)[0]  # indices where we have neighbors
-    #             s = scores[idx]  # (N, K)
-    #             # (optional) stability trick on valid entries
-    #             s = s - torch.amax(s, dim=1, keepdim=True)
-    #             w = torch.softmax(s, dim=1).unsqueeze(-1)  # (N, K, 1)
-    #             pooled[idx] = (w * h[idx]).sum(dim=1)  # (N, D)
-    #     else:
-    #         # mean pool over valid neighbors; avoid /0
-    #         denom = m.sum(dim=1).clamp(min=1).unsqueeze(-1) # (BT, 1)
-    #         pooled = h.sum(dim=1) / denom                # (BT, D)
-    #     return pooled.reshape(B, T, D)
-
 class Inputspace(nn.Module):
 
     def __init__(self, vision_range, time_steps):

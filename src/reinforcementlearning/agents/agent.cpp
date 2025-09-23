@@ -12,7 +12,7 @@ double Agent::ComputeTotalReward(const std::unordered_map<std::string, double>& 
     return total;
 }
 
-std::deque<std::shared_ptr<State>> Agent::GetObservations() {
+std::deque<std::shared_ptr<State>> Agent::GetObservations() const {
     std::deque<std::shared_ptr<State>> states;
     for (const auto& state : agent_states_) {
         states.push_back(state); // Already a shared_ptr

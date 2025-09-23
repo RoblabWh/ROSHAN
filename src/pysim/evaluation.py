@@ -671,7 +671,7 @@ class Evaluator:
     number of agents that died, and number of agents that reached the goal.
     """
 
-    def __init__(self, log_dir: str, auto_train_dict: dict, sim_bridge: SimulationBridge, logger: Union[None, TensorboardLogger] = None):
+    def __init__(self, log_dir: str, auto_train_dict: dict, sim_bridge: SimulationBridge, no_gui: bool, start_eval: bool,logger: Union[None, TensorboardLogger] = None):
         # self.stats = [EvaluationStats()]
         # Python logger for evaluation messages
         self.logger = logging.getLogger("Evaluator")
@@ -680,11 +680,14 @@ class Evaluator:
         self.log_dir = log_dir
         self.sim_bridge = sim_bridge
         self.eval_steps = 0
-        self.use_auto_train = auto_train_dict["use_auto_train"]
+        self.use_auto_train = auto_train_dict["use_auto_train"] or no_gui
+        self.no_gui_eval = no_gui and start_eval # We stop the agent after evaluation because we are in NoGui Mode
         self.max_train = auto_train_dict["max_train"]  # Maximum number of training steps before switching to evaluation
         self.max_eval = auto_train_dict["max_eval"]  # Maximum number of evaluation steps
-        self.train_episodes = auto_train_dict["train_episodes"]  # Number of training episodes to run before stopping Auto Training
+        self.train_episodes = auto_train_dict["train_episodes"] if auto_train_dict["use_auto_train"] else 1  # Number of training episodes to run before stopping Auto Training
         self.current_episode = 0  # Current episode number
+        self.avg_reward = -np.inf
+        self.avg_objective = 0
         # History of per-episode metric values
         self.history: List[Dict[str, float]] = []
         registry = METRIC_REGISTRY_FLY_AGENT if self.sim_bridge.get("hierarchy_type") == "fly_agent" else METRIC_REGISTRY
@@ -724,6 +727,9 @@ class Evaluator:
                 self.sim_bridge.set("train_step", 0)
                 self.sim_bridge.set("policy_updates", 0)
                 self.sim_bridge.set("current_episode", 0)
+        elif self.no_gui_eval:
+            self.sim_bridge.set("agent_online", False)
+            return True
         return False
 
     def save_to_csv(self, path):
@@ -796,9 +802,10 @@ class Evaluator:
         if metrics.get("episode_over"):
             self.eval_steps += 1
             if self.eval_steps >= self.max_eval:
-                avg_reward = float(np.mean([s["Reward"] for s in self.history])) if self.history else 0.0
+                self.avg_reward = float(np.mean([s["Reward"] for s in self.history])) if self.history else 0.0
+                self.avg_objective = float(np.mean([s["Success"] for s in self.history])) if self.history else 0.0
                 self.logger.info(f"Evaluation finished, after {self.eval_steps} evaluation "
-                                 f"steps with average reward: {avg_reward}")
+                                 f"steps with average reward: {self.avg_reward} and average objective: {self.avg_objective}")
                 self.save_to_csv(os.path.join(self.log_dir, "evaluation_stats.csv"))
                 self.plot_metrics()
                 if self.reset():
@@ -807,6 +814,12 @@ class Evaluator:
                 flag_dict.__setitem__("reset", True)
 
         return flag_dict
+
+    def final_metrics(self):
+        """Returns the final evaluation metrics after all evaluation episodes are completed.
+           Only used for Optuna Optimization and otherwise saved in CSV and Plots, as well as the logs
+        """
+        return {"reward": self.avg_reward, "objective": self.avg_objective}
 
     def update_evaluation_metrics(self, rewards, terminal_result, percent_burned):
         step_stats = {

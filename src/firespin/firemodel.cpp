@@ -35,8 +35,8 @@ FireModel::FireModel(Mode mode, const std::string& config_path) : mode_(mode)
         parameters_.SetNumberOfDrones(0);
     }
     if (mode_ == Mode::NoGUI_RL) {
-        rl_status[py::str("agent_is_running")] = py::bool_(true);
         parameters_.check_for_model_folder_empty_ = true;
+        rl_handler_->onUpdateRLStatus = []() {}; // Disable the callback to avoid ImGui issues
         std::cout << "Running in NoGUI_RL mode. Agent always runs." << std::endl;
     }
     if (parameters_.skip_gui_init_ && (mode_ != Mode::NoGUI_RL && mode_ != Mode::NoGUI)) {

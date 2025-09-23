@@ -50,7 +50,7 @@ public:
     int GetFrameCtrl() const { return frame_ctrl_; }
     void SetFrameControl(int frame_ctrl) { frame_ctrl_ = frame_ctrl; }
     AgentType GetAgentType() const { return agent_type_; }
-    std::deque<std::shared_ptr<State>> GetObservations();
+    std::deque<std::shared_ptr<State>> GetObservations() const;
     void UpdateStates(const std::shared_ptr<GridMap>& grid_map);
 
     int GetId() const { return id_; }

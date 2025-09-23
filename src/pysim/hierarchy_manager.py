@@ -101,6 +101,14 @@ class HierarchyManager:
         else:
             self._eval_low(engine)
 
+    def get_final_metric(self, metric_name):
+        if "high" in self.hierarchy:
+            return self.hierarchy["high"].get_final_metric(metric_name)
+        elif "medium" in self.hierarchy:
+            return self.hierarchy["medium"].get_final_metric(metric_name)
+        else:
+            return self.hierarchy["low"].get_final_metric(metric_name)
+
     def update_status(self):
         if "high" in self.hierarchy:
             self.hierarchy["high"].update_status()

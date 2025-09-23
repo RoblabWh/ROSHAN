@@ -17,6 +17,7 @@ class SimulationBridge:
         hierarchy = config["settings"]["hierarchy_type"]
         environment = config["environment"]
         agent = environment["agent"][hierarchy]
+        agent_is_running = config["settings"]["mode"] == 2 # 0: GUI_RL 2: NoGUI_RL = Agent is running
         root_path = get_project_paths("root_path")
         auto_train_dict = config["settings"]["auto_train"]
         status = {
@@ -24,7 +25,7 @@ class SimulationBridge:
             "obs_collected": 0,  # Used by GUI to show the number of collected observations
             "min_update": 0,  # How many obs before updating the policy? Decided by the RL Algorithm
             "agent_online": True,
-            "agent_is_running": False,  # Is the agent currently running?
+            "agent_is_running": agent_is_running,  # Is the agent currently running?
             "train_episode": 0,  # Current training episode
             "train_step": 0,  # How often did you train?
             "current_episode": 0,
