@@ -31,7 +31,7 @@ public:
 
     void PerformPlan(PlanAction* action, const std::string& hierarchy_type, const std::shared_ptr<GridMap>& gridMap);
     bool GetPerformedHierarchyAction() const override { return did_hierarchy_step; }
-    double CalculateReward() override;
+    double CalculateReward(const std::shared_ptr<GridMap>& grid_map) override;
     void StepReset() override {
         did_hierarchy_step = false;
     }

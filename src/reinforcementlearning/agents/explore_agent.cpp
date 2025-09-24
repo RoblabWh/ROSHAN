@@ -145,7 +145,7 @@ void ExploreAgent::InitializeExploreAgentStates(const std::shared_ptr<GridMap>& 
     }
 }
 
-double ExploreAgent::CalculateReward() {
+double ExploreAgent::CalculateReward(const std::shared_ptr<GridMap>& grid_map) {
     int newlyExploredCells = 0;
     double alpha = 0.0001;
     double beta = -0.00001;

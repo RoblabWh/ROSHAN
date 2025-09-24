@@ -28,6 +28,9 @@ void FlyAgent::Initialize(int mode,
         if (agent_sub_type_ != "PlannerFlyAgent") {
             asset_path = "../assets/looker_drone.png";
         }
+        if (parameters_.cia_mode_){
+            asset_path = "../assets/pidgeon.png";
+        }
         this->SetDroneTextureRenderer(model_renderer->GetRenderer(), asset_path);
         this->SetGoalTextureRenderer(model_renderer->GetRenderer());
     }
@@ -47,6 +50,7 @@ void FlyAgent::Reset(Mode mode,
     agent_terminal_state_ = false;
     did_hierarchy_step = false;
     collision_occurred_ = false;
+    extinguished_fire_ = false;
     reward_components_.clear();
     vel_vector_ = {0.0, 0.0};
     // DONT clear this here, because we must calculate the distances before we call this function!
@@ -90,10 +94,19 @@ void FlyAgent::PerformFly(FlyAction* action, const std::string& hierarchy_type, 
 
     this->Step(action->GetSpeedX(), action->GetSpeedY(), gridMap);
 
-    if (hierarchy_type == "fly_agent") {
-        this->FlyPolicy(gridMap);
+    if (hierarchy_type == "fly_agent" && !parameters_.use_simple_policy_) {
+        if (almostEqual(this->GetGoalPosition(), this->GetGridPositionDouble())) {
+            this->DispenseWaterCertain(gridMap);
+            this->SetGoalPosition(gridMap->GetNextFire(this->GetGridPosition()));
+        }
         did_hierarchy_step = true;
-    } else {
+    } else if (hierarchy_type == "fly_agent" && parameters_.use_simple_policy_) {
+        if (almostEqual(this->GetGoalPosition(), this->GetGridPositionDouble())) {
+            objective_reached_ = this->DispenseWaterCertain(gridMap);
+        }
+        did_hierarchy_step = true;
+    } 
+    else {
         objective_reached_ = false;
         if (almostEqual(this->GetGoalPosition(), this->GetGridPositionDouble())) {
             objective_reached_ = true;
@@ -101,7 +114,7 @@ void FlyAgent::PerformFly(FlyAction* action, const std::string& hierarchy_type, 
     }
 }
 
-double FlyAgent::CalculateReward() {
+double FlyAgent::CalculateReward(const std::shared_ptr<GridMap>& grid_map) {
     double distance_to_goal = GetDistanceToGoal();
     double delta_distance = last_distance_to_goal_ - distance_to_goal;
     bool drone_in_grid = GetDroneInGrid();
@@ -109,7 +122,9 @@ double FlyAgent::CalculateReward() {
     std::unordered_map<std::string, double> reward_components;
     double total_reward = 0;
 
-    if (objective_reached_) {
+    // Terminals get computed earlier, they set the Flag in gridmap to true in the "ComplexPolicy" TODO: should really EVERY agent in tha complex policy get the TERMINAL reward? schnapsidee gewesen schwarscheinlich
+    // that also sets the current objective to true, current objectives get set to true in PerformAction(simplePolicy) OR GetTerminals(ComplexPolicy) noodle code wtf
+    if (objective_reached_ || grid_map->GetTerminalOccured()) {
         reward_components["GoalReached"] = 1;
     }
 
@@ -119,6 +134,11 @@ double FlyAgent::CalculateReward() {
 
     if (agent_terminal_state_ && (env_steps_remaining_ <= 0)) {
         reward_components["TimeOut"] = -1;
+    }
+
+    // Use the extinguishing code only in the complex policy since the simple one only cares about reaching the goal
+    if (extinguished_fire_ && !parameters_.use_simple_policy_) {
+        reward_components["Extinguish"] = 0.1;
     }
 
     if (collision_occurred_) {
@@ -146,7 +166,7 @@ double FlyAgent::CalculateReward() {
 
 AgentTerminal FlyAgent::GetTerminalStates(bool eval_mode, const std::shared_ptr<GridMap>& grid_map, int env_steps_remaining) {
     std::vector<bool> terminal_states;
-    bool eval = eval_mode && parameters_.extinguish_all_fires_;
+    // bool eval = eval_mode && parameters_.extinguish_all_fires_;
 
     AgentTerminal t;
 
@@ -161,34 +181,47 @@ AgentTerminal FlyAgent::GetTerminalStates(bool eval_mode, const std::shared_ptr<
         t.reason = FailureReason::Collision;
     }
 
-    // If the drone has reached the goal and it is not in evaluation mode
-    // the goal is reached because the fly agent is trained that way
-    if (objective_reached_ && !eval) {
-        t.is_terminal = true;
-    }
     // If the agent has taken too long it has reached a terminal state and died
     if (env_steps_remaining <= 0) {
         t.is_terminal = true;
         t.reason = FailureReason::Timeout;
     }
 
-    // TODO CHANGE LATER
-    // Terminals only for evaluation lustiges loeschverhalten
-    if (eval){
-        if (grid_map->PercentageBurned() > 0.30) {
-            t.is_terminal = true;
-            t.reason = FailureReason::Burnout;
-        }
+    // If the drone has reached the goal and it is not in evaluation mode
+    // the goal is reached because the fly agent is trained that way
+    if (objective_reached_) {
+        t.is_terminal = true;
+    }
+
+    if (!parameters_.use_simple_policy_){
         if (extinguished_last_fire_) {
-            //  Don't use gridmap_->IsBurning() because it is not reliable since it returns false when there
-            //  are particles in the air. Instead, check if the drone has extinguished the last fire on the map.
-            //  This also makes sure that only the drone that actually extinguished the fire gets the reward
             t.is_terminal = true;
+            objective_reached_ = true;
+            grid_map->SetTerminals(true);
         }
+
         if (!grid_map->IsBurning()) {
             t.is_terminal = true;
         }
     }
+
+    // TODO CHANGE LATER
+    // Terminals only for evaluation lustiges loeschverhalten
+    // if (eval){
+    //     if (grid_map->PercentageBurned() > 0.30) {
+    //         t.is_terminal = true;
+    //         t.reason = FailureReason::Burnout;
+    //     }
+    //     if (extinguished_last_fire_) {
+    //         //  Don't use gridmap_->IsBurning() because it is not reliable since it returns false when there
+    //         //  are particles in the air. Instead, check if the drone has extinguished the last fire on the map.
+    //         //  This also makes sure that only the drone that actually extinguished the fire gets the reward
+    //         t.is_terminal = true;
+    //     }
+    //     if (!grid_map->IsBurning()) {
+    //         t.is_terminal = true;
+    //     }
+    // }
 
     if (t.is_terminal && t.reason != FailureReason::None) { t.kind = TerminationKind::Failed; }
     else if (t.is_terminal) { t.kind = TerminationKind::Succeeded; }
@@ -283,13 +316,12 @@ void FlyAgent::DispenseWater(const std::shared_ptr<GridMap>& grid_map, int water
     if (water_dispense == 1) {
         dispensed_water_ = true;
         std::pair<int, int> grid_position = GetGridPosition();
-        bool fire_extinguished = grid_map->WaterDispension(grid_position.first, grid_position.second);
-        if (fire_extinguished) {
+        extinguished_fire_ = grid_map->WaterDispension(grid_position.first, grid_position.second);
+        if (extinguished_fire_) {
             if (grid_map->GetNumBurningCells() == 0) {
                 extinguished_last_fire_ = true;
             }
         }
-        extinguished_fire_ = fire_extinguished;
     } else {
         dispensed_water_ = false;
         extinguished_fire_ = false;
@@ -305,14 +337,13 @@ bool FlyAgent::DispenseWaterCertain(const std::shared_ptr<GridMap>& grid_map) {
     if (cell_is_burning) {
         dispensed_water_ = true;
         water_capacity_ -= 1;
-        bool fire_extinguished = grid_map->WaterDispension(grid_position.first, grid_position.second);
-        if (fire_extinguished) {
+        extinguished_fire_ = grid_map->WaterDispension(grid_position.first, grid_position.second);
+        if (extinguished_fire_) {
             if (grid_map->GetNumBurningCells() == 0) {
                 extinguished_last_fire_ = true;
             }
         }
-        extinguished_fire_ = fire_extinguished;
-        return fire_extinguished;
+        return extinguished_fire_;
     } else {
         dispensed_water_ = false;
         extinguished_fire_ = false;
@@ -352,10 +383,8 @@ double FlyAgent::GetDistanceToGoal() {
 }
 
 void FlyAgent::FlyPolicy(const std::shared_ptr<GridMap>& gridmap){
-    objective_reached_ = false;
     if(this->policy_type_ == EXTINGUISH_FIRE) {
         if (almostEqual(this->GetGoalPosition(), this->GetGridPositionDouble())) {
-            objective_reached_ = true;
             this->DispenseWaterCertain(gridmap);
             if (this->water_capacity_ <= 0) {
                 this->SetGoalPosition(gridmap->GetGroundstation()->GetGridPositionDouble());
@@ -493,16 +522,23 @@ int FlyAgent::DroneSeesFire() {
     return count;
 }
 
+double DiscretizeOutput(double netout, double bin_size) {
+    double clamped = std::clamp(netout, -1.0, 1.0);
+    double discrete = std::round(clamped / bin_size) * bin_size;
+
+    return discrete;
+}
+
 std::pair<double, double> FlyAgent::GetNewVelocity(double next_speed_x, double next_speed_y) const {
     // Next Speed determines the velocity CHANGE
-    //    next_speed_x = DiscretizeOutput(next_speed_x, 0.05);
-    //    next_speed_y = DiscretizeOutput(next_speed_y, 0.05);
-    //    double new_speed_x = velocity_.first + next_speed_x * max_speed_.first;
-    //    double new_speed_y = velocity_.second + next_speed_y * max_speed_.second;
+       next_speed_x = DiscretizeOutput(next_speed_x, 0.05);
+       next_speed_y = DiscretizeOutput(next_speed_y, 0.05);
+       double new_speed_x = vel_vector_.first + next_speed_x * max_speed_.first;
+       double new_speed_y = vel_vector_.second + next_speed_y * max_speed_.second;
 
     // Netout determines the velocity DIRECTLY #TODO: Why does this perform worse??
-    double new_speed_x = next_speed_x * max_speed_.first;
-    double new_speed_y = next_speed_y * max_speed_.second;
+    // double new_speed_x = next_speed_x * max_speed_.first;
+    // double new_speed_y = next_speed_y * max_speed_.second;
 
     // Clamp new_speed between -max_speed_.first and max_speed_.first
     new_speed_x = std::clamp(new_speed_x, -max_speed_.first, max_speed_.first);

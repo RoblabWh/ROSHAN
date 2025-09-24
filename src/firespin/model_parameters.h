@@ -28,6 +28,7 @@ public:
         }
         gen_.seed(seed_);
         init_rl_mode_ = config["settings"]["rl_mode"].as<std::string>();
+        cia_mode_ = config["settings"]["cia_mode"].as<bool>();
 
         // Paths
         auto paths = config["paths"];
@@ -119,6 +120,7 @@ public:
         fly_agent_speed_ = flyagent["max_speed"].as<double>();
         fly_agent_view_range_ = flyagent["view_range"].as<int>();
         fly_agent_time_steps_ = flyagent["time_steps"].as<int>();
+        use_simple_policy_ = flyagent["use_simple_policy"].as<bool>();
 
         auto exploreagent = agent["explore_agent"];
         number_of_explorers_ = exploreagent["num_agents"].as<int>();
@@ -135,7 +137,6 @@ public:
         planner_agent_time_steps_ = planneragent["time_steps"].as<int>();
 
         water_capacity_ = agent["water_capacity"].as<int>();
-        extinguish_all_fires_ = agent["extinguish_all_fires"].as<bool>();
 
         auto agent_behaviour = environment["agent_behaviour"];
         groundstation_start_percentage_ = agent_behaviour["groundstation_start_percentage"].as<float>();
@@ -146,6 +147,7 @@ public:
     //Settings
     int seed_{};
     std::string init_rl_mode_{};
+    bool cia_mode_{};
 
     // Paths
     std::string corine_dataset_name_{};
@@ -327,7 +329,7 @@ public:
 
         if (hierarchy_type == "fly_agent") {
             T_Task = (int)std::ceil(slack_ * T_physical);
-            if (extinguish_all_fires_ && is_eval) {
+            if (use_simple_policy_ && is_eval) {
                 const double beta = 0.23;
                 const int F = (int)std::ceil(fire_percentage_ * (double)(grid_nx_ * grid_ny_));
                 T_Task *= (int)std::ceil(beta * std::sqrt(std::max(1e-9, (double)(grid_nx_ * grid_ny_))) * std::sqrt((double)F) / (max_speed * dt_));
@@ -419,6 +421,7 @@ public:
     double fly_agent_speed_{};
     int fly_agent_view_range_{};
     int fly_agent_time_steps_{};
+    bool use_simple_policy_{};
     int number_of_explorers_{};
     double explore_agent_speed_{};
     int explore_agent_view_range_{};
@@ -428,7 +431,6 @@ public:
     int extinguisher_view_range_{};
     int planner_agent_time_steps_{};
     int water_capacity_{};
-    bool extinguish_all_fires_{};
     [[nodiscard]] int GetNumberOfFlyAgents() const {return number_of_flyagents_;}
     [[nodiscard]] int GetNumberOfExplorers() const {return number_of_explorers_;}
     [[nodiscard]] int GetNumberOfExtinguishers() const {return number_of_extinguishers_;}

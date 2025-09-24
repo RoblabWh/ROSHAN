@@ -53,7 +53,7 @@ public:
         did_hierarchy_step = false;
     }
 
-    double CalculateReward() override;
+    double CalculateReward(const std::shared_ptr<GridMap>& grid_map) override;
 
     // TODO Tidy UP !!!
 
@@ -146,6 +146,7 @@ private:
     int out_of_area_counter_;
     bool collision_occurred_ = false;
     double water_capacity_;
+    bool extinguished_fire_ = false;
     enum policy_types {EXTINGUISH_FIRE, FLY_TO_GROUNDSTATION, RECHARGE, EXPLORE};
     int policy_type_ = EXTINGUISH_FIRE;
     bool extinguished_last_fire_ = false;
@@ -158,7 +159,6 @@ private:
     double norm_scale_{};
 
     // Possibly Deprecated
-    bool extinguished_fire_{};
     double max_distance_from_map_{};
     int last_near_fires_{}; // Needs to be populated with this->DroneSeesFire() possible future use
     double last_distance_to_fire_{}; // Needs to be populated with this->FindNearestFireDistance() possible future use

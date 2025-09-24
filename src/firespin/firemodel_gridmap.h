@@ -77,6 +77,9 @@ public:
     std::shared_ptr<Groundstation> GetGroundstation() { return groundstation_; }
     void SetGroundstationRenderer(SDL_Renderer* renderer) {groundstation_->SetRenderer(renderer);};
 
+    void SetTerminals(bool terminal) {any_terminal_occured_ = terminal;}
+    bool GetTerminalOccured() {return any_terminal_occured_;}
+
     std::pair<int, int> GetRandomPointInGrid() {
         std::uniform_int_distribution<> dis_x(0, rows_ - 1);
         std::uniform_int_distribution<> dis_y(0, cols_ - 1);
@@ -162,6 +165,9 @@ private:
     void UpdateVirtualParticles(std::vector<ParticleType> &particles, std::vector<std::vector<bool>> &visited_cells);
 
     void EraseParticles(int x, int y);
+
+    //Bad flags for reward calculation
+    bool any_terminal_occured_ = false;
 
     //For calculation of percentage burned
     int num_cells_ = 0;

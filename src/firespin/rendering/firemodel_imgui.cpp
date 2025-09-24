@@ -812,9 +812,9 @@ void ImguiHandler::PyConfig(std::string &user_input,
                     ImGui::TableHeadersRow();
 
                     ImGui::TableNextRow();
-                    ImGui::TableNextColumn(); ImGui::Text("Extinguish all Fires");
+                    ImGui::TableNextColumn(); ImGui::Text("Use Simple Policy");
                     ImGui::TableNextColumn(); ImGui::SetCursorPosX(ImGui::GetCursorPosX() + (ImGui::GetContentRegionAvail().x / 2) - 10);
-                    ImGui::Checkbox("##ExtinguishallFires", &parameters_.extinguish_all_fires_);
+                    ImGui::Checkbox("##ExtinguishallFires", &parameters_.use_simple_policy_);
 
                     if (ImGui::IsItemHovered())
                         ImGui::SetTooltip("If checked the Agent doesn't stop at the first goal during evaluation \n"

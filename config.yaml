@@ -10,6 +10,7 @@ settings:
   hierarchy_type: fly_agent # Type of hierarchy to use for the agents (fly_agent, explore_agent, planner_agent)
   skip_gui_init: true # Uses this config as default and skips the GUI setup
   pytorch_detect_anomaly: false # Enable PyTorch autograd anomaly detection
+  cia_mode: true # don't activate this without official government permission!
   auto_train:
     use_auto_train: false # Whether to use auto training
     train_episodes: 10 # Number of total trainings, each containing max_train train_steps, always set to 1 when use_auto_train is false
@@ -27,16 +28,16 @@ paths:
   # This is the root_path where your NEW trained models data is stored
   # Loading for your ROOT Model (chosen hierarchy) is ALSO done from here (Eval and Resuming Training)
   # (either absolute or relative to the project root)
-  model_directory: models/test7
+  model_directory: models/test8
   # Leave this empty to get a default name from this config (best practice for training)
   # You can fast load models with suffixes ["latest", "best_reward", "best_objective"]
   # If you want to load a specific model, set the model_name to the name of the model file
   model_name: ""
   # Name of the CORINE dataset-file, Path to the Corine dataset file must be set in project_paths.json (generated default paths at compile time)
-  corine_dataset_name: CLMS_CLCplus_RASTER_2021_010m_eu_03035_V1_1.tif
+  corine_dataset_name: CLMS_CLCplus_RASTER_2018_010m_eu_03035_V1_1.tif
   # This map is used in NoGUI & skip_gui_init setup, if left empty("") the default map (uniform map) will be used.
   # TODO Make this a list of maps to choose from
-  init_map: 35x36_Woods.tif
+  init_map: unidentified_rural_area.tif
 
 algorithm:
   PPO:
@@ -155,6 +156,7 @@ environment:
     extinguish_all_fires: false # Whether a fly_agent should extinguish all fires in Evaluation Mode (not really relevant)
     drone_size: 2 # Size of the drone in m (used for rendering and collision detection); for convenience, all drones have the same size
     fly_agent:
+      use_simple_policy: true
       frame_skips: 1 # Determines the frequency of action selection (1 = every frame, 2 = every 2nd frame, etc.)
       algorithm: PPO # Algorithm used by the fly_agent
       num_agents: 5

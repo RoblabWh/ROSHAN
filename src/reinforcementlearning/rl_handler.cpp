@@ -309,6 +309,7 @@ StepResult ReinforcementLearningHandler::Step(const std::string& agent_type, std
 
     result.rewards.reserve(agents.size());
     result.terminals.resize(agents.size());
+    gridmap_->SetTerminals(false);
 
     // Step through all the Agents and update their states, then calculate their reward
     for (size_t i = 0; i < agents.size(); ++i) {
@@ -322,7 +323,7 @@ StepResult ReinforcementLearningHandler::Step(const std::string& agent_type, std
         result.terminals[i] = terminal_state;
 
         if (agent->GetPerformedHierarchyAction()) {
-            result.rewards.push_back(agent->CalculateReward());
+            result.rewards.push_back(agent->CalculateReward(gridmap_));
             // Summary is only relevant for the highest Hierarchy Agent
             // (e.g. PlannerAgent -> Environment Reset doesn't trigger when FlyAgents reach their GoalPos)
             result.summary.env_reset = result.summary.env_reset || terminal_state.is_terminal;

@@ -108,7 +108,7 @@ PlannerAgent::GetTerminalStates(bool eval_mode, const std::shared_ptr<GridMap> &
     return t;
 }
 
-double PlannerAgent::CalculateReward() {
+double PlannerAgent::CalculateReward(const std::shared_ptr<GridMap>& grid_map) {
     std::unordered_map<std::string, double> reward_components;
     double total_reward = 0;
 

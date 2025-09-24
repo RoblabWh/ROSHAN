@@ -41,7 +41,7 @@ public:
     virtual AgentTerminal GetTerminalStates(bool eval_mode, const std::shared_ptr<GridMap> &grid_map, int total_env_steps) = 0;
     
     virtual bool GetPerformedHierarchyAction() const { return did_hierarchy_step; };
-    virtual double CalculateReward() = 0;
+    virtual double CalculateReward(const std::shared_ptr<GridMap>& grid_map) = 0;
     virtual void StepReset() = 0;
     virtual void Reset(Mode mode,
                        const std::shared_ptr<GridMap>& grid_map,
