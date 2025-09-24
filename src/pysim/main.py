@@ -139,7 +139,8 @@ def sim(config : dict, overrides: dict = None, trial=None):
         engine.SendRLStatusToModel(sim_bridge.get_status())
 
     # for optuna pruning
-    last_train_step = 0
+    loop_step = 0
+    REPORT_INTERVAL = 1000
 
     try:
         while engine.IsRunning() and sim_bridge.get("agent_online"):
@@ -159,13 +160,13 @@ def sim(config : dict, overrides: dict = None, trial=None):
                     hierarchy_manager.eval(engine)
 
                 if trial is not None:
-                    train_step = sim_bridge.get("train_step")
-                    if sim_bridge.get("current_episode") >= 500 and train_step != last_train_step:
-                        last_train_step = train_step
+                    if loop_step % REPORT_INTERVAL == 0:
+                        report_idx = loop_step // REPORT_INTERVAL
                         intermediate = sim_bridge.get("objective")
-                        trial.report(intermediate, step=sim_bridge.get("train_step"))
+                        trial.report(intermediate, step=report_idx)
                         if trial.should_prune():
                             raise optuna.TrialPruned()
+                    loop_step += 1
 
                 hierarchy_manager.update_status()
                 engine.SendRLStatusToModel(sim_bridge.get_status())
@@ -232,13 +233,16 @@ def objective_factory(config: dict):
         # you should now what you want to test here any ways!
         # ---- sample your hyperparams here ----
         hparams = {
-            "k_epochs": trial.suggest_int("k_epochs", 1, 20),
-            "batch_size": trial.suggest_categorical("batch_size", [64, 128, 256, 512, 1024, 2048, 4096]),
             "lr": trial.suggest_float("lr", 1e-5, 1e-3, log=True),
-            "gamma": trial.suggest_float("gamma", 0.95, 0.999),
-            "clip_range": trial.suggest_float("clip_range", 0.1, 0.3),
-            "ent_coef": trial.suggest_float("ent_coef", 1e-6, 1e-2, log=True),
-            "horizon": trial.suggest_int("horizon", 4096, 25600),
+            "batch_size": trial.suggest_categorical("batch_size", [64, 128, 256, 512, 1024, 2048]),
+            "horizon": trial.suggest_categorical("horizon", [2048, 4096, 8192, 10240, 12288, 14336, 16384, 18432, 20480, 22528, 24576]),
+            "k_epochs": trial.suggest_int("k_epochs", 1, 20),
+            "entropy_coeff": trial.suggest_float("entropy_coeff", 1e-6, 1e-2, log=True),
+            "separate_optimizers": trial.suggest_categorical("separate_optimizers", [True, False]),
+            "gamma": trial.suggest_float("gamma", 0.97, 0.999),
+            "_lambda": trial.suggest_float("_lambda", 0.9, 0.99),
+            "eps_clip": trial.suggest_float("eps_clip", 0.1, 0.3),
+            "share_encoder": trial.suggest_categorical("share_encoder", [True, False]),
         }
 
         overrides = {

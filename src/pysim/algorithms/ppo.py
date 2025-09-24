@@ -1,7 +1,6 @@
 import torch
 import torch.nn as nn
 import os
-import warnings
 import numpy as np
 from algorithms.actor_critic import ActorCriticPPO, CategoricalActorCritic
 from memory import SwarmMemory
@@ -68,7 +67,7 @@ class PPO(RLAlgorithm):
         else:
             self.policy = ActorCriticPPO(Actor=self.actor, Critic=self.critic, vision_range=self.vision_range,
                                          drone_count=self.drone_count, map_size=self.map_size,
-                                         time_steps=self.time_steps)
+                                         time_steps=self.time_steps, share_encoder=self.share_encoder)
 
         self.actor_params = self.policy.actor.parameters()
         self.critic_params = self.policy.critic.parameters()

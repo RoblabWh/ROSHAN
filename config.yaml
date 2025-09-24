@@ -16,12 +16,12 @@ settings:
     max_train: 50 # Maximum number of train_steps(NOT policy steps) to perform
     max_eval: 200 # Maximum number of evaluations(one evaluation = one environment completed) to perform
   optuna:
-    use_optuna: true # Whether to use Optuna for hyperparameter optimization
-    study_name: "fire_model_study" # Name of the Optuna study
+    use_optuna: false # Whether to use Optuna for hyperparameter optimization
+    study_name: "fly_model_study" # Name of the Optuna study
     study_root: "models" # Root directory to store the Optuna study and trials
-    n_trials: 100 # Number of trials to perform
-    n_startup_trials: 10 # Number of initial random trials before using the optimization algorithm
-    n_warmup_steps: 15 # Number of warmup steps before starting the optimization
+    n_trials: 200 # Number of trials to perform
+    n_startup_trials: 5 # Number of initial random trials before using the optimization algorithm
+    n_warmup_steps: 20 # Number of warmup steps before starting the optimization
     objective: "objective" # Objective to optimize ("reward" or "objective")
 paths:
   # This is the root_path where your NEW trained models data is stored
@@ -41,18 +41,19 @@ paths:
 algorithm:
   PPO:
     memory_size: 1.0e+5 # Size of the Replay Buffer
-    lr: 1.0e-4 # Learning rate for the optimizer
-    batch_size: 256 #256 # Batch size for the optimizer
-    horizon: 25600 #12800 # Number of steps to collect before updating the model
-    k_epochs: 4 #8 # Number of epochs to update the model
+    lr: 3.2659580286722116e-05 # Learning rate for the optimizer
+    batch_size: 64 #256 # Batch size for the optimizer
+    horizon: 10240 #12800 # Number of steps to collect before updating the model
+    k_epochs: 11 #8 # Number of epochs to update the model
     entropy_coeff: 0.0006 # Coefficient for the entropy loss
     value_loss_coef: 0.5 # Coefficient for the value loss
-    separate_optimizers: false # Whether to use separate optimizers for the policy and value networks
+    separate_optimizers: true # Whether to use separate optimizers for the policy and value networks
     beta1: 0.9 # Beta1 for the Adam optimizer
     beta2: 0.999 # Beta2 for the Adam optimizer
-    gamma: 0.9635 # Discount factor for the rewards
-    _lambda: 0.96 # Lambda for the Generalized Advantage Estimation (GAE)
-    eps_clip: 0.2783 # Clipping value for the PPO loss
+    gamma: 0.9827 #0.9635 # Discount factor for the rewards
+    _lambda: 0.9 #0.96 # Lambda for the Generalized Advantage Estimation (GAE)
+    eps_clip: 0.2 #0.2783 # Clipping value for the PPO loss
+    share_encoder: true # Whether to share the encoder between the policy and value networks
   IQL:
     memory_size: 1e6 # Size of the Replay Buffer
     lr: 4.0e-4 # Learning rate for the optimizer
