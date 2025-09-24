@@ -89,7 +89,7 @@ class PPO(RLAlgorithm):
     def load(self):
         try:
             path: str = os.path.join(self.loading_path, self.loading_name).__str__()
-            self.policy.load_state_dict(torch.load(path, map_location=self.device))
+            self.policy.load_state_dict(torch.load(path, map_location=self.device, weights_only=True))
             self.policy.to(self.device)
             return True
         except FileNotFoundError:

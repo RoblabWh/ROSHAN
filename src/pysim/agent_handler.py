@@ -19,6 +19,7 @@ class AgentHandler:
         # A sub agent is an agent that is part of a lower hierarchy level,
         # e.g. a PlannerFlyAgent is a sub agent of ExploreFlyAgent or PlannerFlyAgent
         self.is_sub_agent = is_sub_agent
+        self.agent_type_str = agent_type
 
         # If agent_type is None it is the FIRST selected agent type(this determines the hierarchy)
         agent_dict = config["environment"]["agent"][agent_type]
@@ -431,13 +432,14 @@ class AgentHandler:
         else:
             raise NotImplementedError("Algorithm {} not implemented".format(self.algorithm_name))
 
-    def load_model(self, change_status=False):
+    def load_model(self, change_status=False, new_rl_mode=None):
         # Load model if possible, return new rl_mode and possible console string
         log = ""
         if self.algorithm_name == 'no_algo':
             log += "No algorithm used, no model to load"
 
-        train = True if self.rl_mode == "train" else False
+        probe_rl_mode = self.rl_mode if new_rl_mode is None else new_rl_mode
+        train = True if probe_rl_mode == "train" else False
         if not train:
             if self.algorithm.load():
                 self.algorithm.set_eval()
@@ -666,7 +668,14 @@ class AgentHandler:
             self.sim_bridge.add_value("policy_updates", self.algorithm.k_epochs)
             self.tensorboard.policy_updates += self.algorithm.k_epochs
 
-        self.evaluator.on_update()
+        if self.evaluator.on_update():
+            # Need to inject and load BEST model here
+            model_name, _ = self.get_model_name(path=str(self.root_model_path), model_string="best_obj",
+                                                agent_type=self.agent_type_str, is_loading_name=True)
+            self.algorithm.loading_path = self.root_model_path
+            self.algorithm.loading_name = model_name
+            self.load_model(new_rl_mode="eval")
+
         self.tensorboard.summarize()
 
     def act(self, observations):

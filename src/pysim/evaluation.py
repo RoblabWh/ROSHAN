@@ -698,6 +698,8 @@ class Evaluator:
             self.sim_bridge.add_value("train_episode", 1)
             self.logger.info("Training finished, after {} training steps, now starting Evaluation".format(self.sim_bridge.get("train_step")))
             self.sim_bridge.set("rl_mode", "eval")
+            return True
+        return False
 
     def reset(self):
         """
