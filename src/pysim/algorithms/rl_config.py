@@ -65,6 +65,8 @@ class PPOConfig(RLConfig):
     eps_clip: float = 0.2783 #0.15 #0.2
     use_categorical: bool = False
     use_variable_state_masks: bool = False
+    manual_decay: bool = False
+    decay_rate: float = 0.99
 #Current Best: {'lr': 2.450621398427006e-05, 'gamma': 0.9635130394855251, 'clip_range': 0.2783066147446984, 'ent_coef': 0.0006194758615931694, 'k_epochs': 6, 'batch_size': 1024}
 @dataclass
 class IQLConfig(RLConfig):

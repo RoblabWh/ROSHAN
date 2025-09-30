@@ -67,6 +67,7 @@ void FlyAgent::Reset(Mode mode,
 
 std::shared_ptr<AgentState> FlyAgent::BuildAgentState(const std::shared_ptr<GridMap>& grid_map) {
     auto state = std::make_shared<AgentState>();
+    state->SetID(this->GetId());
     state->SetNormScale(norm_scale_);
     state->SetMaxSpeed(max_speed_);
     state->SetVelocity(this->vel_vector_);
@@ -102,7 +103,7 @@ void FlyAgent::PerformFly(FlyAction* action, const std::string& hierarchy_type, 
         did_hierarchy_step = true;
     } else if (hierarchy_type == "fly_agent" && parameters_.use_simple_policy_) {
         if (almostEqual(this->GetGoalPosition(), this->GetGridPositionDouble())) {
-            objective_reached_ = this->DispenseWaterCertain(gridMap);
+            objective_reached_ = true;
         }
         did_hierarchy_step = true;
     } 
@@ -125,7 +126,7 @@ double FlyAgent::CalculateReward(const std::shared_ptr<GridMap>& grid_map) {
     // Terminals get computed earlier, they set the Flag in gridmap to true in the "ComplexPolicy" TODO: should really EVERY agent in tha complex policy get the TERMINAL reward? schnapsidee gewesen schwarscheinlich
     // that also sets the current objective to true, current objectives get set to true in PerformAction(simplePolicy) OR GetTerminals(ComplexPolicy) noodle code wtf
     if (objective_reached_ || grid_map->GetTerminalOccured()) {
-        reward_components["GoalReached"] = 1;
+        reward_components["GoalReached"] = 10;
     }
 
     if (!drone_in_grid && agent_terminal_state_) {

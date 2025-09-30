@@ -94,10 +94,10 @@ class StochasticActor(nn.Module):
     """
     A PyTorch Module that represents the actor-critic network of a PPO agent.
     """
-    def __init__(self, Actor, Critic, vision_range, drone_count, map_size, time_steps):
+    def __init__(self, Actor, Critic, vision_range, drone_count, map_size, time_steps, manual_decay=False):
         super(StochasticActor, self).__init__()
         self.device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
-        self.actor = Actor(vision_range, drone_count, map_size, time_steps).to(self.device)
+        self.actor = Actor(vision_range, drone_count, map_size, time_steps, manual_decay).to(self.device)
         self.actor.apply(init_fn)
 
     def act(self, state):
@@ -190,8 +190,8 @@ class ActorCriticPPO(StochasticActor):
     """
     A PyTorch Module that represents the actor-critic network of a PPO agent.
     """
-    def __init__(self, Actor, Critic, vision_range, drone_count, map_size, time_steps, share_encoder=False):
-        super(ActorCriticPPO, self).__init__(Actor, Critic, vision_range, drone_count, map_size, time_steps)
+    def __init__(self, Actor, Critic, vision_range, drone_count, map_size, time_steps, share_encoder=False, manual_decay=False):
+        super(ActorCriticPPO, self).__init__(Actor, Critic, vision_range, drone_count, map_size, time_steps, manual_decay)
 
         inputspace = None if not share_encoder else self.actor.Inputspace
 

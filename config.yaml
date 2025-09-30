@@ -10,25 +10,26 @@ settings:
   hierarchy_type: fly_agent # Type of hierarchy to use for the agents (fly_agent, explore_agent, planner_agent)
   skip_gui_init: true # Uses this config as default and skips the GUI setup
   pytorch_detect_anomaly: false # Enable PyTorch autograd anomaly detection
-  cia_mode: true # don't activate this without official government permission!
+  cia_mode: false # don't activate this without official government permission!
   auto_train:
     use_auto_train: false # Whether to use auto training
     train_episodes: 10 # Number of total trainings, each containing max_train train_steps, always set to 1 when use_auto_train is false
-    max_train: 50 # Maximum number of train_steps(NOT policy steps) to perform
+    max_train: 150 # Maximum number of train_steps(NOT policy steps) to perform
     max_eval: 200 # Maximum number of evaluations(one evaluation = one environment completed) to perform
   optuna:
     use_optuna: false # Whether to use Optuna for hyperparameter optimization
     study_name: "fly_model_study" # Name of the Optuna study
     study_root: "models" # Root directory to store the Optuna study and trials
-    n_trials: 200 # Number of trials to perform
-    n_startup_trials: 5 # Number of initial random trials before using the optimization algorithm
-    n_warmup_steps: 20 # Number of warmup steps before starting the optimization
+    n_trials: 300 # Number of trials to perform
+    n_startup_trials: 15 # Number of initial random trials before using the optimization algorithm
+    n_warmup_steps: 30 # Number of warmup steps before starting the optimization
+    use_pruning: false # Prune training episodes with MedianPruner
     objective: "objective" # Objective to optimize ("reward" or "objective")
 paths:
   # This is the root_path where your NEW trained models data is stored
   # Loading for your ROOT Model (chosen hierarchy) is ALSO done from here (Eval and Resuming Training)
   # (either absolute or relative to the project root)
-  model_directory: models/test8
+  model_directory: models/after_long_test4
   # Leave this empty to get a default name from this config (best practice for training)
   # You can fast load models with suffixes ["latest", "best_reward", "best_objective"]
   # If you want to load a specific model, set the model_name to the name of the model file
@@ -37,16 +38,17 @@ paths:
   corine_dataset_name: CLMS_CLCplus_RASTER_2018_010m_eu_03035_V1_1.tif
   # This map is used in NoGUI & skip_gui_init setup, if left empty("") the default map (uniform map) will be used.
   # TODO Make this a list of maps to choose from
-  init_map: unidentified_rural_area.tif
+  init_map: 35x36_Woods.tif
 
 algorithm:
+  share_encoder: true # Whether to share the encoder between the policy and value networks
   PPO:
     memory_size: 1.0e+5 # Size of the Replay Buffer
     lr: 3.2659580286722116e-05 # Learning rate for the optimizer
-    batch_size: 64 #256 # Batch size for the optimizer
-    horizon: 10240 #12800 # Number of steps to collect before updating the model
-    k_epochs: 11 #8 # Number of epochs to update the model
-    entropy_coeff: 0.0006 # Coefficient for the entropy loss
+    batch_size: 8192 #256 # Batch size for the optimizer
+    horizon: 65536 #10240 #12800 # Number of steps to collect before updating the model
+    k_epochs: 2 #11 #8 # Number of epochs to update the model
+    entropy_coeff: 0 #0.0006 # Coefficient for the entropy loss
     value_loss_coef: 0.5 # Coefficient for the value loss
     separate_optimizers: true # Whether to use separate optimizers for the policy and value networks
     beta1: 0.9 # Beta1 for the Adam optimizer
@@ -54,7 +56,8 @@ algorithm:
     gamma: 0.9827 #0.9635 # Discount factor for the rewards
     _lambda: 0.9 #0.96 # Lambda for the Generalized Advantage Estimation (GAE)
     eps_clip: 0.2 #0.2783 # Clipping value for the PPO loss
-    share_encoder: true # Whether to share the encoder between the policy and value networks
+    manual_decay: false # If set to true the log_std is not learned by the net, but exponentially decayed each train step
+    decay_rate: 0.99 # Decay rate
   IQL:
     memory_size: 1e6 # Size of the Replay Buffer
     lr: 4.0e-4 # Learning rate for the optimizer

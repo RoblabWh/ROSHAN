@@ -232,10 +232,12 @@ def objective_factory(config: dict):
         # do this per hand as I won't write this into the config
         # you should now what you want to test here any ways!
         # ---- sample your hyperparams here ----
+        batch_size = [2 ** x for x in [11, 12, 13, 14, 15]]
+        horizon = [2 ** x for x in [15, 16, 17, 18, 19]]
         hparams = {
             # "lr": trial.suggest_float("lr", 1e-5, 1e-3, log=True),
-            "batch_size": trial.suggest_categorical("batch_size", [64, 128, 256, 512, 1024, 2048]),
-            "horizon": trial.suggest_categorical("horizon", [2048, 4096, 8192, 10240, 12288, 14336, 16384, 18432, 20480, 22528, 24576]),
+            "batch_size": trial.suggest_categorical("batch_size", batch_size),
+            "horizon": trial.suggest_categorical("horizon", horizon),
             "k_epochs": trial.suggest_int("k_epochs", 1, 20),
             # "entropy_coeff": trial.suggest_float("entropy_coeff", 1e-6, 1e-2, log=True),
             # "separate_optimizers": trial.suggest_categorical("separate_optimizers", [True, False]),

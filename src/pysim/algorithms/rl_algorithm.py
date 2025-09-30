@@ -60,3 +60,6 @@ class RLAlgorithm:
 
     def load(self):
         pass
+
+    def apply_manual_decay(self, train_step: int):
+        pass

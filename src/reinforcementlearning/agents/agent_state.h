@@ -59,6 +59,7 @@ public:
     void SetDistancesMask(std::shared_ptr<std::vector<bool>> distances_mask) { distances_mask_ = std::move(distances_mask); }
     void SetNormScale(int norm_scale) { norm_scale_ = norm_scale; }
     void SetMaxSpeed(const std::pair<double, double> &speed) { max_speed_ = speed; }
+    void SetID(int id) { id_ = id; }
 
     //** These functions are for the states **//
     [[nodiscard]] std::vector<std::vector<std::vector<double>>> GetMultipleTotalDroneView() const {
@@ -153,6 +154,7 @@ public:
     std::pair<double, double> GetCosSinToGoal() const;
     double GetSpeed() const;
     double GetDistanceToGoal() const;
+    int GetID() const {return id_;}
 
     //* Returns the Orientation to the Goal of this State
     //* The Orientation to the Goal is the normalized vector from the Agent to the Goal.
@@ -213,6 +215,7 @@ public:
     [[nodiscard]] std::vector<std::pair<double, double>> get_goal_positions() const { return *goal_positions_; }
     [[nodiscard]] std::vector<std::vector<double>> get_distances_to_other_agents() const { return *distances_to_other_agents_; }
     [[nodiscard]] std::vector<bool> get_distances_to_other_agents_mask() const { return *distances_mask_; }
+    [[nodiscard]] int get_id() const {return id_;}
 private:
     //* State Value for the velocity of an Agent in x and y direction
     std::pair<double, double> velocity_;
@@ -222,6 +225,7 @@ private:
     double speed_{};
     //* State Value weather the Agent dispensed water
     int water_dispense_{};
+    int id_{};
     std::pair<double, double> map_dimensions_;
     double cell_size_{};
     std::pair<double, double> position_; // x, y

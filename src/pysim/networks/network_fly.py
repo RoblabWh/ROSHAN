@@ -84,7 +84,7 @@ class Inputspace(nn.Module):
         self.neigh_encoder = NeighborEncoder(use_attention=True)
 
         self.self_mlp = nn.Sequential(
-            nn.Linear(8, hidden), nn.ReLU(inplace=True),
+            nn.Linear(9, hidden), nn.ReLU(inplace=True),
             nn.Linear(hidden, hidden), nn.ReLU(inplace=True),
         )
 
@@ -98,7 +98,7 @@ class Inputspace(nn.Module):
         self.flatten = nn.Flatten()
 
     def prepare_tensor(self, states):
-        velocity, delta_goal, cos_sin_goal, speed, distance_to_goal, distances_to_others, distances_mask = states
+        self_id, velocity, delta_goal, cos_sin_goal, speed, distance_to_goal, distances_to_others, distances_mask = states
 
         if not torch.is_tensor(velocity):
             velocity = torch.as_tensor(velocity, dtype=torch.float32)
@@ -121,6 +121,9 @@ class Inputspace(nn.Module):
         if not torch.is_tensor(distances_mask):
             distances_mask = torch.as_tensor(distances_mask, dtype=torch.bool)
 
+        if not torch.is_tensor(self_id):
+            self_id = torch.as_tensor(self_id, dtype=torch.int64)
+
         # Only move if needed
         if velocity.device != self.device:
             velocity = velocity.to(self.device)
@@ -136,13 +139,15 @@ class Inputspace(nn.Module):
             distances_to_others = distances_to_others.to(self.device)
         if distances_mask.device != self.device:
             distances_mask = distances_mask.to(self.device)
+        if self_id != self.device:
+            self_id = self_id.to(self.device)
 
-        return velocity, delta_goal, cos_sin_goal, speed, distance_to_goal, distances_to_others, distances_mask
+        return self_id, velocity, delta_goal, cos_sin_goal, speed, distance_to_goal, distances_to_others, distances_mask
 
     def forward(self, states):
-        velocity, delta_goal, cos_sin_goal, speed, distance_to_goal, distances_to_others, distances_mask = self.prepare_tensor(states)
+        self_id, velocity, delta_goal, cos_sin_goal, speed, distance_to_goal, distances_to_others, distances_mask = self.prepare_tensor(states)
 
-        tensors = [velocity, delta_goal, cos_sin_goal, speed.unsqueeze(2), distance_to_goal.unsqueeze(2)]
+        tensors = [self_id.unsqueeze(2), velocity, delta_goal, cos_sin_goal, speed.unsqueeze(2), distance_to_goal.unsqueeze(2)]
         feats = torch.cat(tensors, dim=-1)
 
         x = self.self_mlp(feats)  # (B, T, H)
@@ -159,7 +164,7 @@ class Actor(nn.Module):
     """
     A PyTorch Module that represents the actor network of a PPO agent.
     """
-    def __init__(self, vision_range, drone_count, map_size, time_steps):
+    def __init__(self, vision_range, drone_count, map_size, time_steps, manual_decay=False):
         super(Actor, self).__init__()
         self.Inputspace = Inputspace(vision_range, time_steps=time_steps)
         self.in_features = self.Inputspace.out_features
@@ -168,7 +173,7 @@ class Actor(nn.Module):
         self.mu_move._init_gain = 0.1
 
         # Logstd
-        self.log_std = nn.Parameter(torch.zeros(2, ))
+        self.log_std = nn.Parameter(torch.zeros(2, ), requires_grad=not manual_decay)
 
     def forward(self, states):
         x = self.Inputspace(states)

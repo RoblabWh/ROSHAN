@@ -139,7 +139,8 @@ class AgentHandler:
                                  vision_range=vision_range,
                                  drone_count=drone_count,
                                  map_size=map_size,
-                                 time_steps=time_steps)
+                                 time_steps=time_steps,
+                                 share_encoder=config["algorithm"]["share_encoder"])
 
         algo_overrides = config["algorithm"].get(self.algorithm_name, {})
 
@@ -159,7 +160,9 @@ class AgentHandler:
             # PPOConfig is used for PPO algorithm
             rl_config = PPOConfig(**vars(rl_config),
                                   use_categorical=agent_type == "planner_agent",
-                                  use_variable_state_masks=agent_type == "planner_agent")
+                                  use_variable_state_masks=agent_type == "planner_agent",
+                                  manual_decay=config["algorithm"]["PPO"].get("manual_decay", False),
+                                  decay_rate=config["algorithm"]["PPO"].get("decay_rate", 0.99))
             rl_config.use_next_obs = False
             rl_config = override_from_dict(rl_config, algo_overrides)
 
@@ -544,6 +547,7 @@ class AgentHandler:
 
         # Training
         if self.should_train():
+            self.algorithm.apply_manual_decay(self.sim_bridge.get("train_step"))
             self.update(mini_batch_size=self.algorithm.batch_size, next_obs=next_obs)
             if self.use_intrinsic_reward and self.algorithm == 'PPO':
                 self.agent_type.update_rnd_model(self.memory, self.algorithm.horizon, self.algorithm.batch_size)

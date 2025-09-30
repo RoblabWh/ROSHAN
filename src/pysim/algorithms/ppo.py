@@ -67,10 +67,15 @@ class PPO(RLAlgorithm):
         else:
             self.policy = ActorCriticPPO(Actor=self.actor, Critic=self.critic, vision_range=self.vision_range,
                                          drone_count=self.drone_count, map_size=self.map_size,
-                                         time_steps=self.time_steps, share_encoder=self.share_encoder)
+                                         time_steps=self.time_steps, share_encoder=self.share_encoder, manual_decay=self.manual_decay)
 
         self.actor_params = self.policy.actor.parameters()
         self.critic_params = self.policy.critic.parameters()
+
+    def apply_manual_decay(self, train_step: int):
+        if self.manual_decay:
+            decay = -10 * (1 - (self.decay_rate ** train_step))
+            self.policy.actor.log_std.data.fill_(decay)
 
     def reset_algorithm(self):
         self.initialize_policy()
