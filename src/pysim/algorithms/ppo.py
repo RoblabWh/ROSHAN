@@ -74,7 +74,12 @@ class PPO(RLAlgorithm):
 
     def apply_manual_decay(self, train_step: int):
         if self.manual_decay:
-            decay = -10 * (1 - (self.decay_rate ** train_step))
+            if not self.use_logstep_decay:
+                ## Trainstep Decay
+                decay = -1 * (1 - (self.decay_rate ** train_step) ** 5)
+            else:
+                ## Logstep Decay
+                decay = np.log(np.exp(self.policy.actor.log_std.data[0].cpu()) * self.decay_rate)
             self.policy.actor.log_std.data.fill_(decay)
 
     def reset_algorithm(self):
@@ -286,8 +291,9 @@ class PPO(RLAlgorithm):
                 # Actor loss using Surrogate loss
                 surr1 = ratios * advantages[index]
                 surr2 = torch.clamp(ratios, 1 - self.eps_clip, 1 + self.eps_clip) * advantages[index]
-                entropy = self.entropy_coeff * dist_entropy[0]
-                actor_loss = (-torch.min(surr1, surr2).type(torch.float32)).mean() - entropy
+                entropy_loss = -self.entropy_coeff * dist_entropy.mean()
+
+                actor_loss = (-torch.min(surr1, surr2).type(torch.float32)).mean()
                 # actor_loss = -torch.mean(torch.min(ratios * advantages[index], torch.clamp(ratios, 1 - self.eps_clip, 1 + self.eps_clip) * advantages[index]))
 
                 # TODO CLIP VALUE LOSS ? Probably not necessary as according to:
@@ -307,6 +313,9 @@ class PPO(RLAlgorithm):
                 logging_values.append(values_np)
                 epoch_values.append(values_np)
                 epoch_returns.append(returns_np)
+
+                # Add Entropy to actor loss
+                actor_loss = actor_loss + entropy_loss
 
                 # Sanity checks
                 assert not torch.isnan(value_loss).any(), f"Critic Loss is NaN, check returns, values or entroy"

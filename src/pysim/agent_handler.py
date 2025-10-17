@@ -162,6 +162,7 @@ class AgentHandler:
                                   use_categorical=agent_type == "planner_agent",
                                   use_variable_state_masks=agent_type == "planner_agent",
                                   manual_decay=config["algorithm"]["PPO"].get("manual_decay", False),
+                                  use_logstep_decay=config["algorithm"]["PPO"].get("use_logstep_decay", False),
                                   decay_rate=config["algorithm"]["PPO"].get("decay_rate", 0.99))
             rl_config.use_next_obs = False
             rl_config = override_from_dict(rl_config, algo_overrides)
