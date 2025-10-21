@@ -131,7 +131,7 @@ class HierarchyManager:
         self.hierarchy[agent_handler.hierarchy_level] = agent_handler
         construct_medium = agent_handler.hierarchy_level in {"medium", "high"}
 
-        # Construct a low level agent if the current agent is a medium level agent
+        # Construct a low level agent if the current agent is a high level agent
         if agent_handler.hierarchy_level == "high":
             planner_fly_agent = AgentHandler(
                 config=self.config,

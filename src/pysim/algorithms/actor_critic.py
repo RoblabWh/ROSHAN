@@ -2,7 +2,8 @@ import torch
 import torch.nn as nn
 import numpy as np
 from utils import init_fn
-from torch.distributions import MultivariateNormal, Bernoulli, Normal, Independent
+from torch.distributions import MultivariateNormal, Bernoulli, Normal, Independent, TransformedDistribution
+from torch.distributions.transforms import TanhTransform
 
 class CategoricalActorCritic(nn.Module):
     """
@@ -94,11 +95,40 @@ class StochasticActor(nn.Module):
     """
     A PyTorch Module that represents the actor-critic network of a PPO agent.
     """
-    def __init__(self, Actor, Critic, vision_range, drone_count, map_size, time_steps, manual_decay=False):
+    def __init__(self, Actor, Critic, vision_range, drone_count, map_size, time_steps, manual_decay=False, use_tanh_dist=True):
         super(StochasticActor, self).__init__()
         self.device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
-        self.actor = Actor(vision_range, drone_count, map_size, time_steps, manual_decay).to(self.device)
+        self.use_tanh_dist = use_tanh_dist
+        self.actor = Actor(vision_range, drone_count, map_size, time_steps, manual_decay, use_tanh_dist).to(self.device)
         self.actor.apply(init_fn)
+
+    def get_distribution(self, action_mean, action_std):
+        # Create independent normal distributions for each action dimension
+        if self.use_tanh_dist:
+            dist = TransformedDistribution(Normal(action_mean, action_std),
+                                           [TanhTransform(cache_size=1)])  # Tanh-squashed normal distribution
+        else:
+            dist = Normal(action_mean, action_std)
+        dist = Independent(dist, 1)  # Treat the last dimension as the event dimension
+        return dist
+
+    def get_logprobs(self, states, actions):
+        # Get action means and variances from the actor network
+        action_mean, action_var = self.actor(states)  # action_mean: [batch_size, action_size], action_var: [action_size, ]
+
+        # Expand action_var to match action_mean
+        batch_size = action_mean.size(0)
+        action_size = action_mean.size(1)
+        action_var = action_var.unsqueeze(0).expand(batch_size, action_size)  # Shape: [batch_size, action_size]
+        action_std = torch.sqrt(action_var)  # Shape: [batch_size, action_size]
+
+        # Create independent normal distributions for each action dimension
+        dist = self.get_distribution(action_mean, action_std)
+
+        # Compute log probabilities of the taken actions
+        action_logprob = dist.log_prob(actions)  # action: [batch_size, action_size], action_logprob: [batch_size]
+
+        return action_logprob
 
     def act(self, state):
         """
@@ -110,28 +140,33 @@ class StochasticActor(nn.Module):
 
         # TODO: check if normalization of states is necessary
         # was suggested in: Implementation_Matters in Deep RL: A Case Study on PPO and TRPO
-        with torch.no_grad():
-            action_mean, action_var = self.actor(state)
+        try:
+            with torch.no_grad():
+                action_mean, action_var = self.actor(state)
 
-            # Move Tensors to CPU
-            action_mean = action_mean.cpu()
-            action_var = action_var.cpu()
+                # Move Tensors to CPU
+                action_mean = action_mean.cpu()
+                action_var = action_var.cpu()
 
-            # Create independent normal distributions for each action dimension
-            # dist = Normal(action_mean, action_std)  # Shape: [batch_size, action_size]
-            dist = Normal(action_mean, torch.sqrt(action_var))  # Shape: [batch_size, action_size] Use PyTorch's built-in broadcasting
-            dist = Independent(dist, 1)  # Treat the last dimension as the event dimension
+                dist = self.get_distribution(action_mean, torch.sqrt(action_var))
 
-            # Sample actions from the distributions
-            action = dist.sample()  # Shape: [batch_size, 3]
+                # Sample actions from the distributions
+                # action = dist.sample()  # Shape: [batch_size, 3]
+                action = dist.rsample()
 
-            # Clip actions to the valid range
-            action = torch.clamp(action, -1, 1)
+                # # Clip actions to the valid range
+                ### Apparently clipping here destroys the logprobs
+                ### Tanh-squashed distribution takes care of that
+                if not self.use_tanh_dist:
+                    action = torch.clamp(action, -1, 1)
 
-            # Compute log probabilities of the sampled actions
-            action_logprob = dist.log_prob(action)
+                # Compute log probabilities of the sampled actions
+                action_logprob = dist.log_prob(action)
 
-            return action.detach().numpy(), action_logprob.detach().numpy()
+                return action.detach().numpy(), action_logprob.detach().numpy()
+        except Exception as e:
+            print(f"Error in act(): {e}")
+            raise e
 
     def act_certain(self, state):
         """
@@ -143,7 +178,7 @@ class StochasticActor(nn.Module):
         with torch.no_grad():
             action_mean, _ = self.actor(state)
 
-        return action_mean.detach().cpu().numpy()
+        return torch.tanh(action_mean).detach().cpu().numpy() if self.use_tanh_dist else action_mean.detach().cpu().numpy()
 
 class DeterministicActorCritic(nn.Module):
     """
@@ -190,8 +225,8 @@ class ActorCriticPPO(StochasticActor):
     """
     A PyTorch Module that represents the actor-critic network of a PPO agent.
     """
-    def __init__(self, Actor, Critic, vision_range, drone_count, map_size, time_steps, share_encoder=False, manual_decay=False):
-        super(ActorCriticPPO, self).__init__(Actor, Critic, vision_range, drone_count, map_size, time_steps, manual_decay)
+    def __init__(self, Actor, Critic, vision_range, drone_count, map_size, time_steps, share_encoder=False, manual_decay=False, use_tanh_dist=True):
+        super(ActorCriticPPO, self).__init__(Actor, Critic, vision_range, drone_count, map_size, time_steps, manual_decay, use_tanh_dist)
 
         inputspace = None if not share_encoder else self.actor.Inputspace
 
@@ -208,27 +243,33 @@ class ActorCriticPPO(StochasticActor):
         :return: A tuple of the log probability of the given action, the value of the given state, and the entropy of the
         actor's distribution.
         """
+        try:
+            # Evaluate the state value from the critic network
+            state_value = self.critic(state)  # Shape: [batch_size, 1]
 
-        # Evaluate the state value from the critic network
-        state_value = self.critic(state)  # Shape: [batch_size, 1]
+            # Get action means and variances from the actor network
+            action_mean, action_var = self.actor(state)  # action_mean: [batch_size, action_size], action_var: [action_size, ]
 
-        # Get action means and variances from the actor network
-        action_mean, action_var = self.actor(state)  # action_mean: [batch_size, action_size], action_var: [action_size, ]
+            # Create independent normal distributions for each action dimension
+            dist = self.get_distribution(action_mean, torch.sqrt(action_var))
 
-        # Create independent normal distributions for each action dimension
-        dist = Normal(action_mean, torch.sqrt(action_var))  # Shape: [batch_size, action_size] Use PyTorch's built-in broadcasting
-        dist = Independent(dist, 1)  # Treat the last dimension as the event dimension
+            # Compute log probabilities of the taken actions
+            action_logprob = dist.log_prob(action)  # action: [batch_size, action_size], action_logprob: [batch_size]
 
-        # Compute log probabilities of the taken actions
-        action_logprob = dist.log_prob(action)  # action: [batch_size, action_size], action_logprob: [batch_size]
+            # Compute the entropy of the distributions
+            if self.use_tanh_dist:
+                # For Tanh-squashed normal distribution, compute entropy of the base normal distribution (a proxy)
+                dist_entropy = Normal(action_mean, torch.sqrt(action_var)).entropy()
+            else:
+                dist_entropy = dist.entropy()
 
-        # Compute the entropy of the distributions
-        dist_entropy = dist.entropy()  # Shape: [batch_size]
+            # Squeeze state_value if necessary
+            state_value = torch.squeeze(state_value)  # Shape: [batch_size]
 
-        # Squeeze state_value if necessary
-        state_value = torch.squeeze(state_value)  # Shape: [batch_size]
-
-        return action_logprob, state_value, dist_entropy
+            return action_logprob, state_value, dist_entropy
+        except Exception as e:
+            print(f"Error in evaluate(): {e}")
+            raise e
 
 class ActorCriticIQL(StochasticActor):
     """
@@ -241,22 +282,3 @@ class ActorCriticIQL(StochasticActor):
         self.critic.apply(init_fn)
         self.value = Value(vision_range, drone_count, map_size, time_steps).to(self.device)
         self.value.apply(init_fn)
-
-    def get_logprobs(self, states, actions):
-        # Get action means and variances from the actor network
-        action_mean, action_var = self.actor(states)  # action_mean: [batch_size, action_size], action_var: [action_size, ]
-
-        # Expand action_var to match action_mean
-        batch_size = action_mean.size(0)
-        action_size = action_mean.size(1)
-        action_var = action_var.unsqueeze(0).expand(batch_size, action_size)  # Shape: [batch_size, action_size]
-        action_std = torch.sqrt(action_var)  # Shape: [batch_size, action_size]
-
-        # Create independent normal distributions for each action dimension
-        dist = Normal(action_mean, action_std)  # Shape: [batch_size, action_size]
-        dist = Independent(dist, 1)  # Treat the last dimension as the event dimension
-
-        # Compute log probabilities of the taken actions
-        action_logprob = dist.log_prob(actions)  # action: [batch_size, action_size], action_logprob: [batch_size]
-
-        return action_logprob

@@ -140,8 +140,9 @@ public:
 
         auto agent_behaviour = environment["agent_behaviour"];
         groundstation_start_percentage_ = agent_behaviour["groundstation_start_percentage"].as<float>();
+        std::cout << "Groundstation Start Percentage: " << groundstation_start_percentage_ << std::endl;
         fire_goal_percentage_ = agent_behaviour["fire_goal_percentage"].as<float>();
-        std::cout << "Imported all Config Parameters\n";
+        std::cout << "Imported all Config Parameters from" << yaml_path << std::endl;
     }
 
     //Settings

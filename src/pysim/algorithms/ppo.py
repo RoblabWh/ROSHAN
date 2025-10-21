@@ -4,7 +4,6 @@ import os
 import numpy as np
 from algorithms.actor_critic import ActorCriticPPO, CategoricalActorCritic
 from memory import SwarmMemory
-from utils import RunningMeanStd
 from evaluation import TensorboardLogger
 from algorithms.rl_algorithm import RLAlgorithm
 from algorithms.rl_config import PPOConfig
@@ -38,8 +37,6 @@ class PPO(RLAlgorithm):
         self.initialize_optimizers()
 
         self.MSE_loss = nn.MSELoss()
-        self.reward_rms = RunningMeanStd()
-        self.int_reward_rms = RunningMeanStd()
         self.set_train()
 
     def initialize_optimizers(self):
@@ -61,13 +58,22 @@ class PPO(RLAlgorithm):
         This method is called when the algorithm is reset or loaded.
         """
         if self.use_categorical:
-            self.policy = CategoricalActorCritic(Actor=self.actor, Critic=self.critic, vision_range=self.vision_range,
-                                                 drone_count=self.drone_count, map_size=self.map_size,
+            self.policy = CategoricalActorCritic(Actor=self.actor,
+                                                 Critic=self.critic,
+                                                 vision_range=self.vision_range,
+                                                 drone_count=self.drone_count,
+                                                 map_size=self.map_size,
                                                  time_steps=self.time_steps)
         else:
-            self.policy = ActorCriticPPO(Actor=self.actor, Critic=self.critic, vision_range=self.vision_range,
-                                         drone_count=self.drone_count, map_size=self.map_size,
-                                         time_steps=self.time_steps, share_encoder=self.share_encoder, manual_decay=self.manual_decay)
+            self.policy = ActorCriticPPO(Actor=self.actor,
+                                         Critic=self.critic,
+                                         vision_range=self.vision_range,
+                                         drone_count=self.drone_count,
+                                         map_size=self.map_size,
+                                         time_steps=self.time_steps,
+                                         share_encoder=self.share_encoder,
+                                         manual_decay=self.manual_decay,
+                                         use_tanh_dist=self.use_tanh_dist)
 
         self.actor_params = self.policy.actor.parameters()
         self.critic_params = self.policy.critic.parameters()
@@ -97,8 +103,8 @@ class PPO(RLAlgorithm):
         self.policy.train()
 
     def load(self):
+        path: str = os.path.join(self.loading_path, self.loading_name).__str__()
         try:
-            path: str = os.path.join(self.loading_path, self.loading_name).__str__()
             self.policy.load_state_dict(torch.load(path, map_location=self.device, weights_only=True))
             self.policy.to(self.device)
             return True
@@ -118,14 +124,14 @@ class PPO(RLAlgorithm):
     def select_action_certain(self, observations):
         return self.policy.act_certain(observations)
 
-    def save(self, logger: TensorboardLogger):
-        if logger.is_better_reward():
-            self.logger.info(f"Saving at Episode {logger.episode}/Train Step {logger.train_step}, best Reward: {logger.best_metrics['best_reward']:.2f}")
-            torch.save(self.policy.state_dict(), f'{os.path.join(self.get_model_path(), self.get_model_name_reward())}')
-        if logger.is_better_objective():
-            self.logger.info(f"Saving at Episode {logger.episode}/Train Step {logger.train_step}, best Objective {logger.best_metrics['best_objective']:.2f}")
-            torch.save(self.policy.state_dict(), f'{os.path.join(self.get_model_path(), self.get_model_name_obj())}')
-        torch.save(self.policy.state_dict(), f'{os.path.join(self.get_model_path(), self.get_model_name_latest())}')
+    # def save(self, logger: TensorboardLogger):
+    #     if logger.is_better_reward():
+    #         self.logger.info(f"Saving at Episode {logger.episode}/Train Step {logger.train_step}, best Reward: {logger.best_metrics['best_reward']:.2f}")
+    #         torch.save(self.policy.state_dict(), f'{os.path.join(self.get_model_path(), self.get_model_name_reward())}')
+    #     if logger.is_better_objective():
+    #         self.logger.info(f"Saving at Episode {logger.episode}/Train Step {logger.train_step}, best Objective {logger.best_metrics['best_objective']:.2f}")
+    #         torch.save(self.policy.state_dict(), f'{os.path.join(self.get_model_path(), self.get_model_name_obj())}')
+    #     torch.save(self.policy.state_dict(), f'{os.path.join(self.get_model_path(), self.get_model_name_latest())}')
 
     def get_advantages(self, values, masks, rewards):
         """
@@ -194,71 +200,49 @@ class PPO(RLAlgorithm):
         ext_rewards = t_dict['reward']
         masks = t_dict['not_done']
 
-        # Collect rewards once
-        ext_rewards_tensor = torch.cat(ext_rewards)
-        ext_rewards_np = ext_rewards_tensor.detach().cpu().numpy()
-
-        intrinsic_rewards = None
-        intrinsic_rewards_tensor = None
-        int_rewards_np = None
-        if 'intrinsic_reward' in t_dict.keys():
-            intrinsic_rewards = t_dict['intrinsic_reward']
-            intrinsic_rewards_tensor = torch.cat(intrinsic_rewards)
-            int_rewards_np = intrinsic_rewards_tensor.detach().cpu().numpy()
-            self.int_reward_rms.update(int_rewards_np)
-
-        # Logger
         logging_values = []
-        log_rewards = ext_rewards_np if intrinsic_rewards_tensor is None else ext_rewards_np + int_rewards_np
-        logger.add_metric("Rewards/Rewards_Raw", log_rewards)
+        # Prepare rewards
+        try:
+            rewards, log_rewards_raw, log_rewards_scaled = self.prepare_rewards(ext_rewards, t_dict)
+        except Exception as e:
+            self.logger.error(f"Error in preparing rewards: {e}")
+            return
+        logger.add_metric("Rewards/Rewards_Raw", log_rewards_raw)
+        logger.add_metric("Rewards/Rewards_norm", log_rewards_scaled)
 
         # Save current weights if mean reward or objective is higher than the best so far
         # (Save BEFORE training, so if the policy worsens we can still go back)
         self.save(logger)
 
-        # Clipping most likely is unnecessary
-        # rewards = [np.clip(np.array(reward.detach().cpu()) / self.running_reward_std.get_std(), -10, 10) for reward in rewards]
-        # Reward normalization !!!!DON'T SHIFT THE REWARDS BECAUSE YOU F UP YOUR OBJECTIVE FUNCTION!!!!
-        self.reward_rms.update(ext_rewards_np)
-        ext_rewards = [reward / self.reward_rms.get_std() for reward in ext_rewards]
-        ext_rewards_norm_tensor = ext_rewards_tensor / self.reward_rms.get_std()
-        if intrinsic_rewards is not None:
-            intrinsic_rewards = [reward / self.int_reward_rms.get_std() for reward in intrinsic_rewards]
-            intrinsic_rewards_norm_tensor = intrinsic_rewards_tensor / self.int_reward_rms.get_std()
-            rewards_tensor = ext_rewards_norm_tensor + intrinsic_rewards_norm_tensor
-        else:
-            rewards_tensor = ext_rewards_norm_tensor
-
-        rewards = ext_rewards if intrinsic_rewards is None \
-            else [ext_reward + int_reward for ext_reward, int_reward in zip(ext_rewards, intrinsic_rewards)]
-
-        logger.add_metric("Rewards/Rewards_norm", rewards_tensor.detach().cpu().numpy())
-
         # Advantages
-        with (torch.no_grad()):
-            advantages = []
-            returns = []
-            for i in range(memory.num_agents):
-                _, values_, _ = self.policy.evaluate(states[i], actions[i], variable_state_masks[0] if self.use_variable_state_masks and len(variable_state_masks[0]) > 0 else None)
-                if masks[i][-1] == 1:
-                    last_state = tuple(torch.FloatTensor(np.array(state)).to(self.device) if np.array(state).dtype!=bool else torch.BoolTensor(np.array(state)).to(self.device) for state in memory.get_agent_state(next_obs, i))
-                    bootstrapped_value = self.policy.critic(last_state).detach()
-                    if bootstrapped_value.dim() != 1:
-                        bootstrapped_value = bootstrapped_value.mean(dim=1)
-                    if bootstrapped_value.dim() > 1:
-                        bootstrapped_value = bootstrapped_value.squeeze(0)
-                    values_ = torch.cat((values_, bootstrapped_value), dim=0)
-                adv, ret = self.get_advantages(values_.detach(), masks[i], rewards[i].detach())
+        try:
+            with (torch.no_grad()):
+                advantages = []
+                returns = []
+                for i in range(memory.num_agents):
+                    _, values_, _ = self.policy.evaluate(states[i], actions[i], variable_state_masks[0] if self.use_variable_state_masks and len(variable_state_masks[0]) > 0 else None)
+                    if masks[i][-1] == 1:
+                        last_state = tuple(torch.FloatTensor(np.array(state)).to(self.device) if np.array(state).dtype!=bool else torch.BoolTensor(np.array(state)).to(self.device) for state in memory.get_agent_state(next_obs, i))
+                        bootstrapped_value = self.policy.critic(last_state).detach()
+                        if bootstrapped_value.dim() != 1:
+                            bootstrapped_value = bootstrapped_value.mean(dim=1)
+                        if bootstrapped_value.dim() > 1:
+                            bootstrapped_value = bootstrapped_value.squeeze(0)
+                        values_ = torch.cat((values_, bootstrapped_value), dim=0)
+                    adv, ret = self.get_advantages(values_.detach(), masks[i], rewards[i].detach())
 
-                advantages.append(adv)
-                returns.append(ret)
+                    advantages.append(adv)
+                    returns.append(ret)
 
-        # Merge all agent states, actions, rewards etc.
-        advantages = torch.cat(advantages)
-        returns = torch.cat(returns)
-        actions = torch.cat(actions)
-        old_logprobs = torch.cat(old_logprobs).detach()
-        states = memory.rearrange_states(states)
+            # Merge all agent states, actions, rewards etc.
+            advantages = torch.cat(advantages)
+            returns = torch.cat(returns)
+            actions = torch.cat(actions)
+            old_logprobs = torch.cat(old_logprobs).detach()
+            states = memory.rearrange_states(states)
+        except Exception as e:
+            self.logger.error(f"Error in computing advantages: {e}")
+            return
         #v_masks = memory.rearrange_masks(variable_state_masks) if self.use_variable_state_masks else None
 
         # Logging before proceeding to batched training
@@ -267,92 +251,138 @@ class PPO(RLAlgorithm):
         logger.add_metric("Sanitylogs/old_logprobs", old_logprobs.detach().cpu().numpy())
 
         # Train policy for K epochs: sampling and updating
-        for _ in range(self.k_epochs):
-            epoch_values = []
-            epoch_returns = []
-            # Random sampling and no repetition. 'False' indicates that training will continue even if the number of samples in the last time is less than mini_batch_size
-            for index in BatchSampler(SubsetRandomSampler(range(self.horizon)), mini_batch_size, False):
-                # Evaluate old actions and values using current policy
-                batch_states = tuple(state[index] for state in states)
-                batch_actions = actions[index]
-                batch_variable_masks = variable_state_masks[0][index] if self.use_variable_state_masks and len(variable_state_masks[0]) > 0 else None
-                logprobs, values, dist_entropy = self.policy.evaluate(batch_states, batch_actions, batch_variable_masks)
+        try:
+            for _ in range(self.k_epochs):
+                epoch_values = []
+                epoch_returns = []
+                # Random sampling and no repetition. 'False' indicates that training will continue even if the number of samples in the last time is less than mini_batch_size
+                for index in BatchSampler(SubsetRandomSampler(range(self.horizon)), mini_batch_size, False):
+                    # Evaluate old actions and values using current policy
+                    try:
+                        batch_states = tuple(state[index] for state in states)
+                        batch_actions = actions[index]
+                        batch_variable_masks = variable_state_masks[0][index] if self.use_variable_state_masks and len(variable_state_masks[0]) > 0 else None
+                        logprobs, values, dist_entropy = self.policy.evaluate(batch_states, batch_actions, batch_variable_masks)
 
-                # Importance ratio: p/q
-                ratios = torch.exp(logprobs - old_logprobs[index])
+                        # Importance ratio: p/q
+                        ratios = torch.exp(logprobs - old_logprobs[index])
+                    except Exception as e:
+                        self.logger.error(f"Error during policy evaluation: {e}")
+                        return
 
-                # Approximate KL Divergence
-                # approxkl = 0.5 * torch.mean(torch.square(old_logprobs[index].detach() - logprobs))
-                # if approxkl > 0.02:
-                #     console += (f"Approximate Kulback-Leibler Divergence: {approxkl}. A value above 0.02 is considered bad since the policy changes too quickly.\n"
-                #                 f"This happend in epoch {_} and mini_batch {index}. Early stopping for this training peroid.\n")
-                #     break
+                    # Approximate KL Divergence
+                    # approxkl = 0.5 * torch.mean(torch.square(old_logprobs[index].detach() - logprobs))
+                    # if approxkl > 0.02:
+                    #     console += (f"Approximate Kulback-Leibler Divergence: {approxkl}. A value above 0.02 is considered bad since the policy changes too quickly.\n"
+                    #                 f"This happend in epoch {_} and mini_batch {index}. Early stopping for this training peroid.\n")
+                    #     break
 
-                # Actor loss using Surrogate loss
-                surr1 = ratios * advantages[index]
-                surr2 = torch.clamp(ratios, 1 - self.eps_clip, 1 + self.eps_clip) * advantages[index]
-                entropy_loss = -self.entropy_coeff * dist_entropy.mean()
+                    # Actor loss using Surrogate loss
+                    try:
+                        surr1 = ratios * advantages[index]
+                        surr2 = torch.clamp(ratios, 1 - self.eps_clip, 1 + self.eps_clip) * advantages[index]
+                        entropy_loss = -self.entropy_coeff * dist_entropy.mean()
 
-                actor_loss = (-torch.min(surr1, surr2).type(torch.float32)).mean()
-                # actor_loss = -torch.mean(torch.min(ratios * advantages[index], torch.clamp(ratios, 1 - self.eps_clip, 1 + self.eps_clip) * advantages[index]))
+                        actor_loss = (-torch.min(surr1, surr2).type(torch.float32)).mean()
+                    except Exception as e:
+                        self.logger.error(f"Error during actor loss computation: {e}")
+                        return
+                    # actor_loss = -torch.mean(torch.min(ratios * advantages[index], torch.clamp(ratios, 1 - self.eps_clip, 1 + self.eps_clip) * advantages[index]))
 
-                # TODO CLIP VALUE LOSS ? Probably not necessary as according to:
-                # https://iclr-blog-track.github.io/2022/03/25/ppo-implementation-details/
-                value_loss = self.MSE_loss(values, returns[index].squeeze())
+                    # TODO CLIP VALUE LOSS ? Probably not necessary as according to:
+                    # https://iclr-blog-track.github.io/2022/03/25/ppo-implementation-details/
+                    try:
+                        value_loss = self.MSE_loss(values, returns[index].squeeze())
+                    except Exception as e:
+                        self.logger.error(f"Error during value loss computation: {e}")
+                        return
 
-                # Log loss
-                critic_loss_np = value_loss.detach().cpu().numpy()
-                actor_loss_np = actor_loss.detach().cpu().numpy()
-                log_std_np = torch.exp(self.policy.actor.log_std).detach().cpu().numpy()
-                values_np = values.detach().cpu().numpy()
-                returns_np = returns[index].detach().cpu().numpy()
+                    # Log loss
+                    try:
+                        critic_loss_np = value_loss.detach().cpu().numpy()
+                        actor_loss_np = actor_loss.detach().cpu().numpy()
+                        log_std_np = torch.exp(self.policy.actor.log_std).detach().cpu().numpy()
+                        values_np = values.detach().cpu().numpy()
+                        returns_np = returns[index].detach().cpu().numpy()
 
-                logger.add_metric("Loss/critic_loss", critic_loss_np)
-                logger.add_metric("Loss/actor_loss", actor_loss_np)
-                logger.add_metric("Loss/log_std", log_std_np)
-                logging_values.append(values_np)
-                epoch_values.append(values_np)
-                epoch_returns.append(returns_np)
+                        logger.add_metric("Loss/critic_loss", critic_loss_np)
+                        logger.add_metric("Loss/actor_loss", actor_loss_np)
+                        logger.add_metric("Loss/log_std", log_std_np)
+                        logging_values.append(values_np)
+                        epoch_values.append(values_np)
+                        epoch_returns.append(returns_np)
+                    except Exception as e:
+                        self.logger.error(f"Error during logging: {e}")
+                        return
 
-                # Add Entropy to actor loss
-                actor_loss = actor_loss + entropy_loss
+                    # Add Entropy to actor loss
+                    try:
+                        actor_loss = actor_loss + entropy_loss
+                    except Exception as e:
+                        self.logger.error(f"Error during entropy addition: {e}")
+                        return
 
-                # Sanity checks
-                assert not torch.isnan(value_loss).any(), f"Critic Loss is NaN, check returns, values or entroy"
-                assert not torch.isnan(actor_loss).any()
-                assert not torch.isinf(value_loss).any()
-                assert not torch.isinf(actor_loss).any()
+                    # Sanity checks
+                    try:
+                        torch.cuda.synchronize()  # catch deferred CUDA errors
+                        assert isinstance(value_loss, torch.Tensor), f"value_loss not a tensor: {type(value_loss)}"
+                        assert isinstance(actor_loss, torch.Tensor), f"actor_loss not a tensor: {type(actor_loss)}"
+                        assert not torch.isnan(value_loss).any(), f"Critic Loss is NaN, check returns, values or entroy"
+                        assert not torch.isnan(actor_loss).any(), f"Actor Loss is NaN, check advantages, logprobs or entroy"
+                        assert not torch.isinf(value_loss).any(), f"Critic Loss is Inf, check returns, values or entroy"
+                        assert not torch.isinf(actor_loss).any(), f"Actor Loss is Inf, check advantages, logprobs or entroy"
+                    except Exception as e:
+                        import traceback, sys
+                        traceback.print_exc(file=sys.stdout)
+                        self.logger.error(f"Entropy: {dist_entropy}")
+                        self.logger.error(f"Critic Loss: {value_loss}")
+                        self.logger.error(f"Actor Loss: {actor_loss}")
+                        self.logger.error(f"Sanity check failed: {e}")
+                        raise
 
-                # Backward gradients
-                if not self.separate_optimizers:
-                    loss = actor_loss + value_loss * self.value_loss_coef
-                    self.optimizer_a.zero_grad()
-                    loss.backward()
-                    # Global gradient norm clipping https://vitalab.github.io/article/2020/01/14/Implementation_Matters.html
-                    torch.nn.utils.clip_grad_norm_(self.actor_params, max_norm=0.5)
-                    torch.nn.utils.clip_grad_norm_(self.critic_params, max_norm=0.5)
-                    self.optimizer_a.step()
-                else:
-                    self.optimizer_a.zero_grad()
-                    actor_loss.backward(retain_graph=True)
-                    # Global gradient norm clipping https://vitalab.github.io/article/2020/01/14/Implementation_Matters.html
-                    torch.nn.utils.clip_grad_norm_(self.actor_params, max_norm=0.5)
-                    self.optimizer_a.step()
+                    # Backward gradients
+                    try:
+                        if not self.separate_optimizers:
+                            loss = actor_loss + value_loss * self.value_loss_coef
+                            self.optimizer_a.zero_grad()
+                            loss.backward()
+                            # Global gradient norm clipping https://vitalab.github.io/article/2020/01/14/Implementation_Matters.html
+                            torch.nn.utils.clip_grad_norm_(self.actor_params, max_norm=0.5)
+                            torch.nn.utils.clip_grad_norm_(self.critic_params, max_norm=0.5)
+                            self.optimizer_a.step()
+                        else:
+                            self.optimizer_a.zero_grad()
+                            actor_loss.backward(retain_graph=True)
+                            # Global gradient norm clipping https://vitalab.github.io/article/2020/01/14/Implementation_Matters.html
+                            torch.nn.utils.clip_grad_norm_(self.actor_params, max_norm=0.5)
+                            self.optimizer_a.step()
 
-                    self.optimizer_c.zero_grad()
-                    value_loss.backward()
-                    # Global gradient norm clipping https://vitalab.github.io/article/2020/01/14/Implementation_Matters.html
-                    torch.nn.utils.clip_grad_norm_(self.critic_params, max_norm=0.5)
-                    self.optimizer_c.step()
+                            self.optimizer_c.zero_grad()
+                            value_loss.backward()
+                            # Global gradient norm clipping https://vitalab.github.io/article/2020/01/14/Implementation_Matters.html
+                            torch.nn.utils.clip_grad_norm_(self.critic_params, max_norm=0.5)
+                            self.optimizer_c.step()
+                    except Exception as e:
+                        self.logger.error(f"Error during backpropagation: {e}")
+                        return
 
-            # Compute explained variance over the epoch
-            epoch_values = np.concatenate(epoch_values)
-            epoch_returns = np.concatenate(epoch_returns)
-            ev = self.calculate_explained_variance(epoch_values, epoch_returns)
-            # if ev <= 0:
-            #     console += (f"Explained Variance for Epoch {_}: {ev}\n"
-            #                 f"This is bad. The Critic might aswell have predicted zero or is even doing worse than that.\n")
-            logger.add_metric("Sanitylogs/Explained_Variance", ev)
-
-
-        logger.add_metric("Values", np.concatenate(logging_values).flatten())
+                # Compute explained variance over the epoch
+                try:
+                    epoch_values = np.concatenate(epoch_values)
+                    epoch_returns = np.concatenate(epoch_returns)
+                    ev = self.calculate_explained_variance(epoch_values, epoch_returns)
+                    # if ev <= 0:
+                    #     console += (f"Explained Variance for Epoch {_}: {ev}\n"
+                    #                 f"This is bad. The Critic might aswell have predicted zero or is even doing worse than that.\n")
+                    logger.add_metric("Sanitylogs/Explained_Variance", ev)
+                except Exception as e:
+                    self.logger.error(f"Error during explained variance computation: {e}")
+                    return
+            try:
+                logger.add_metric("Values", np.concatenate(logging_values).flatten())
+            except Exception as e:
+                self.logger.error(f"Error during final logging of values: {e}")
+                return
+        except Exception as e:
+            self.logger.error(f"Error during PPO update: {e}")
+            return

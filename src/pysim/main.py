@@ -46,10 +46,14 @@ def assert_config(config):
 
     if config["settings"]["optuna"]["use_optuna"]:
         assert config["settings"]["optuna"]["objective"] in ["objective", "reward"], "Invalid objective in config.yaml for optuna. Must be 'objective' or 'reward'."
+        assert config["settings"]["rl_mode"] == "train", "rl_mode must be 'train' when using optuna in config.yaml."
+    if config["settings"]["save_replay_buffer"]:
+        used_algo = config["environment"]["agent"][config["settings"]["hierarchy_type"]]["algorithm"]
+        assert config["settings"]["save_size"] <= config["algorithm"][used_algo]["memory_size"], \
+            f"save_size cannot be larger than memory_size in algorithm config for {used_algo}."
 def sim(config : dict, overrides: dict = None, trial=None):
 
     config = inject_overrides(config, overrides, trial)
-
     assert_config(config)
 
     if config["settings"].get("pytorch_detect_anomaly"):
@@ -76,7 +80,7 @@ def sim(config : dict, overrides: dict = None, trial=None):
 
     # Initialize the EngineCore and send the RL_Status
     engine = firesim.EngineCore()
-    engine.Init(config["settings"]["mode"])
+    engine.Init(config["settings"]["mode"], config_path)
     engine.SendRLStatusToModel(sim_bridge.get_status())
     engine.InitializeMap()
 

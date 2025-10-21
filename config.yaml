@@ -1,21 +1,37 @@
 settings:
-  mode: 0 # 0: GUI_RL, 2: NoGUI_RL, # Mode 1 is GUI and Mode 2 is NoGUI (ONLY Simulation)
-  seed: -1 # Random seed for reproducibility (-1 for random seed)
-  rl_mode: train # either "train" or "eval"
-  # Whether to resume training from the last checkpoint
-  # If set to true, the training will continue from the last checkpoint
-  # from the default_model_paths for the hierarchy_type agent
+  # 0: GUI_RL, 2: NoGUI_RL, # Mode 1 is GUI and Mode 2 is NoGUI (ONLY Simulation)
+  mode: 2
+  # Random seed for reproducibility (-1 for random seed)
+  seed: -1
+  # RL_MODE: Either "train" or "eval"
+  rl_mode: train
+  # Resume training from a checkpoint
+  # If set to true, the training will continue from the specified checkpoint
   resume: false
-  llm_support: false # Whether to use LLM support for the environment (currently not supported)
-  hierarchy_type: fly_agent # Type of hierarchy to use for the agents (fly_agent, explore_agent, planner_agent)
-  skip_gui_init: true # Uses this config as default and skips the GUI setup
-  pytorch_detect_anomaly: false # Enable PyTorch autograd anomaly detection
-  cia_mode: false # don't activate this without official government permission!
+  # LLM support for the environment (currently not supported; was tested in very early prototypes)
+  # Will probably break everything if set to true
+  llm_support: false
+  # Type of hierarchy to use for the agents (fly_agent, explore_agent, planner_agent)
+  hierarchy_type: fly_agent
+  # Uses this config as default and skips the GUI setup
+  skip_gui_init: true
+  # Enable PyTorch autograd anomaly detection (useful for debugging; slows down training)
+  pytorch_detect_anomaly: true
+  # Enable CIA mode (Covert Infiltration Avian) for government use only!
+  cia_mode: false
+  # Settings for automatic training of multiple runs under the same config
   auto_train:
-    use_auto_train: false # Whether to use auto training
-    train_episodes: 10 # Number of total trainings, each containing max_train train_steps, always set to 1 when use_auto_train is false
-    max_train: 150 # Maximum number of train_steps(NOT policy steps) to perform
-    max_eval: 200 # Maximum number of evaluations(one evaluation = one environment completed) to perform
+    # Use or don't use automatic training
+    use_auto_train: false
+    # Number of total trainings, each containing max_train train_steps
+    # automatically set to 1 when use_auto_train is false
+    train_episodes: 10 
+    # Maximum number of train_steps(NOT policy steps) to perform
+    # this setting is also used in case of NoGUI mode to determine when to stop training and switch to evaluation
+    # This setting gets overridden in IQL settings and is calculated as the total number of offline_updates + online_updates
+    max_train: 200
+    # Maximum number of evaluations(one evaluation = one environment completed) to perform
+    max_eval: 200
   optuna:
     use_optuna: false # Whether to use Optuna for hyperparameter optimization
     study_name: "fly_model_study" # Name of the Optuna study
@@ -25,53 +41,104 @@ settings:
     n_warmup_steps: 30 # Number of warmup steps before starting the optimization
     use_pruning: false # Prune training episodes with MedianPruner
     objective: "objective" # Objective to optimize ("reward" or "objective")
+   # Whether to save the replay buffer when it's full (to model_directory/memory.pkl) 
+   # This has only effect in evaluation mode
+  save_replay_buffer: false
+  # Size of the replay buffer to be saved when save_replay_buffer is true
+  save_size: 2.0e+5
 paths:
   # This is the root_path where your NEW trained models data is stored
-  # Loading for your ROOT Model (chosen hierarchy) is ALSO done from here (Eval and Resuming Training)
-  # (either absolute or relative to the project root)
-  model_directory: models/complex_test
+  # Loading for your ROOT Model(chosen hierarchy) is ALSO done from here (Eval and Resuming Training)
+  # Absolute or relative to the project root
+  model_directory: models/PPOTanhDistri_2
   # Leave this empty to get a default name from this config (best practice for training)
-  # You can fast load models with suffixes ["latest", "best_reward", "best_objective"]
+  # You can fast load models with suffixes ["latest", "best_reward", "best_obj"]
   # If you want to load a specific model, set the model_name to the name of the model file
   model_name: ""
   # Name of the CORINE dataset-file, Path to the Corine dataset file must be set in project_paths.json (generated default paths at compile time)
-  corine_dataset_name: CLMS_CLCplus_RASTER_2018_010m_eu_03035_V1_1.tif
+  corine_dataset_name: CLMS_CLCplus_RASTER_2021_010m_eu_03035_V1_1.tif
   # This map is used in NoGUI & skip_gui_init setup, if left empty("") the default map (uniform map) will be used.
-  # TODO Make this a list of maps to choose from
   init_map: 35x36_Woods.tif
 
 algorithm:
-  share_encoder: true # Whether to share the encoder between the policy and value networks
+  # Share the encoder(Inputspace in the network files) between the policy and value networks
+  share_encoder: true
+  # Use TanhNormal distribution for stochastic policy networks
+  # If set to false, a normal distribution will be used and the actions will be clipped to the action space limits
+  # Note: This leads to log_prob issues and suboptimal policies
+  # TanhNormal is generally preferred as it naturally bounds the actions within the action space limits
+  use_tanh_dist: true
   PPO:
-    memory_size: 1.0e+5 # Size of the Replay Buffer
+    # Size of the Replay Buffer 
+    # Gets cleaned up after each training episode
+    # Needs to be bigger when trying to safe the buffer
+    memory_size: 1.0e+6
+    # Learning rate for the optimizer
     lr: 3.2e-05 # Learning rate for the optimizer
-    batch_size: 680 #256 # Batch size for the optimizer
-    horizon: 680 #10240 #12800 # Number of steps to collect before updating the model
-    k_epochs: 14 #11 #8 # Number of epochs to update the model
-    entropy_coeff: 0 #0.0006 # Coefficient for the entropy loss
-    value_loss_coef: 0.5 # Coefficient for the value loss
-    separate_optimizers: false # Whether to use separate optimizers for the policy and value networks
-    beta1: 0.9 # Beta1 for the Adam optimizer
-    beta2: 0.999 # Beta2 for the Adam optimizer
-    gamma: 0.9999 #0.9635 # Discount factor for the rewards
-    _lambda: 0.99 #0.96 # Lambda for the Generalized Advantage Estimation (GAE)
-    eps_clip: 0.2783 # Clipping value for the PPO loss
-    manual_decay: true # If set to true the log_std is not learned by the net, but exponentially decayed each train step
-    use_logstep_decay: true # Whether to use logarithmic step decay or train_step decay (logarithmic recommended and works better with resuming training)
-    decay_rate: 0.985 # Decay rate
+    # Batch size for the optimizer
+    batch_size: 1024 #256 
+    # Number of steps to collect before updating the model
+    horizon: 16384 #10240 #12800 
+    # Number of epochs to update the model
+    k_epochs: 19 #11 #8 
+    # Coefficient for the entropy loss
+    entropy_coeff: 0.01 #0.0006
+    # Coefficient for the value loss
+    value_loss_coef: 0.5
+    # Use separate optimizers for the policy and value networks
+    # If this is set to false, a single optimizer will be used for 
+    # both networks and the value_loss_coef has no effect
+    separate_optimizers: false 
+    # Beta1 for the Adam optimizer
+    beta1: 0.9 
+    # Beta2 for the Adam optimizer
+    beta2: 0.999 
+    # Discount factor for the rewards
+    gamma: 0.9635 #0.9635 
+    # Lambda for the Generalized Advantage Estimation (GAE)
+    _lambda: 0.96 #0.96 
+    # Clipping value for the PPO loss
+    eps_clip: 0.2783 
+    # Manual decay of the log_std parameter in stochastic policies
+    # If set to false, the log_std is learned by the network(state independent)
+    manual_decay: false
+    # Two types of manual decay implemented: train_step decay and logarithmic decay
+    # train_step decay: reduces log_std based on the training step count using an exponential, causing a smooth nonlinear decay over time
+    # logarithmic decay: applies the decay to the current log_std, producing a multiplicative, logarithmic reduction per update step
+    # If you plan to use manual decay in combination with resuming training logarithmic decay is preferred
+    use_logstep_decay: true
+    decay_rate: 0.985
   IQL:
-    memory_size: 1e6 # Size of the Replay Buffer
-    lr: 4.0e-4 # Learning rate for the optimizer
-    batch_size: 64 # Batch size for the optimizer
-    discount: 0.99 #
-    expectile: 0.7 # Expectile for the IQL loss
-    tau: 0.005 # Target network update rate
-    temperature: 3.0 # Temperature for the IQL loss
-    min_memory_size: 1000 # Minimum number of samples in the replay buffer before training starts
-    policy_freq: 10 #
-    k_epochs: 10 # Number of epochs to update the model
-    beta1: 0.9 # Beta1 for the Adam optimizer
-    beta2: 0.999 # Beta2 for the Adam optimizer
+    # Path to the replay buffer file (absolute or relative to the project root)
+    # Size of the Replay Buffer is determined by the size used to create this buffer
+    # Keep this in mind for Online Fine-Tuning
+    buffer_path: "models/PPOTanhDistri/memory.pkl"
+    # Learning rate for the optimizer
+    lr: 1.0e-4
+    # Batch size for the optimizer
+    batch_size: 256
+    # Discount factor for the rewards
+    discount: 0.99
+    # Expectile for the IQL loss
+    expectile: 0.7
+    # Target network soft update rate
+    tau: 0.005
+    # Temperature for the IQL loss
+    temperature: 3.0 
+    # Frequency of policy updates in online finetuning
+    # i.e. how many environment steps between the next policy update
+    policy_freq: 2000
+    # Offline Training Steps (before eventually doing an online finetuning)
+    # One offline update goes through the entire dataset once
+    offline_updates: 10
+    # Online Training Steps after offline training
+    online_updates: 100
+    # Number of epochs in online-finetuning, has no effect on offline training
+    k_epochs: 1
+    # Beta1 for the Adam optimizer
+    beta1: 0.9 
+    # Beta2 for the Adam optimizer
+    beta2: 0.999 
   TD3:
     memory_size: 1.0e+5 # Size of the Replay Buffer
     min_memory_size: 25000 # Minimum number of samples in the replay buffer before training starts
@@ -135,7 +202,7 @@ fire_model:
 # Environment Parameters
 environment:
   # These parameters are used to configure the fire START behaviour in the environment
-  # It does NOT affect the actual fire spread during simulation
+  # It does NOT affect the actual fire spread during simulation, this is handled by the fire_model
   fire_behaviour:
     # Percentage of cells that should be ignited at the start of the simulation [0.0 - 1.0]
     # Setting this to < 0.0 will lead to randomly generated fire_percentage between (0, 1]
@@ -150,46 +217,76 @@ environment:
     # Noise ([-0.5, 0,5]*noise) for the fire spread probability, to introduce randomness in the fire spread
     # Setting this to < 0.0 will lead to random fire_noise between 0 and 1
     fire_noise: 1
+    # TODO: OLD PARAMETER, REMOVE LATER IF NOT NEEDED ANYMORE
     recharge_time_active: false
   agent_behaviour:
-    fire_goal_percentage: 0.1
-    groundstation_start_percentage: 0.9
+    # Percentage of initial goal set (for fly_agents) that are at a fire_position
+    fire_goal_percentage: 1
+    # Percentage of initial starting positions that are at the groundstation
+    groundstation_start_percentage: 1
+    # Other parameters that are currently hard-coded or only accessible via GUI will be added here later
   agent:
-    water_capacity: 10 # Number of water units a drone can carry (one unit extinguishes one cell)
-    max_velocity: 10.0 # Maximum Velocity for a drone agent in m/s
-    drone_size: 2 # Size of the drone in m (used for rendering and collision detection); for convenience, all drones have the same size
+    # Number of water units a drone can carry (one unit extinguishes one cell)
+    # Currently not used, needs to be implemented in the fire extinguishing logic
+    water_capacity: 10 
+    # Size of the drone in m (used for rendering and collision detection); 
+    # for convenience, all drones have the same size
+    drone_size: 2 
     fly_agent:
-      use_simple_policy: true # A simple Policy will generate Terminal States after a goal is reached; the complex policy only when all fires are extinguished
-      frame_skips: 1 # Determines the frequency of action selection (1 = every frame, 2 = every 2nd frame, etc.)
-      algorithm: PPO # Algorithm used by the fly_agent
+      # Two types of policies can be learned:
+      # Simple Policy: The episode ends when one agent reaches its goal_position
+      # Complex Policy: The episode ends when all fires are extinguished (this influences the reward structure slightly)
+      use_simple_policy: false
+      # Determines the frequency of action selection (1 = every frame, 2 = every 2nd frame, etc.)
+      frame_skips: 1 
+      # Algorithm used by the fly_agent
+      algorithm: PPO 
+      # Number of fly_agents
       num_agents: 5
-      time_steps: 3 # Number of time steps to consider in the FlyAgent's memory
-      max_speed: 10.0 # Maximum speed of the FlyAgent in m/s
-      view_range: 10 # View range of the FlyAgent in cells
-      default_model_folder: models/fly_agent/training_1 # Default model path for the fly_agent (either absolute or relative to the project root)
-      # You can fast load models with suffixes ["latest", "best_reward", "best_objective"]
+      # Number of time steps to consider in the FlyAgent's memory
+      time_steps: 3 
+      # Maximum speed of the FlyAgent in m/s
+      max_speed: 10.0 
+      # View range of the FlyAgent in cells
+      view_range: 10 
+      # Default model path for the fly_agent (either absolute or relative to the project root)
+      default_model_folder: models/fly_agent/training_1 
+      # You can fast load models with suffixes ["latest", "best_reward", "best_obj"]
       # If you want to load a specific model, set the model_name to the name of the model file
       default_model_name: latest
     explore_agent:
-      frame_skips: 1 # Determines the frequency of action selection (1 = every frame, 2 = every 2nd frame, etc.)
-      algorithm: no_algo # Algorithm used by the explore_agent
-      num_agents: 4
-      time_steps: 2 # Number of time steps to consider in the ExploreAgent's memory
-      max_speed: 10.0 # Maximum speed of the explore_agent in m/s
-      view_range: 12 # View range of the explore_agent in cells
-      default_model_folder: "" # Keep empty for future use and compatibility with pipeline lol
-      # You can fast load models with suffixes ["latest", "best_reward", "best_objective"]
-      # If you want to load a specific model, set the model_name to the name of the model file
-      default_model_name: ""  # Keep empty for future use and compatibility with pipeline lol
+      # Determines the frequency of action selection (1 = every frame, 2 = every 2nd frame, etc.)
+      frame_skips: 1 
+      # Algorithm used by the explore_agent (currently no training implemented, so set to no_algo)
+      algorithm: no_algo 
+      # Number of explore_agents
+      num_agents: 4 
+      # Number of time steps to consider in the ExploreAgent's memory
+      time_steps: 2 
+      # Maximum speed of the explore_agent in m/s
+      # Should be set to the max_speed of the fly_agent uses
+      max_speed: 10.0 
+      # View range of the explore_agent in cells
+      view_range: 12 
+      # Keep empty for future use and compatibility with pipeline
+      default_model_folder: "" 
+      # Keep empty for future use and compatibility with pipeline lol
+      default_model_name: ""  
     planner_agent:
-      frame_skips: 1 # Determines the frequency of action selection (1 = every frame, 2 = every 2nd frame, etc.)
-      algorithm: PPO # Algorithm used by the planner_agent
+      # Determines the frequency of action selection (1 = every frame, 2 = every 2nd frame, etc.)
+      frame_skips: 1 
+      # Algorithm used by the planner_agent
+      algorithm: PPO 
       # These parameters are used to configure the planner_agents LOW-LEVEL AGENTS
       num_agents: 3
-      time_steps: 3 # Number of time steps to consider in the ExtinguishAgent's memory
-      max_speed: 3.0 # Maximum speed of the ExtinguishAgent (low-level-agent of the Planner) in m/s
-      view_range: 6 # View range of the ExtinguishAgent in cells
-      default_model_folder: models/planner_kind_of_works/ # Default model path for the fly_agent (either absolute or relative to the project root)
+      # Number of time steps to consider in the ExtinguishAgent's memory
+      time_steps: 3 
+      # Maximum speed of the ExtinguishAgent (low-level-agent of the Planner) in m/s
+      max_speed: 3.0 
+      # View range of the ExtinguishAgent in cells
+      view_range: 6 
+      # Default model path for the fly_agent (either absolute or relative to the project root)
+      default_model_folder: models/planner_kind_of_works/ 
       # You can fast load models with suffixes ["latest", "best_reward", "best_objective"]
       # If you want to load a specific model, set the model_name to the name of the model file
       default_model_name: latest

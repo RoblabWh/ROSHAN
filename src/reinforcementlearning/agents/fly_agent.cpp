@@ -98,7 +98,7 @@ void FlyAgent::PerformFly(FlyAction* action, const std::string& hierarchy_type, 
     if (hierarchy_type == "fly_agent" && !parameters_.use_simple_policy_) {
         if (almostEqual(this->GetGoalPosition(), this->GetGridPositionDouble())) {
             this->DispenseWaterCertain(gridMap);
-            this->SetGoalPosition(gridMap->GetNextFire(this->GetGridPosition()));
+            this->SetGoalPosition(gridMap->GetNextFire(this->GetGridPositionDouble()));
         }
         did_hierarchy_step = true;
     } else if (hierarchy_type == "fly_agent" && parameters_.use_simple_policy_) {
@@ -139,7 +139,8 @@ double FlyAgent::CalculateReward(const std::shared_ptr<GridMap>& grid_map) {
 
     // Use the extinguishing code only in the complex policy since the simple one only cares about reaching the goal
     if (extinguished_fire_ && !parameters_.use_simple_policy_) {
-        reward_components["Extinguish"] = 0.1;
+        auto bonus_log = 0.05 * std::log(double(grid_map->GetNRefFires() + 1) / double(grid_map->GetNumBurningCells() + 1));
+        reward_components["Extinguish"] = 0.1 + bonus_log;
     }
 
     if (collision_occurred_) {
@@ -205,24 +206,6 @@ AgentTerminal FlyAgent::GetTerminalStates(bool eval_mode, const std::shared_ptr<
             t.is_terminal = true;
         }
     }
-
-    // TODO CHANGE LATER
-    // Terminals only for evaluation lustiges loeschverhalten
-    // if (eval){
-    //     if (grid_map->PercentageBurned() > 0.30) {
-    //         t.is_terminal = true;
-    //         t.reason = FailureReason::Burnout;
-    //     }
-    //     if (extinguished_last_fire_) {
-    //         //  Don't use gridmap_->IsBurning() because it is not reliable since it returns false when there
-    //         //  are particles in the air. Instead, check if the drone has extinguished the last fire on the map.
-    //         //  This also makes sure that only the drone that actually extinguished the fire gets the reward
-    //         t.is_terminal = true;
-    //     }
-    //     if (!grid_map->IsBurning()) {
-    //         t.is_terminal = true;
-    //     }
-    // }
 
     if (t.is_terminal && t.reason != FailureReason::None) { t.kind = TerminationKind::Failed; }
     else if (t.is_terminal) { t.kind = TerminationKind::Succeeded; }
@@ -532,14 +515,14 @@ double DiscretizeOutput(double netout, double bin_size) {
 
 std::pair<double, double> FlyAgent::GetNewVelocity(double next_speed_x, double next_speed_y) const {
     // Next Speed determines the velocity CHANGE
-       next_speed_x = DiscretizeOutput(next_speed_x, 0.05);
-       next_speed_y = DiscretizeOutput(next_speed_y, 0.05);
-       double new_speed_x = vel_vector_.first + next_speed_x * max_speed_.first;
-       double new_speed_y = vel_vector_.second + next_speed_y * max_speed_.second;
+//       next_speed_x = DiscretizeOutput(next_speed_x, 0.05);
+//       next_speed_y = DiscretizeOutput(next_speed_y, 0.05);
+//       double new_speed_x = vel_vector_.first + next_speed_x * max_speed_.first;
+//       double new_speed_y = vel_vector_.second + next_speed_y * max_speed_.second;
 
     // Netout determines the velocity DIRECTLY #TODO: Why does this perform worse??
-    // double new_speed_x = next_speed_x * max_speed_.first;
-    // double new_speed_y = next_speed_y * max_speed_.second;
+     double new_speed_x = next_speed_x * max_speed_.first;
+     double new_speed_y = next_speed_y * max_speed_.second;
 
     // Clamp new_speed between -max_speed_.first and max_speed_.first
     new_speed_x = std::clamp(new_speed_x, -max_speed_.first, max_speed_.first);

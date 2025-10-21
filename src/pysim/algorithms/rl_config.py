@@ -37,6 +37,7 @@ class RLConfig:
 
     # Algorithm parameters
     share_encoder: bool = False
+    use_tanh_dist: bool = True
 
 @dataclass
 class NoAlgorithmConfig(RLConfig):
@@ -79,11 +80,13 @@ class IQLConfig(RLConfig):
     expectile: float = 0.7
     tau: float = 0.005
     temperature: float = 3.0
-    min_memory_size: int = 1000
-    policy_freq: int = 10
+    policy_freq: int = 1
+    offline_updates: int = 100000
+    online_updates: int = 100000
     k_epochs: int = 20
     beta1: float = 0.9
     beta2: float = 0.999
+    buffer_path: str = ""
 
 @dataclass
 class TD3Config(RLConfig):

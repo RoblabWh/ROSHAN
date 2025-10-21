@@ -79,6 +79,7 @@ public:
 
     void SetTerminals(bool terminal) {any_terminal_occured_ = terminal;}
     bool GetTerminalOccured() {return any_terminal_occured_;}
+    int GetNRefFires() const {return n_ref_fires_;}
 
     std::pair<int, int> GetRandomPointInGrid() {
         std::uniform_int_distribution<> dis_x(0, rows_ - 1);
@@ -165,6 +166,9 @@ private:
     void UpdateVirtualParticles(std::vector<ParticleType> &particles, std::vector<std::vector<bool>> &visited_cells);
 
     void EraseParticles(int x, int y);
+    void pruneReservations();
+    inline int64_t idx(int x, int y) const { return int64_t(y) * cols_ + x;}
+    std::unordered_set<int64_t> reserved_positions_;
 
     //Bad flags for reward calculation
     bool any_terminal_occured_ = false;
@@ -173,6 +177,7 @@ private:
     int num_cells_ = 0;
     int num_burned_cells_ = 0;
     int num_unburnable_ = 0;
+    int n_ref_fires_ = 0;
 
     //Noise handling
     bool noise_generated_;

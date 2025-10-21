@@ -4,7 +4,7 @@ from algorithms.rl_algorithm import RLAlgorithm
 from algorithms.td3 import TD3
 from algorithms.rl_config import RLConfig, PPOConfig, IQLConfig, TD3Config, NoAlgorithmConfig, override_from_dict
 from utils import SimulationBridge, get_project_paths, remove_suffix
-import os, logging, yaml, shutil, importlib.util
+import os, logging, yaml, shutil, math, importlib.util
 from memory import SwarmMemory
 from evaluation import Evaluator, TensorboardLogger
 from explore_agent import ExploreAgent
@@ -16,6 +16,7 @@ class AgentHandler:
     def __init__(self, config: dict, sim_bridge: SimulationBridge, agent_type: str = None, subtype: str = None, mode: str = None, is_sub_agent: bool = True):
 
         self.sim_bridge = sim_bridge
+        self.no_gui = config["settings"]["mode"] == 2
         # A sub agent is an agent that is part of a lower hierarchy level,
         # e.g. a PlannerFlyAgent is a sub agent of ExploreFlyAgent or PlannerFlyAgent
         self.is_sub_agent = is_sub_agent
@@ -34,7 +35,6 @@ class AgentHandler:
         self.ctrl_ctr = 0
         self.cached_actions = None
         self.cached_logprobs = None
-        self.summed_rewards = None
 
         # Probably can be discarded, but kept for compatibility now
         self.original_algo = algorithm
@@ -70,6 +70,10 @@ class AgentHandler:
         self.hierarchy_steps = 0
         self.hierarchy_early_stop = False
 
+        # Save or Load Replay Buffer
+        self.save_replay_buffer = config["settings"]["save_replay_buffer"]
+        self.save_size = config["settings"]["save_size"]
+
         # TODO: Maybe put this into the Agent Type?
         if self.use_intrinsic_reward:
             self.agent_type.initialize_rnd_model(vision_range, drone_count=self.num_agents,
@@ -104,10 +108,17 @@ class AgentHandler:
         self.root_model_path = model_path
 
         # Only create a FileHandler if this is not a sub agent
-        # TODO different logger files for training and evaluation? probly not needed
         logging_file = ""
         if not self.is_sub_agent:
-            logging_dir = os.path.join(model_path.__str__(), "logs")
+            # Remove any exiting FileHandlers
+            logger = logging.getLogger()
+            for handler in logger.handlers[:]:
+                if isinstance(handler, logging.FileHandler):
+                    logger.removeHandler(handler)
+                    handler.close()
+            # Check if auto_train is used, if so, append "training_1" to model path (dirty, but works for now)
+            mp = model_path.__str__() if not use_auto_train else os.path.join(model_path.__str__(), "training_1")
+            logging_dir = os.path.join(mp, "logs")
             if not os.path.exists(logging_dir):
                 os.makedirs(logging_dir, exist_ok=True)
             logging_file = os.path.join(logging_dir, "logging.log")
@@ -124,7 +135,7 @@ class AgentHandler:
         if later_logs["msg"] is not None:
             self.logger.log(later_logs["level"], later_logs["msg"])
 
-        # TODO: If I resume the training, I need to load several things:
+        # # If I resume the training, I need to load several things:
         # - The model
         # - The optimizer state
         # - The memory state (possibly, for OffPolicy algorithms)
@@ -140,7 +151,8 @@ class AgentHandler:
                                  drone_count=drone_count,
                                  map_size=map_size,
                                  time_steps=time_steps,
-                                 share_encoder=config["algorithm"]["share_encoder"])
+                                 share_encoder=config["algorithm"]["share_encoder"],
+                                 use_tanh_dist=config["algorithm"]["use_tanh_dist"])
 
         algo_overrides = config["algorithm"].get(self.algorithm_name, {})
 
@@ -159,12 +171,9 @@ class AgentHandler:
         if algorithm == 'PPO':
             # PPOConfig is used for PPO algorithm
             rl_config = PPOConfig(**vars(rl_config),
-                                  use_categorical=agent_type == "planner_agent",
-                                  use_variable_state_masks=agent_type == "planner_agent",
-                                  manual_decay=config["algorithm"]["PPO"].get("manual_decay", False),
-                                  use_logstep_decay=config["algorithm"]["PPO"].get("use_logstep_decay", False),
-                                  decay_rate=config["algorithm"]["PPO"].get("decay_rate", 0.99))
-            rl_config.use_next_obs = False
+                                  use_categorical= agent_type == "planner_agent",
+                                  use_variable_state_masks= agent_type == "planner_agent")
+            rl_config.use_next_obs = False if not self.save_replay_buffer else True
             rl_config = override_from_dict(rl_config, algo_overrides)
 
             self.algorithm = PPO(network=network_classes,
@@ -197,11 +206,18 @@ class AgentHandler:
 
         self.use_next_obs = self.algorithm.use_next_obs
 
-        self.memory = SwarmMemory(max_size=self.algorithm.memory_size,
-                                  num_agents=self.num_agents,
-                                  action_dim=self.agent_type.action_dim,
-                                  use_intrinsic_reward=self.use_intrinsic_reward,
-                                  use_next_obs=self.use_next_obs)
+        if algorithm == 'IQL' and self.rl_mode != 'eval':
+            memory_path = os.path.join(get_project_paths("root_path"), self.algorithm.buffer_path)
+            if not os.path.exists(memory_path):
+                raise FileNotFoundError(f"Replay buffer path {memory_path} does not exist, cannot load replay buffer")
+            self.logger.info("Loading replay buffer from {}".format(memory_path))
+            self.memory = SwarmMemory.load(memory_path)
+        else:
+            self.memory = SwarmMemory(max_size=self.algorithm.memory_size,
+                                      num_agents=self.num_agents,
+                                      action_dim=self.agent_type.action_dim,
+                                      use_intrinsic_reward=self.use_intrinsic_reward,
+                                      use_next_obs=self.use_next_obs)
 
         # Update status dict only if not a sub_agent
         if not self.is_sub_agent:
@@ -229,25 +245,26 @@ class AgentHandler:
                 self.sim_bridge.set("train_step", train_step)
                 self.sim_bridge.set("policy_updates", policy_updates)
 
-            # TODO This should ideally be done at the end of Evaluation
-            #self.logger.log_hparams(rl_config.__dict__)
-
             sim_bridge.set("model_path", self.algorithm.model_path)
             sim_bridge.set("model_name", self.algorithm.model_name)
 
             min_update = 0
             if self.algorithm_name == 'PPO':
                 min_update = self.algorithm.horizon
-            elif self.algorithm_name == 'IQL' or self.algorithm_name == 'TD3':
+            elif self.algorithm_name == 'IQL':
+                min_update = len(self.memory)  # Always allow training for IQL because we always load a full buffer
+            elif self.algorithm_name == 'TD3':
                 min_update = self.algorithm.min_memory_size
 
             self.sim_bridge.set("min_update", min_update)
 
             if not self.resume: self.logger.info(f"Top Level Hierarchy: {self.agent_type.name}")
 
+            max_train = at_dict["max_train"] if not algorithm == 'IQL' else config["algorithm"]["IQL"]["offline_updates"] + config["algorithm"]["IQL"]["online_updates"]
             self.evaluator = Evaluator(log_dir=logging_path,
                                        auto_train_dict=at_dict,
-                                       no_gui=config["settings"]["mode"] == 2,
+                                       max_train = max_train,
+                                       no_gui=self.no_gui,
                                        start_eval=self.rl_mode == "eval",
                                        sim_bridge=self.sim_bridge,
                                        logger=self.tensorboard)
@@ -430,7 +447,8 @@ class AgentHandler:
         if self.algorithm_name == 'PPO':
             return len(self.memory) >= self.algorithm.horizon
         elif self.algorithm_name == 'IQL':
-            return len(self.memory) >= self.algorithm.min_memory_size and self.env_step % self.algorithm.policy_freq == 0
+            # Train always during offline phase, during online phase check policy frequency
+            return (self.env_step < self.algorithm.offline_updates) or (self.env_step % self.algorithm.policy_freq == 0)
         elif self.algorithm_name == 'TD3':
             return len(self.memory) >= self.algorithm.min_memory_size
         else:
@@ -485,42 +503,13 @@ class AgentHandler:
             self.ctrl_ctr = 0  # Reset control counter to avoid issues
             self.cached_actions = None
             self.cached_logprobs = None
-            self.summed_rewards = None
             self.rl_mode = self.sim_bridge.get("rl_mode")
             self.algorithm.set_train() if self.rl_mode == "train" else self.algorithm.set_eval()
 
     def restruct_current_obs(self, observations):
         self.current_obs = self.restructure_data(observations)
 
-    def train_loop(self, engine):
-        # Only sample new action at the start of the control
-        start_of_control = self.ctrl_ctr % self.frame_skips == 0
-        if start_of_control:
-            if self.current_obs is None:
-                self.current_obs = self.restructure_data(engine.GetObservations())
-            actions, action_logprobs = self.act(self.current_obs)
-            self.cached_actions = actions
-            self.cached_logprobs = action_logprobs
-
-        next_obs_, rewards, terminals_vector, terminal_result, percent_burned = self.step_agent(engine, self.cached_actions)
-
-        if self.summed_rewards is None:
-            self.summed_rewards = rewards
-        else:
-            self.summed_rewards = [a + b for a, b in zip(self.summed_rewards, rewards)]
-
-        self.ctrl_ctr += 1
-        end_of_control = terminal_result.env_reset or ((self.ctrl_ctr % self.frame_skips) == 0)
-
-        if not end_of_control:
-            # No memory adding or training until the end of the control
-            return
-
-        # Only increase env_step if num_frame_skips observations have been collected
-        self.env_step += 1
-        next_obs = self.restructure_data(next_obs_)
-
-        # Intrinsic Reward Calculation (optinoal)
+    def intrinsic_reward(self):
         intrinsic_reward = None
         if self.use_intrinsic_reward:
             intrinsic_reward = self.agent_type.get_intrinsic_reward(self.current_obs)
@@ -531,35 +520,77 @@ class AgentHandler:
                 self.sim_bridge.set("intrinsic_reward", intrinsic_reward)
                 engine.SendRLStatusToModel(self.sim_bridge.status)
                 engine.UpdateReward()
+        return intrinsic_reward
 
-        # Memory Adding
-        n_obs = next_obs if self.use_next_obs else None
-        self.add_memory_entry(self.current_obs,
-                              self.cached_actions,
-                              self.cached_logprobs,
-                              self.summed_rewards,
-                              terminals_vector,
-                              next_obs=n_obs,
-                              intrinsic_rewards=intrinsic_reward)
+    def train_loop(self, engine):
+        # Check IQL conditions
+        try:
+            skip_step = False if not hasattr(self.algorithm, "policy_freq") else (self.env_step < self.algorithm.offline_updates)
+            next_obs = None
+            if not skip_step:
+                # Only sample new action at the start of the control
+                start_of_control = self.ctrl_ctr % self.frame_skips == 0
+                if start_of_control:
+                    if self.current_obs is None:
+                        self.current_obs = self.restructure_data(engine.GetObservations())
+                    actions, action_logprobs = self.act(self.current_obs)
+                    self.cached_actions = actions
+                    self.cached_logprobs = action_logprobs
 
-        # Update the Logger before checking if we should train, so that the logger has the latest information
-        # to calculate the objective percentage and best reward
-        self.update_logging(terminal_result)
+                try:
+                    next_obs_, rewards, terminals_vector, terminal_result, percent_burned = self.step_agent(engine, self.cached_actions)
+                except Exception as e:
+                    self.logger.error(f"Error stepping agent: {e}")
+                    raise e
 
-        # Training
-        if self.should_train():
-            self.algorithm.apply_manual_decay(self.sim_bridge.get("train_step"))
-            self.update(mini_batch_size=self.algorithm.batch_size, next_obs=next_obs)
-            if self.use_intrinsic_reward and self.algorithm == 'PPO':
-                self.agent_type.update_rnd_model(self.memory, self.algorithm.horizon, self.algorithm.batch_size)
-            if self.algorithm.clear_memory:
-                self.memory.clear_memory()
+                self.ctrl_ctr += 1
+                end_of_control = terminal_result.env_reset or ((self.ctrl_ctr % self.frame_skips) == 0)
 
-        # Advance to the next step
-        self.current_obs = next_obs
-        self.summed_rewards = None
-        self.env_reset = terminal_result.env_reset
-        self.handle_env_reset()
+                if not end_of_control:
+                    # No memory adding or training until the end of the control
+                    return
+
+                next_obs = self.restructure_data(next_obs_)
+
+                # Intrinsic Reward Calculation (optinoal)
+                intrinsic_reward = self.intrinsic_reward()
+
+                # Memory Adding
+                try:
+                    self.add_memory_entry(self.current_obs,
+                                          self.cached_actions,
+                                          self.cached_logprobs,
+                                          rewards,
+                                          terminals_vector,
+                                          next_obs=next_obs if self.use_next_obs else None,
+                                          intrinsic_rewards=intrinsic_reward)
+                except Exception as e:
+                    self.logger.error(f"Error adding memory entry: {e}")
+                    raise e
+
+                # Update the Logger before checking if we should train, so that the logger has the latest information
+                # to calculate the objective percentage and best reward
+                self.update_logging(terminal_result)
+
+                # Only change the env_reset after actually taking a step
+                self.env_reset = terminal_result.env_reset
+
+            # Training
+            if self.should_train():
+                self.algorithm.apply_manual_decay(self.sim_bridge.get("train_step"))
+                self.update(mini_batch_size=self.algorithm.batch_size, next_obs=next_obs)
+                if self.use_intrinsic_reward and self.algorithm == 'PPO':
+                    self.agent_type.update_rnd_model(self.memory, self.algorithm.horizon, self.algorithm.batch_size)
+                if self.algorithm.clear_memory:
+                    self.memory.clear_memory()
+
+            # Advance to the next step
+            self.env_step += 1
+            self.current_obs = next_obs
+            self.handle_env_reset()
+        except Exception as e:
+            self.logger.error(f"Error in train_loop: {e}")
+            raise e
 
     def eval_loop(self, engine, evaluate=False):
 
@@ -569,12 +600,27 @@ class AgentHandler:
                 self.current_obs = self.restructure_data(engine.GetObservations())
             self.cached_actions = self.act_certain(self.current_obs)
 
-        obs_, rewards, _, terminal_result, percent_burned = self.step_agent(engine, self.cached_actions)
+        obs_, rewards, terminals_vector, terminal_result, percent_burned = self.step_agent(engine, self.cached_actions)
 
-        if self.summed_rewards is None:
-            self.summed_rewards = rewards
-        else:
-            self.summed_rewards = [a + b for a, b in zip(self.summed_rewards, rewards)]
+        # Only do these extra steps when you SHOULD populate memory
+        if self.save_replay_buffer:
+            # Intrinsic Reward Calculation (optional)
+            intrinsic_reward = self.intrinsic_reward()
+            if self.env_step % 5000 == 0:
+                self.logger.info(f"Replay Buffer size: {len(self.memory)}/{int(self.save_size)}")
+            # Memory Adding
+            self.add_memory_entry(self.current_obs,
+                                  self.cached_actions,
+                                  None,
+                                  rewards,
+                                  terminals_vector,
+                                  next_obs=self.restructure_data(obs_) if self.use_next_obs else None,
+                                  intrinsic_rewards=intrinsic_reward)
+            if len(self.memory) >= self.save_size:
+                mem_name = os.path.join(self.root_model_path, 'memory.pkl')
+                self.memory.save(mem_name)
+                self.logger.info(f'Replay Buffer saved at {mem_name}')
+                self.sim_bridge.set("agent_online", False)
 
         self.ctrl_ctr += 1
         end_of_control = terminal_result.env_reset or ((self.ctrl_ctr % self.frame_skips) == 0)
@@ -584,11 +630,12 @@ class AgentHandler:
             return False, False
 
         self.current_obs = self.restructure_data(obs_)
-        if evaluate:
+        if evaluate and not self.save_replay_buffer:
             flags = self.evaluator.evaluate(rewards, terminal_result, percent_burned)
             self.check_reset(flags)
 
-        self.summed_rewards = None
+        self.env_step += 1
+
         return terminal_result.any_succeeded, terminal_result.env_reset
 
     def check_reset(self, flags):
@@ -607,6 +654,20 @@ class AgentHandler:
                     self.tensorboard.close()
                     model_path = self.algorithm.get_model_path()
                     logging_path = os.path.join(model_path, "logs")
+                    # Remove and add another FileHandler to avoid issues
+                    logger = logging.getLogger()
+                    for handler in logger.handlers[:]:
+                        if isinstance(handler, logging.FileHandler):
+                            logger.removeHandler(handler)
+                            handler.close()
+                    if not os.path.exists(logging_path):
+                        os.makedirs(logging_path, exist_ok=True)
+                    logging_file = os.path.join(logging_path, "logging.log")
+                    file_handler = logging.FileHandler(logging_file, encoding='utf-8')
+                    file_handler.setLevel(logging.DEBUG)
+                    formatter = logging.Formatter("%(asctime)s - %(levelname)s - %(name)s - %(message)s")
+                    file_handler.setFormatter(formatter)
+                    logger.addHandler(file_handler)
                     self.tensorboard = TensorboardLogger(log_dir=logging_path)
                     self.evaluator.tb_logger = self.tensorboard
 
@@ -617,7 +678,6 @@ class AgentHandler:
             self.ctrl_ctr = 0  # Reset control counter to avoid issues
             self.cached_actions = None
             self.cached_logprobs = None
-            self.summed_rewards = None
             self.env_step = 0
             self.current_obs = None
             self.env_reset = True
@@ -655,10 +715,13 @@ class AgentHandler:
             self.current_obs = None
             self.cached_actions = None
             self.cached_logprobs = None
-            self.summed_rewards = None
 
     def update(self, mini_batch_size, next_obs):
-        self.algorithm.update(self.memory, mini_batch_size, next_obs, self.tensorboard)
+        try:
+            self.algorithm.update(self.memory, mini_batch_size, next_obs, self.tensorboard)
+        except Exception as e:
+            self.logger.error(f"Error during algorithm update: {e}")
+            raise e
         self.sim_bridge.add_value("train_step", 1)
         self.tensorboard.train_step += 1
 
@@ -667,15 +730,23 @@ class AgentHandler:
             self.sim_bridge.add_value("policy_updates", policy_updates)
             self.tensorboard.policy_updates += policy_updates
         elif self.algorithm_name == 'IQL':
-            self.sim_bridge.add_value("policy_updates", self.algorithm.k_epochs)
+            batches_per_epoch, epochs = self.algorithm.get_batches_and_epochs(len(self.memory), mini_batch_size)
+            self.sim_bridge.add_value("policy_updates", batches_per_epoch * epochs)
             self.tensorboard.policy_updates += self.algorithm.k_epochs
+            if self.sim_bridge.get("train_step") == self.algorithm.offline_updates:
+                self.logger.info("Finished Offline Updates.")
+                self.algorithm.offline_end = True
+                if not self.algorithm.online_updates > 0:
+                    self.logger.info("No Online Updates specified, stopping training.")
+                else:
+                    self.logger.info(f"Starting Online Updates.")
         elif self.algorithm_name == 'TD3':
             self.sim_bridge.add_value("policy_updates", self.algorithm.k_epochs)
             self.tensorboard.policy_updates += self.algorithm.k_epochs
 
         if self.evaluator.on_update():
             # Need to inject and load BEST model here
-            model_name, _ = self.get_model_name(path=str(self.root_model_path), model_string="best_obj",
+            model_name, _ = self.get_model_name(path=str(self.algorithm.get_model_path()), model_string="best_obj",
                                                 agent_type=self.agent_type_str, is_loading_name=True)
             self.algorithm.loading_path = self.root_model_path
             self.algorithm.loading_name = model_name

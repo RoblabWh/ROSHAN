@@ -30,6 +30,8 @@ GridMap::GridMap(std::shared_ptr<Wind> wind, FireModelParameters &parameters,
     cols_ = cols;
     rows_ = rows;
     num_cells_ = cols_ * rows_;
+    // Precalculate ref for max fires;
+    n_ref_fires_ = static_cast<int>(std::ceil(static_cast<float>(this->num_cells_) * parameters_.GetFirePercentage()));
     parameters_.SetGridNxNy(rows_, cols_);
     y_off_ = 2 * (1 - ((cols_ - 0.5) / cols_));
     x_off_ = 2 * (1 - ((rows_ - 0.5) / rows_));
@@ -88,7 +90,7 @@ void GridMap::Reset(std::vector<std::vector<int>>* rasterData) {
     burning_cells_.clear();
     flooded_cells_.clear();
     changed_cells_.clear();
-
+    reserved_positions_.clear();
     buffer_.fillBuffer();
 }
 
@@ -155,25 +157,48 @@ GridMap::~GridMap(){
     step_explored_map_.clear();
     fire_map_.clear();
     visited_cells_.clear();
-};
+}
+
+void GridMap::pruneReservations() {
+    // Keep only reservations that are still burning
+    std::unordered_set<int64_t> still_burning;
+    still_burning.reserve(burning_cells_.size());
+    for (const auto& c : burning_cells_) still_burning.insert(idx(c.x_, c.y_));
+
+    for (auto it = reserved_positions_.begin(); it != reserved_positions_.end(); ) {
+        if (still_burning.find(*it) == still_burning.end()) it = reserved_positions_.erase(it);
+        else ++it;
+    }
+}
 
 std::pair<double, double> GridMap::GetNextFire(std::pair<int, int> drone_position) {
+    pruneReservations();
+    if (burning_cells_.empty()) {
+        auto st = this->GetRandomPointInGrid();
+        return {st.first + 0.5, st.second + 0.5};
+    }
+
     double min_distance = std::numeric_limits<double>::max();
-    std::pair<double, double> next_fire = std::make_pair(-1, -1);
+    int best_x = -1, best_y = -1;
     for (auto cell : burning_cells_) {
+        const int64_t id = idx(cell.x_, cell.y_);
+        if (reserved_positions_.count(id)) continue;
+
         double distance = sqrt(
                 pow(cell.x_ - drone_position.first, 2) +
                 pow(cell.y_ - drone_position.second, 2)
         );
-        if (distance < min_distance) {
-            min_distance = distance;
-            next_fire = std::make_pair(cell.x_ + 0.5, cell.y_ + 0.5);
-        }
+        if (distance < min_distance) { min_distance = distance; best_x = cell.x_; best_y = cell.y_; }
     }
-    if (burning_cells_.empty()) {
-        next_fire = this->groundstation_->GetGridPositionDouble();
+
+    if (best_x != -1) {
+        reserved_positions_.insert(idx(best_x, best_y));
+        return {best_x + 0.5, best_y + 0.5};
     }
-    return next_fire;
+
+    // all fires are reserved
+    auto st = this->GetRandomPointInGrid();
+    return {st.first + 0.5, st.second + 0.5};
 }
 
 void GridMap::IgniteCell(int x, int y) {

@@ -2,18 +2,57 @@ import torch
 import numpy as np
 from collections import defaultdict
 from torch.nn.utils.rnn import pad_sequence
+from typing import Any, Dict, List, Tuple, Optional
 
-# Optional dependency used elsewhere in the project.
-try:
-    from transformers.models.deta.image_processing_deta import masks_to_boxes
-except Exception:  # pragma: no cover - runtime availability only
-    masks_to_boxes = None
+# # Optional dependency used elsewhere in the project.
+# try:
+#     from transformers.models.deta.image_processing_deta import masks_to_boxes
+# except Exception:  # pragma: no cover - runtime availability only
+#     masks_to_boxes = None
 
+def _to_cpu_numpy(x):
+    if isinstance(x, torch.Tensor):
+        return x.detach().cpu()
+    # Keep numpy arrays
+    return np.asarray(x) if not isinstance(x, np.ndarray) else x
 
 class SwarmMemory(object):
     def __init__(self, num_agents=2, action_dim=2, max_size=int(1e5), use_intrinsic_reward=False, use_next_obs=False):
         self.num_agents = num_agents
         self.memory = [Memory(action_dim=action_dim, max_size=max_size, use_intrinsic_reward=use_intrinsic_reward, use_next_obs=use_next_obs) for _ in range(num_agents)]
+
+    def save(self, path: str):
+        pkg = {
+            "version": 1,
+            "num_agents": self.num_agents,
+            "memories": [m.state_dict() for m in self.memory],
+        }
+        torch.save(pkg, path)
+
+    @classmethod
+    def load(cls, path: str, map_location: str = "cpu") -> "SwarmMemory":
+        pkg = torch.load(path, map_location=map_location)
+        num_agents = int(pkg["num_agents"])
+        # Recreate each Memory using its stored config
+        mems = []
+        for mstate in pkg["memories"]:
+            m = Memory(
+                action_dim=mstate["action_dim"],
+                max_size=mstate["max_size"],
+                use_intrinsic_reward=mstate["use_intrinsic_reward"],
+                use_next_obs=mstate["use_next_obs"],
+            )
+            m.load_state_dict(mstate)
+            mems.append(m)
+
+        # Construct SwarmMemory and plug memories in
+        sm = cls(num_agents=num_agents,
+                 action_dim=mems[0].action_dim,
+                 max_size=mems[0].max_size,
+                 use_intrinsic_reward=mems[0].use_intrinsic_reward,
+                 use_next_obs=mems[0].use_next_obs)
+        sm.memory = mems
+        return sm
 
     @staticmethod
     # TODO WATCH THIS!! DOES THIS EVEN WORK AS INTENDED??? I THINK IT DOES??
@@ -105,9 +144,18 @@ class SwarmMemory(object):
         return dict(aggregated)
 
     def sample_batch(self, batch_size):
+        # Samples a batch of batch_size from the to_tensor dict
+        batch = defaultdict(list)
+        mem = self.to_tensor()
+        total_size = mem['reward'][0].shape[0]  # Assuming all agents
+        idxs = np.random.randint(0, total_size, size=batch_size)
+
+
+    def _sample_batch(self, batch_size):
+        # TODO: Deprecated (needs rewrite, now dirty fix with to_tensor, which is inefficient)
         batch = defaultdict(list)
         for i in range(self.num_agents):
-            agent_batch = self.memory[i].sample_batch(batch_size)
+            agent_batch = self.memory[i]._sample_batch(batch_size)
             for key, value in agent_batch.items():
                 batch[key].append(value)
         return dict(batch)
@@ -153,6 +201,109 @@ class Memory(object):
 
     def __len__(self):
         return self.size
+
+
+    def state_dict(self) -> Dict[str, Any]:
+        """Serialize *only* the filled part of the buffer ([:self.size])."""
+        # Convert nested tuples of states/next_obs to CPU tensors/ndarrays
+        def _convert_state_list(lst: Optional[List[Tuple]]):
+            if lst is None:
+                return None
+            return [
+                tuple(_to_cpu_numpy(field) for field in sample_tuple)
+                if isinstance(sample_tuple, tuple) else sample_tuple
+                for sample_tuple in lst[:self.size]
+            ]
+
+        data = {
+            "version": 1,
+            "max_size": self.max_size,
+            "action_dim": self.action_dim,
+            "ptr": self.ptr,
+            "size": self.size,
+            "use_intrinsic_reward": self.use_intrinsic_reward,
+            "use_next_obs": self.use_next_obs,
+
+            # Buffers truncated to current size
+            "state": _convert_state_list(self.state),
+            "action": self.action[:self.size].copy(),
+            "logprobs": self.logprobs[:self.size].copy(),
+            "reward": self.reward[:self.size].copy(),
+            "not_done": self.not_done[:self.size].copy(),
+            # masks is unused in your current flow; keep for completeness
+            "masks": self.masks,
+
+            "intrinsic_reward": (
+                None if not self.use_intrinsic_reward else self.intrinsic_reward[:self.size].copy()
+            ),
+            "next_obs": _convert_state_list(self.next_obs) if self.use_next_obs else None,
+        }
+        return data
+
+    def load_state_dict(self, state: Dict[str, Any]):
+        """Restore buffers and pointers. Resizes storage if needed."""
+        # Reallocate to max_size from file (keeps spare capacity)
+        self.max_size = int(state["max_size"])
+        self.action_dim = state["action_dim"]
+        self.use_intrinsic_reward = bool(state["use_intrinsic_reward"])
+        self.use_next_obs = bool(state["use_next_obs"])
+
+        # Re-init backing storage
+        self.state = [0 for _ in range(self.max_size)]
+        self.action = np.zeros((self.max_size, self.action.shape[1])) \
+            if isinstance(self.action_dim, int) else np.zeros((self.max_size, *self.action_dim))
+        self.logprobs = np.zeros((self.max_size,))
+        self.reward = np.zeros((self.max_size,))
+        self.not_done = np.zeros((self.max_size,))
+        self.masks = state.get("masks", [])
+
+        if self.use_intrinsic_reward:
+            self.intrinsic_reward = np.zeros((self.max_size,))
+        else:
+            self.intrinsic_reward = None
+
+        if self.use_next_obs:
+            self.next_obs = [0 for _ in range(self.max_size)]
+        else:
+            self.next_obs = None
+
+        # Fill with the saved content
+        n = int(state["size"])
+        self.size = n
+        self.ptr = int(state["ptr"])
+
+        # States / next_obs are lists length n
+        for i in range(n):
+            self.state[i] = tuple(_to_cpu_numpy(f) for f in state["state"][i])
+
+        self.action[:n] = state["action"]
+        self.logprobs[:n] = state["logprobs"]
+        self.reward[:n] = state["reward"]
+        self.not_done[:n] = state["not_done"]
+
+        if self.use_intrinsic_reward and state["intrinsic_reward"] is not None:
+            self.intrinsic_reward[:n] = state["intrinsic_reward"]
+
+        if self.use_next_obs and state["next_obs"] is not None:
+            for i in range(n):
+                self.next_obs[i] = tuple(_to_cpu_numpy(f) for f in state["next_obs"][i])
+
+    def save(self, path: str):
+        """Torch’s pickler handles tensors + numpy cleanly."""
+        torch.save(self.state_dict(), path)
+
+    @classmethod
+    def load(cls, path: str, map_location: str = "cpu") -> "Memory":
+        state = torch.load(path, map_location=map_location)
+        # Build with saved config to allocate correctly
+        mem = cls(
+            action_dim=state["action_dim"],
+            max_size=state["max_size"],
+            use_intrinsic_reward=state["use_intrinsic_reward"],
+            use_next_obs=state["use_next_obs"],
+        )
+        mem.load_state_dict(state)
+        return mem
 
     def add(self,
             state,
@@ -296,7 +447,8 @@ class Memory(object):
 
         return data
 
-    def sample_batch(self, batch_size):
+    def _sample_batch(self, batch_size):
+        # TODO: Deprecated (needs rewrite, now dirty fix with to_tensor, which is inefficient)
         idxs = np.random.randint(0, self.size, size=batch_size)
 
         # Build state tuple correctly

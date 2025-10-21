@@ -1,5 +1,8 @@
 import os
+import torch
 from algorithms.rl_config import RLConfig
+from utils import RunningMeanStd
+from evaluation import TensorboardLogger
 import logging
 
 class RLAlgorithm:
@@ -14,6 +17,8 @@ class RLAlgorithm:
 
         self.version = 1
         self.logger = logging.getLogger(self.algorithm)
+        self.reward_rms = RunningMeanStd()
+        self.int_reward_rms = RunningMeanStd()
 
     def set_paths(self, model_path, model_name):
         self.model_path = os.path.abspath(model_path)
@@ -48,6 +53,50 @@ class RLAlgorithm:
         """
         self.version += 1
         self.reset_algorithm()
+
+    def save(self, logger: TensorboardLogger):
+        if logger.is_better_reward():
+            self.logger.info(f"Saving at Episode {logger.episode}/Train Step {logger.train_step}, best Reward: {logger.best_metrics['best_reward']:.2f}")
+            torch.save(self.policy.state_dict(), f'{os.path.join(self.get_model_path(), self.get_model_name_reward())}')
+        if logger.is_better_objective():
+            self.logger.info(f"Saving at Episode {logger.episode}/Train Step {logger.train_step}, best Objective {logger.best_metrics['best_objective']:.2f}")
+            torch.save(self.policy.state_dict(), f'{os.path.join(self.get_model_path(), self.get_model_name_obj())}')
+        torch.save(self.policy.state_dict(), f'{os.path.join(self.get_model_path(), self.get_model_name_latest())}')
+
+    def prepare_rewards(self, rewards: torch.FloatTensor, t_dict: dict):
+        # Check for intrinsic rewards
+        intrinsic_rewards = None
+        int_rewards_np = None
+        if 'intrinsic_reward' in t_dict.keys():
+            intrinsic_rewards = t_dict['intrinsic_reward']
+            int_rewards_np = torch.cat(intrinsic_rewards).detach().cpu().numpy()
+            self.int_reward_rms.update(int_rewards_np)
+
+        # Compute all raw rewards for logging
+        ext_rewards_np = torch.cat(rewards).detach().cpu().numpy()
+        log_rewards_raw = ext_rewards_np if int_rewards_np is None else ext_rewards_np + int_rewards_np
+
+        # DON'T DO THIS: rewards = [np.clip(np.array(reward.detach().cpu()) / self.running_reward_std.get_std(), -10, 10) for reward in rewards]
+        # !!!!DON'T SHIFT THE REWARDS BECAUSE YOU F UP YOUR OBJECTIVE FUNCTION!!!!; Clipping most likely is unnecessary
+        # Normalize external rewards by reward running std
+        self.reward_rms.update(ext_rewards_np)
+        ext_rewards = [reward / self.reward_rms.get_std() for reward in rewards]
+
+        # Normalize for logging
+        ext_rewards_norm = ext_rewards_np / self.reward_rms.get_std()
+
+        # Combine normalized rewards
+        if intrinsic_rewards is not None:
+            intrinsic_rewards = [reward / self.int_reward_rms.get_std() for reward in intrinsic_rewards]
+            intrinsic_rewards_norm = int_rewards_np / self.int_reward_rms.get_std()
+            log_rewards_scaled = ext_rewards_norm + intrinsic_rewards_norm
+        else:
+            log_rewards_scaled = ext_rewards_norm
+
+        rewards_total = ext_rewards if intrinsic_rewards is None \
+            else [ext_reward + int_reward for ext_reward, int_reward in zip(ext_rewards, intrinsic_rewards)]
+
+        return rewards_total, log_rewards_raw, log_rewards_scaled
 
     def reset_algorithm(self):
         pass

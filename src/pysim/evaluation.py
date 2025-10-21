@@ -654,7 +654,11 @@ class TensorboardLogger:
         """Checks if the current reward is better than the best recorded reward.
            Should only be called when checking if the Model should be saved.
         """
-        current_reward = np.mean(self.metrics["Rewards/Rewards_Raw"]) if "Rewards/Rewards_Raw" in self.metrics else 0.0
+        try:
+            current_reward = np.mean(self.metrics["Rewards/Rewards_Raw"][-1]) if "Rewards/Rewards_Raw" in self.metrics else 0.0
+        except Exception as e:
+            logging.warning("Failed to compute current reward: %s", e)
+            current_reward = 0.0
         if current_reward >= self.best_metrics["best_reward"]:
             self.best_metrics["best_reward"] = current_reward
             return True
@@ -671,7 +675,7 @@ class Evaluator:
     number of agents that died, and number of agents that reached the goal.
     """
 
-    def __init__(self, log_dir: str, auto_train_dict: dict, sim_bridge: SimulationBridge, no_gui: bool, start_eval: bool,logger: Union[None, TensorboardLogger] = None):
+    def __init__(self, log_dir: str, auto_train_dict: dict, max_train: int, sim_bridge: SimulationBridge, no_gui: bool, start_eval: bool,logger: Union[None, TensorboardLogger] = None):
         # self.stats = [EvaluationStats()]
         # Python logger for evaluation messages
         self.logger = logging.getLogger("Evaluator")
@@ -682,7 +686,7 @@ class Evaluator:
         self.eval_steps = 0
         self.use_auto_train = auto_train_dict["use_auto_train"] or no_gui
         self.no_gui_eval = no_gui and start_eval # We stop the agent after evaluation because we are in NoGui Mode
-        self.max_train = auto_train_dict["max_train"]  # Maximum number of training steps before switching to evaluation
+        self.max_train = max_train  # Maximum number of training steps before switching to evaluation
         self.max_eval = auto_train_dict["max_eval"]  # Maximum number of evaluation steps
         self.train_episodes = auto_train_dict["train_episodes"] if auto_train_dict["use_auto_train"] else 1  # Number of training episodes to run before stopping Auto Training
         self.current_episode = 0  # Current episode number

@@ -118,8 +118,7 @@ class Inputspace(nn.Module):
         if not torch.is_tensor(distances_to_others):
             distances_to_others = torch.as_tensor(distances_to_others, dtype=torch.float32)
 
-        if not torch.is_tensor(distances_mask):
-            distances_mask = torch.as_tensor(distances_mask, dtype=torch.bool)
+        distances_mask = torch.as_tensor(distances_mask, dtype=torch.bool)
 
         if not torch.is_tensor(self_id):
             self_id = torch.as_tensor(self_id, dtype=torch.int64)
@@ -159,15 +158,15 @@ class Inputspace(nn.Module):
 
         return output_vision
 
-
 class Actor(nn.Module):
     """
     A PyTorch Module that represents the actor network of a PPO agent.
     """
-    def __init__(self, vision_range, drone_count, map_size, time_steps, manual_decay=False):
+    def __init__(self, vision_range, drone_count, map_size, time_steps, manual_decay=False, use_tanh_dist=True):
         super(Actor, self).__init__()
         self.Inputspace = Inputspace(vision_range, time_steps=time_steps)
         self.in_features = self.Inputspace.out_features
+        self.use_tanh_dist = use_tanh_dist
         # Mu
         self.mu_move = nn.Linear(in_features=self.in_features, out_features=2)
         self.mu_move._init_gain = 0.1
@@ -177,12 +176,14 @@ class Actor(nn.Module):
 
     def forward(self, states):
         x = self.Inputspace(states)
-        mu_move = torch.tanh(self.mu_move(x))
+        if self.use_tanh_dist:
+            mu_move = self.mu_move(x)
+        else:
+            mu_move = torch.tanh(self.mu_move(x))
         std = torch.exp(self.log_std)
         var = torch.pow(std, 2)
 
         return mu_move, var
-
 
 class Critic(nn.Module):
     """

@@ -1,4 +1,4 @@
-from networks.network_fly_old import Actor, CriticPPO, OffPolicyCritic, DeterministicActor, Value
+from networks.network_fly import Actor, CriticPPO, OffPolicyCritic, DeterministicActor, Value
 import numpy as np
 import firesim
 from agent import Agent
