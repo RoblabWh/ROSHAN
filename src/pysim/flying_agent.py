@@ -1,4 +1,4 @@
-from networks.network_fly import Actor, CriticPPO, OffPolicyCritic, DeterministicActor, Value
+from networks.network_fly import StochasticActor, CriticPPO, OffPolicyCritic, DeterministicActor, Value
 import numpy as np
 import firesim
 from agent import Agent
@@ -15,9 +15,9 @@ class FlyAgent(Agent):
     @staticmethod
     def get_network(algorithm : str):
         if algorithm == "PPO":
-            return Actor, CriticPPO
+            return StochasticActor, CriticPPO
         elif algorithm == "IQL":
-            return Actor, OffPolicyCritic, Value
+            return StochasticActor, OffPolicyCritic, Value
         elif algorithm == "TD3":
             return DeterministicActor, OffPolicyCritic
         else:

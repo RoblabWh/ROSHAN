@@ -3,6 +3,7 @@ import torch
 from algorithms.rl_config import RLConfig
 from utils import RunningMeanStd
 from evaluation import TensorboardLogger
+import torch.nn as nn
 import logging
 
 class RLAlgorithm:
@@ -19,6 +20,7 @@ class RLAlgorithm:
         self.logger = logging.getLogger(self.algorithm)
         self.reward_rms = RunningMeanStd()
         self.int_reward_rms = RunningMeanStd()
+        self.MSE_loss = nn.MSELoss()
 
     def set_paths(self, model_path, model_name):
         self.model_path = os.path.abspath(model_path)
@@ -46,22 +48,83 @@ class RLAlgorithm:
     def get_model_name_latest(self):
         return self.model_name.split(".")[0] + "_latest." + self.model_name.split(".")[1]
 
+    def initialize_policy(self):
+        """
+        Initialize the policy network.
+        This method should be overridden by subclasses.
+        """
+        raise NotImplementedError
+
+    def initialize_optimizers(self):
+        """
+        Initialize the optimizers for the policy network.
+        This method should be overridden by subclasses.
+        """
+        raise NotImplementedError
+
     def reset(self):
         """
         Reset the algorithm to its initial state.
         This method should be overridden by subclasses if needed.
         """
         self.version += 1
-        self.reset_algorithm()
+        self.initialize_policy()
+        self.initialize_optimizers()
+        self.MSE_loss = nn.MSELoss()
+        self.reward_rms = RunningMeanStd()
+        self.int_reward_rms = RunningMeanStd()
+        self.set_train()
+
+    def save_optimizers(self, path: str):
+        raise NotImplementedError
+
+    def load_optimizers(self, path: str):
+        raise NotImplementedError
+
+    def copy_networks(self):
+        pass
 
     def save(self, logger: TensorboardLogger):
         if logger.is_better_reward():
             self.logger.info(f"Saving at Episode {logger.episode}/Train Step {logger.train_step}, best Reward: {logger.best_metrics['best_reward']:.2f}")
-            torch.save(self.policy.state_dict(), f'{os.path.join(self.get_model_path(), self.get_model_name_reward())}')
+            path = f'{os.path.join(self.get_model_path(), self.get_model_name_reward())}'
+            torch.save(self.policy.state_dict(), path)
+            self.save_optimizers(path.split('.')[-2])
         if logger.is_better_objective():
             self.logger.info(f"Saving at Episode {logger.episode}/Train Step {logger.train_step}, best Objective {logger.best_metrics['best_objective']:.2f}")
-            torch.save(self.policy.state_dict(), f'{os.path.join(self.get_model_path(), self.get_model_name_obj())}')
-        torch.save(self.policy.state_dict(), f'{os.path.join(self.get_model_path(), self.get_model_name_latest())}')
+            path = f'{os.path.join(self.get_model_path(), self.get_model_name_obj())}'
+            torch.save(self.policy.state_dict(), path)
+            self.save_optimizers(path.split('.')[-2])
+        path = f'{os.path.join(self.get_model_path(), self.get_model_name_latest())}'
+        torch.save(self.policy.state_dict(), path)
+        self.save_optimizers(path.split('.')[-2])
+
+    def load(self):
+        path: str = os.path.join(self.loading_path, self.loading_name).__str__()
+        try:
+            self.policy.load_state_dict(torch.load(path, map_location=self.device, weights_only=True))
+            self.load_optimizers(path.split('.')[-2])
+            self.policy.to(self.device)
+            self.copy_networks()
+            return True
+        except FileNotFoundError:
+            self.logger.warning(f"Could not load model from {path}. Falling back to train mode.")
+            return False
+        except TypeError:
+            self.logger.warning(f"TypeError while loading model.")
+            return False
+        except RuntimeError:
+            self.logger.warning(f"RuntimeError while loading model. Possibly due to architecture mismatch.")
+            return False
+
+    def select_action(self, observations):
+        return self.policy.act(observations)
+
+    def select_action_certain(self, observations):
+        """
+        Select action with certain policy.
+        """
+        return self.policy.act_certain(observations)
 
     def prepare_rewards(self, rewards: torch.FloatTensor, t_dict: dict):
         # Check for intrinsic rewards
@@ -98,17 +161,11 @@ class RLAlgorithm:
 
         return rewards_total, log_rewards_raw, log_rewards_scaled
 
-    def reset_algorithm(self):
-        pass
+    def set_eval(self):
+        self.policy.eval()
 
     def set_train(self):
-        pass
-
-    def set_eval(self):
-        pass
-
-    def load(self):
-        pass
+        self.policy.train()
 
     def apply_manual_decay(self, train_step: int):
         pass

@@ -16,7 +16,7 @@ settings:
   # Uses this config as default and skips the GUI setup
   skip_gui_init: true
   # Enable PyTorch autograd anomaly detection (useful for debugging; slows down training)
-  pytorch_detect_anomaly: true
+  pytorch_detect_anomaly: false
   # Enable CIA mode (Covert Infiltration Avian) for government use only!
   cia_mode: false
   # Settings for automatic training of multiple runs under the same config
@@ -62,6 +62,7 @@ paths:
 
 algorithm:
   # Share the encoder(Inputspace in the network files) between the policy and value networks
+  # This option should generally only be used for PPO, but can be used for other algorithms as well
   share_encoder: true
   # Use TanhNormal distribution for stochastic policy networks
   # If set to false, a normal distribution will be used and the actions will be clipped to the action space limits
@@ -74,11 +75,11 @@ algorithm:
     # Needs to be bigger when trying to safe the buffer
     memory_size: 1.0e+6
     # Learning rate for the optimizer
-    lr: 3.2e-05 # Learning rate for the optimizer
+    lr: 3.26e-05 # Learning rate for the optimizer
     # Batch size for the optimizer
     batch_size: 1024 #256 
     # Number of steps to collect before updating the model
-    horizon: 16384 #10240 #12800 
+    horizon: 12800 #10240 #12800 
     # Number of epochs to update the model
     k_epochs: 19 #11 #8 
     # Coefficient for the entropy loss
@@ -94,11 +95,11 @@ algorithm:
     # Beta2 for the Adam optimizer
     beta2: 0.999 
     # Discount factor for the rewards
-    gamma: 0.9635 #0.9635 
+    gamma: 0.9635
     # Lambda for the Generalized Advantage Estimation (GAE)
-    _lambda: 0.96 #0.96 
+    _lambda: 0.9
     # Clipping value for the PPO loss
-    eps_clip: 0.2783 
+    eps_clip: 0.2783
     # Manual decay of the log_std parameter in stochastic policies
     # If set to false, the log_std is learned by the network(state independent)
     manual_decay: false
@@ -140,9 +141,13 @@ algorithm:
     # Beta2 for the Adam optimizer
     beta2: 0.999 
   TD3:
-    memory_size: 1.0e+5 # Size of the Replay Buffer
-    min_memory_size: 25000 # Minimum number of samples in the replay buffer before training starts
-    k_epochs: 20 # Number of epochs to update the model
+    # Learning rate for the optimizer
+    lr: 3.0e-4
+    # Batch size for the optimizer
+    batch_size: 512
+    memory_size: 1.0e+6 # Max Size of the Replay Buffer
+    min_memory_size: 100000 # Minimum number of samples in the replay buffer before training starts
+    k_epochs: 1 # Number of epochs to update the model
     discount: 0.99 # Discount factor for the rewards
     tau: 0.005 # Target network update rate
     exploration_noise: 0.1 # Exploration noise for the action space
@@ -237,10 +242,14 @@ environment:
       # Simple Policy: The episode ends when one agent reaches its goal_position
       # Complex Policy: The episode ends when all fires are extinguished (this influences the reward structure slightly)
       use_simple_policy: false
+      # Two types of action space use:)
+      # If true, the agent's action represents a change in velocity (acceleration)
+      # If false, the agent's action represents an absolute velocity of the agent's max_velocity
+      use_velocity_change: true
       # Determines the frequency of action selection (1 = every frame, 2 = every 2nd frame, etc.)
       frame_skips: 1 
       # Algorithm used by the fly_agent
-      algorithm: PPO 
+      algorithm: PPO
       # Number of fly_agents
       num_agents: 5
       # Number of time steps to consider in the FlyAgent's memory

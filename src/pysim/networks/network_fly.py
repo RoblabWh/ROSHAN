@@ -138,7 +138,7 @@ class Inputspace(nn.Module):
             distances_to_others = distances_to_others.to(self.device)
         if distances_mask.device != self.device:
             distances_mask = distances_mask.to(self.device)
-        if self_id != self.device:
+        if self_id.device != self.device:
             self_id = self_id.to(self.device)
 
         return self_id, velocity, delta_goal, cos_sin_goal, speed, distance_to_goal, distances_to_others, distances_mask
@@ -158,12 +158,12 @@ class Inputspace(nn.Module):
 
         return output_vision
 
-class Actor(nn.Module):
+class StochasticActor(nn.Module):
     """
     A PyTorch Module that represents the actor network of a PPO agent.
     """
     def __init__(self, vision_range, drone_count, map_size, time_steps, manual_decay=False, use_tanh_dist=True):
-        super(Actor, self).__init__()
+        super(StochasticActor, self).__init__()
         self.Inputspace = Inputspace(vision_range, time_steps=time_steps)
         self.in_features = self.Inputspace.out_features
         self.use_tanh_dist = use_tanh_dist
@@ -191,8 +191,9 @@ class Critic(nn.Module):
     """
     def __init__(self, vision_range, drone_count, map_size, time_steps, inputspace=None):
         super(Critic, self).__init__()
-        self.Inputspace = Inputspace(vision_range, time_steps=time_steps) if not inputspace else inputspace
-        self.in_features = self.Inputspace.out_features
+        self.Inputspace_1 = Inputspace(vision_range, time_steps=time_steps) if not inputspace else inputspace
+        self.Inputspace_2 = Inputspace(vision_range, time_steps=time_steps) if not inputspace else inputspace
+        self.in_features = self.Inputspace_1.out_features
 
     def forward(self, *args, **kwargs):
         raise NotImplementedError("Subclasses must implement forward.")
@@ -202,14 +203,15 @@ class CriticPPO(Critic):
     A PyTorch Module that represents the critic network of a PPO agent.
     """
     def __init__(self, vision_range, drone_count, map_size, time_steps, inputspace=None):
-        super(CriticPPO, self).__init__(vision_range, drone_count, map_size, time_steps)
+        super(CriticPPO, self).__init__(vision_range, drone_count, map_size, time_steps, inputspace)
 
+        self.Inputspace_2 = None
         # Value
         self.value = nn.Linear(in_features=self.in_features, out_features=1)
         self.value._init_gain = 1.0
 
     def forward(self, states):
-        x = self.Inputspace(states)
+        x = self.Inputspace_1(states)
         value = self.value(x)
         return value
 
@@ -239,8 +241,8 @@ class OffPolicyCritic(Critic):
     """
     A PyTorch Module that represents the critic network of an IQL agent.
     """
-    def __init__(self, vision_range, drone_count, map_size, time_steps, action_dim):
-        super(OffPolicyCritic, self).__init__(vision_range, drone_count, map_size, time_steps)
+    def __init__(self, vision_range, drone_count, map_size, time_steps, action_dim, inputspace=None):
+        super(OffPolicyCritic, self).__init__(vision_range, drone_count, map_size, time_steps, inputspace)
 
         # Q1 architecture
         self.l1 = nn.Linear(self.in_features + action_dim, 256)
@@ -255,20 +257,13 @@ class OffPolicyCritic(Critic):
         self.l6._init_gain = 1.0
 
     def forward(self, state, action):
-        x = self.Inputspace(state)
-        x = torch.cat([x, action], dim=1)
+        q1 = self.Q1(state, action)
+        q2 = self.Q2(state, action)
 
-        q1 = F.relu(self.l1(x))
-        q1 = F.relu(self.l2(q1))
-        q1 = self.l3(q1)
-
-        q2 = F.relu(self.l4(x))
-        q2 = F.relu(self.l5(q2))
-        q2 = self.l6(q2)
         return q1, q2
 
     def Q1(self, state, action):
-        x = self.Inputspace(state)
+        x = self.Inputspace_1(state)
         x = torch.cat([x, action], dim=1)
 
         q1 = F.relu(self.l1(x))
@@ -276,14 +271,23 @@ class OffPolicyCritic(Critic):
         q1 = self.l3(q1)
         return q1
 
+    def Q2(self, state, action):
+        x = self.Inputspace_2(state)
+        x = torch.cat([x, action], dim=1)
+
+        q2 = F.relu(self.l4(x))
+        q2 = F.relu(self.l5(q2))
+        q2 = self.l6(q2)
+        return q2
+
 class Value(nn.Module):
     """
     A PyTorch Module that represents the value network of an IQL agent.
     It estimates V(s), the state value.
     """
-    def __init__(self, vision_range, drone_count, map_size, time_steps):
+    def __init__(self, vision_range, drone_count, map_size, time_steps, inputspace):
         super(Value, self).__init__()
-        self.Inputspace = Inputspace(vision_range, time_steps=time_steps)
+        self.Inputspace = Inputspace(vision_range, time_steps=time_steps) if not inputspace else inputspace
         self.in_features = self.Inputspace.out_features
 
         # Simple MLP head for value estimation

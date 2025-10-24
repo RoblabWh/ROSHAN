@@ -192,6 +192,7 @@ class AgentHandler:
             rl_config = TD3Config(**vars(rl_config))
             rl_config.action_dim = self.agent_type.action_dim
             rl_config.clear_memory = False
+            rl_config = override_from_dict(rl_config, algo_overrides)
 
             self.algorithm = TD3(network=network_classes,
                                  config=rl_config)
@@ -524,73 +525,61 @@ class AgentHandler:
 
     def train_loop(self, engine):
         # Check IQL conditions
-        try:
-            skip_step = False if not hasattr(self.algorithm, "policy_freq") else (self.env_step < self.algorithm.offline_updates)
-            next_obs = None
-            if not skip_step:
-                # Only sample new action at the start of the control
-                start_of_control = self.ctrl_ctr % self.frame_skips == 0
-                if start_of_control:
-                    if self.current_obs is None:
-                        self.current_obs = self.restructure_data(engine.GetObservations())
-                    actions, action_logprobs = self.act(self.current_obs)
-                    self.cached_actions = actions
-                    self.cached_logprobs = action_logprobs
+        skip_step = False if not self.algorithm_name == "IQL" else (self.env_step < self.algorithm.offline_updates)
+        next_obs = None
+        if not skip_step:
+            # Only sample new action at the start of the control
+            start_of_control = self.ctrl_ctr % self.frame_skips == 0
+            if start_of_control:
+                if self.current_obs is None:
+                    self.current_obs = self.restructure_data(engine.GetObservations())
+                actions, action_logprobs = self.act(self.current_obs)
+                self.cached_actions = actions
+                self.cached_logprobs = action_logprobs
 
-                try:
-                    next_obs_, rewards, terminals_vector, terminal_result, percent_burned = self.step_agent(engine, self.cached_actions)
-                except Exception as e:
-                    self.logger.error(f"Error stepping agent: {e}")
-                    raise e
+            next_obs_, rewards, terminals_vector, terminal_result, percent_burned = self.step_agent(engine, self.cached_actions)
 
-                self.ctrl_ctr += 1
-                end_of_control = terminal_result.env_reset or ((self.ctrl_ctr % self.frame_skips) == 0)
+            self.ctrl_ctr += 1
+            end_of_control = terminal_result.env_reset or ((self.ctrl_ctr % self.frame_skips) == 0)
 
-                if not end_of_control:
-                    # No memory adding or training until the end of the control
-                    return
+            if not end_of_control:
+                # No memory adding or training until the end of the control
+                return
 
-                next_obs = self.restructure_data(next_obs_)
+            next_obs = self.restructure_data(next_obs_)
 
-                # Intrinsic Reward Calculation (optinoal)
-                intrinsic_reward = self.intrinsic_reward()
+            # Intrinsic Reward Calculation (optinoal)
+            intrinsic_reward = self.intrinsic_reward()
 
-                # Memory Adding
-                try:
-                    self.add_memory_entry(self.current_obs,
-                                          self.cached_actions,
-                                          self.cached_logprobs,
-                                          rewards,
-                                          terminals_vector,
-                                          next_obs=next_obs if self.use_next_obs else None,
-                                          intrinsic_rewards=intrinsic_reward)
-                except Exception as e:
-                    self.logger.error(f"Error adding memory entry: {e}")
-                    raise e
+            # Memory Adding
+            self.add_memory_entry(self.current_obs,
+                                  self.cached_actions,
+                                  self.cached_logprobs,
+                                  rewards,
+                                  terminals_vector,
+                                  next_obs=next_obs if self.use_next_obs else None,
+                                  intrinsic_rewards=intrinsic_reward)
 
-                # Update the Logger before checking if we should train, so that the logger has the latest information
-                # to calculate the objective percentage and best reward
-                self.update_logging(terminal_result)
+            # Update the Logger before checking if we should train, so that the logger has the latest information
+            # to calculate the objective percentage and best reward
+            self.update_logging(terminal_result)
 
-                # Only change the env_reset after actually taking a step
-                self.env_reset = terminal_result.env_reset
+            # Only change the env_reset after actually taking a step
+            self.env_reset = terminal_result.env_reset
 
-            # Training
-            if self.should_train():
-                self.algorithm.apply_manual_decay(self.sim_bridge.get("train_step"))
-                self.update(mini_batch_size=self.algorithm.batch_size, next_obs=next_obs)
-                if self.use_intrinsic_reward and self.algorithm == 'PPO':
-                    self.agent_type.update_rnd_model(self.memory, self.algorithm.horizon, self.algorithm.batch_size)
-                if self.algorithm.clear_memory:
-                    self.memory.clear_memory()
+        # Training
+        if self.should_train():
+            self.algorithm.apply_manual_decay(self.sim_bridge.get("train_step"))
+            self.update(mini_batch_size=self.algorithm.batch_size, next_obs=next_obs)
+            if self.use_intrinsic_reward and self.algorithm == 'PPO':
+                self.agent_type.update_rnd_model(self.memory, self.algorithm.horizon, self.algorithm.batch_size)
+            if self.algorithm.clear_memory:
+                self.memory.clear_memory()
 
-            # Advance to the next step
-            self.env_step += 1
-            self.current_obs = next_obs
-            self.handle_env_reset()
-        except Exception as e:
-            self.logger.error(f"Error in train_loop: {e}")
-            raise e
+        # Advance to the next step
+        self.env_step += 1
+        self.current_obs = next_obs
+        self.handle_env_reset()
 
     def eval_loop(self, engine, evaluate=False):
 
@@ -756,7 +745,7 @@ class AgentHandler:
 
     def act(self, observations):
         actions, action_logprobs = self.algorithm.select_action(observations)
-        return actions, action_logprobs.ravel()
+        return actions, action_logprobs.ravel() if action_logprobs is not None else None
 
     def get_action(self, actions):
         return self.agent_type.get_action(actions)

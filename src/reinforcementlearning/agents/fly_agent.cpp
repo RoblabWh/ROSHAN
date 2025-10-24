@@ -139,8 +139,8 @@ double FlyAgent::CalculateReward(const std::shared_ptr<GridMap>& grid_map) {
 
     // Use the extinguishing code only in the complex policy since the simple one only cares about reaching the goal
     if (extinguished_fire_ && !parameters_.use_simple_policy_) {
-        auto bonus_log = 0.05 * std::log(double(grid_map->GetNRefFires() + 1) / double(grid_map->GetNumBurningCells() + 1));
-        reward_components["Extinguish"] = 0.1 + bonus_log;
+        //auto bonus_log = 0.05 * std::log(double(grid_map->GetNRefFires() + 1) / double(grid_map->GetNumBurningCells() + 1));
+        reward_components["Extinguish"] = 0.1; // + bonus_log;
     }
 
     if (collision_occurred_) {
@@ -514,16 +514,18 @@ double DiscretizeOutput(double netout, double bin_size) {
 }
 
 std::pair<double, double> FlyAgent::GetNewVelocity(double next_speed_x, double next_speed_y) const {
-    // Next Speed determines the velocity CHANGE
-//       next_speed_x = DiscretizeOutput(next_speed_x, 0.05);
-//       next_speed_y = DiscretizeOutput(next_speed_y, 0.05);
-//       double new_speed_x = vel_vector_.first + next_speed_x * max_speed_.first;
-//       double new_speed_y = vel_vector_.second + next_speed_y * max_speed_.second;
-
-    // Netout determines the velocity DIRECTLY #TODO: Why does this perform worse??
-     double new_speed_x = next_speed_x * max_speed_.first;
-     double new_speed_y = next_speed_y * max_speed_.second;
-
+    double new_speed_x, new_speed_y;
+    if (parameters_.use_velocity_change_){
+        // Next Speed determines the velocity CHANGE
+        next_speed_x = DiscretizeOutput(next_speed_x, 0.05);
+        next_speed_y = DiscretizeOutput(next_speed_y, 0.05);
+        new_speed_x = vel_vector_.first + next_speed_x * max_speed_.first;
+        new_speed_y = vel_vector_.second + next_speed_y * max_speed_.second;
+    } else {
+        // Netout determines the velocity DIRECTLY; seems to perform worse
+        new_speed_x = next_speed_x * max_speed_.first;
+        new_speed_y = next_speed_y * max_speed_.second;
+    }
     // Clamp new_speed between -max_speed_.first and max_speed_.first
     new_speed_x = std::clamp(new_speed_x, -max_speed_.first, max_speed_.first);
     new_speed_y = std::clamp(new_speed_y, -max_speed_.second, max_speed_.second);

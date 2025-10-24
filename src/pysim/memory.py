@@ -143,14 +143,6 @@ class SwarmMemory(object):
                 aggregated[key].append(value)
         return dict(aggregated)
 
-    def sample_batch(self, batch_size):
-        # Samples a batch of batch_size from the to_tensor dict
-        batch = defaultdict(list)
-        mem = self.to_tensor()
-        total_size = mem['reward'][0].shape[0]  # Assuming all agents
-        idxs = np.random.randint(0, total_size, size=batch_size)
-
-
     def _sample_batch(self, batch_size):
         # TODO: Deprecated (needs rewrite, now dirty fix with to_tensor, which is inefficient)
         batch = defaultdict(list)

@@ -80,13 +80,12 @@ class Inputspace(nn.Module):
 
         return attn_output, attention_weights
 
-
-class Actor(nn.Module):
+class AttentionActor(nn.Module):
     """
     A PyTorch Module that represents the actor network of a PPO agent.
     """
-    def __init__(self, vision_range, drone_count, map_size, time_steps):
-        super(Actor, self).__init__()
+    def __init__(self, vision_range, drone_count, map_size, time_steps, manual_decay):
+        super(AttentionActor, self).__init__()
         self.Inputspace = Inputspace(drone_dim=drone_count, time_steps=time_steps)
         self.in_features = self.Inputspace.out_features
         # Mu
@@ -94,7 +93,7 @@ class Actor(nn.Module):
         self.mu_move._init_gain = 0.1
 
         # Logstd
-        self.log_std = nn.Parameter(torch.zeros(2, ))
+        self.log_std = nn.Parameter(torch.zeros(2, ), requires_grad=not manual_decay)
 
     def forward(self, states, masks=None):
         attn_out, attention_weight = self.Inputspace(states, masks)
@@ -104,19 +103,97 @@ class Actor(nn.Module):
 
         return attention_weight
 
-class CriticPPO(nn.Module):
+class Critic(nn.Module):
     """
     A PyTorch Module that represents the critic network of a PPO agent.
     """
-    def __init__(self, vision_range, drone_count, map_size, time_steps):
-        super(CriticPPO, self).__init__()
-        self.Inputspace = Inputspace(drone_dim=drone_count, time_steps=time_steps)
-        self.in_features = self.Inputspace.out_features
+    def __init__(self, vision_range, drone_count, map_size, time_steps, inputspace=None):
+        super(Critic, self).__init__()
+        self.Inputspace_1 = Inputspace(vision_range, time_steps=time_steps) if not inputspace else inputspace
+        self.Inputspace_2 = Inputspace(vision_range, time_steps=time_steps) if not inputspace else inputspace
+        self.in_features = self.Inputspace_1.out_features
 
-        self.value_head = nn.Linear(in_features=self.in_features, out_features=1)
-        self.value_head._init_gain = 1.0
+    def forward(self, *args, **kwargs):
+        raise NotImplementedError("Subclasses must implement forward.")
+
+class CriticPPO(Critic):
+    """
+    A PyTorch Module that represents the critic network of a PPO agent.
+    """
+    def __init__(self, vision_range, drone_count, map_size, time_steps, inputspace=None):
+        super(CriticPPO, self).__init__(vision_range, drone_count, map_size, time_steps, inputspace)
+        self.Inputspace_2 = None
+        # Value
+        self.value = nn.Linear(in_features=self.in_features, out_features=1)
+        self.value._init_gain = 1.0
 
     def forward(self, states, masks=None):
-        x, _ = self.Inputspace(states, masks)
-        value = self.value_head(x)
+        x, _ = self.Inputspace_1(states, masks)
+        value = self.value(x)
         return value
+
+class OffPolicyCritic(Critic):
+    """
+    A PyTorch Module that represents the critic network of an IQL agent.
+    """
+    def __init__(self, vision_range, drone_count, map_size, time_steps, action_dim, inputspace=None):
+        super(OffPolicyCritic, self).__init__(vision_range, drone_count, map_size, time_steps, inputspace)
+
+        # Q1 architecture
+        self.l1 = nn.Linear(self.in_features + action_dim, 256)
+        self.l2 = nn.Linear(256, 256)
+        self.l3 = nn.Linear(256, 1)
+        self.l3._init_gain = 1.0
+
+        # Q2 architecture
+        self.l4 = nn.Linear(self.in_features + action_dim, 256)
+        self.l5 = nn.Linear(256, 256)
+        self.l6 = nn.Linear(256, 1)
+        self.l6._init_gain = 1.0
+
+    def forward(self, state, action):
+        q1 = self.Q1(state, action)
+        q2 = self.Q2(state, action)
+
+        return q1, q2
+
+    def Q1(self, state, action):
+        x = self.Inputspace_1(state)
+        x = torch.cat([x, action], dim=1)
+
+        q1 = F.relu(self.l1(x))
+        q1 = F.relu(self.l2(q1))
+        q1 = self.l3(q1)
+        return q1
+
+    def Q2(self, state, action):
+        x = self.Inputspace_2(state)
+        x = torch.cat([x, action], dim=1)
+
+        q2 = F.relu(self.l4(x))
+        q2 = F.relu(self.l5(q2))
+        q2 = self.l6(q2)
+        return q2
+
+class Value(nn.Module):
+    """
+    A PyTorch Module that represents the value network of an IQL agent.
+    It estimates V(s), the state value.
+    """
+    def __init__(self, vision_range, drone_count, map_size, time_steps, inputspace):
+        super(Value, self).__init__()
+        self.Inputspace = Inputspace(vision_range, time_steps=time_steps) if not inputspace else inputspace
+        self.in_features = self.Inputspace.out_features
+
+        # Simple MLP head for value estimation
+        self.fc1 = nn.Linear(self.in_features, 256)
+        self.fc2 = nn.Linear(256, 256)
+        self.v_value = nn.Linear(256, 1)
+        self.v_value._init_gain = 1.0
+
+    def forward(self, state):
+        x = self.Inputspace(state)
+        x = torch.relu(self.fc1(x))
+        x = torch.relu(self.fc2(x))
+        v = self.v_value(x)
+        return v

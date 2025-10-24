@@ -121,6 +121,7 @@ public:
         fly_agent_view_range_ = flyagent["view_range"].as<int>();
         fly_agent_time_steps_ = flyagent["time_steps"].as<int>();
         use_simple_policy_ = flyagent["use_simple_policy"].as<bool>();
+        use_velocity_change_ = flyagent["use_velocity_change"].as<bool>();
 
         auto exploreagent = agent["explore_agent"];
         number_of_explorers_ = exploreagent["num_agents"].as<int>();
@@ -423,6 +424,7 @@ public:
     int fly_agent_view_range_{};
     int fly_agent_time_steps_{};
     bool use_simple_policy_{};
+    bool use_velocity_change_{};
     int number_of_explorers_{};
     double explore_agent_speed_{};
     int explore_agent_view_range_{};

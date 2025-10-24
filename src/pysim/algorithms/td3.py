@@ -20,9 +20,31 @@ class TD3(RLAlgorithm):
         self.actor_network = network[0]
         self.critic_network = network[1]
 
+        self.policy = None
+        self.actor_target = None
+        self.critic_target = None
+        self.initialize_policy()
+
+        self.actor_optimizer = None
+        self.actor_scheduler = None
+        self.critic_optimizer = None
+        self.critic_scheduler = None
+        self.initialize_optimizers()
+
+        self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+
+        self.total_it = 0
+        self.set_train()
+
+    def initialize_policy(self):
+        """
+        Initializes the policy with the actor and critic networks.
+        This method is called when the algorithm is reset or loaded.
+        """
+        self.total_it = 0
         self.policy = DeterministicActorCritic(
-            Actor=self.actor_network,
-            Critic=self.critic_network,
+            actor_network=self.actor_network,
+            critic_network=self.critic_network,
             action_dim=self.action_dim,
             vision_range=self.vision_range,
             drone_count=self.drone_count,
@@ -30,17 +52,38 @@ class TD3(RLAlgorithm):
             time_steps=self.time_steps,
             exploration_noise=self.exploration_noise
         )
-
         self.actor_target = copy.deepcopy(self.policy.actor)
-        self.actor_optimizer = torch.optim.Adam(self.policy.actor.parameters(), lr=self.lr, betas=(self.beta1, self.beta2), eps=1e-5)
-
         self.critic_target = copy.deepcopy(self.policy.critic)
+
+    def load_optimizers(self, path: str):
+        path += "_td3_optimizers.pth"
+        try:
+            checkpoint = torch.load(path, map_location=self.device)
+            self.actor_optimizer.load_state_dict(checkpoint['actor_optimizer_state_dict'])
+            self.critic_optimizer.load_state_dict(checkpoint['critic_optimizer_state_dict'])
+            self.actor_scheduler.load_state_dict(checkpoint['actor_scheduler_state_dict'])
+            self.critic_scheduler.load_state_dict(checkpoint['critic_scheduler_state_dict'])
+        except Exception as e:
+            warnings.warn(f"Could not load TD3 optimizers from {path}: {e}")
+
+    def save_optimizers(self, path: str):
+        path += "_td3_optimizers.pth"
+        torch.save({
+            'actor_optimizer_state_dict': self.actor_optimizer.state_dict(),
+            'critic_optimizer_state_dict': self.critic_optimizer.state_dict(),
+            'actor_scheduler_state_dict': self.actor_scheduler.state_dict(),
+            'critic_scheduler_state_dict': self.critic_scheduler.state_dict(),
+        }, path)
+
+    def copy_networks(self):
+        self.critic_target = copy.deepcopy(self.policy.critic)
+        self.actor_target = copy.deepcopy(self.policy.actor)
+
+    def initialize_optimizers(self):
+        self.actor_optimizer = torch.optim.Adam(self.policy.actor.parameters(), lr=self.lr, betas=(self.beta1, self.beta2), eps=1e-5)
+        self.actor_scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(self.actor_optimizer, T_max=int(1e6))
         self.critic_optimizer = torch.optim.Adam(self.policy.critic.parameters(), lr=self.lr, betas=(self.beta1, self.beta2), eps=1e-5)
-
-        self.MSE_loss = nn.MSELoss()
-        self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-
-        self.total_it = 0
+        self.critic_scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(self.critic_optimizer, T_max=int(1e6))
 
     def set_train(self):
         self.policy.train()
@@ -52,85 +95,77 @@ class TD3(RLAlgorithm):
         self.actor_target.eval()
         self.critic_target.eval()
 
-    def save(self):
-        torch.save(self.policy.state_dict(), f'{os.path.join(self.model_path, self.model_name)}')
-
-    def select_action(self, observations):
-        return self.policy.act(observations)
-
-    def load(self):
-        path = os.path.join(self.model_path, self.model_name)
-        if os.path.exists(path):
-            self.policy.load_state_dict(torch.load(path))
-            self.policy.eval()
-            return True
-        else:
-            warnings.warn(f"Model path {path} does not exist. Loading failed.")
-            return False
-
-    def select_action_certain(self, observations):
-        """
-        Select action with certain policy.
-        """
-        return self.policy.act_certain(observations)
-
     def update(self, memory: SwarmMemory, batch_size, next_obs, logger):
+        t_dict = memory.to_tensor()
+        states = memory.rearrange_states(t_dict['state'])  # [N, ...]
+        next_states = memory.rearrange_states(t_dict['next_obs'])  # [N, ...]
+        actions = torch.cat(t_dict['action'])  # [N, ...]
+        ext_rewards = t_dict['reward']  # [D, N]
+        not_dones = torch.cat(t_dict['not_done'])  # [N]
+
+        rewards, log_rewards_raw, log_rewards_scaled = self.prepare_rewards(ext_rewards, t_dict)
+        logger.add_metric("Rewards/Rewards_Raw", log_rewards_raw)
+        logger.add_metric("Rewards/Rewards_norm", log_rewards_scaled)
+        rewards = torch.cat(rewards)
+
+        N = rewards.shape[0]
+
+        # Save current weights if mean reward or objective is higher than the best so far
+        # (Save BEFORE training, so if the policy worsens we can still go back)
+        self.save(logger)
+
         for _ in range(self.k_epochs):
+            perm = torch.randperm(N)
+            batch_idx = perm[0:batch_size]
             self.total_it += 1
 
-            batch = memory.sample_batch(batch_size)
-
-            states = batch['state']
-            actions = batch['action']
-            rewards = batch['reward']
-            next_states = batch['next_state']
-            not_dones = batch['not_done']
-
-            # If your sampled states are still tuples, rearrange
-            states = memory.rearrange_states(states)
-            next_states = memory.rearrange_states(next_states)
-            actions = memory.rearrange_tensor(actions)
-            rewards = memory.rearrange_tensor(rewards)
-            not_dones = memory.rearrange_tensor(not_dones)
+            b_states = tuple(state[batch_idx] for state in states)
+            b_actions = actions[batch_idx]
+            b_rewards = rewards[batch_idx]
+            b_next_states = tuple(state[batch_idx] for state in next_states)
+            b_not_dones = not_dones[batch_idx]
 
             with torch.no_grad():
-                noise = (torch.randn_like(actions) * self.policy_noise).clamp(-self.noise_clip, self.noise_clip)
-                next_action = self.actor_target(next_states)
+                noise = (torch.randn_like(b_actions) * self.policy_noise).clamp(-self.noise_clip, self.noise_clip)
+                next_action = self.actor_target(b_next_states)
                 noised_action = (next_action + noise).clamp(-1, 1)
 
                 # Compute the target Q value
-                target_Q1, target_Q2 = self.critic_target(next_states, noised_action)
+                target_Q1, target_Q2 = self.critic_target(b_next_states, noised_action)
                 target_Q = torch.min(target_Q1, target_Q2)
-                target_Q = rewards.to(self.device) + not_dones.to(self.device) * self.discount * target_Q.squeeze(-1)
+                target_Q = b_rewards.to(self.device) + b_not_dones.to(self.device) * self.discount * target_Q.squeeze(-1)
 
             # Get current Q estimates
-            current_Q1, current_Q2 = self.policy.critic(states, actions)
+            current_Q1, current_Q2 = self.policy.critic(b_states, b_actions)
 
             # Compute critic loss
             critic_loss = self.MSE_loss(current_Q1, target_Q) + self.MSE_loss(current_Q2, target_Q)
-
+            logger.add_metric("Loss/critic_loss", critic_loss.detach().cpu().numpy())
             # Optimize the critic
             self.critic_optimizer.zero_grad()
             critic_loss.backward()
             self.critic_optimizer.step()
+            self.critic_scheduler.step()
+            logger.add_metric("Loss/LR_Critic", self.critic_scheduler.get_last_lr())
 
             # Delayed policy updates
             if self.total_it % self.policy_freq == 0:
 
                 # Compute actor loss
-                actor_loss = -self.policy.critic.Q1(states, self.policy.actor(states)).mean()
+                actor_loss = -self.policy.critic.Q1(b_states, self.policy.actor(b_states)).mean()
+                logger.add_metric("Loss/actor_loss", actor_loss.detach().cpu().numpy())
 
                 # Optimize the actor
                 self.actor_optimizer.zero_grad()
                 actor_loss.backward()
                 self.actor_optimizer.step()
+                self.actor_scheduler.step()
+                logger.add_metric("Loss/LR_Actor", self.actor_scheduler.get_last_lr())
 
                 # Update the frozen target models
-                for param, target_param in zip(self.policy.critic.parameters(), self.critic_target.parameters()):
-                    target_param.data.copy_(self.tau * param.data + (1 - self.tau) * target_param.data)
+                with torch.no_grad():
+                    for param, target_param in zip(self.policy.critic.parameters(), self.critic_target.parameters()):
+                        target_param.data.copy_(self.tau * param.data + (1 - self.tau) * target_param.data)
 
-                for param, target_param in zip(self.policy.actor.parameters(), self.actor_target.parameters()):
-                    target_param.data.copy_(self.tau * param.data + (1 - self.tau) * target_param.data)
-
-        return ""
-
+                    for param, target_param in zip(self.policy.actor.parameters(), self.actor_target.parameters()):
+                        target_param.data.copy_(self.tau * param.data + (1 - self.tau) * target_param.data)

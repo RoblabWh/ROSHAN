@@ -1,4 +1,4 @@
-from networks.network_planner import Actor, CriticPPO
+from networks.network_planner import AttentionActor, CriticPPO, OffPolicyCritic, Value
 from torch.utils.data.sampler import BatchSampler, SubsetRandomSampler
 import numpy as np
 import torch.nn as nn
@@ -25,9 +25,9 @@ class PlannerAgent(Agent):
     @staticmethod
     def get_network(algorithm : str):
         if algorithm == "PPO":
-            return Actor, CriticPPO
-        # elif algorithm == "IQL":
-        #     return Actor, OffPolicyCritic, Value
+            return AttentionActor, CriticPPO
+        elif algorithm == "IQL":
+            return AttentionActor, OffPolicyCritic, Value
         # elif algorithm == "TD3":
         #     return DeterministicActor, OffPolicyCritic
         else:

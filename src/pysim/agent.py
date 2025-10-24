@@ -13,9 +13,9 @@ class Agent:
     @staticmethod
     def get_module_names(algorithm_name: str):
         if algorithm_name == "PPO":
-            return "Actor", "CriticPPO"
+            return "StochasticActor", "CriticPPO"
         elif algorithm_name == "IQL":
-            return "Actor", "OffPolicyCritic", "Value"
+            return "StochasticActor", "OffPolicyCritic", "Value"
         elif algorithm_name == "TD3":
             return "DeterministicActor", "OffPolicyCritic"
         elif algorithm_name == "no_algo":

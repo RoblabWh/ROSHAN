@@ -23,57 +23,78 @@ class IQL(RLAlgorithm):
         self.critic_network = network[1]
         self.value_network = network[2]
 
-        self.policy = ActorCriticIQL(Actor=self.actor_network, Critic=self.critic_network, Value=self.value_network, action_dim=self.action_dim,
-                                     vision_range=self.vision_range, drone_count=self.drone_count,
-                                     map_size=self.map_size, time_steps=self.time_steps)
+        self.policy = None
+        self.critic_target = None
+        self.initialize_policy()
 
-        self.actor_optimizer = torch.optim.Adam(self.policy.actor.parameters(), lr=self.lr, betas=(self.beta1, self.beta2), eps=1e-5)
-        self.critic_optimizer = torch.optim.Adam(self.policy.critic.parameters(), lr=self.lr, betas=(self.beta1, self.beta2), eps=1e-5)
-        self.value_optimizer = torch.optim.Adam(self.policy.value.parameters(), lr=self.lr, betas=(self.beta1, self.beta2), eps=1e-5)
-
-        self.actor_scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(self.actor_optimizer, T_max=int(1e6))
+        self.actor_optimizer = None
+        self.critic_optimizer = None
+        self.value_optimizer = None
+        self.actor_scheduler = None
+        self.critic_scheduler = None
+        self.value_scheduler = None
+        self.initialize_optimizers()
 
         # Offline Flags (for logging and saving networks)
         self.offline_start = True
         self.offline_end = False
-        self.MSE_loss = nn.MSELoss()
         self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-
-        # Target Q network
-        self.critic_target = copy.deepcopy(self.policy.critic)
 
         self.set_train()
 
-    def set_train(self):
-        self.policy.train()
+    def initialize_policy(self):
+        """
+        Initializes the policy with the actor and critic networks.
+        This method is called when the algorithm is reset or loaded.
+        """
+        self.policy = ActorCriticIQL(actor_network=self.actor_network,
+                                     critic_network=self.critic_network,
+                                     value_network=self.value_network,
+                                     action_dim=self.action_dim,
+                                     vision_range=self.vision_range,
+                                     drone_count=self.drone_count,
+                                     map_size=self.map_size,
+                                     time_steps=self.time_steps,
+                                     share_encoder=self.share_encoder,
+                                     use_tanh_dist=self.use_tanh_dist)
+        # Target Q network
+        self.critic_target = copy.deepcopy(self.policy.critic)
 
-    def set_eval(self):
-        self.policy.eval()
+    def initialize_optimizers(self):
+        """
+        Initializes the optimizers for the policy networks.
+        This method is called when the algorithm is reset or loaded.
+        """
+        self.actor_optimizer = torch.optim.Adam(self.policy.actor.parameters(), lr=self.lr, betas=(self.beta1, self.beta2), eps=1e-5)
+        self.critic_optimizer = torch.optim.Adam(self.policy.critic.parameters(), lr=self.lr, betas=(self.beta1, self.beta2), eps=1e-5)
+        self.value_optimizer = torch.optim.Adam(self.policy.value.parameters(), lr=self.lr, betas=(self.beta1, self.beta2), eps=1e-5)
+        self.actor_scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(self.actor_optimizer, T_max=int(1e6))
+        self.critic_scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(self.critic_optimizer, T_max=int(1e6))
+        self.value_scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(self.value_optimizer, T_max=int(1e6))
 
-    def load(self):
-        path: str = os.path.join(self.loading_path, self.loading_name).__str__()
+    def save_optimizers(self, path: str):
+        path += "_iql_optimizers.pth"
+        torch.save({
+            'actor_optimizer_state_dict': self.actor_optimizer.state_dict(),
+            'critic_optimizer_state_dict': self.critic_optimizer.state_dict(),
+            'value_optimizer_state_dict': self.value_optimizer.state_dict(),
+            'actor_scheduler_state_dict': self.actor_scheduler.state_dict(),
+            'critic_scheduler_state_dict': self.critic_scheduler.state_dict(),
+            'value_scheduler_state_dict': self.value_scheduler.state_dict(),
+        }, path)
+
+    def load_optimizers(self, path: str):
+        path += "_iql_optimizers.pth"
         try:
-            self.policy.load_state_dict(torch.load(f'{path}', map_location=self.device))
-            self.policy.to(self.device)
-            return True
-        except FileNotFoundError:
-            warnings.warn(f"Could not load model from {path}. Falling back to train mode.")
-            return False
-        except TypeError:
-            self.logger.warn(f"TypeError while loading model.")
-            return False
-        except RuntimeError:
-            self.logger.warn(f"RuntimeError while loading model. Possibly due to architecture mismatch.")
-            return False
-
-    def select_action(self, observations):
-        return self.policy.act(observations)
-
-    def select_action_certain(self, observations):
-        """
-        Select action with certain policy.
-        """
-        return self.policy.act_certain(observations)
+            checkpoint = torch.load(path, map_location=self.device)
+            self.actor_optimizer.load_state_dict(checkpoint['actor_optimizer_state_dict'])
+            self.critic_optimizer.load_state_dict(checkpoint['critic_optimizer_state_dict'])
+            self.value_optimizer.load_state_dict(checkpoint['value_optimizer_state_dict'])
+            self.actor_scheduler.load_state_dict(checkpoint['actor_scheduler_state_dict'])
+            self.critic_scheduler.load_state_dict(checkpoint['critic_scheduler_state_dict'])
+            self.value_scheduler.load_state_dict(checkpoint['value_scheduler_state_dict'])
+        except Exception as e:
+            warnings.warn(f"Could not load IQL optimizers from {path}: {e}")
 
     @staticmethod
     def asymmetric_l2_loss(diff, expectile=0.8):
@@ -91,7 +112,9 @@ class IQL(RLAlgorithm):
         self.value_optimizer.zero_grad()
         value_loss.backward()
         self.value_optimizer.step()
+        self.value_scheduler.step()
 
+        logger.add_metric("train/value_LR", self.value_scheduler.get_last_lr())
         logger.add_metric("train/value_loss", value_loss.detach().cpu().numpy())
         logger.add_metric("train/v", v.mean().detach().cpu().numpy())
 
@@ -106,7 +129,9 @@ class IQL(RLAlgorithm):
         self.critic_optimizer.zero_grad()
         critic_loss.backward()
         self.critic_optimizer.step()
+        self.critic_scheduler.step()
 
+        logger.add_metric("train/critic_LR", self.critic_scheduler.get_last_lr())
         logger.add_metric("train/critic_loss", critic_loss.detach().cpu().numpy())
         logger.add_metric("train/q1", q1.mean().detach().cpu().numpy())
         logger.add_metric("train/q2", q2.mean().detach().cpu().numpy())
@@ -135,6 +160,7 @@ class IQL(RLAlgorithm):
         self.actor_optimizer.step()
         self.actor_scheduler.step()
 
+        logger.add_metric("train/actor_LR", self.actor_scheduler.get_last_lr())
         logger.add_metric("train/actor_loss", actor_loss.detach().cpu().numpy())
         logger.add_metric("train/advantage", (q - v).mean().detach().cpu().numpy())
 
