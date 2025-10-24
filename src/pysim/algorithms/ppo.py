@@ -165,8 +165,8 @@ class PPO(RLAlgorithm):
         advantages = torch.FloatTensor(list(reversed(advantages))).to(self.device)
         returns = torch.FloatTensor(list(reversed(returns))).to(self.device)
 
-        # Norm advantages
-        advantages = (advantages - advantages.mean()) / (advantages.std() + 1e-10)
+        # Norm advantages (Norm the adv in mini_batch)
+        # advantages = (advantages - advantages.mean()) / (advantages.std() + 1e-10)
 
         return advantages, returns
 
@@ -247,8 +247,6 @@ class PPO(RLAlgorithm):
         # Logging before proceeding to batched training
         logger.add_metric("Rewards/Returns", returns.detach().cpu().numpy())
         logger.add_metric("Rewards/Advantages", advantages.detach().cpu().numpy())
-        logger.add_metric("Sanitylogs/old_logprobs", old_logprobs.detach().cpu().numpy())
-
         # Train policy for K epochs: sampling and updating
         for _ in range(self.k_epochs):
             epoch_values = []
@@ -258,11 +256,16 @@ class PPO(RLAlgorithm):
                 # Evaluate old actions and values using current policy
                 batch_states = tuple(state[index] for state in states)
                 batch_actions = actions[index]
+                batch_adv = advantages[index]
+                batch_adv = (batch_adv - batch_adv.mean()) / (batch_adv.std() + 1e-8)
                 batch_variable_masks = variable_state_masks[0][index] if self.use_variable_state_masks and len(variable_state_masks[0]) > 0 else None
                 logprobs, values, dist_entropy = self.policy.evaluate(batch_states, batch_actions, batch_variable_masks)
 
                 # Importance ratio: p/q
-                ratios = torch.exp(logprobs - old_logprobs[index])
+                # Clamp the ratios for stability (higher LRs can cause overflow, which results in NaNs)
+                log_ratio = logprobs - old_logprobs[index]
+                clamped_ratio = torch.clamp(log_ratio, -10, 10)  # avoid overflow
+                ratios = torch.exp(clamped_ratio)
 
                 # Approximate KL Divergence
                 # approxkl = 0.5 * torch.mean(torch.square(old_logprobs[index].detach() - logprobs))
@@ -272,45 +275,46 @@ class PPO(RLAlgorithm):
                 #     break
 
                 # Actor loss using Surrogate loss
-                surr1 = ratios * advantages[index]
-                surr2 = torch.clamp(ratios, 1 - self.eps_clip, 1 + self.eps_clip) * advantages[index]
+                surr1 = ratios * batch_adv
+                surr2 = torch.clamp(ratios, 1 - self.eps_clip, 1 + self.eps_clip) * batch_adv
                 entropy_loss = -self.entropy_coeff * dist_entropy.mean()
 
                 actor_loss = (-torch.min(surr1, surr2).type(torch.float32)).mean()
                 # actor_loss = -torch.mean(torch.min(ratios * advantages[index], torch.clamp(ratios, 1 - self.eps_clip, 1 + self.eps_clip) * advantages[index]))
 
-                # TODO CLIP VALUE LOSS ? Probably not necessary as according to:
+                # Value Loss Clipping is not helpful according to:
                 # https://iclr-blog-track.github.io/2022/03/25/ppo-implementation-details/
                 value_loss = self.MSE_loss(values, returns[index].squeeze())
 
                 # Log loss
-                critic_loss_np = value_loss.detach().cpu().numpy()
-                actor_loss_np = actor_loss.detach().cpu().numpy()
-                log_std_np = torch.exp(self.policy.actor.log_std).detach().cpu().numpy()
-                values_np = values.detach().cpu().numpy()
-                returns_np = returns[index].detach().cpu().numpy()
-
-                logger.add_metric("Loss/critic_loss", critic_loss_np)
-                logger.add_metric("Loss/actor_loss", actor_loss_np)
-                logger.add_metric("Loss/log_std", log_std_np)
-                logging_values.append(values_np)
-                epoch_values.append(values_np)
-                epoch_returns.append(returns_np)
-
-                # Add Entropy to actor loss
-                actor_loss = actor_loss + entropy_loss
+                with torch.no_grad():
+                    clip_fraction = ((ratios < (1 - self.eps_clip)) | (ratios > (1 + self.eps_clip))).float().mean().cpu().numpy()
+                    logger.add_metric("Loss/Approx_KL_1", (old_logprobs[index] - logprobs).mean().detach().cpu().numpy())
+                    logger.add_metric("Loss/Approx_KL_2", (((ratios - 1) - log_ratio).mean()).detach().cpu().numpy())
+                    logger.add_metric("Loss/Clip_Fraction", clip_fraction)
+                    logger.add_metric("Loss/value_loss", value_loss.detach().cpu().numpy())
+                    logger.add_metric("Loss/actor_loss", actor_loss.detach().cpu().numpy())
+                    logger.add_metric("Loss/entropy_loss", entropy_loss.detach().cpu().numpy())
+                    logger.add_metric("Loss/log_std", torch.exp(self.policy.actor.log_std).detach().cpu().numpy())
+                    logging_values.append(values.detach().cpu().numpy())
+                    epoch_values.append(values.detach().cpu().numpy())
+                    epoch_returns.append(returns[index].detach().cpu().numpy())
 
                 # Sanity checks
                 # torch.cuda.synchronize()  # catch deferred CUDA errors
                 assert isinstance(value_loss, torch.Tensor), f"value_loss not a tensor: {type(value_loss)}"
                 assert isinstance(actor_loss, torch.Tensor), f"actor_loss not a tensor: {type(actor_loss)}"
-                assert not torch.isnan(value_loss).any(), f"Critic Loss is NaN, check returns, values or entroy"
-                assert not torch.isnan(actor_loss).any(), f"Actor Loss is NaN, check advantages, logprobs or entroy"
-                assert not torch.isinf(value_loss).any(), f"Critic Loss is Inf, check returns, values or entroy"
-                assert not torch.isinf(actor_loss).any(), f"Actor Loss is Inf, check advantages, logprobs or entroy"
+                assert not torch.isnan(value_loss).any(), f"Critic Loss is NaN, check returns, values"
+                assert not torch.isnan(entropy_loss).any(), f"Entropy Loss is NaN somewhere"
+                assert not torch.isnan(actor_loss).any(), f"Actor Loss is NaN, check advantages: {torch.isnan(batch_adv).any()} or logprobs: {torch.isnan(logprobs).any()}"
+                assert not torch.isinf(value_loss).any(), f"Critic Loss is Inf somewhere"
+                assert not torch.isinf(entropy_loss).any(), f"Entropy Loss is Inf somewhere"
+                assert not torch.isinf(actor_loss).any(), f"Actor Loss is Inf, check advantages or logprobs"
+
+                # Add Entropy to actor loss
+                actor_loss = actor_loss + entropy_loss
 
                 # Backward gradients
-                lr = 0
                 if not self.separate_optimizers:
                     loss = actor_loss + value_loss * self.value_loss_coef
                     self.optimizer_a.zero_grad()
@@ -341,9 +345,7 @@ class PPO(RLAlgorithm):
             epoch_values = np.concatenate(epoch_values)
             epoch_returns = np.concatenate(epoch_returns)
             ev = self.calculate_explained_variance(epoch_values, epoch_returns)
-            # if ev <= 0:
-            #     console += (f"Explained Variance for Epoch {_}: {ev}\n"
-            #                 f"This is bad. The Critic might aswell have predicted zero or is even doing worse than that.\n")
+            # The Explained Variance should not go below zero, going towards 1 means critic is improving
             logger.add_metric("Sanitylogs/Explained_Variance", ev)
 
         logger.add_metric("Rewards/Values", np.concatenate(logging_values).flatten())

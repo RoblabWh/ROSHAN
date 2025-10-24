@@ -50,11 +50,11 @@ paths:
   # This is the root_path where your NEW trained models data is stored
   # Loading for your ROOT Model(chosen hierarchy) is ALSO done from here (Eval and Resuming Training)
   # Absolute or relative to the project root
-  model_directory: models/PPOTanhDistri_2
+  model_directory: models/PPOTanhDistri_6
   # Leave this empty to get a default name from this config (best practice for training)
   # You can fast load models with suffixes ["latest", "best_reward", "best_obj"]
   # If you want to load a specific model, set the model_name to the name of the model file
-  model_name: ""
+  model_name: "best_obj"
   # Name of the CORINE dataset-file, Path to the Corine dataset file must be set in project_paths.json (generated default paths at compile time)
   corine_dataset_name: CLMS_CLCplus_RASTER_2021_010m_eu_03035_V1_1.tif
   # This map is used in NoGUI & skip_gui_init setup, if left empty("") the default map (uniform map) will be used.
@@ -75,21 +75,21 @@ algorithm:
     # Needs to be bigger when trying to safe the buffer
     memory_size: 1.0e+6
     # Learning rate for the optimizer
-    lr: 3.26e-05 # Learning rate for the optimizer
+    lr: 5.0e-04 # Learning rate for the optimizer
     # Batch size for the optimizer
-    batch_size: 1024 #256 
+    batch_size: 1024
     # Number of steps to collect before updating the model
     horizon: 12800 #10240 #12800 
     # Number of epochs to update the model
-    k_epochs: 19 #11 #8 
+    k_epochs: 4
     # Coefficient for the entropy loss
-    entropy_coeff: 0.01 #0.0006
+    entropy_coeff: 0.00
     # Coefficient for the value loss
     value_loss_coef: 0.5
     # Use separate optimizers for the policy and value networks
     # If this is set to false, a single optimizer will be used for 
     # both networks and the value_loss_coef has no effect
-    separate_optimizers: false 
+    separate_optimizers: false
     # Beta1 for the Adam optimizer
     beta1: 0.9 
     # Beta2 for the Adam optimizer
@@ -245,7 +245,7 @@ environment:
       # Two types of action space use:)
       # If true, the agent's action represents a change in velocity (acceleration)
       # If false, the agent's action represents an absolute velocity of the agent's max_velocity
-      use_velocity_change: true
+      use_velocity_change: false
       # Determines the frequency of action selection (1 = every frame, 2 = every 2nd frame, etc.)
       frame_skips: 1 
       # Algorithm used by the fly_agent

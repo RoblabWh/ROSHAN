@@ -126,6 +126,9 @@ class StochasticActor(nn.Module):
         # Create independent normal distributions for each action dimension
         dist = self.get_distribution(action_mean, action_std)
 
+        if self.use_tanh_dist:
+            # For Tanh-squashed normal distribution, clamp actions to avoid NaNs in log_prob due to intervals
+            actions = actions.clamp(-1 + 1e-6, 1 - 1e-6)
         # Compute log probabilities of the taken actions
         action_logprob = dist.log_prob(actions)  # action: [batch_size, action_size], action_logprob: [batch_size]
 
@@ -244,33 +247,32 @@ class ActorCriticPPO(StochasticActor):
         :return: A tuple of the log probability of the given action, the value of the given state, and the entropy of the
         actor's distribution.
         """
-        try:
-            # Evaluate the state value from the critic network
-            state_value = self.critic(state)  # Shape: [batch_size, 1]
+        # Evaluate the state value from the critic network
+        state_value = self.critic(state)  # Shape: [batch_size, 1]
 
-            # Get action means and variances from the actor network
-            action_mean, action_var = self.actor(state)  # action_mean: [batch_size, action_size], action_var: [action_size, ]
+        # Get action means and variances from the actor network
+        action_mean, action_var = self.actor(state)  # action_mean: [batch_size, action_size], action_var: [action_size, ]
 
-            # Create independent normal distributions for each action dimension
-            dist = self.get_distribution(action_mean, torch.sqrt(action_var))
+        # Create independent normal distributions for each action dimension
+        dist = self.get_distribution(action_mean, torch.sqrt(action_var))
 
-            # Compute log probabilities of the taken actions
-            action_logprob = dist.log_prob(action)  # action: [batch_size, action_size], action_logprob: [batch_size]
+        if self.use_tanh_dist:
+            # For Tanh-squashed normal distribution, clamp actions to avoid NaNs in log_prob due to intervals
+            action = action.clamp(-1 + 1e-6, 1 - 1e-6)
+        # Compute log probabilities of the taken actions
+        action_logprob = dist.log_prob(action)  # action: [batch_size, action_size], action_logprob: [batch_size]
 
-            # Compute the entropy of the distributions
-            if self.use_tanh_dist:
-                # For Tanh-squashed normal distribution, compute entropy of the base normal distribution (a proxy)
-                dist_entropy = Normal(action_mean, torch.sqrt(action_var)).entropy()
-            else:
-                dist_entropy = dist.entropy()
+        # Compute the entropy of the distributions
+        if self.use_tanh_dist:
+            # For Tanh-squashed normal distribution, compute entropy of the base normal distribution (a proxy)
+            dist_entropy = Normal(action_mean, torch.sqrt(action_var)).entropy()
+        else:
+            dist_entropy = dist.entropy()
 
-            # Squeeze state_value if necessary
-            state_value = torch.squeeze(state_value)  # Shape: [batch_size]
+        # Squeeze state_value if necessary
+        state_value = torch.squeeze(state_value)  # Shape: [batch_size]
 
-            return action_logprob, state_value, dist_entropy
-        except Exception as e:
-            print(f"Error in evaluate(): {e}")
-            raise e
+        return action_logprob, state_value, dist_entropy
 
 class ActorCriticIQL(StochasticActor):
     """
