@@ -741,7 +741,7 @@ class AgentHandler:
             self.algorithm.loading_name = model_name
             self.load_model(new_rl_mode="eval")
 
-        self.tensorboard.summarize()
+        self.tensorboard.summarize(eval_mode=False)
 
     def act(self, observations):
         actions, action_logprobs = self.algorithm.select_action(observations)

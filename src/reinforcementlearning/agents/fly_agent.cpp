@@ -125,8 +125,8 @@ double FlyAgent::CalculateReward(const std::shared_ptr<GridMap>& grid_map) {
 
     // Terminals get computed earlier, they set the Flag in gridmap to true in the "ComplexPolicy" TODO: should really EVERY agent in tha complex policy get the TERMINAL reward? schnapsidee gewesen schwarscheinlich
     // that also sets the current objective to true, current objectives get set to true in PerformAction(simplePolicy) OR GetTerminals(ComplexPolicy) noodle code wtf
-    if (objective_reached_ || grid_map->GetTerminalOccured()) {
-        reward_components["GoalReached"] = 10;
+    if (objective_reached_ || (grid_map->GetTerminalOccured() && extinguished_last_fire_)) {
+        reward_components["GoalReached"] = 1;
     }
 
     if (!drone_in_grid && agent_terminal_state_) {
@@ -149,7 +149,7 @@ double FlyAgent::CalculateReward(const std::shared_ptr<GridMap>& grid_map) {
 
     if (delta_distance > 0) {
 //        auto safety_factor = std::tanh(10 * distance_to_boundary);
-        reward_components["DistanceImprovement"] = 0.1 * delta_distance; // * safety_factor;
+        reward_components["DistanceImprovement"] = 0.01 * delta_distance; // * safety_factor;
     }
 
 //    if (distance_to_boundary < 0.125) {

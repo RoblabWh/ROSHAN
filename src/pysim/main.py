@@ -51,6 +51,9 @@ def assert_config(config):
         used_algo = config["environment"]["agent"][config["settings"]["hierarchy_type"]]["algorithm"]
         assert config["settings"]["save_size"] <= config["algorithm"][used_algo]["memory_size"], \
             f"save_size cannot be larger than memory_size in algorithm config for {used_algo}."
+    if config["environment"]["agent"][config["settings"]["hierarchy_type"]]["algorithm"] == "PPO":
+        if config["algorithm"]["PPO"]["separate_optimizers"]:
+            assert config["algorithm"]["share_encoder"] == False, "When using separate optimizers, their encoders can't be shared"
 def sim(config : dict, overrides: dict = None, trial=None):
 
     config = inject_overrides(config, overrides, trial)

@@ -515,7 +515,7 @@ class TensorboardLogger:
         if resume:
             self._load_state()
 
-    def summarize(self):
+    def summarize(self, eval_mode: bool):
         # Log all scalar metrics (averaged over the episode)
         for tag, values in self.metrics.items():
             if values:
@@ -528,8 +528,8 @@ class TensorboardLogger:
         if self.episode_ended:
             self.log_scalar("Sanitylogs/Episode_Steps", self.episode_steps)
             self.episode_steps = 0
-        if len(self.objectives) == self.objectives.maxlen:
-            self.log_scalar("Objective", np.mean(self.objectives))
+        if len(self.objectives) == self.objectives.maxlen and not eval_mode:
+            self.log_scalar("Training/Objective", np.mean(self.objectives))
 
         # Clear for next summary
         self.metrics.clear()
@@ -684,7 +684,8 @@ class Evaluator:
         self.log_dir = log_dir
         self.sim_bridge = sim_bridge
         self.eval_steps = 0
-        self.use_auto_train = auto_train_dict["use_auto_train"] or no_gui
+        self.use_auto_train = auto_train_dict["use_auto_train"]
+        self.no_gui = no_gui
         self.no_gui_eval = no_gui and start_eval # We stop the agent after evaluation because we are in NoGui Mode
         self.max_train = max_train  # Maximum number of training steps before switching to evaluation
         self.max_eval = auto_train_dict["max_eval"]  # Maximum number of evaluation steps
@@ -696,9 +697,10 @@ class Evaluator:
         self.history: List[Dict[str, float]] = []
         registry = METRIC_REGISTRY_FLY_AGENT if self.sim_bridge.get("hierarchy_type") == "fly_agent" else METRIC_REGISTRY
         self.metrics = [m() for m in registry]  # Initialize metrics from the registry
+        self.terminal_episode_dict = {}
 
     def on_update(self):
-        if self.sim_bridge.get("train_step") >= self.max_train and self.use_auto_train:
+        if self.sim_bridge.get("train_step") >= self.max_train and (self.use_auto_train or self.no_gui):
             self.sim_bridge.add_value("train_episode", 1)
             self.logger.info("Training finished, after {} training steps, now starting Evaluation".format(self.sim_bridge.get("train_step")))
             self.sim_bridge.set("rl_mode", "eval")
@@ -733,7 +735,7 @@ class Evaluator:
                 self.sim_bridge.set("train_step", 0)
                 self.sim_bridge.set("policy_updates", 0)
                 self.sim_bridge.set("current_episode", 0)
-        elif self.no_gui_eval:
+        elif self.no_gui:
             self.sim_bridge.set("agent_online", False)
             return True
         return False
@@ -860,35 +862,35 @@ class Evaluator:
                 tb_metrics = {k: v for k, v in metrics.items() if k not in ("episode", "episode_over", "Failure_Reason" , "Failure_Reason_counts", "Failure_Reason_perc", "Failure_Reason_n")}
                 self.tb_logger.add_metric(tb_metrics)
                 # Flush metrics to disk after each evaluation episode
-                self.tb_logger.summarize()
+                self.tb_logger.summarize(eval_mode=True)
 
         return metrics
 
     def clean_print(self):
         last_episode = (self.eval_steps >= self.max_eval - 1)
-        metric_headers = [m.name for m in self.metrics]
-        headers = ["Episode"] + metric_headers + ["Success Rate"]
-
-        local_history_ = [self.history[self.current_episode]] if not last_episode else self.history
-
-        rows = [
-            [
-                idx + 1 if last_episode else (self.current_episode + 1),
-                *[
-                    f"{s[m.name]:.4f}" if m.dtype == "float"
-                    else f"{s[m.name]:.2f}" if m.dtype == "percent"
-                    else int(s[m.name]) if m.dtype == "int"
-                    else f"{s[m.name]}" if m.dtype == "string"
-                    else f"Undefined {m.name}"
-                    for m in self.metrics
-                ],
-            ]
-            for idx, s in enumerate(local_history_)
-        ]
-
-        tabular_data = rows
-
         if last_episode:
+            metric_headers = [m.name for m in self.metrics]
+            headers = ["Episode"] + metric_headers + ["Success Rate"]
+
+            local_history_ = [self.history[self.current_episode]] if not last_episode else self.history
+
+            rows = [
+                [
+                    idx + 1 if last_episode else (self.current_episode + 1),
+                    *[
+                        f"{s[m.name]:.4f}" if m.dtype == "float"
+                        else f"{s[m.name]:.2f}" if m.dtype == "percent"
+                        else int(s[m.name]) if m.dtype == "int"
+                        else f"{s[m.name]}" if m.dtype == "string"
+                        else f"Undefined {m.name}"
+                        for m in self.metrics
+                    ],
+                ]
+                for idx, s in enumerate(local_history_)
+            ]
+
+            tabular_data = rows
+
             end_footer = [
                 f"Total(N={len(self.history)})",
                 *[
@@ -899,8 +901,21 @@ class Evaluator:
 
             tabular_data += [end_footer]
 
-        table = tabulate(tabular_data=tabular_data,
-                         headers=headers,
-                         tablefmt="rounded_grid")
+            table = tabulate(tabular_data=tabular_data,
+                             headers=headers,
+                             tablefmt="rounded_grid")
+            print()
+            self.logger.info("\n%s", table)
+            self.terminal_episode_dict = {}
+        else:
+            def terminal_append(reason: str):
+                self.terminal_episode_dict[reason] = self.terminal_episode_dict.get(reason, 0) + 1
 
-        self.logger.info("\n%s", table)
+            def get_terminal_string():
+                items = self.terminal_episode_dict.items()
+                items = sorted(items)
+                return "; ".join(f"{k}: {v}" for k, v in items)
+
+            terminal_reason = self.history[self.current_episode]["Failure_Reason"]
+            terminal_append(terminal_reason)
+            print(f"\rEvaluation running... {get_terminal_string()}", end='')

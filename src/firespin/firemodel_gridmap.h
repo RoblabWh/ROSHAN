@@ -78,7 +78,7 @@ public:
     void SetGroundstationRenderer(SDL_Renderer* renderer) {groundstation_->SetRenderer(renderer);};
 
     void SetTerminals(bool terminal) {any_terminal_occured_ = terminal;}
-    bool GetTerminalOccured() {return any_terminal_occured_;}
+    bool GetTerminalOccured() const {return any_terminal_occured_;}
     int GetNRefFires() const {return n_ref_fires_;}
 
     std::pair<int, int> GetRandomPointInGrid() {

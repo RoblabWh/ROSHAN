@@ -251,8 +251,10 @@ class PPO(RLAlgorithm):
         for _ in range(self.k_epochs):
             epoch_values = []
             epoch_returns = []
+            batch_update = 0
             # Random sampling and no repetition. 'False' indicates that training will continue even if the number of samples in the last time is less than mini_batch_size
             for index in BatchSampler(SubsetRandomSampler(range(self.horizon)), mini_batch_size, False):
+                batch_update += 1
                 # Evaluate old actions and values using current policy
                 batch_states = tuple(state[index] for state in states)
                 batch_actions = actions[index]
@@ -264,15 +266,9 @@ class PPO(RLAlgorithm):
                 # Importance ratio: p/q
                 # Clamp the ratios for stability (higher LRs can cause overflow, which results in NaNs)
                 log_ratio = logprobs - old_logprobs[index]
-                clamped_ratio = torch.clamp(log_ratio, -10, 10)  # avoid overflow
-                ratios = torch.exp(clamped_ratio)
-
-                # Approximate KL Divergence
-                # approxkl = 0.5 * torch.mean(torch.square(old_logprobs[index].detach() - logprobs))
-                # if approxkl > 0.02:
-                #     console += (f"Approximate Kulback-Leibler Divergence: {approxkl}. A value above 0.02 is considered bad since the policy changes too quickly.\n"
-                #                 f"This happend in epoch {_} and mini_batch {index}. Early stopping for this training peroid.\n")
-                #     break
+                # Do not clamp?
+                # clamped_ratio = torch.clamp(log_ratio, -10, 10)  # avoid overflow
+                ratios = torch.exp(log_ratio)
 
                 # Actor loss using Surrogate loss
                 surr1 = ratios * batch_adv
@@ -289,13 +285,19 @@ class PPO(RLAlgorithm):
                 # Log loss
                 with torch.no_grad():
                     clip_fraction = ((ratios < (1 - self.eps_clip)) | (ratios > (1 + self.eps_clip))).float().mean().cpu().numpy()
-                    logger.add_metric("Loss/Approx_KL_1", (old_logprobs[index] - logprobs).mean().detach().cpu().numpy())
-                    logger.add_metric("Loss/Approx_KL_2", (((ratios - 1) - log_ratio).mean()).detach().cpu().numpy())
-                    logger.add_metric("Loss/Clip_Fraction", clip_fraction)
-                    logger.add_metric("Loss/value_loss", value_loss.detach().cpu().numpy())
-                    logger.add_metric("Loss/actor_loss", actor_loss.detach().cpu().numpy())
-                    logger.add_metric("Loss/entropy_loss", entropy_loss.detach().cpu().numpy())
-                    logger.add_metric("Loss/log_std", torch.exp(self.policy.actor.log_std).detach().cpu().numpy())
+                    approx_kl = (old_logprobs[index] - logprobs).mean().detach().cpu().numpy()
+                    if not self.use_kl_1:
+                        approx_kl = ((ratios - 1 - log_ratio).mean()).detach().cpu().numpy()
+                    if self.kl_early_stop and approx_kl >= self.kl_target:
+                        self.logger.warning(f"Approximate KL Divergence of {approx_kl} exceeded target KL of {self.kl_target}.")
+                        self.logger.info(f"Stopping Update Phase {logger.train_step} at K_Epoch {_ + 1} and Batch Update {batch_update}")
+                        return
+                    logger.add_metric("Training/Approx_KL", approx_kl)
+                    logger.add_metric("Training/Clip_Fraction", clip_fraction)
+                    logger.add_metric("Training/value_loss", value_loss.detach().cpu().numpy())
+                    logger.add_metric("Training/actor_loss", actor_loss.detach().cpu().numpy())
+                    logger.add_metric("Training/entropy_loss", entropy_loss.detach().cpu().numpy())
+                    logger.add_metric("Training/log_std", torch.exp(self.policy.actor.log_std).detach().cpu().numpy())
                     logging_values.append(values.detach().cpu().numpy())
                     epoch_values.append(values.detach().cpu().numpy())
                     epoch_returns.append(returns[index].detach().cpu().numpy())
@@ -324,7 +326,7 @@ class PPO(RLAlgorithm):
                     torch.nn.utils.clip_grad_norm_(self.critic_params, max_norm=0.5)
                     self.optimizer_a.step()
                     self.scheduler_a.step()
-                    logger.add_metric("Loss/LR", self.scheduler_a.get_last_lr())
+                    logger.add_metric("Training/LR", self.scheduler_a.get_last_lr())
                 else:
                     self.optimizer_a.zero_grad()
                     actor_loss.backward(retain_graph=True)
@@ -339,7 +341,7 @@ class PPO(RLAlgorithm):
                     torch.nn.utils.clip_grad_norm_(self.critic_params, max_norm=0.5)
                     self.optimizer_c.step()
                     self.scheduler_c.step()
-                    logger.add_metric("Loss/LR", self.scheduler_a.get_last_lr() + self.scheduler_c.get_last_lr())
+                    logger.add_metric("Training/LR", self.scheduler_a.get_last_lr() + self.scheduler_c.get_last_lr())
 
             # Compute explained variance over the epoch
             epoch_values = np.concatenate(epoch_values)

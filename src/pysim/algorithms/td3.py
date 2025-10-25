@@ -140,27 +140,27 @@ class TD3(RLAlgorithm):
 
             # Compute critic loss
             critic_loss = self.MSE_loss(current_Q1, target_Q) + self.MSE_loss(current_Q2, target_Q)
-            logger.add_metric("Loss/critic_loss", critic_loss.detach().cpu().numpy())
+            logger.add_metric("Training/critic_loss", critic_loss.detach().cpu().numpy())
             # Optimize the critic
             self.critic_optimizer.zero_grad()
             critic_loss.backward()
             self.critic_optimizer.step()
             self.critic_scheduler.step()
-            logger.add_metric("Loss/LR_Critic", self.critic_scheduler.get_last_lr())
+            logger.add_metric("Training/LR_Critic", self.critic_scheduler.get_last_lr())
 
             # Delayed policy updates
             if self.total_it % self.policy_freq == 0:
 
                 # Compute actor loss
                 actor_loss = -self.policy.critic.Q1(b_states, self.policy.actor(b_states)).mean()
-                logger.add_metric("Loss/actor_loss", actor_loss.detach().cpu().numpy())
+                logger.add_metric("Training/actor_loss", actor_loss.detach().cpu().numpy())
 
                 # Optimize the actor
                 self.actor_optimizer.zero_grad()
                 actor_loss.backward()
                 self.actor_optimizer.step()
                 self.actor_scheduler.step()
-                logger.add_metric("Loss/LR_Actor", self.actor_scheduler.get_last_lr())
+                logger.add_metric("Training/LR_Actor", self.actor_scheduler.get_last_lr())
 
                 # Update the frozen target models
                 with torch.no_grad():

@@ -25,7 +25,7 @@ settings:
     use_auto_train: false
     # Number of total trainings, each containing max_train train_steps
     # automatically set to 1 when use_auto_train is false
-    train_episodes: 10 
+    train_episodes: 10
     # Maximum number of train_steps(NOT policy steps) to perform
     # this setting is also used in case of NoGUI mode to determine when to stop training and switch to evaluation
     # This setting gets overridden in IQL settings and is calculated as the total number of offline_updates + online_updates
@@ -50,11 +50,11 @@ paths:
   # This is the root_path where your NEW trained models data is stored
   # Loading for your ROOT Model(chosen hierarchy) is ALSO done from here (Eval and Resuming Training)
   # Absolute or relative to the project root
-  model_directory: models/PPOTanhDistri_6
+  model_directory: models/RoadTo100P_7
   # Leave this empty to get a default name from this config (best practice for training)
   # You can fast load models with suffixes ["latest", "best_reward", "best_obj"]
   # If you want to load a specific model, set the model_name to the name of the model file
-  model_name: "best_obj"
+  model_name: "latest"
   # Name of the CORINE dataset-file, Path to the Corine dataset file must be set in project_paths.json (generated default paths at compile time)
   corine_dataset_name: CLMS_CLCplus_RASTER_2021_010m_eu_03035_V1_1.tif
   # This map is used in NoGUI & skip_gui_init setup, if left empty("") the default map (uniform map) will be used.
@@ -74,21 +74,21 @@ algorithm:
     # Gets cleaned up after each training episode
     # Needs to be bigger when trying to safe the buffer
     memory_size: 1.0e+6
-    # Learning rate for the optimizer
-    lr: 5.0e-04 # Learning rate for the optimizer
+    # Learning rate for the optimizer #1.575e-4 
+    lr: 1.575e-4 # Learning rate for the optimizer
     # Batch size for the optimizer
-    batch_size: 1024
+    batch_size: 2048 #2048
     # Number of steps to collect before updating the model
-    horizon: 12800 #10240 #12800 
+    horizon: 65536 #65536
     # Number of epochs to update the model
     k_epochs: 4
     # Coefficient for the entropy loss
     entropy_coeff: 0.00
-    # Coefficient for the value loss
+    # Coefficient for the value loss (no effect if separate_optimizers is true)
     value_loss_coef: 0.5
     # Use separate optimizers for the policy and value networks
     # If this is set to false, a single optimizer will be used for 
-    # both networks and the value_loss_coef has no effect
+    # both networks (only works if share_encoder is false)
     separate_optimizers: false
     # Beta1 for the Adam optimizer
     beta1: 0.9 
@@ -98,17 +98,29 @@ algorithm:
     gamma: 0.9635
     # Lambda for the Generalized Advantage Estimation (GAE)
     _lambda: 0.9
-    # Clipping value for the PPO loss
-    eps_clip: 0.2783
+    # Clipping value for the PPO loss #0.2783
+    eps_clip: 0.2
     # Manual decay of the log_std parameter in stochastic policies
     # If set to false, the log_std is learned by the network(state independent)
-    manual_decay: false
+    manual_decay: true
     # Two types of manual decay implemented: train_step decay and logarithmic decay
     # train_step decay: reduces log_std based on the training step count using an exponential, causing a smooth nonlinear decay over time
     # logarithmic decay: applies the decay to the current log_std, producing a multiplicative, logarithmic reduction per update step
     # If you plan to use manual decay in combination with resuming training logarithmic decay is preferred
     use_logstep_decay: true
     decay_rate: 0.985
+    # The approximate KL divergence that is calculated during training and
+    # is used to monitor wheather the policy is changing too quickly
+    # can be used to implement early stopping based on KL divergence
+    # the early stopping will not stop the overall training, but only the current update step
+    # If kl_early_stop is true, training will stop early if the kl divergence exceeds kl_target
+    kl_early_stop: true
+    kl_target: 0.055
+    # Whether to use the first KL divergence estimate or the second (unbiased, lesser variance)
+    # The second estimate is less harsh on the cutting, but might lead to larger policy updates
+    # kl_1 = (old_logprobs - logprobs).mean()
+    # kl_2 = ((ratios - 1) - log_ratio).mean()
+    use_kl_1: true
   IQL:
     # Path to the replay buffer file (absolute or relative to the project root)
     # Size of the Replay Buffer is determined by the size used to create this buffer
