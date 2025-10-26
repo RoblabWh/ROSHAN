@@ -123,9 +123,10 @@ double FlyAgent::CalculateReward(const std::shared_ptr<GridMap>& grid_map) {
     std::unordered_map<std::string, double> reward_components;
     double total_reward = 0;
 
-    // Terminals get computed earlier, they set the Flag in gridmap to true in the "ComplexPolicy" TODO: should really EVERY agent in tha complex policy get the TERMINAL reward? schnapsidee gewesen schwarscheinlich
+    // Terminals get computed earlier, they set the Flag in gridmap to true in the "ComplexPolicy"
     // that also sets the current objective to true, current objectives get set to true in PerformAction(simplePolicy) OR GetTerminals(ComplexPolicy) noodle code wtf
-    if (objective_reached_ || (grid_map->GetTerminalOccured() && extinguished_last_fire_)) {
+    // Terminal Reward should go to all agents when the objective is reached (For the simple policy that does not apply here, but for the complex case it does)
+    if (objective_reached_ || (grid_map->GetTerminalOccured())) {
         reward_components["GoalReached"] = 1;
     }
 
@@ -140,7 +141,7 @@ double FlyAgent::CalculateReward(const std::shared_ptr<GridMap>& grid_map) {
     // Use the extinguishing code only in the complex policy since the simple one only cares about reaching the goal
     if (extinguished_fire_ && !parameters_.use_simple_policy_) {
         //auto bonus_log = 0.05 * std::log(double(grid_map->GetNRefFires() + 1) / double(grid_map->GetNumBurningCells() + 1));
-        reward_components["Extinguish"] = 0.1; // + bonus_log;
+        reward_components["Extinguish"] = 0.01; // + bonus_log;
     }
 
     if (collision_occurred_) {
@@ -149,7 +150,7 @@ double FlyAgent::CalculateReward(const std::shared_ptr<GridMap>& grid_map) {
 
     if (delta_distance > 0) {
 //        auto safety_factor = std::tanh(10 * distance_to_boundary);
-        reward_components["DistanceImprovement"] = 0.01 * delta_distance; // * safety_factor;
+        reward_components["DistanceImprovement"] = 0.1 * delta_distance; // * safety_factor;
     }
 
 //    if (distance_to_boundary < 0.125) {

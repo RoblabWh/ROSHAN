@@ -50,16 +50,16 @@ paths:
   # This is the root_path where your NEW trained models data is stored
   # Loading for your ROOT Model(chosen hierarchy) is ALSO done from here (Eval and Resuming Training)
   # Absolute or relative to the project root
-  model_directory: models/RoadTo100P_7
+  model_directory: models/RoadTo100P_12
   # Leave this empty to get a default name from this config (best practice for training)
   # You can fast load models with suffixes ["latest", "best_reward", "best_obj"]
   # If you want to load a specific model, set the model_name to the name of the model file
-  model_name: "latest"
+  model_name: ""
   # Name of the CORINE dataset-file, Path to the Corine dataset file must be set in project_paths.json (generated default paths at compile time)
   corine_dataset_name: CLMS_CLCplus_RASTER_2021_010m_eu_03035_V1_1.tif
   # This map is used in NoGUI & skip_gui_init setup, if left empty("") the default map (uniform map) will be used.
   init_map: 35x36_Woods.tif
-
+#{'entropy_coeff': 1.230811218699769e-06, 'gamma': 0.9773972579784836, '_lambda': 0.9096741778233516, 'eps_clip': 0.22816431818213967}
 algorithm:
   # Share the encoder(Inputspace in the network files) between the policy and value networks
   # This option should generally only be used for PPO, but can be used for other algorithms as well
@@ -77,13 +77,13 @@ algorithm:
     # Learning rate for the optimizer #1.575e-4 
     lr: 1.575e-4 # Learning rate for the optimizer
     # Batch size for the optimizer
-    batch_size: 2048 #2048
+    batch_size: 16384 #2048
     # Number of steps to collect before updating the model
-    horizon: 65536 #65536
+    horizon: 131072 #65536
     # Number of epochs to update the model
-    k_epochs: 4
+    k_epochs: 2
     # Coefficient for the entropy loss
-    entropy_coeff: 0.00
+    entropy_coeff: 0.0
     # Coefficient for the value loss (no effect if separate_optimizers is true)
     value_loss_coef: 0.5
     # Use separate optimizers for the policy and value networks
@@ -97,7 +97,7 @@ algorithm:
     # Discount factor for the rewards
     gamma: 0.9635
     # Lambda for the Generalized Advantage Estimation (GAE)
-    _lambda: 0.9
+    _lambda: 0.90
     # Clipping value for the PPO loss #0.2783
     eps_clip: 0.2
     # Manual decay of the log_std parameter in stochastic policies

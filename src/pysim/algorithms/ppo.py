@@ -266,9 +266,8 @@ class PPO(RLAlgorithm):
                 # Importance ratio: p/q
                 # Clamp the ratios for stability (higher LRs can cause overflow, which results in NaNs)
                 log_ratio = logprobs - old_logprobs[index]
-                # Do not clamp?
-                # clamped_ratio = torch.clamp(log_ratio, -10, 10)  # avoid overflow
-                ratios = torch.exp(log_ratio)
+                clamped_ratio = torch.clamp(log_ratio, -10, 10)  # avoid overflow
+                ratios = torch.exp(clamped_ratio)
 
                 # Actor loss using Surrogate loss
                 surr1 = ratios * batch_adv
@@ -288,10 +287,6 @@ class PPO(RLAlgorithm):
                     approx_kl = (old_logprobs[index] - logprobs).mean().detach().cpu().numpy()
                     if not self.use_kl_1:
                         approx_kl = ((ratios - 1 - log_ratio).mean()).detach().cpu().numpy()
-                    if self.kl_early_stop and approx_kl >= self.kl_target:
-                        self.logger.warning(f"Approximate KL Divergence of {approx_kl} exceeded target KL of {self.kl_target}.")
-                        self.logger.info(f"Stopping Update Phase {logger.train_step} at K_Epoch {_ + 1} and Batch Update {batch_update}")
-                        return
                     logger.add_metric("Training/Approx_KL", approx_kl)
                     logger.add_metric("Training/Clip_Fraction", clip_fraction)
                     logger.add_metric("Training/value_loss", value_loss.detach().cpu().numpy())
@@ -349,5 +344,11 @@ class PPO(RLAlgorithm):
             ev = self.calculate_explained_variance(epoch_values, epoch_returns)
             # The Explained Variance should not go below zero, going towards 1 means critic is improving
             logger.add_metric("Sanitylogs/Explained_Variance", ev)
+
+            if self.kl_early_stop and approx_kl >= self.kl_target:
+                self.logger.warning(f"Approximate KL Divergence of {approx_kl} exceeded target KL of {self.kl_target}.")
+                self.logger.info(
+                    f"Stopping Update Phase {logger.train_step} at K_Epoch {_ + 1}")
+                break
 
         logger.add_metric("Rewards/Values", np.concatenate(logging_values).flatten())
