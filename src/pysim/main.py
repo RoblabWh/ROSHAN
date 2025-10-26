@@ -27,32 +27,38 @@ def assert_config(config):
     """
     Asserts that the config dictionary doesn't have some wild configurations.
     """
-    assert config["settings"]["mode"] in [0, 2], "Invalid mode in config.yaml. Must be 0 (GUI_RL), 2 (NoGUI_RL)"
-    assert config["settings"]["hierarchy_type"] in ["fly_agent", "explore_agent", "planner_agent"], \
+    c_settings = config["settings"]
+    hierarchy_type = c_settings["hierarchy_type"]
+    c_agent = config["environment"]["agent"][hierarchy_type]
+    used_algo = c_agent["algorithm"]
+    c_algo = config["algorithm"][used_algo]
+    assert c_settings["mode"] in [0, 2], "Invalid mode in config.yaml. Must be 0 (GUI_RL), 2 (NoGUI_RL)"
+    assert hierarchy_type in ["fly_agent", "explore_agent", "planner_agent"], \
         "Invalid hierarchy_type in config.yaml. Must be 'fly_agent', 'explore_agent', or 'planner_agent'."
-    assert config["settings"]["rl_mode"] in ["train", "eval"], "Invalid rl_mode in config.yaml. Must be 'train' or 'eval'."
-    hierarchy_type = config["settings"]["hierarchy_type"]
+    rl_mode = c_settings["rl_mode"]
+    assert rl_mode in ["train", "eval"], "Invalid rl_mode in config.yaml. Must be 'train' or 'eval'."
     if hierarchy_type == "planner_agent":
         assert config["environment"]["agent"]["fly_agent"]["default_model_folder"] != "", \
             "default_model_folder for fly_agent cannot be empty in config.yaml when planner_agent is selected."
         assert config["environment"]["agent"]["fly_agent"]["default_model_name"] != "", \
             "default_model_name cannot be empty in config.yaml when planner_agent is selected."
     # Assert that resume is off when auto_train is on
-    if config["settings"]["auto_train"]["use_auto_train"]:
-        assert not config["settings"]["resume"], "resume cannot be True when auto_train is enabled in config.yaml."
-        assert not config["settings"]["rl_mode"] == "eval", ("rl_mode cannot be 'eval' when auto_train is enabled in config.yaml.\n"
+    if c_settings["auto_train"]["use_auto_train"]:
+        assert not c_settings["resume"], "resume cannot be True when auto_train is enabled in config.yaml."
+        assert not rl_mode == "eval", ("rl_mode cannot be 'eval' when auto_train is enabled in config.yaml.\n"
                                                              "While this configuration WOULD work, it is not intended to be used in this way, since it would automatically "
                                                              "resume training from the last checkpoint, which is not what you want when evaluating a model.")
 
-    if config["settings"]["optuna"]["use_optuna"]:
-        assert config["settings"]["optuna"]["objective"] in ["objective", "reward"], "Invalid objective in config.yaml for optuna. Must be 'objective' or 'reward'."
-        assert config["settings"]["rl_mode"] == "train", "rl_mode must be 'train' when using optuna in config.yaml."
-    if config["settings"]["save_replay_buffer"]:
-        used_algo = config["environment"]["agent"][config["settings"]["hierarchy_type"]]["algorithm"]
-        assert config["settings"]["save_size"] <= config["algorithm"][used_algo]["memory_size"], \
+    if c_settings["optuna"]["use_optuna"]:
+        assert c_settings["optuna"]["objective"] in ["objective", "reward"], "Invalid objective in config.yaml for optuna. Must be 'objective' or 'reward'."
+        assert rl_mode == "train", "rl_mode must be 'train' when using optuna in config.yaml."
+    if c_settings["save_replay_buffer"]:
+        assert used_algo != "IQL", "save_replay_buffer not supported for IQL."
+        assert rl_mode != "train", "save_replay_buffer cannot be True when rl_mode is 'train'."
+        assert c_settings["save_size"] <= c_algo["memory_size"], \
             f"save_size cannot be larger than memory_size in algorithm config for {used_algo}."
-    if config["environment"]["agent"][config["settings"]["hierarchy_type"]]["algorithm"] == "PPO":
-        if config["algorithm"]["PPO"]["separate_optimizers"]:
+    if used_algo == "PPO":
+        if c_algo["separate_optimizers"]:
             assert config["algorithm"]["share_encoder"] == False, "When using separate optimizers, their encoders can't be shared"
 def sim(config : dict, overrides: dict = None, trial=None):
 

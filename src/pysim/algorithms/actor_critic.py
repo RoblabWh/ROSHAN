@@ -230,8 +230,13 @@ class ActorCriticPPO(StochasticActor):
     A PyTorch Module that represents the actor-critic network of a PPO agent.
     """
     def __init__(self, actor_network, critic_network, vision_range, drone_count, map_size, time_steps, share_encoder=False, manual_decay=False, use_tanh_dist=True):
-        super(ActorCriticPPO, self).__init__(actor_network, vision_range, drone_count, map_size, time_steps, manual_decay, use_tanh_dist)
-
+        super(ActorCriticPPO, self).__init__(actor_network=actor_network,
+                                             vision_range=vision_range,
+                                             drone_count=drone_count,
+                                             map_size=map_size,
+                                             time_steps=time_steps,
+                                             manual_decay=manual_decay,
+                                             use_tanh_dist=use_tanh_dist)
         inputspace = None if not share_encoder else self.actor.Inputspace
 
         self.critic = critic_network(vision_range, drone_count, map_size, time_steps, inputspace).to(self.device)
@@ -279,7 +284,12 @@ class ActorCriticIQL(StochasticActor):
     A PyTorch Module that represents the actor-critic network of an IQL agent.
     """
     def __init__(self, actor_network, critic_network, value_network, action_dim, vision_range, drone_count, map_size, time_steps, share_encoder, use_tanh_dist):
-        super(ActorCriticIQL, self).__init__(actor_network, critic_network, vision_range, drone_count, map_size, time_steps, use_tanh_dist)
+        super(ActorCriticIQL, self).__init__(actor_network=actor_network,
+                                             vision_range=vision_range,
+                                             drone_count=drone_count,
+                                             map_size=map_size,
+                                             time_steps=time_steps,
+                                             use_tanh_dist=use_tanh_dist)
 
         inputspace = None if not share_encoder else self.actor.Inputspace
 

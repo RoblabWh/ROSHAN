@@ -126,7 +126,7 @@ class PPO(RLAlgorithm):
         if self.manual_decay:
             if not self.use_logstep_decay:
                 ## Trainstep Decay
-                decay = -1 * (1 - (self.decay_rate ** train_step) ** 5)
+                decay = -20 * (1 - (self.decay_rate ** train_step) ** 5)
             else:
                 ## Logstep Decay
                 decay = np.log(np.exp(self.policy.actor.log_std.data[0].cpu()) * self.decay_rate)
@@ -210,8 +210,6 @@ class PPO(RLAlgorithm):
         logging_values = []
         # Prepare rewards
         rewards, log_rewards_raw, log_rewards_scaled = self.prepare_rewards(ext_rewards, t_dict)
-        logger.add_metric("Rewards/Rewards_Raw", log_rewards_raw)
-        logger.add_metric("Rewards/Rewards_norm", log_rewards_scaled)
 
         # Save current weights if mean reward or objective is higher than the best so far
         # (Save BEFORE training, so if the policy worsens we can still go back)
@@ -244,9 +242,6 @@ class PPO(RLAlgorithm):
         states = memory.rearrange_states(states)
         #v_masks = memory.rearrange_masks(variable_state_masks) if self.use_variable_state_masks else None
 
-        # Logging before proceeding to batched training
-        logger.add_metric("Rewards/Returns", returns.detach().cpu().numpy())
-        logger.add_metric("Rewards/Advantages", advantages.detach().cpu().numpy())
         # Train policy for K epochs: sampling and updating
         for _ in range(self.k_epochs):
             epoch_values = []
@@ -275,7 +270,6 @@ class PPO(RLAlgorithm):
                 entropy_loss = -self.entropy_coeff * dist_entropy.mean()
 
                 actor_loss = (-torch.min(surr1, surr2).type(torch.float32)).mean()
-                # actor_loss = -torch.mean(torch.min(ratios * advantages[index], torch.clamp(ratios, 1 - self.eps_clip, 1 + self.eps_clip) * advantages[index]))
 
                 # Value Loss Clipping is not helpful according to:
                 # https://iclr-blog-track.github.io/2022/03/25/ppo-implementation-details/
@@ -287,6 +281,13 @@ class PPO(RLAlgorithm):
                     approx_kl = (old_logprobs[index] - logprobs).mean().detach().cpu().numpy()
                     if not self.use_kl_1:
                         approx_kl = ((ratios - 1 - log_ratio).mean()).detach().cpu().numpy()
+                    # Stop the policy updates early when the new policy diverges too much from the old one
+                    if self.kl_early_stop and approx_kl >= self.kl_target and (_ + 1) != self.k_epochs:
+                        self.logger.warning(
+                            f"Approximate KL Divergence of {approx_kl} exceeded target KL of {self.kl_target}.")
+                        self.logger.info(
+                            f"Stopping Update Phase {logger.train_step} at K_Epoch {_ + 1}")
+                        break
                     logger.add_metric("Training/Approx_KL", approx_kl)
                     logger.add_metric("Training/Clip_Fraction", clip_fraction)
                     logger.add_metric("Training/value_loss", value_loss.detach().cpu().numpy())
@@ -341,14 +342,14 @@ class PPO(RLAlgorithm):
             # Compute explained variance over the epoch
             epoch_values = np.concatenate(epoch_values)
             epoch_returns = np.concatenate(epoch_returns)
-            ev = self.calculate_explained_variance(epoch_values, epoch_returns)
             # The Explained Variance should not go below zero, going towards 1 means critic is improving
+            # The EV is a measurement of how well the value function predicts the actual returns
+            ev = self.calculate_explained_variance(epoch_values, epoch_returns)
             logger.add_metric("Sanitylogs/Explained_Variance", ev)
 
-            if self.kl_early_stop and approx_kl >= self.kl_target:
-                self.logger.warning(f"Approximate KL Divergence of {approx_kl} exceeded target KL of {self.kl_target}.")
-                self.logger.info(
-                    f"Stopping Update Phase {logger.train_step} at K_Epoch {_ + 1}")
-                break
-
+        # Logging after training
+        logger.add_metric("Rewards/Returns", returns.detach().cpu().numpy())
+        logger.add_metric("Rewards/Advantages", advantages.detach().cpu().numpy())
+        logger.add_metric("Rewards/Rewards_Raw", log_rewards_raw)
+        logger.add_metric("Rewards/Rewards_norm", log_rewards_scaled)
         logger.add_metric("Rewards/Values", np.concatenate(logging_values).flatten())

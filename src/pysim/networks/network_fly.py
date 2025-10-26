@@ -203,7 +203,11 @@ class CriticPPO(Critic):
     A PyTorch Module that represents the critic network of a PPO agent.
     """
     def __init__(self, vision_range, drone_count, map_size, time_steps, inputspace=None):
-        super(CriticPPO, self).__init__(vision_range, drone_count, map_size, time_steps, inputspace)
+        super(CriticPPO, self).__init__(vision_range=vision_range,
+                                        drone_count=drone_count,
+                                        map_size=map_size,
+                                        time_steps=time_steps,
+                                        inputspace=inputspace)
 
         self.Inputspace_2 = None
         # Value
@@ -242,7 +246,11 @@ class OffPolicyCritic(Critic):
     A PyTorch Module that represents the critic network of an IQL agent.
     """
     def __init__(self, vision_range, drone_count, map_size, time_steps, action_dim, inputspace=None):
-        super(OffPolicyCritic, self).__init__(vision_range, drone_count, map_size, time_steps, inputspace)
+        super(OffPolicyCritic, self).__init__(vision_range=vision_range,
+                                              drone_count=drone_count,
+                                              map_size=map_size,
+                                              time_steps=time_steps,
+                                              inputspace=inputspace)
 
         # Q1 architecture
         self.l1 = nn.Linear(self.in_features + action_dim, 256)
