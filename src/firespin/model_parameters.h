@@ -120,6 +120,7 @@ public:
         fly_agent_speed_ = flyagent["max_speed"].as<double>();
         fly_agent_view_range_ = flyagent["view_range"].as<int>();
         fly_agent_time_steps_ = flyagent["time_steps"].as<int>();
+        fly_agent_collision_ = flyagent["collision"].as<bool>();
         use_simple_policy_ = flyagent["use_simple_policy"].as<bool>();
         use_velocity_change_ = flyagent["use_velocity_change"].as<bool>();
         use_vel_bins_ = flyagent["use_vel_bins"].as<bool>();
@@ -424,6 +425,7 @@ public:
     double fly_agent_speed_{};
     int fly_agent_view_range_{};
     int fly_agent_time_steps_{};
+    bool fly_agent_collision_{};
     bool use_simple_policy_{};
     bool use_velocity_change_{};
     bool use_vel_bins_{};

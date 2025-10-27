@@ -46,7 +46,7 @@ class HierarchyManager:
             medium.step_without_network(engine=engine)
             self._reset_agent(medium)
 
-        medium.hierarchy_early_stop, _ = self.hierarchy["explore_low"].eval_loop(engine=engine, evaluate=False)
+        medium.hierarchy_early_stop = all(self.hierarchy["explore_low"].eval_loop(engine=engine, evaluate=False))
         medium.hierarchy_steps += 1
 
     def _train_low(self, engine):
@@ -74,7 +74,7 @@ class HierarchyManager:
             self._reset_agent(high)
 
         if medium:
-            medium.hierarchy_early_stop, _ = self.hierarchy["explore_low"].eval_loop(engine=engine, evaluate=False)
+            medium.hierarchy_early_stop = all(self.hierarchy["explore_low"].eval_loop(engine=engine, evaluate=False))
 
         self.hierarchy["plan_low"].eval_loop(engine=engine, evaluate=False)
         high.hierarchy_steps += 1
@@ -86,7 +86,7 @@ class HierarchyManager:
             medium.step_without_network(engine)
             self._reset_agent(medium)
 
-        medium.hierarchy_early_stop, _ = self.hierarchy["explore_low"].eval_loop(engine=engine, evaluate=False)
+        medium.hierarchy_early_stop = all(self.hierarchy["explore_low"].eval_loop(engine=engine, evaluate=False))
         medium.hierarchy_steps += 1
 
     def _eval_low(self, engine):

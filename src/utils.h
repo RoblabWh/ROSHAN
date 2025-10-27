@@ -108,6 +108,7 @@ struct EpisodeSummary {
     bool env_reset{false};
     bool any_failed{false};
     bool any_succeeded{false};
+    bool explorers_reached_goal{true};
     FailureReason reason{FailureReason::None};
     // These two are no longer needed, but this would be the place to add them when you would change the behavior
     // from ONE agent fails/succeeds to ALL agents must fail/succeed -> but this requires huge changes in alot of

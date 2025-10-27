@@ -26,6 +26,7 @@ void ExploreAgent::Initialize(std::vector<std::shared_ptr<FlyAgent>> fly_agents,
         auto goal = perfect_goals_[fly_agent->GetId()][goal_idx_];
         std::pair<double, double> local_goal = std::make_pair(goal.first, goal.second);
         fly_agent->SetGoalPosition({local_goal.first, local_goal.second});
+        fly_agent->SetObjectiveReached(false);
         fly_agent->SetRevisitedCells(revisited_cells_);
     }
 
@@ -102,6 +103,7 @@ void ExploreAgent::PerformExplore(ExploreAction *action, const std::string& hier
         std::pair<double, double> local_goal = std::make_pair(goal.first, goal.second);
 //        auto local_goal = fly_agent->CalculateLocalGoal(goal_x, goal_y);
         fly_agent->SetGoalPosition({local_goal.first, local_goal.second});
+        fly_agent->SetObjectiveReached(false);
         fly_agent->SetRevisitedCells(revisited_cells_);
 //        fly_agent->SetGoalPosition({goal_x, goal_y});
     }

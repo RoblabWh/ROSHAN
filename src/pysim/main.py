@@ -41,9 +41,9 @@ def assert_config(config):
         assert c_settings["log_eval"], ("log_eval should be True when rl_mode is 'train'. While this would"
                                        " work, it is more likely than not that the user did not intend to do this.")
     if hierarchy_type == "planner_agent":
-        assert config["environment"]["agent"]["fly_agent"]["default_model_folder"] != "", \
-            "default_model_folder for fly_agent cannot be empty in config.yaml when planner_agent is selected."
-        assert config["environment"]["agent"]["fly_agent"]["default_model_name"] != "", \
+        assert config["environment"]["agent"]["planner_agent"]["default_model_folder"] != "", \
+            "default_model_folder for planner_agent cannot be empty in config.yaml when planner_agent is selected."
+        assert config["environment"]["agent"]["planner_agent"]["default_model_name"] != "", \
             "default_model_name cannot be empty in config.yaml when planner_agent is selected."
     # Assert that resume is off when auto_train is on
     if c_settings["auto_train"]["use_auto_train"]:

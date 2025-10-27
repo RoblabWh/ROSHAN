@@ -106,6 +106,7 @@ public:
     std::pair<double, double> GetVelocityVecNorm() const { return {vel_vector_.first / max_speed_.first / norm_scale_, vel_vector_.second / max_speed_.second / norm_scale_}; }
     //** Setter **//
     void SetGoalPosition(std::pair<double, double> goal_position) { goal_position_ = goal_position; }
+    void SetObjectiveReached(bool reached) { objective_reached_ = reached; }
     void SetPosition(std::pair<double, double> point) { position_ = std::make_pair((point.first) * parameters_.GetCellSize(), (point.second) * parameters_.GetCellSize()); }
     void SetRevisitedCells(int revisited_cells) { last_step_total_revisited_cells_of_all_agents_ = revisited_cells; }
     void SetAgentSubType(const std::string& agent_type) { agent_sub_type_ = agent_type; }
@@ -152,6 +153,7 @@ private:
     int policy_type_ = EXTINGUISH_FIRE;
     bool extinguished_last_fire_ = false;
     bool active_ = false;
+    bool collision_ = true;
 
     TextureRenderer drone_texture_renderer_;
     TextureRenderer goal_texture_renderer_;
@@ -178,6 +180,7 @@ private:
     // Currently just for Debugging
     int last_step_total_revisited_cells_of_all_agents_{};
     bool should_render_ = true; // If false, the agent will not render anything
+    bool is_explorer_ = false;
 };
 
 #endif //ROSHAN_FLY_AGENT_H

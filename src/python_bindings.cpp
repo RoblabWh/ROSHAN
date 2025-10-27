@@ -104,6 +104,7 @@ PYBIND11_MODULE(firesim, m) {
             .def_readonly("env_reset",       &EpisodeSummary::env_reset)
             .def_readonly("any_failed",      &EpisodeSummary::any_failed)
             .def_readonly("any_succeeded",   &EpisodeSummary::any_succeeded)
+            .def_readonly("explorers_reached_goal", &EpisodeSummary::explorers_reached_goal)
             .def_readonly("reason",          &EpisodeSummary::reason);
 
     py::class_<StepResult>(m, "StepResult")

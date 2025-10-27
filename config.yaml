@@ -16,7 +16,7 @@ settings:
   # Will probably break everything if set to true
   llm_support: false
   # Type of hierarchy to use for the agents (fly_agent, explore_agent, planner_agent)
-  hierarchy_type: explore_agent
+  hierarchy_type: planner_agent
   # Uses this config as default and skips the GUI setup
   skip_gui_init: true
   # Enable PyTorch autograd anomaly detection (useful for debugging; slows down training)
@@ -258,6 +258,9 @@ environment:
     # for convenience, all drones have the same size
     drone_size: 2 
     fly_agent:
+      # Whether the agent should avoid collisions with other agents
+      # This changes the network input space and terminal conditions
+      collision: true
       # Two types of policies can be learned:
       # Simple Policy: The episode ends when one agent reaches its goal_position
       # Complex Policy: The episode ends when all fires are extinguished (this influences the reward structure slightly)
@@ -280,11 +283,6 @@ environment:
       max_speed: 10.0
       # View range of the FlyAgent in cells
       view_range: 10 
-      # Default model path for the fly_agent (either absolute or relative to the project root)
-      default_model_folder: models/TestNewVel_3_Entropy_Dt01/
-      # You can fast load models with suffixes ["latest", "best_reward", "best_obj"]
-      # If you want to load a specific model, set the model_name to the name of the model file
-      default_model_name: best_obj
     explore_agent:
       # Determines the frequency of action selection (1 = every frame, 2 = every 2nd frame, etc.)
       frame_skips: 1 
@@ -299,10 +297,11 @@ environment:
       max_speed: 10.0 
       # View range of the explore_agent in cells
       view_range: 12 
-      # Keep empty for future use and compatibility with pipeline
-      default_model_folder: "" 
-      # Keep empty for future use and compatibility with pipeline lol
-      default_model_name: ""  
+      # Default model path for the fly_agent (either absolute or relative to the project root)
+      default_model_folder: "models/SimpleInputTest/" 
+      # You can fast load models with suffixes ["latest", "best_reward", "best_objective"]
+      # If you want to load a specific model, set the model_name to the name of the model file
+      default_model_name: best_obj
     planner_agent:
       # Determines the frequency of action selection (1 = every frame, 2 = every 2nd frame, etc.)
       frame_skips: 1 
@@ -317,7 +316,7 @@ environment:
       # View range of the ExtinguishAgent in cells
       view_range: 10 
       # Default model path for the fly_agent (either absolute or relative to the project root)
-      default_model_folder: models/TestNewVel_3_Entropy_Dt01/ 
+      default_model_folder: "models/SimpleInputTest/"
       # You can fast load models with suffixes ["latest", "best_reward", "best_objective"]
       # If you want to load a specific model, set the model_name to the name of the model file
       default_model_name: best_obj

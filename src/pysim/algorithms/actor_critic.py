@@ -96,11 +96,17 @@ class StochasticActor(nn.Module):
     """
     A PyTorch Module that represents the actor-critic network of a PPO agent.
     """
-    def __init__(self, actor_network, vision_range, drone_count, map_size, time_steps, manual_decay=False, use_tanh_dist=True):
+    def __init__(self, actor_network, vision_range, drone_count, map_size, time_steps, manual_decay, use_tanh_dist, collision):
         super(StochasticActor, self).__init__()
         self.device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
         self.use_tanh_dist = use_tanh_dist
-        self.actor = actor_network(vision_range, drone_count, map_size, time_steps, manual_decay, use_tanh_dist).to(self.device)
+        self.actor = actor_network(vision_range=vision_range,
+                                   drone_count=drone_count,
+                                   map_size=map_size,
+                                   time_steps=time_steps,
+                                   manual_decay=manual_decay,
+                                   use_tanh_dist=use_tanh_dist,
+                                   collision=collision).to(self.device)
         self.actor.apply(init_fn)
 
     def get_distribution(self, action_mean, action_std):
@@ -163,12 +169,21 @@ class DeterministicActorCritic(nn.Module):
     """
     A PyTorch Module that represents the actor-critic network of a deterministic agent.
     """
-    def __init__(self, actor_network, critic_network, action_dim, exploration_noise, vision_range, drone_count, map_size, time_steps):
+    def __init__(self, actor_network, critic_network, action_dim, exploration_noise, vision_range, drone_count, map_size, time_steps, collision):
         super(DeterministicActorCritic, self).__init__()
         self.device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
-        self.actor = actor_network(vision_range, drone_count, map_size, time_steps).to(self.device)
+        self.actor = actor_network(vision_range=vision_range,
+                                   drone_count=drone_count,
+                                   map_size=map_size,
+                                   time_steps=time_steps,
+                                   collision=collision).to(self.device)
         self.actor.apply(init_fn)
-        self.critic = critic_network(vision_range, drone_count, map_size, time_steps, action_dim).to(self.device)
+        self.critic = critic_network(vision_range=vision_range,
+                                     drone_count=drone_count,
+                                     map_size=map_size,
+                                     time_steps=time_steps,
+                                     action_dim=action_dim,
+                                     collision=collision).to(self.device)
         self.critic.apply(init_fn)
         self.exploration_noise = exploration_noise
 
@@ -204,17 +219,24 @@ class ActorCriticPPO(StochasticActor):
     """
     A PyTorch Module that represents the actor-critic network of a PPO agent.
     """
-    def __init__(self, actor_network, critic_network, vision_range, drone_count, map_size, time_steps, share_encoder=False, manual_decay=False, use_tanh_dist=True):
+    def __init__(self, actor_network, critic_network, vision_range, drone_count, map_size, time_steps, share_encoder, manual_decay, use_tanh_dist, collision):
         super(ActorCriticPPO, self).__init__(actor_network=actor_network,
                                              vision_range=vision_range,
                                              drone_count=drone_count,
                                              map_size=map_size,
                                              time_steps=time_steps,
                                              manual_decay=manual_decay,
-                                             use_tanh_dist=use_tanh_dist)
+                                             use_tanh_dist=use_tanh_dist,
+                                             collision=collision)
+
         inputspace = None if not share_encoder else self.actor.Inputspace
 
-        self.critic = critic_network(vision_range, drone_count, map_size, time_steps, inputspace).to(self.device)
+        self.critic = critic_network(vision_range=vision_range,
+                                     drone_count=drone_count,
+                                     map_size=map_size,
+                                     time_steps=time_steps,
+                                     inputspace=inputspace,
+                                     collision=collision).to(self.device)
         self.critic.apply(init_fn)
 
     def evaluate(self, state, action, masks=None):
@@ -258,13 +280,14 @@ class ActorCriticIQL(StochasticActor):
     """
     A PyTorch Module that represents the actor-critic network of an IQL agent.
     """
-    def __init__(self, actor_network, critic_network, value_network, action_dim, vision_range, drone_count, map_size, time_steps, share_encoder, use_tanh_dist):
+    def __init__(self, actor_network, critic_network, value_network, action_dim, vision_range, drone_count, map_size, time_steps, share_encoder, use_tanh_dist, collision):
         super(StochasticActor, self).__init__(actor_network=actor_network,
                                              vision_range=vision_range,
                                              drone_count=drone_count,
                                              map_size=map_size,
                                              time_steps=time_steps,
-                                             use_tanh_dist=use_tanh_dist)
+                                             use_tanh_dist=use_tanh_dist,
+                                             collision=collision)
 
         self._fixed_log_std = nn.Parameter(
             torch.full((2,), -3.0),  # std ≈ 0.05

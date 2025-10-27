@@ -20,6 +20,7 @@ class AgentHandler:
         # A sub agent is an agent that is part of a lower hierarchy level,
         # e.g. a PlannerFlyAgent is a sub agent of ExploreFlyAgent or PlannerFlyAgent
         self.is_sub_agent = is_sub_agent
+        self.subtype = subtype
         self.agent_type_str = agent_type
 
         # If agent_type is None it is the FIRST selected agent type(this determines the hierarchy)
@@ -81,12 +82,23 @@ class AgentHandler:
                                                  map_size=map_size, time_steps=time_steps)
 
         root_path = get_project_paths("root_path")
-        loading_path, loading_name, model_path, model_name = None, None, None, None
+        default_model_folder, default_model_name, loading_path, loading_name, model_path, model_name = None, None, None, None, None, None
         if self.is_sub_agent:
-            # If this is a sub agent, we load the model from the default agent's model path
-            loading_path = os.path.join(root_path, agent_dict["default_model_folder"])
+            if not self.agent_type_str == "explore_agent":
+                # If this is a sub agent, we load the model from the default agent's model path
+                assert self.subtype in ["ExploreFlyAgent", "PlannerFlyAgent"], f"{self.subtype} is not a valid sub agent type"
+                agent_type_d = None
+                if self.subtype == "ExploreFlyAgent":
+                    agent_type_d = "explore_agent"
+                elif self.subtype == "PlannerFlyAgent":
+                    agent_type_d = "planner_agent"
+                default_model_folder = config["environment"]["agent"][agent_type_d]["default_model_folder"]
+                default_model_name = config["environment"]["agent"][agent_type_d]["default_model_name"]
+                loading_path = os.path.join(root_path, default_model_folder)
+            else:
+                loading_path = ""
             loading_name, later_logs = self.get_model_name(path=str(loading_path),
-                                               model_string=agent_dict["default_model_name"],
+                                               model_string=default_model_name,
                                                agent_type=agent_type,
                                                is_loading_name=True)
             model_path = loading_path
@@ -141,6 +153,21 @@ class AgentHandler:
         # - The optimizer state
         # - The memory state (possibly, for OffPolicy algorithms)
         # - The logger state
+        share_encoder = config["algorithm"]["share_encoder"],
+        use_tanh_dist = config["algorithm"]["use_tanh_dist"],
+        collision = config["environment"]["agent"]["fly_agent"]["collision"]
+        if default_model_folder is not None:
+            # We need to inject some network parameter from the saved config if possible
+            config_path = os.path.join(get_project_paths("root_path"), default_model_folder, "config.yaml")
+            if os.path.exists(config_path):
+                with open(config_path, 'r') as f:
+                    injecting_config = yaml.safe_load(f)
+                share_encoder = injecting_config["algorithm"]["share_encoder"]
+                use_tanh_dist = injecting_config["algorithm"]["use_tanh_dist"]
+                collision = injecting_config["environment"]["agent"]["fly_agent"]["collision"]
+                self.logger.info("Injected network parameters from sub agent config at {}".format(config_path))
+            else:
+                self.logger.warning("No config file found at {}, cannot inject network parameters".format(config_path))
 
         rl_config = RLConfig(algorithm=algorithm,
                                  use_auto_train=use_auto_train,
@@ -152,8 +179,9 @@ class AgentHandler:
                                  drone_count=drone_count,
                                  map_size=map_size,
                                  time_steps=time_steps,
-                                 share_encoder=config["algorithm"]["share_encoder"],
-                                 use_tanh_dist=config["algorithm"]["use_tanh_dist"])
+                                 share_encoder=share_encoder,
+                                 use_tanh_dist=use_tanh_dist,
+                                 collision=collision)
 
         algo_overrides = config["algorithm"].get(self.algorithm_name, {})
 
@@ -462,7 +490,9 @@ class AgentHandler:
         log = ""
         probe_rl_mode = self.rl_mode if new_rl_mode is None else new_rl_mode
         train = True if probe_rl_mode == "train" else False
-        if not train:
+        if self.algorithm_name == 'no_algo':
+            log += "No algorithm used, no model to load"
+        elif not train:
             if self.algorithm.load():
                 self.algorithm.set_eval()
                 log += (f"Load model from checkpoint: {os.path.join(self.algorithm.loading_path, self.algorithm.loading_name)}"
@@ -471,7 +501,7 @@ class AgentHandler:
                 self.algorithm.set_train()
                 self.rl_mode = "train"
                 log +=  "No checkpoint found to evaluate model, start training from scratch"
-        elif self.resume and not self.algorithm_name == 'no_algo':
+        elif self.resume:
             if self.algorithm.load():
                 self.algorithm.set_train()
                 log += f"Load model from checkpoint: {os.path.join(self.algorithm.loading_path, self.algorithm.loading_name)}" \
@@ -479,8 +509,6 @@ class AgentHandler:
             else:
                 self.algorithm.set_train()
                 log += "No checkpoint found to resume training, start training from scratch"
-        elif self.algorithm_name == 'no_algo':
-            log += "No algorithm used, no model to load"
         else:
             self.algorithm.set_train()
             log += "Training from scratch"
@@ -627,7 +655,7 @@ class AgentHandler:
 
         self.env_step += 1
 
-        return terminal_result.any_succeeded, terminal_result.env_reset
+        return terminals_vector
 
     def check_reset(self, flags):
         """

@@ -321,6 +321,7 @@ StepResult ReinforcementLearningHandler::Step(const std::string& agent_type, std
         // Get Terminal State from the Agent
         auto terminal_state = agent->GetTerminalStates(eval_mode_, gridmap_, total_env_steps_);
         result.terminals[i] = terminal_state;
+        result.summary.explorers_reached_goal &= terminal_state.kind == TerminationKind::Succeeded;
 
         if (agent->GetPerformedHierarchyAction()) {
             result.rewards.push_back(agent->CalculateReward(gridmap_));

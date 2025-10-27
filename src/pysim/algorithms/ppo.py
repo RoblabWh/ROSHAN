@@ -117,7 +117,8 @@ class PPO(RLAlgorithm):
                                          time_steps=self.time_steps,
                                          share_encoder=self.share_encoder,
                                          manual_decay=self.manual_decay,
-                                         use_tanh_dist=self.use_tanh_dist)
+                                         use_tanh_dist=self.use_tanh_dist,
+                                         collision=self.collision)
 
         self.actor_params = self.policy.actor.parameters()
         self.critic_params = self.policy.critic.parameters()
@@ -211,6 +212,8 @@ class PPO(RLAlgorithm):
         # Prepare rewards
         rewards, log_rewards_raw, log_rewards_scaled = self.prepare_rewards(ext_rewards, t_dict)
 
+        logger.add_metric("Rewards/Rewards_Raw", log_rewards_raw)
+        logger.add_metric("Rewards/Rewards_norm", log_rewards_scaled)
         # Save current weights if mean reward or objective is higher than the best so far
         # (Save BEFORE training, so if the policy worsens we can still go back)
         self.save(logger)
@@ -241,6 +244,8 @@ class PPO(RLAlgorithm):
         old_logprobs = torch.cat(old_logprobs).detach()
         states = memory.rearrange_states(states)
         #v_masks = memory.rearrange_masks(variable_state_masks) if self.use_variable_state_masks else None
+        logger.add_metric("Rewards/Returns", returns.detach().cpu().numpy())
+        logger.add_metric("Rewards/Advantages", advantages.detach().cpu().numpy())
 
         # Train policy for K epochs: sampling and updating
         for _ in range(self.k_epochs):
@@ -346,8 +351,4 @@ class PPO(RLAlgorithm):
             logger.add_metric("Sanitylogs/Explained_Variance", ev)
 
         # Logging after training
-        logger.add_metric("Rewards/Returns", returns.detach().cpu().numpy())
-        logger.add_metric("Rewards/Advantages", advantages.detach().cpu().numpy())
-        logger.add_metric("Rewards/Rewards_Raw", log_rewards_raw)
-        logger.add_metric("Rewards/Rewards_norm", log_rewards_scaled)
         logger.add_metric("Rewards/Values", np.concatenate(logging_values).flatten())

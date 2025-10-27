@@ -58,7 +58,8 @@ class IQL(RLAlgorithm):
                                      map_size=self.map_size,
                                      time_steps=self.time_steps,
                                      share_encoder=self.share_encoder,
-                                     use_tanh_dist=self.use_tanh_dist)
+                                     use_tanh_dist=self.use_tanh_dist,
+                                     collision=self.collision)
         # Target Q network
         self.critic_target = copy.deepcopy(self.policy.critic)
 

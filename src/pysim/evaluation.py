@@ -25,6 +25,7 @@ METRIC_REGISTRY: List[Type[Metric]] = [
     TimeMetric,
     PercentBurnedMetric,
     SuccessMetric,
+    FailureReason,
 ]
 
 METRIC_REGISTRY_FLY_AGENT: List[Type[Metric]] = [
@@ -637,7 +638,7 @@ class TensorboardLogger:
             self.best_metrics["current_objective"] = float(np.mean(self.objectives))
 
     def get_best_objective(self):
-        if self.best_metrics["current_objective"] > self.best_metrics["best_objective"]:
+        if self.best_metrics["current_objective"] >= self.best_metrics["best_objective"]:
             return True, self.best_metrics["current_objective"]
         else:
             return False, self.best_metrics["best_objective"]

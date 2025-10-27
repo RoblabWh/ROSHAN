@@ -38,6 +38,7 @@ class RLConfig:
     # Algorithm parameters
     share_encoder: bool = False
     use_tanh_dist: bool = True
+    collision: bool = True
 
 @dataclass
 class NoAlgorithmConfig(RLConfig):

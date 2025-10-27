@@ -66,6 +66,53 @@ class NeighborEncoder(nn.Module):
         pooled = torch.cat([pooled, no_neigh_flag], dim=-1)  # (BT, D+1)
         return pooled.reshape(B, T, -1)
 
+class SimpleInput(nn.Module):
+
+    def __init__(self, vision_range, time_steps):
+        """
+        A PyTorch Module that represents the input space of a neural network.
+        """
+        super(SimpleInput, self).__init__()
+
+        self.device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
+        self.vision_range = vision_range
+        self.time_steps = time_steps
+
+        hidden = 64
+        self.self_mlp = nn.Sequential(
+            nn.Linear(4, hidden), nn.ReLU(inplace=True),
+            nn.Linear(hidden, hidden), nn.ReLU(inplace=True),
+        )
+
+        self.out_features = hidden * self.time_steps
+
+        self.flatten = nn.Flatten()
+
+    def prepare_tensor(self, states):
+        velocity, position = states
+
+        if not torch.is_tensor(velocity):
+            velocity = torch.as_tensor(velocity, dtype=torch.float32)
+        if not torch.is_tensor(position):
+            position = torch.as_tensor(position, dtype=torch.float32)
+
+        # Only move if needed
+        if velocity.device != self.device:
+            velocity = velocity.to(self.device)
+        if position.device != self.device:
+            position = position.to(self.device)
+
+        return velocity, position
+
+    def forward(self, states):
+        velocity, delta_goal = self.prepare_tensor((states[1], states[2]))
+        delta_position = delta_goal - velocity
+        x = torch.cat((velocity, delta_position), dim=-1)
+        x = self.self_mlp(x)
+        output_vision = torch.flatten(x, start_dim=1)
+
+        return output_vision
+
 class Inputspace(nn.Module):
 
     def __init__(self, vision_range, time_steps):
@@ -162,9 +209,9 @@ class StochasticActor(nn.Module):
     """
     A PyTorch Module that represents the actor network of a PPO agent.
     """
-    def __init__(self, vision_range, drone_count, map_size, time_steps, manual_decay=False, use_tanh_dist=True):
+    def __init__(self, vision_range, drone_count, map_size, time_steps, manual_decay, use_tanh_dist, collision):
         super(StochasticActor, self).__init__()
-        self.Inputspace = Inputspace(vision_range, time_steps=time_steps)
+        self.Inputspace = Inputspace(vision_range, time_steps=time_steps) if collision else SimpleInput(vision_range, time_steps=time_steps)
         self.in_features = self.Inputspace.out_features
         self.use_tanh_dist = use_tanh_dist
         # Mu
@@ -189,10 +236,14 @@ class Critic(nn.Module):
     """
     A PyTorch Module that represents the critic network of a PPO agent.
     """
-    def __init__(self, vision_range, drone_count, map_size, time_steps, inputspace=None):
+    def __init__(self, vision_range, drone_count, map_size, time_steps, inputspace, collision):
         super(Critic, self).__init__()
-        self.Inputspace_1 = Inputspace(vision_range, time_steps=time_steps) if not inputspace else inputspace
-        self.Inputspace_2 = Inputspace(vision_range, time_steps=time_steps) if not inputspace else inputspace
+        if not inputspace:
+            self.Inputspace_1 = Inputspace(vision_range, time_steps=time_steps) if collision else SimpleInput(vision_range, time_steps=time_steps)
+            self.Inputspace_2 = Inputspace(vision_range, time_steps=time_steps) if collision else SimpleInput(vision_range, time_steps=time_steps)
+        else:
+            self.Inputspace_1 = inputspace
+            self.Inputspace_2 = inputspace
         self.in_features = self.Inputspace_1.out_features
 
     def forward(self, *args, **kwargs):
@@ -202,12 +253,13 @@ class CriticPPO(Critic):
     """
     A PyTorch Module that represents the critic network of a PPO agent.
     """
-    def __init__(self, vision_range, drone_count, map_size, time_steps, inputspace=None):
+    def __init__(self, vision_range, drone_count, map_size, time_steps, inputspace, collision):
         super(CriticPPO, self).__init__(vision_range=vision_range,
                                         drone_count=drone_count,
                                         map_size=map_size,
                                         time_steps=time_steps,
-                                        inputspace=inputspace)
+                                        inputspace=inputspace,
+                                        collision=collision)
 
         self.Inputspace_2 = None
         # Value
@@ -223,9 +275,9 @@ class DeterministicActor(nn.Module):
     """
     A PyTorch Module that represents the actor network of a deterministic agent.
     """
-    def __init__(self, vision_range, drone_count, map_size, time_steps):
+    def __init__(self, vision_range, drone_count, map_size, time_steps, collision):
         super(DeterministicActor, self).__init__()
-        self.Inputspace = Inputspace(vision_range, time_steps=time_steps)
+        self.Inputspace = Inputspace(vision_range, time_steps=time_steps) if collision else SimpleInput(vision_range, time_steps=time_steps)
         self.in_features = self.Inputspace.out_features
 
         # Mu
@@ -245,12 +297,13 @@ class OffPolicyCritic(Critic):
     """
     A PyTorch Module that represents the critic network of an IQL agent.
     """
-    def __init__(self, vision_range, drone_count, map_size, time_steps, action_dim, inputspace=None):
+    def __init__(self, vision_range, drone_count, map_size, time_steps, action_dim, inputspace, collision):
         super(OffPolicyCritic, self).__init__(vision_range=vision_range,
                                               drone_count=drone_count,
                                               map_size=map_size,
                                               time_steps=time_steps,
-                                              inputspace=inputspace)
+                                              inputspace=inputspace,
+                                              collision=collision)
 
         # Q1 architecture
         self.l1 = nn.Linear(self.in_features + action_dim, 256)
@@ -293,9 +346,12 @@ class Value(nn.Module):
     A PyTorch Module that represents the value network of an IQL agent.
     It estimates V(s), the state value.
     """
-    def __init__(self, vision_range, drone_count, map_size, time_steps, inputspace):
+    def __init__(self, vision_range, drone_count, map_size, time_steps, inputspace, collision):
         super(Value, self).__init__()
-        self.Inputspace = Inputspace(vision_range, time_steps=time_steps) if not inputspace else inputspace
+        if not inputspace:
+            self.Inputspace = Inputspace(vision_range, time_steps=time_steps) if collision else SimpleInput(vision_range, time_steps=time_steps)
+        else:
+            self.Inputspace = inputspace
         self.in_features = self.Inputspace.out_features
 
         # Simple MLP head for value estimation

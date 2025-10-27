@@ -12,6 +12,7 @@ Agent(parameters, 300){
     time_steps_ = time_steps;
     water_capacity_ = parameters_.GetWaterCapacity();
     frame_skips_ = parameters_.fly_agent_frame_skips_;
+    collision_ = parameters_.fly_agent_collision_;
     frame_ctrl_ = 0;
     out_of_area_counter_ = 0;
     vel_vector_ = {0.0, 0.0};
@@ -34,7 +35,9 @@ void FlyAgent::Initialize(int mode,
         this->SetDroneTextureRenderer(model_renderer->GetRenderer(), asset_path);
         this->SetGoalTextureRenderer(model_renderer->GetRenderer());
     }
-
+    if (agent_sub_type_ == "ExploreFlyAgent") {
+        is_explorer_ = true;
+    }
     max_speed_ = std::make_pair(speed, speed);
     max_acceleration_ = std::make_pair(speed / 2, speed / 2);
     view_range_ = view_range;
@@ -107,9 +110,7 @@ void FlyAgent::PerformFly(FlyAction* action, const std::string& hierarchy_type, 
             objective_reached_ = true;
         }
         did_hierarchy_step = true;
-    } 
-    else {
-        objective_reached_ = false;
+    } else {
         if (almostEqual(this->GetGoalPosition(), this->GetGridPositionDouble())) {
             objective_reached_ = true;
         }
@@ -145,7 +146,7 @@ double FlyAgent::CalculateReward(const std::shared_ptr<GridMap>& grid_map) {
         reward_components["Extinguish"] = 0.01; // + bonus_log;
     }
 
-    if (collision_occurred_) {
+    if (collision_occurred_ && collision_) {
         reward_components["Collision"] = -1;
     }
 
@@ -174,30 +175,28 @@ AgentTerminal FlyAgent::GetTerminalStates(bool eval_mode, const std::shared_ptr<
 
     AgentTerminal t;
 
-    // If the agent has flown out of the grid it has reached a terminal state and died
-    if (GetOutOfAreaCounter() > 1) {
-        t.is_terminal = true;
-        t.reason = FailureReason::BoundaryExit;
-    }
+    if(!is_explorer_){
+        // If the agent has flown out of the grid it has reached a terminal state and died
+        if (GetOutOfAreaCounter() > 1) {
+            t.is_terminal = true;
+            t.reason = FailureReason::BoundaryExit;
+        }
 
-    if (collision_occurred_) {
-        t.is_terminal = true;
-        t.reason = FailureReason::Collision;
-    }
+        if (collision_occurred_ && collision_) {
+            t.is_terminal = true;
+            t.reason = FailureReason::Collision;
+        }
 
-    // If the agent has taken too long it has reached a terminal state and died
-    if (env_steps_remaining <= 0) {
-        t.is_terminal = true;
-        t.reason = FailureReason::Timeout;
+        // If the agent has taken too long it has reached a terminal state and died
+        if (env_steps_remaining <= 0) {
+            t.is_terminal = true;
+            t.reason = FailureReason::Timeout;
+        }
     }
 
     // If the drone has reached the goal and it is not in evaluation mode
     // the goal is reached because the fly agent is trained that way
-    if (objective_reached_) {
-        t.is_terminal = true;
-    }
-
-    if (!parameters_.use_simple_policy_){
+    if (!parameters_.use_simple_policy_ && !is_explorer_){
         if (extinguished_last_fire_) {
             t.is_terminal = true;
             objective_reached_ = true;
@@ -205,6 +204,10 @@ AgentTerminal FlyAgent::GetTerminalStates(bool eval_mode, const std::shared_ptr<
         }
 
         if (!grid_map->IsBurning()) {
+            t.is_terminal = true;
+        }
+    } else {
+        if (objective_reached_) {
             t.is_terminal = true;
         }
     }
