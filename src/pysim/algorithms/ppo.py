@@ -277,12 +277,15 @@ class PPO(RLAlgorithm):
 
                 # Log loss
                 with torch.no_grad():
+                    logging_values.append(values.detach().cpu().numpy())
+                    epoch_values.append(values.detach().cpu().numpy())
+                    epoch_returns.append(returns[index].detach().cpu().numpy())
                     clip_fraction = ((ratios < (1 - self.eps_clip)) | (ratios > (1 + self.eps_clip))).float().mean().cpu().numpy()
                     approx_kl = (old_logprobs[index] - logprobs).mean().detach().cpu().numpy()
                     if not self.use_kl_1:
                         approx_kl = ((ratios - 1 - log_ratio).mean()).detach().cpu().numpy()
                     # Stop the policy updates early when the new policy diverges too much from the old one
-                    if self.kl_early_stop and approx_kl >= self.kl_target and (_ + 1) != self.k_epochs:
+                    if self.kl_early_stop and approx_kl >= self.kl_target:
                         self.logger.warning(
                             f"Approximate KL Divergence of {approx_kl} exceeded target KL of {self.kl_target}.")
                         self.logger.info(
@@ -294,9 +297,6 @@ class PPO(RLAlgorithm):
                     logger.add_metric("Training/actor_loss", actor_loss.detach().cpu().numpy())
                     logger.add_metric("Training/entropy_loss", entropy_loss.detach().cpu().numpy())
                     logger.add_metric("Training/log_std", torch.exp(self.policy.actor.log_std).detach().cpu().numpy())
-                    logging_values.append(values.detach().cpu().numpy())
-                    epoch_values.append(values.detach().cpu().numpy())
-                    epoch_returns.append(returns[index].detach().cpu().numpy())
 
                 # Sanity checks
                 # torch.cuda.synchronize()  # catch deferred CUDA errors

@@ -39,6 +39,8 @@ class IQL(RLAlgorithm):
         self.offline_start = True
         self.offline_end = False
         self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+        self.use_noised_action = True
+        self.raw_action = None
 
         self.set_train()
 
@@ -95,6 +97,11 @@ class IQL(RLAlgorithm):
             self.value_scheduler.load_state_dict(checkpoint['value_scheduler_state_dict'])
         except Exception as e:
             warnings.warn(f"Could not load IQL optimizers from {path}: {e}")
+
+    def select_action(self, observations):
+        noised_action, raw_action = self.policy.act(observations)
+        self.raw_action = raw_action
+        return noised_action, None
 
     @staticmethod
     def asymmetric_l2_loss(diff, expectile=0.8):

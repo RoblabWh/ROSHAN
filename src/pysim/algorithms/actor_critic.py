@@ -113,27 +113,6 @@ class StochasticActor(nn.Module):
         dist = Independent(dist, 1)  # Treat the last dimension as the event dimension
         return dist
 
-    def get_logprobs(self, states, actions):
-        # Get action means and variances from the actor network
-        action_mean, action_var = self.actor(states)  # action_mean: [batch_size, action_size], action_var: [action_size, ]
-
-        # Expand action_var to match action_mean
-        batch_size = action_mean.size(0)
-        action_size = action_mean.size(1)
-        action_var = action_var.unsqueeze(0).expand(batch_size, action_size)  # Shape: [batch_size, action_size]
-        action_std = torch.sqrt(action_var)  # Shape: [batch_size, action_size]
-
-        # Create independent normal distributions for each action dimension
-        dist = self.get_distribution(action_mean, action_std)
-
-        if self.use_tanh_dist:
-            # For Tanh-squashed normal distribution, clamp actions to avoid NaNs in log_prob due to intervals
-            actions = actions.clamp(-1 + 1e-6, 1 - 1e-6)
-        # Compute log probabilities of the taken actions
-        action_logprob = dist.log_prob(actions)  # action: [batch_size, action_size], action_logprob: [batch_size]
-
-        return action_logprob
-
     def act(self, state):
         """
         Returns an action sampled from the actor's distribution and the log probability of that action.
@@ -144,33 +123,29 @@ class StochasticActor(nn.Module):
 
         # TODO: check if normalization of states is necessary
         # was suggested in: Implementation_Matters in Deep RL: A Case Study on PPO and TRPO
-        try:
-            with torch.no_grad():
-                action_mean, action_var = self.actor(state)
+        with torch.no_grad():
+            action_mean, action_var = self.actor(state)
 
-                # Move Tensors to CPU
-                action_mean = action_mean.cpu()
-                action_var = action_var.cpu()
+            # Move Tensors to CPU
+            action_mean = action_mean.cpu()
+            action_var = action_var.cpu()
 
-                dist = self.get_distribution(action_mean, torch.sqrt(action_var))
+            dist = self.get_distribution(action_mean, torch.sqrt(action_var))
 
-                # Sample actions from the distributions
-                # action = dist.sample()  # Shape: [batch_size, 3]
-                action = dist.rsample()
+            # Sample actions from the distributions
+            # action = dist.sample()  # Shape: [batch_size, 3]
+            action = dist.rsample()
 
-                # # Clip actions to the valid range
-                ### Apparently clipping here destroys the logprobs
-                ### Tanh-squashed distribution takes care of that
-                if not self.use_tanh_dist:
-                    action = torch.clamp(action, -1, 1)
+            # # Clip actions to the valid range
+            ### Apparently clipping here destroys the logprobs
+            ### Tanh-squashed distribution takes care of that
+            if not self.use_tanh_dist:
+                action = torch.clamp(action, -1, 1)
 
-                # Compute log probabilities of the sampled actions
-                action_logprob = dist.log_prob(action)
+            # Compute log probabilities of the sampled actions
+            action_logprob = dist.log_prob(action)
 
-                return action.detach().numpy(), action_logprob.detach().numpy()
-        except Exception as e:
-            print(f"Error in act(): {e}")
-            raise e
+            return action.detach().numpy(), action_logprob.detach().numpy()
 
     def act_certain(self, state):
         """
@@ -183,6 +158,75 @@ class StochasticActor(nn.Module):
             action_mean, _ = self.actor(state)
 
         return torch.tanh(action_mean).detach().cpu().numpy() if self.use_tanh_dist else action_mean.detach().cpu().numpy()
+
+class IQLActor(StochasticActor):
+    """
+    A PyTorch Module that represents the actor-critic network of an IQL agent.
+    """
+    def __init__(self, actor_network, vision_range, drone_count, map_size, time_steps, manual_decay=False, use_tanh_dist=True):
+        super(IQLActor, self).__init__(actor_network=actor_network,
+                                       vision_range=vision_range,
+                                       drone_count=drone_count,
+                                       map_size=map_size,
+                                       time_steps=time_steps,
+                                       manual_decay=manual_decay,
+                                       use_tanh_dist=use_tanh_dist)
+
+        self._fixed_log_std = nn.Parameter(
+            torch.full((2,), -3.0),  # std ≈ 0.05
+            requires_grad=False
+        )
+
+    def act(self, state):
+        """
+        Returns an action sampled from the actor's distribution and the log probability of that action.
+
+        :param state: A tuple of the current lidar scan, orientation to goal, distance to goal, and velocity.
+        :return: A tuple of the sampled action and the log probability of that action.
+        """
+
+        with torch.no_grad():
+            action_mean, _ = self.actor(state)
+
+            # Move Tensor to CPU
+            action_mean = action_mean.cpu()
+
+            # Generate the Raw and Noised Action; the noise is used for exploration during data collection
+            # Clean action without noise is also returned for computing log probabilities during training
+            raw_action = torch.tanh(action_mean) if self.use_tanh_dist else action_mean  # [-1,1] if tanh
+            # TODO: Make this a parameter
+            action_sigma = 0.05
+            if action_sigma and action_sigma > 0:
+                eps = torch.randn_like(raw_action) * action_sigma
+                noised_action = (raw_action + eps).clamp(-1 + 1e-6, 1 - 1e-6)
+            else:
+                noised_action = a_clean.clamp(-1 + 1e-6, 1 - 1e-6)
+
+            return noised_action.detach().numpy(), raw_action.detach().numpy()
+
+    def get_logprobs(self, states, actions):
+        # Get action means and variances from the actor network
+        action_mean, _ = self.actor(states)  # action_mean: [batch_size, action_size], action_var: irrelevant
+
+        # fixed small std
+        action_std = self._fixed_log_std.exp().expand_as(action_mean).to(self.device)
+
+        # Expand action_var to match action_mean
+        # batch_size = action_mean.size(0)
+        # action_size = action_mean.size(1)
+        # action_var = action_var.unsqueeze(0).expand(batch_size, action_size)  # Shape: [batch_size, action_size]
+        # action_std = torch.sqrt(action_var)  # Shape: [batch_size, action_size]
+
+        # Create independent normal distributions for each action dimension
+        dist = self.get_distribution(action_mean, action_std)
+
+        if self.use_tanh_dist:
+            # For Tanh-squashed normal distribution, clamp actions to avoid NaNs in log_prob due to intervals
+            actions = actions.clamp(-1 + 1e-6, 1 - 1e-6)
+        # Compute log probabilities of the taken actions
+        action_logprob = dist.log_prob(actions)  # action: [batch_size, action_size], action_logprob: [batch_size]
+
+        return action_logprob
 
 class DeterministicActorCritic(nn.Module):
     """
@@ -279,7 +323,7 @@ class ActorCriticPPO(StochasticActor):
 
         return action_logprob, state_value, dist_entropy
 
-class ActorCriticIQL(StochasticActor):
+class ActorCriticIQL(IQLActor):
     """
     A PyTorch Module that represents the actor-critic network of an IQL agent.
     """

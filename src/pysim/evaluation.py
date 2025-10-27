@@ -675,7 +675,7 @@ class Evaluator:
     number of agents that died, and number of agents that reached the goal.
     """
 
-    def __init__(self, log_dir: str, auto_train_dict: dict, max_train: int, sim_bridge: SimulationBridge, no_gui: bool, start_eval: bool,logger: Union[None, TensorboardLogger] = None):
+    def __init__(self, log_dir: str, auto_train_dict: dict, max_train: int, sim_bridge: SimulationBridge, no_gui: bool, start_eval: bool, log_eval: bool, logger: Union[None, TensorboardLogger] = None):
         # self.stats = [EvaluationStats()]
         # Python logger for evaluation messages
         self.logger = logging.getLogger("Evaluator")
@@ -698,6 +698,7 @@ class Evaluator:
         registry = METRIC_REGISTRY_FLY_AGENT if self.sim_bridge.get("hierarchy_type") == "fly_agent" else METRIC_REGISTRY
         self.metrics = [m() for m in registry]  # Initialize metrics from the registry
         self.terminal_episode_dict = {}
+        self.log_eval = log_eval
 
     def on_update(self):
         if self.sim_bridge.get("train_step") >= self.max_train and (self.use_auto_train or self.no_gui):
@@ -742,12 +743,13 @@ class Evaluator:
 
     def save_to_csv(self, path):
         """Save collected evaluation statistics to a CSV file."""
-        field_names = [m.name for m in self.metrics]
-        with open(path, "w", newline="") as csvfile:
-            writer = csv.DictWriter(csvfile, fieldnames=field_names) # type: ignore[arg-type]
-            writer.writeheader()
-            for stat in self.history:
-                writer.writerow({name: stat.get(name, 0.0) for name in field_names})
+        if self.log_eval:
+            field_names = [m.name for m in self.metrics]
+            with open(path, "w", newline="") as csvfile:
+                writer = csv.DictWriter(csvfile, fieldnames=field_names) # type: ignore[arg-type]
+                writer.writeheader()
+                for stat in self.history:
+                    writer.writerow({name: stat.get(name, 0.0) for name in field_names})
 
     def load_history_from_csvs(self):
         """Load evaluation statistics from CSV files in the log directory."""
@@ -797,10 +799,11 @@ class Evaluator:
 
         If ``matplotlib`` is not available, the function logs a warning and returns silently.
         """
-        plotter = MetricsPlotter(history=self.history,
-                                 log_dir=self.log_dir,
-                                 logger=self.logger)
-        plotter.plot_all()
+        if self.log_eval:
+            plotter = MetricsPlotter(history=self.history,
+                                     log_dir=self.log_dir,
+                                     logger=self.logger)
+            plotter.plot_all()
 
 
     def evaluate(self, rewards, terminal_result, percent_burned):
@@ -858,7 +861,7 @@ class Evaluator:
             self.current_episode += 1
 
             # Log metrics via the optional TensorBoard logger
-            if self.tb_logger is not None:
+            if self.tb_logger is not None and self.log_eval:
                 tb_metrics = {k: v for k, v in metrics.items() if k not in ("episode", "episode_over", "Failure_Reason" , "Failure_Reason_counts", "Failure_Reason_perc", "Failure_Reason_n")}
                 self.tb_logger.add_metric(tb_metrics)
                 # Flush metrics to disk after each evaluation episode

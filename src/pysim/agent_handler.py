@@ -46,6 +46,7 @@ class AgentHandler:
         self.env_reset = False
         self.rl_mode = mode
         self.resume = config["settings"]["resume"]
+        self.log_eval = config["settings"]["log_eval"]
 
         # Auto Training Parameters
         at_dict = config["settings"]["auto_train"]
@@ -268,7 +269,8 @@ class AgentHandler:
                                        no_gui=self.no_gui,
                                        start_eval=self.rl_mode == "eval",
                                        sim_bridge=self.sim_bridge,
-                                       logger=self.tensorboard)
+                                       logger=self.tensorboard,
+                                       log_eval=self.log_eval)
 
         if not self.resume:
             self.logger.info(f"{self.agent_type.name} initialized")
@@ -534,7 +536,7 @@ class AgentHandler:
                 if self.current_obs is None:
                     self.current_obs = self.restructure_data(engine.GetObservations())
                 actions, action_logprobs = self.act(self.current_obs)
-                self.cached_actions = actions
+                self.cached_actions = actions if not self.algorithm.use_noised_action else self.algorithm.raw_action
                 self.cached_logprobs = action_logprobs
 
             next_obs_, rewards, terminals_vector, terminal_result, percent_burned = self.step_agent(engine, self.cached_actions)

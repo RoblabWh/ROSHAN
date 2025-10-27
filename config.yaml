@@ -8,6 +8,10 @@ settings:
   # Resume training from a checkpoint
   # If set to true, the training will continue from the specified checkpoint
   resume: false
+  # Whether to log evaluation results in tensorboard, plot their metrics and create the CSV files
+  # Should generally be true during training or evaluation. 
+  # If you only want to SEE what the agent does, set to false so your evaluation is not overridden
+  log_eval: false
   # LLM support for the environment (currently not supported; was tested in very early prototypes)
   # Will probably break everything if set to true
   llm_support: false
@@ -50,7 +54,7 @@ paths:
   # This is the root_path where your NEW trained models data is stored
   # Loading for your ROOT Model(chosen hierarchy) is ALSO done from here (Eval and Resuming Training)
   # Absolute or relative to the project root
-  model_directory: models/RoadTo100P_12
+  model_directory: models/PPO_4TS_P9Like
   # Leave this empty to get a default name from this config (best practice for training)
   # You can fast load models with suffixes ["latest", "best_reward", "best_obj"]
   # If you want to load a specific model, set the model_name to the name of the model file
@@ -77,11 +81,11 @@ algorithm:
     # Learning rate for the optimizer #1.575e-4 
     lr: 1.575e-4 # Learning rate for the optimizer
     # Batch size for the optimizer
-    batch_size: 16384 #2048
+    batch_size: 2000 #2048
     # Number of steps to collect before updating the model
-    horizon: 131072 #65536
+    horizon: 66000 #65536
     # Number of epochs to update the model
-    k_epochs: 2
+    k_epochs: 4
     # Coefficient for the entropy loss
     entropy_coeff: 0.0
     # Coefficient for the value loss (no effect if separate_optimizers is true)
@@ -107,15 +111,19 @@ algorithm:
     # train_step decay: reduces log_std based on the training step count using an exponential, causing a smooth nonlinear decay over time
     # logarithmic decay: applies the decay to the current log_std, producing a multiplicative, logarithmic reduction per update step
     # If you plan to use manual decay in combination with resuming training logarithmic decay is preferred
-    use_logstep_decay: true
-    decay_rate: 0.985
+    use_logstep_decay: false
+    # ~0.99975 for log_step_decay = true
+    # ~0.985 for log_step_decay
+    # Both values will lead to gradual decay towards zero over 200 episodes
+    decay_rate: 0.99975
     # The approximate KL divergence that is calculated during training and
     # is used to monitor wheather the policy is changing too quickly
     # can be used to implement early stopping based on KL divergence
     # the early stopping will not stop the overall training, but only the current update step
     # If kl_early_stop is true, training will stop early if the kl divergence exceeds kl_target
     kl_early_stop: true
-    kl_target: 0.055
+    # This value should ideally be set between 0.01 and 0.05
+    kl_target: 0.02
     # Whether to use the first KL divergence estimate or the second (unbiased, lesser variance)
     # The second estimate is less harsh on the cutting, but might lead to larger policy updates
     # kl_1 = (old_logprobs - logprobs).mean()
@@ -125,11 +133,11 @@ algorithm:
     # Path to the replay buffer file (absolute or relative to the project root)
     # Size of the Replay Buffer is determined by the size used to create this buffer
     # Keep this in mind for Online Fine-Tuning
-    buffer_path: "models/PPOTanhDistri/memory.pkl"
+    buffer_path: "models/RoadTo100P_9/memory.pkl"
     # Learning rate for the optimizer
     lr: 1.0e-4
     # Batch size for the optimizer
-    batch_size: 256
+    batch_size: 1024
     # Discount factor for the rewards
     discount: 0.99
     # Expectile for the IQL loss
@@ -185,7 +193,7 @@ fire_model:
   # Most of them can be adjusted in the GUI, adjustment here only for testing purposes
   simulation:
     time:
-      dt: 0.3
+      dt: 0.3 # 0.3
       min_dt: 0.0001
       max_dt: 5.0
     cells:
@@ -265,9 +273,9 @@ environment:
       # Number of fly_agents
       num_agents: 5
       # Number of time steps to consider in the FlyAgent's memory
-      time_steps: 3 
+      time_steps: 4
       # Maximum speed of the FlyAgent in m/s
-      max_speed: 10.0 
+      max_speed: 10.0
       # View range of the FlyAgent in cells
       view_range: 10 
       # Default model path for the fly_agent (either absolute or relative to the project root)
@@ -281,9 +289,9 @@ environment:
       # Algorithm used by the explore_agent (currently no training implemented, so set to no_algo)
       algorithm: no_algo 
       # Number of explore_agents
-      num_agents: 4 
+      num_agents: 3 
       # Number of time steps to consider in the ExploreAgent's memory
-      time_steps: 2 
+      time_steps: 3
       # Maximum speed of the explore_agent in m/s
       # Should be set to the max_speed of the fly_agent uses
       max_speed: 10.0 

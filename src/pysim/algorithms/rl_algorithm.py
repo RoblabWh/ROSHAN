@@ -21,6 +21,7 @@ class RLAlgorithm:
         self.reward_rms = RunningMeanStd()
         self.int_reward_rms = RunningMeanStd()
         self.MSE_loss = nn.MSELoss()
+        self.use_noised_action = False
 
     def set_paths(self, model_path, model_name):
         self.model_path = os.path.abspath(model_path)
