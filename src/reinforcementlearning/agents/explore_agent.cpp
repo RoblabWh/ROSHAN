@@ -88,7 +88,6 @@ std::pair<double, double> ExploreAgent::GetGoalFromCertain(std::deque<std::pair<
     return goal;
 }
 
-
 void ExploreAgent::PerformExplore(ExploreAction *action, const std::string& hierarchy_type, const std::shared_ptr<GridMap>& gridMap) {
     // These values are used to calculate the reward, GetRevisitedCells must be called before anything else
     // because it is used to populate the ExploreMap with the input of the last step

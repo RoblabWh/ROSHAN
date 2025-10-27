@@ -31,12 +31,15 @@ def assert_config(config):
     hierarchy_type = c_settings["hierarchy_type"]
     c_agent = config["environment"]["agent"][hierarchy_type]
     used_algo = c_agent["algorithm"]
-    c_algo = config["algorithm"][used_algo]
+    c_algo = config["algorithm"].get(used_algo, "no_algo")
+    rl_mode = c_settings["rl_mode"]
     assert c_settings["mode"] in [0, 2], "Invalid mode in config.yaml. Must be 0 (GUI_RL), 2 (NoGUI_RL)"
     assert hierarchy_type in ["fly_agent", "explore_agent", "planner_agent"], \
         "Invalid hierarchy_type in config.yaml. Must be 'fly_agent', 'explore_agent', or 'planner_agent'."
-    rl_mode = c_settings["rl_mode"]
     assert rl_mode in ["train", "eval"], "Invalid rl_mode in config.yaml. Must be 'train' or 'eval'."
+    if rl_mode == "train":
+        assert c_settings["log_eval"], ("log_eval should be True when rl_mode is 'train'. While this would"
+                                       " work, it is more likely than not that the user did not intend to do this.")
     if hierarchy_type == "planner_agent":
         assert config["environment"]["agent"]["fly_agent"]["default_model_folder"] != "", \
             "default_model_folder for fly_agent cannot be empty in config.yaml when planner_agent is selected."
@@ -60,6 +63,13 @@ def assert_config(config):
     if used_algo == "PPO":
         if c_algo["separate_optimizers"]:
             assert config["algorithm"]["share_encoder"] == False, "When using separate optimizers, their encoders can't be shared"
+    if used_algo == "TD3":
+        assert hierarchy_type != "planner_agent", "TD3 not supported for planner_agent."
+        assert not c_algo["use_tanh"], ("TD3 does not support tanh action distribution. It doesn't use a distribution "
+                                        "at all and the Outputs of the Network need a tanh activation instead. "
+                                        "Disable use_tanh in config.yaml.")
+    if used_algo == "IQL":
+        assert hierarchy_type != "planner_agent", "IQL not supported for planner_agent."
 def sim(config : dict, overrides: dict = None, trial=None):
 
     config = inject_overrides(config, overrides, trial)

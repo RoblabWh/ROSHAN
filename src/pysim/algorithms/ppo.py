@@ -287,9 +287,7 @@ class PPO(RLAlgorithm):
                     # Stop the policy updates early when the new policy diverges too much from the old one
                     if self.kl_early_stop and approx_kl >= self.kl_target:
                         self.logger.warning(
-                            f"Approximate KL Divergence of {approx_kl} exceeded target KL of {self.kl_target}.")
-                        self.logger.info(
-                            f"Stopping Update Phase {logger.train_step} at K_Epoch {_ + 1}")
+                            f"approx_kl({approx_kl:.3f}) exceeded target kl({self.kl_target}) at update {logger.train_step} and K_Epoch {_ + 1}.")
                         break
                     logger.add_metric("Training/Approx_KL", approx_kl)
                     logger.add_metric("Training/Clip_Fraction", clip_fraction)

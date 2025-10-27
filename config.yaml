@@ -1,6 +1,6 @@
 settings:
   # 0: GUI_RL, 2: NoGUI_RL, # Mode 1 is GUI and Mode 2 is NoGUI (ONLY Simulation)
-  mode: 2
+  mode: 0
   # Random seed for reproducibility (-1 for random seed)
   seed: -1
   # RL_MODE: Either "train" or "eval"
@@ -11,12 +11,12 @@ settings:
   # Whether to log evaluation results in tensorboard, plot their metrics and create the CSV files
   # Should generally be true during training or evaluation. 
   # If you only want to SEE what the agent does, set to false so your evaluation is not overridden
-  log_eval: false
+  log_eval: true
   # LLM support for the environment (currently not supported; was tested in very early prototypes)
   # Will probably break everything if set to true
   llm_support: false
   # Type of hierarchy to use for the agents (fly_agent, explore_agent, planner_agent)
-  hierarchy_type: fly_agent
+  hierarchy_type: explore_agent
   # Uses this config as default and skips the GUI setup
   skip_gui_init: true
   # Enable PyTorch autograd anomaly detection (useful for debugging; slows down training)
@@ -33,7 +33,7 @@ settings:
     # Maximum number of train_steps(NOT policy steps) to perform
     # this setting is also used in case of NoGUI mode to determine when to stop training and switch to evaluation
     # This setting gets overridden in IQL settings and is calculated as the total number of offline_updates + online_updates
-    max_train: 200
+    max_train: 600
     # Maximum number of evaluations(one evaluation = one environment completed) to perform
     max_eval: 200
   optuna:
@@ -54,7 +54,7 @@ paths:
   # This is the root_path where your NEW trained models data is stored
   # Loading for your ROOT Model(chosen hierarchy) is ALSO done from here (Eval and Resuming Training)
   # Absolute or relative to the project root
-  model_directory: models/PPO_4TS_P9Like
+  model_directory: models/PlannerTest #PPO_4A_NoManualDecay_P9Like
   # Leave this empty to get a default name from this config (best practice for training)
   # You can fast load models with suffixes ["latest", "best_reward", "best_obj"]
   # If you want to load a specific model, set the model_name to the name of the model file
@@ -81,13 +81,13 @@ algorithm:
     # Learning rate for the optimizer #1.575e-4 
     lr: 1.575e-4 # Learning rate for the optimizer
     # Batch size for the optimizer
-    batch_size: 2000 #2048
+    batch_size: 300 #2048
     # Number of steps to collect before updating the model
-    horizon: 66000 #65536
+    horizon: 1200 #65536
     # Number of epochs to update the model
-    k_epochs: 4
+    k_epochs: 3
     # Coefficient for the entropy loss
-    entropy_coeff: 0.0
+    entropy_coeff: 0.01
     # Coefficient for the value loss (no effect if separate_optimizers is true)
     value_loss_coef: 0.5
     # Use separate optimizers for the policy and value networks
@@ -106,7 +106,7 @@ algorithm:
     eps_clip: 0.2
     # Manual decay of the log_std parameter in stochastic policies
     # If set to false, the log_std is learned by the network(state independent)
-    manual_decay: true
+    manual_decay: false
     # Two types of manual decay implemented: train_step decay and logarithmic decay
     # train_step decay: reduces log_std based on the training step count using an exponential, causing a smooth nonlinear decay over time
     # logarithmic decay: applies the decay to the current log_std, producing a multiplicative, logarithmic reduction per update step
@@ -115,7 +115,7 @@ algorithm:
     # ~0.99975 for log_step_decay = true
     # ~0.985 for log_step_decay
     # Both values will lead to gradual decay towards zero over 200 episodes
-    decay_rate: 0.99975
+    decay_rate: 0.9999 #0.99975
     # The approximate KL divergence that is calculated during training and
     # is used to monitor wheather the policy is changing too quickly
     # can be used to implement early stopping based on KL divergence
@@ -193,7 +193,7 @@ fire_model:
   # Most of them can be adjusted in the GUI, adjustment here only for testing purposes
   simulation:
     time:
-      dt: 0.3 # 0.3
+      dt: 0.1 # 0.3
       min_dt: 0.0001
       max_dt: 5.0
     cells:
@@ -262,27 +262,29 @@ environment:
       # Simple Policy: The episode ends when one agent reaches its goal_position
       # Complex Policy: The episode ends when all fires are extinguished (this influences the reward structure slightly)
       use_simple_policy: false
-      # Two types of action space use:)
-      # If true, the agent's action represents a change in velocity (acceleration)
+      # Two types of action space use:
+      # If true, the agent's action represents accelerations (half times max_velocity^2)
       # If false, the agent's action represents an absolute velocity of the agent's max_velocity
       use_velocity_change: false
+      # Discretizes the velocity into 100 bins per action dimension
+      use_vel_bins: true
       # Determines the frequency of action selection (1 = every frame, 2 = every 2nd frame, etc.)
       frame_skips: 1 
       # Algorithm used by the fly_agent
       algorithm: PPO
       # Number of fly_agents
-      num_agents: 5
+      num_agents: 4
       # Number of time steps to consider in the FlyAgent's memory
-      time_steps: 4
+      time_steps: 3
       # Maximum speed of the FlyAgent in m/s
       max_speed: 10.0
       # View range of the FlyAgent in cells
       view_range: 10 
       # Default model path for the fly_agent (either absolute or relative to the project root)
-      default_model_folder: models/fly_agent/training_1 
+      default_model_folder: models/TestNewVel_3_Entropy_Dt01/
       # You can fast load models with suffixes ["latest", "best_reward", "best_obj"]
       # If you want to load a specific model, set the model_name to the name of the model file
-      default_model_name: latest
+      default_model_name: best_obj
     explore_agent:
       # Determines the frequency of action selection (1 = every frame, 2 = every 2nd frame, etc.)
       frame_skips: 1 
@@ -307,15 +309,15 @@ environment:
       # Algorithm used by the planner_agent
       algorithm: PPO 
       # These parameters are used to configure the planner_agents LOW-LEVEL AGENTS
-      num_agents: 3
+      num_agents: 4
       # Number of time steps to consider in the ExtinguishAgent's memory
       time_steps: 3 
       # Maximum speed of the ExtinguishAgent (low-level-agent of the Planner) in m/s
-      max_speed: 3.0 
+      max_speed: 10.0 
       # View range of the ExtinguishAgent in cells
-      view_range: 6 
+      view_range: 10 
       # Default model path for the fly_agent (either absolute or relative to the project root)
-      default_model_folder: models/planner_kind_of_works/ 
+      default_model_folder: models/TestNewVel_3_Entropy_Dt01/ 
       # You can fast load models with suffixes ["latest", "best_reward", "best_objective"]
       # If you want to load a specific model, set the model_name to the name of the model file
-      default_model_name: latest
+      default_model_name: best_obj

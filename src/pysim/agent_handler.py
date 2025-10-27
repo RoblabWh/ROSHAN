@@ -460,9 +460,6 @@ class AgentHandler:
     def load_model(self, change_status=False, new_rl_mode=None):
         # Load model if possible, return new rl_mode and possible console string
         log = ""
-        if self.algorithm_name == 'no_algo':
-            log += "No algorithm used, no model to load"
-
         probe_rl_mode = self.rl_mode if new_rl_mode is None else new_rl_mode
         train = True if probe_rl_mode == "train" else False
         if not train:
@@ -474,7 +471,7 @@ class AgentHandler:
                 self.algorithm.set_train()
                 self.rl_mode = "train"
                 log +=  "No checkpoint found to evaluate model, start training from scratch"
-        elif self.resume:
+        elif self.resume and not self.algorithm_name == 'no_algo':
             if self.algorithm.load():
                 self.algorithm.set_train()
                 log += f"Load model from checkpoint: {os.path.join(self.algorithm.loading_path, self.algorithm.loading_name)}" \
@@ -482,6 +479,8 @@ class AgentHandler:
             else:
                 self.algorithm.set_train()
                 log += "No checkpoint found to resume training, start training from scratch"
+        elif self.algorithm_name == 'no_algo':
+            log += "No algorithm used, no model to load"
         else:
             self.algorithm.set_train()
             log += "Training from scratch"
@@ -507,7 +506,8 @@ class AgentHandler:
             self.cached_actions = None
             self.cached_logprobs = None
             self.rl_mode = self.sim_bridge.get("rl_mode")
-            self.algorithm.set_train() if self.rl_mode == "train" else self.algorithm.set_eval()
+            if self.algorithm_name != 'no_algo':
+                self.algorithm.set_train() if self.rl_mode == "train" else self.algorithm.set_eval()
 
     def restruct_current_obs(self, observations):
         self.current_obs = self.restructure_data(observations)

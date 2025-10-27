@@ -131,6 +131,7 @@ private:
     bool drone_in_grid_ = true; //* Is the Drone in the Grid?
     int view_range_{}; //* View Range of the Agent in Grid Cells (10m each)
     std::pair<double, double> max_speed_{}; //* Value for the maximum velocity of an Agent in x and y direction
+    std::pair<double, double> max_acceleration_{};
 
     // Possibly Deprecated
     double FindNearestFireDistance();

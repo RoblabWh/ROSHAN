@@ -33,6 +33,18 @@ class PlannerAgent(Agent):
         else:
             raise ValueError(f"Unknown algorithm: {algorithm}")
 
+    def get_module_names(self, algorithm_name: str):
+        if algorithm_name == "PPO":
+            return "AttentionActor", "CriticPPO"
+        elif algorithm_name == "IQL":
+            return "AttentionActor", "OffPolicyCritic", "Value"
+        elif algorithm_name == "TD3":
+            return None, None
+        elif algorithm_name == "no_algo":
+            return None, None
+        else:
+            raise ValueError(f"Unknown algorithm: {algorithm_name}")
+
     def initialize_rnd_model(self, vision_range, drone_count, map_size, time_steps, lr=1e-4, betas=(0.9, 0.999)):
         device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
         self.rnd_model = RNDModel(vision_range, drone_count, map_size, time_steps).to(device)

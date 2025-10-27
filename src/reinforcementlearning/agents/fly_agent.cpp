@@ -36,6 +36,7 @@ void FlyAgent::Initialize(int mode,
     }
 
     max_speed_ = std::make_pair(speed, speed);
+    max_acceleration_ = std::make_pair(speed / 2, speed / 2);
     view_range_ = view_range;
     norm_scale_ = view_range_ / 2;
 
@@ -402,11 +403,10 @@ void FlyAgent::FlyPolicy(const std::shared_ptr<GridMap>& gridmap){
 
 std::pair<double, double> FlyAgent::MovementStep(double netout_x, double netout_y) {
     std::pair<double, double> velocity_vector = this->GetNewVelocity(netout_x, netout_y);
-    auto adjusted_vel_vector = std::make_pair(velocity_vector.first * parameters_.GetDt(), velocity_vector.second * parameters_.GetDt());
-    position_.first += adjusted_vel_vector.first;
-    position_.second += adjusted_vel_vector.second;
+    position_.first += velocity_vector.first * parameters_.GetDt();
+    position_.second += velocity_vector.second * parameters_.GetDt();
     this->AppendTrail(std::make_pair(static_cast<int>(position_.first), static_cast<int>(position_.second)));
-    return adjusted_vel_vector;
+    return velocity_vector;
 }
 
 bool FlyAgent::GetDistanceToNearestBoundaryNorm(int rows, int cols, double view_range, std::vector<double>& out_norm) {
@@ -516,16 +516,18 @@ double DiscretizeOutput(double netout, double bin_size) {
 
 std::pair<double, double> FlyAgent::GetNewVelocity(double next_speed_x, double next_speed_y) const {
     double new_speed_x, new_speed_y;
-    if (parameters_.use_velocity_change_){
-        // Next Speed determines the velocity CHANGE
+    if (parameters_.use_vel_bins_) {
         next_speed_x = DiscretizeOutput(next_speed_x, 0.05);
         next_speed_y = DiscretizeOutput(next_speed_y, 0.05);
-        new_speed_x = vel_vector_.first + next_speed_x * max_speed_.first;
-        new_speed_y = vel_vector_.second + next_speed_y * max_speed_.second;
+    }
+    if (parameters_.use_velocity_change_){
+        // Acceleration model: Netout determines the CHANGE in velocity (treat max_speed_ as max_acceleration)
+        new_speed_x = vel_vector_.first + ((next_speed_x * max_acceleration_.first) * parameters_.GetDt());
+        new_speed_y = vel_vector_.second + ((next_speed_y * max_acceleration_.second) * parameters_.GetDt());
     } else {
-        // Netout determines the velocity DIRECTLY; seems to perform worse
-        new_speed_x = next_speed_x * max_speed_.first;
-        new_speed_y = next_speed_y * max_speed_.second;
+        // Direct velocity model: Netout determines the new velocity directly
+        new_speed_x = (next_speed_x * max_speed_.first);
+        new_speed_y = (next_speed_y * max_speed_.second);
     }
     // Clamp new_speed between -max_speed_.first and max_speed_.first
     new_speed_x = std::clamp(new_speed_x, -max_speed_.first, max_speed_.first);
