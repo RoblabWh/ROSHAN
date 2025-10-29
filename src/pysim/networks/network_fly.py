@@ -266,6 +266,12 @@ class CriticPPO(Critic):
         self.value = nn.Linear(in_features=self.in_features, out_features=1)
         self.value._init_gain = 1.0
 
+    def get_parameters(self, share_encoder):
+        if share_encoder:
+            return self.value.parameters()
+        else:
+            return list(self.Inputspace_1.parameters()) + list(self.value.parameters())
+
     def forward(self, states):
         x = self.Inputspace_1(states)
         value = self.value(x)

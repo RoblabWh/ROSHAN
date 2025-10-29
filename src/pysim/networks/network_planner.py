@@ -99,8 +99,8 @@ class AttentionActor(nn.Module):
         attn_out, attention_weight = self.Inputspace(states, masks)
         # The attention output is run through another network to get the logits
         # x = self.mu_move(x)
-        # TODO We can use the attention weights directly as logits if the attention matrix is the correct assignment
 
+        # TODO We can use the attention weights directly as logits if the attention matrix is the correct assignment
         return attention_weight
 
 class Critic(nn.Module):

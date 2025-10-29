@@ -89,8 +89,8 @@ std::pair<double, double> AgentState::GetVelocityNorm() const {
 }
 
 double AgentState::GetSpeed() const {
-    return std::min(std::hypot(velocity_.first, velocity_.second), 1.0);
-
+//    return std::min(std::hypot(velocity_.first, velocity_.second), 1.0);
+    return std::min(std::hypot(velocity_.first / max_speed_.first,velocity_.second / max_speed_.second), 1.0);
 }
 
 double AgentState::GetDistanceToGoal() const {

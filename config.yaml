@@ -1,10 +1,10 @@
 settings:
   # 0: GUI_RL, 2: NoGUI_RL, # Mode 1 is GUI and Mode 2 is NoGUI (ONLY Simulation)
-  mode: 2
+  mode: 0
   # Random seed for reproducibility (-1 for random seed)
   seed: -1
   # RL_MODE: Either "train" or "eval"
-  rl_mode: train
+  rl_mode: eval
   # This parameter determines whether to evaluate the fly_agent policy with the extinguishing heuristic
   eval_fly_policy: false
   # Resume training from a checkpoint
@@ -13,12 +13,12 @@ settings:
   # Whether to log evaluation results in tensorboard, plot their metrics and create the CSV files
   # Should generally be true during training or evaluation. 
   # If you only want to SEE what the agent does, set to false so your evaluation is not overridden
-  log_eval: true
+  log_eval: false
   # LLM support for the environment (currently not supported; was tested in very early prototypes)
   # Will probably break everything if set to true
   llm_support: false
   # Type of hierarchy to use for the agents (fly_agent, explore_agent, planner_agent)
-  hierarchy_type: planner_agent
+  hierarchy_type: explore_agent
   # Uses this config as default and skips the GUI setup
   skip_gui_init: true
   # Enable PyTorch autograd anomaly detection (useful for debugging; slows down training)
@@ -56,7 +56,7 @@ paths:
   # This is the root_path where your NEW trained models data is stored
   # Loading for your ROOT Model(chosen hierarchy) is ALSO done from here (Eval and Resuming Training)
   # Absolute or relative to the project root
-  model_directory: models/PlannerTest #PPO_4A_NoManualDecay_P9Like
+  model_directory: models/SimpleInput #PPO_4A_NoManualDecay_P9Like
   # Leave this empty to get a default name from this config (best practice for training)
   # You can fast load models with suffixes ["latest", "best_reward", "best_obj"]
   # If you want to load a specific model, set the model_name to the name of the model file
@@ -64,7 +64,7 @@ paths:
   # Name of the CORINE dataset-file, Path to the Corine dataset file must be set in project_paths.json (generated default paths at compile time)
   corine_dataset_name: CLMS_CLCplus_RASTER_2021_010m_eu_03035_V1_1.tif
   # This map is used in NoGUI & skip_gui_init setup, if left empty("") the default map (uniform map) will be used.
-  init_map: 81x129_Campsite.tif #35x36_Woods.tif
+  init_map: 81x129_Campsite.tif #35x36_Woods.tif 
 #{'entropy_coeff': 1.230811218699769e-06, 'gamma': 0.9773972579784836, '_lambda': 0.9096741778233516, 'eps_clip': 0.22816431818213967}
 algorithm:
   # Share the encoder(Inputspace in the network files) between the policy and value networks
@@ -83,9 +83,9 @@ algorithm:
     # Learning rate for the optimizer #1.575e-4 
     lr: 1.575e-4 # Learning rate for the optimizer
     # Batch size for the optimizer
-    batch_size: 300 #2048
+    batch_size: 600 #2048
     # Number of steps to collect before updating the model
-    horizon: 1200 #65536
+    horizon: 2400 #65536
     # Number of epochs to update the model
     k_epochs: 3
     # Coefficient for the entropy loss
@@ -255,7 +255,7 @@ environment:
     # Should only be used in evaluation mode for fly_policy eval for now
     use_water_limit: false
     # Number of water units a drone can carry (one unit extinguishes one cell)
-    water_capacity: 2
+    water_capacity: 5
     # Time in seconds to recharge water at the groundstation (set this to 0 for instant recharge)
     recharge_time: 0.0
     # Size of the drone in m (used for rendering and collision detection);
@@ -280,7 +280,7 @@ environment:
       # Algorithm used by the fly_agent
       algorithm: PPO
       # Number of fly_agents
-      num_agents: 4
+      num_agents: 1
       # Number of time steps to consider in the FlyAgent's memory
       time_steps: 4
       # Maximum speed of the FlyAgent in m/s

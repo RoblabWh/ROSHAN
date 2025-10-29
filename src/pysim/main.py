@@ -51,6 +51,10 @@ def assert_config(config):
             "default_model_folder for planner_agent cannot be empty in config.yaml when planner_agent is selected."
         assert config["environment"]["agent"]["planner_agent"]["default_model_name"] != "", \
             "default_model_name cannot be empty in config.yaml when planner_agent is selected."
+    if hierarchy_type == "fly_agent":
+        if not c_agent["use_simple_policy"]:
+            assert config["environment"]["agent_behaviour"]["fire_goal_percentage"] == 1.0, \
+                "fire_goal_percentage should be 1.0 when using fly_agent with complex policy."
     # Assert that resume is off when auto_train is on
     if c_settings["auto_train"]["use_auto_train"]:
         assert not c_settings["resume"], "resume cannot be True when auto_train is enabled in config.yaml."
@@ -227,12 +231,21 @@ def inject_overrides(config: dict, overrides: dict, trial: optuna.Trial) -> dict
     if overrides is None:
         return config
 
-    used_algorithm = config["environment"]["agent"][config["settings"]["hierarchy_type"]]["algorithm"]
+    agent_dict = config["environment"]["agent"][config["settings"]["hierarchy_type"]]
+    used_algorithm = agent_dict["algorithm"]
     algo_dict = config["algorithm"][used_algorithm]
+    reward_dict = agent_dict["rewards"]
     if "hparams" in overrides:
         for key, value in overrides["hparams"].items():
             if key in algo_dict:
                 algo_dict[key] = value
+
+    if "rewards" in overrides:
+        for key, value in overrides["rewards"].items():
+            if key in reward_dict:
+                if key == "BoundaryTerminal" and "Collision" in reward_dict:
+                    reward_dict["Collision"] = value
+                reward_dict[key] = value
 
     config["paths"]["model_directory"] = os.path.join(config["settings"]["optuna"]["study_root"], config["settings"]["optuna"]["study_name"], f"trial_{trial.number}")
 
@@ -265,9 +278,9 @@ def objective_factory(config: dict):
         horizon = [2 ** x for x in [15, 16, 17, 18, 19]]
         hparams = {
             # "lr": trial.suggest_float("lr", 1e-5, 1e-3, log=True),
-            "batch_size": trial.suggest_categorical("batch_size", batch_size),
-            "horizon": trial.suggest_categorical("horizon", horizon),
-            "k_epochs": trial.suggest_int("k_epochs", 1, 20),
+            # "batch_size": trial.suggest_categorical("batch_size", batch_size),
+            # "horizon": trial.suggest_categorical("horizon", horizon),
+            # "k_epochs": trial.suggest_int("k_epochs", 1, 20),
             # "entropy_coeff": trial.suggest_float("entropy_coeff", 1e-6, 1e-2, log=True),
             # "separate_optimizers": trial.suggest_categorical("separate_optimizers", [True, False]),
             # "gamma": trial.suggest_float("gamma", 0.97, 0.999),
@@ -276,8 +289,18 @@ def objective_factory(config: dict):
             # "share_encoder": trial.suggest_categorical("share_encoder", [True, False]),
         }
 
+        rewards = {
+            "GoalReached": trial.suggest_float("GoalReached", 0.2, 5, log=True),
+            "BoundaryTerminal": trial.suggest_float("BoundaryTerminal", -5, -0.2),
+            "Extinguish": trial.suggest_float("Extinguish", 1e-3, 0.2, log=True),
+            "TimeOut": trial.suggest_float("TimeOut", -5, -0.2),
+            "DistanceImprovement": trial.suggest_float("DistanceImprovement", 1e-3, 0.5, log=True),
+            "ProximityPenalty": trial.suggest_float("ProximityPenalty", -0.5, -1e-3),
+        }
+
         overrides = {
             "hparams": hparams,
+            "rewards": rewards
         }
 
         # run the sim; pass trial to enable pruning reports

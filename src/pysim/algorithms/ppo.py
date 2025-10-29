@@ -121,7 +121,7 @@ class PPO(RLAlgorithm):
                                          collision=self.collision)
 
         self.actor_params = self.policy.actor.parameters()
-        self.critic_params = self.policy.critic.parameters()
+        self.critic_params = self.policy.critic.value.parameters() if self.share_encoder else self.policy.critic.parameters()
 
     def apply_manual_decay(self, train_step: int):
         if self.manual_decay:

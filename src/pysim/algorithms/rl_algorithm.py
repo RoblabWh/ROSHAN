@@ -1,5 +1,6 @@
 import os
 import torch
+import warnings
 from algorithms.rl_config import RLConfig
 from utils import RunningMeanStd
 from evaluation import TensorboardLogger
@@ -103,7 +104,9 @@ class RLAlgorithm:
     def load(self):
         path: str = os.path.join(self.loading_path, self.loading_name).__str__()
         try:
-            self.policy.load_state_dict(torch.load(path, map_location=self.device, weights_only=True))
+            with warnings.catch_warnings():
+                warnings.filterwarnings("ignore", message="TypedStorage is deprecated")
+                self.policy.load_state_dict(torch.load(path, map_location=self.device, weights_only=True))
             self.load_optimizers(path.split('.')[-2])
             self.policy.to(self.device)
             self.copy_networks()
