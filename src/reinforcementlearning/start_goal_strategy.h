@@ -131,19 +131,22 @@ public:
     explicit GoalSelector(std::shared_ptr<GridMap> gm) : grid_map_(std::move(gm)) {}
     std::pair<double,double> pick_goal(const GoalConfig& gc,
                                        const std::string& rl_mode,
+                                       const bool is_explorer,
                                        const std::pair<double,double>& start_grid_double,
                                        std::mt19937& gen)
     {
-        if (rl_mode == "eval") {
-            auto p = grid_map_->GetNextFire(start_grid_double);
-            if (p != std::pair<double,double>{-1,-1}) return p;
-            return grid_map_->GetGroundstation()->GetGridPositionDouble();
-        }
+        if (!is_explorer){
+            if (rl_mode == "eval") {
+                auto p = grid_map_->GetNextFire(start_grid_double);
+                if (p != std::pair<double,double>{-1,-1}) return p;
+                return grid_map_->GetGroundstation()->GetGridPositionDouble();
+            }
 
-        std::uniform_real_distribution<double> dist(0.0, 1.0);
-        if (dist(gen) < gc.fire_goal_pct) {
-            auto p = grid_map_->GetNextFire(start_grid_double);
-            if (p != std::pair<double,double>{-1,-1}) return p;
+            std::uniform_real_distribution<double> dist(0.0, 1.0);
+            if (dist(gen) < gc.fire_goal_pct) {
+                auto p = grid_map_->GetNextFire(start_grid_double);
+                if (p != std::pair<double,double>{-1,-1}) return p;
+            }
         }
         return grid_map_->GetNonGroundStationCorner();
     }

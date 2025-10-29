@@ -21,7 +21,7 @@
 
 class AgentFactory {
 public:
-    using CreatorFunction = std::function<std::shared_ptr<Agent>(FireModelParameters& parameters, int drone_id, int time_steps)>;
+    using CreatorFunction = std::function<std::shared_ptr<Agent>(FireModelParameters& parameters, int total_id, int drone_id, int time_steps)>;
 
     static AgentFactory& GetInstance() {
         static AgentFactory instance;
@@ -34,11 +34,12 @@ public:
 
     std::shared_ptr<Agent> CreateAgent(const std::string& agent_type,
                                        FireModelParameters& parameters,
+                                       int total_id,
                                        int id,
                                        int time_steps) {
         auto it = creators_.find(agent_type);
         if (it != creators_.end()) {
-            return (it->second)(parameters, id, time_steps);
+            return (it->second)(parameters, total_id, id, time_steps);
         }
         throw std::runtime_error("Unknown agent type: " + agent_type);
     }

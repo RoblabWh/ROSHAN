@@ -134,12 +134,15 @@ public:
         int grid_y = static_cast<int>((y + 1) / 2 * cols_);
         return std::make_pair(grid_x, grid_y);
     }
+    std::unordered_set<Point> GetRawFirePositionsFromFireMap() const;
+    std::shared_ptr<std::vector<std::pair<double, double>>> GetFirePositionsFromFireMap() const;
 
     // For Rendering Only
     void GenerateNoiseMap();
     static void SetCellNoise(CellState state, int noise_level, int noise_size);
     void SetNoiseGenerated(bool noise_generated) { noise_generated_ = noise_generated; }
     bool HasNoiseGenerated() const { return noise_generated_; }
+    void RemoveReservation(std::pair<int, int> cell);
 
     [[maybe_unused]] double GetXOff() const { return x_off_; }
     [[maybe_unused]] double GetYOff() const { return y_off_; }

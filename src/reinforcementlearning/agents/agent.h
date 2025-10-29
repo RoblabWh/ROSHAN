@@ -53,6 +53,7 @@ public:
     std::deque<std::shared_ptr<State>> GetObservations() const;
     void UpdateStates(const std::shared_ptr<GridMap>& grid_map);
 
+    int GetTotalId() const { return total_id_; }
     int GetId() const { return id_; }
 
     void ModifyReward(double reward) {
@@ -68,6 +69,7 @@ protected:
     AgentType agent_type_{};
     FireModelParameters& parameters_;
     int id_{};
+    int total_id_{};
     std::deque<std::shared_ptr<AgentState>> agent_states_;
     static double ComputeTotalReward(const std::unordered_map<std::string, double> &rewards);
     virtual std::shared_ptr<AgentState> BuildAgentState(const std::shared_ptr<GridMap> &grid_map) = 0;

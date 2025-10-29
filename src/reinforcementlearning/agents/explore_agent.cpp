@@ -4,7 +4,8 @@
 
 #include "explore_agent.h"
 
-ExploreAgent::ExploreAgent(FireModelParameters &parameters, int id, int time_steps) : Agent(parameters, 300) {
+ExploreAgent::ExploreAgent(FireModelParameters &parameters, int total_id, int id, int time_steps) : Agent(parameters, 300) {
+    total_id_ = total_id;
     id_ = id;
     agent_sub_type_ = "explore_agent";
     agent_type_ = EXPLORE_AGENT;
@@ -110,32 +111,34 @@ void ExploreAgent::PerformExplore(ExploreAction *action, const std::string& hier
     goal_idx_ < perfect_goals_[0].size() - 1 ? goal_idx_++ : goal_idx_ = 0;
     if(hierarchy_type == "explore_agent") {
         did_hierarchy_step = true;
-    }
-    // Pick first agent to get the exploration map scalar
-    auto explore_map_scalar = GetLastState().GetExplorationMapScalar();
-    if (explore_map_scalar >= 0.99) {
-        objective_reached_ = true;
+        // Pick first agent to get the exploration map scalar
+//        auto explore_map_scalar = GetLastState().GetExplorationMapScalar();
+//        if (explore_map_scalar >= 0.99) {
+//            objective_reached_ = true;
+//        }
     }
 }
 
 std::shared_ptr<AgentState> ExploreAgent::BuildAgentState(const std::shared_ptr<GridMap>& grid_map) {
     auto state = std::make_shared<AgentState>();
 
-    std::vector<std::shared_ptr<const std::vector<std::vector<double>>>> views;
-    for (const auto& agent : fly_agents_) {
-        const auto& latest_state = agent->GetLastState();
-        auto orig_ptr = latest_state.GetTotalDroneViewPtr();
-        auto copy_ptr = std::make_shared<const std::vector<std::vector<double>>>(*orig_ptr);
-        views.push_back(copy_ptr);
-        // TODO Rewrite this; this is a hack to get other states from the drone
-        state->SetPosition(latest_state.GetPosition());
-        state->SetCellSize(latest_state.GetCellSize());
-    }
-    state->SetMapDimensions({grid_map->GetRows(), grid_map->GetCols()});
-    state->SetMultipleTotalDroneView(views);
-    state->SetExplorationMap(grid_map->GetExploredMap());
+    //TODO: This was used earlier in experimentation with RL ExploreAgents
+//    std::vector<std::shared_ptr<const std::vector<std::vector<double>>>> views;
+//    for (const auto& agent : fly_agents_) {
+//        const auto& latest_state = agent->GetLastState();
+//        auto orig_ptr = latest_state.GetTotalDroneViewPtr();
+//        auto copy_ptr = std::make_shared<const std::vector<std::vector<double>>>(*orig_ptr);
+//        views.push_back(copy_ptr);
+//        // TODO Rewrite this; this is a hack to get other states from the drone
+//        state->SetPosition(latest_state.GetPosition());
+//        state->SetCellSize(latest_state.GetCellSize());
+//    }
+//    state->SetMultipleTotalDroneView(views);
+//    state->SetMapDimensions({grid_map->GetRows(), grid_map->GetCols()});
+//    state->SetExplorationMap(grid_map->GetExploredMap());
+//    state->SetPerfectGoals(perfect_goals_);
 //    state->SetExploredFires(grid_map->GetExploredFires());
-    state->SetPerfectGoals(perfect_goals_);
+//    state->SetFireMap(grid_map->GetFireMap(0, false));
 
     return state;
 }

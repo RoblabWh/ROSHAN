@@ -119,6 +119,8 @@ std::pair<double, double> AgentState::GetGridPositionDoubleNorm() const {
     return std::make_pair(x, y);
 }
 
+// TODO: turn on debugging in GUI (its out commented)
+// Function for Debugging and potential use in training(later)
 std::pair<double, double> AgentState::GetPositionInExplorationMap() const {
     auto grid_double_norm = GetGridPositionDoubleNorm();
     // Get Dim from exploration map
@@ -169,7 +171,7 @@ std::shared_ptr<std::vector<std::pair<double, double>>> AgentState::GetFirePosit
         for (size_t i = 0; i < fire_map_->size(); ++i) {
             for (size_t j = 0; j < (*fire_map_)[i].size(); ++j) {
                 if ((*fire_map_)[i][j] > 0) {
-                    fire_positions.emplace_back(i, j);
+                    fire_positions.emplace_back(static_cast<double>(i) + 0.5, static_cast<double>(j) + 0.5);
                 }
             }
         }

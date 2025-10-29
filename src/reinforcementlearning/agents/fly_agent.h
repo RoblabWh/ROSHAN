@@ -29,7 +29,7 @@ class FireModelRenderer;
 
 class FlyAgent : public Agent {
 public:
-    explicit FlyAgent(FireModelParameters &parameters, int id, int time_steps);
+    explicit FlyAgent(FireModelParameters &parameters, int total_id, int id, int time_steps);
 
     void ExecuteAction(std::shared_ptr<Action> action, std::string hierarchy_type, std::shared_ptr<GridMap> gridMap) override {
         action->ExecuteOn(shared_from_this(), hierarchy_type, gridMap);
@@ -51,6 +51,7 @@ public:
 
     void StepReset() override {
         did_hierarchy_step = false;
+        num_extinguished_fires_ = 0;
     }
 
     double CalculateReward(const std::shared_ptr<GridMap>& grid_map) override;
@@ -92,7 +93,8 @@ public:
     std::string GetAgentSubType() const { return agent_sub_type_; }
     double GetDroneSize() const { return parameters_.drone_size_ / parameters_.GetCellSize(); } // like GetGridPositionDouble
     bool GetDistanceToNearestBoundaryNorm(int rows, int cols, double view_range_half, std::vector<double>& out_norm);
-
+    int GetNumExtinguishedFires() const { return num_extinguished_fires_; }
+    bool SetNumExtinguishedFires(int num_fires) { num_extinguished_fires_ = num_fires; return true; }
 
     std::pair<int, int> GetGoalPositionInt() const { return std::make_pair((int)goal_position_.first, (int)goal_position_.second); }
     int GetNewlyExploredCells() const { return newly_explored_cells_; }
@@ -110,12 +112,16 @@ public:
     void SetPosition(std::pair<double, double> point) { position_ = std::make_pair((point.first) * parameters_.GetCellSize(), (point.second) * parameters_.GetCellSize()); }
     void SetRevisitedCells(int revisited_cells) { last_step_total_revisited_cells_of_all_agents_ = revisited_cells; }
     void SetAgentSubType(const std::string& agent_type) { agent_sub_type_ = agent_type; }
+    bool IsExplorerBySubtype() const { return agent_sub_type_ == "ExploreFlyAgent";}
     void SetSpeed(const std::pair<double, double> &speed) { max_speed_ = speed; }
     void SetCollision(bool collision) { collision_occurred_ = collision; }
     void ClearDistances() { distance_to_other_agents_.clear(); }
     void ClearMask() { distance_mask_.clear(); }
     void AppendDistance(const std::vector<double> &dist) {distance_to_other_agents_.push_back(dist);}
     void AppendMask(bool mask) {distance_mask_.push_back(mask);}
+    void CommandRecharge(bool recharge) { planner_commanded_recharge_ = recharge; still_charging_ = true; }
+    bool StillCharging() const { return still_charging_; }
+    double GetWaterCapacity() const { return water_capacity_; }
     std::vector<std::vector<double>> GetDistancesToOtherAgents() const { return distance_to_other_agents_; }
     std::vector<bool> GetDistanceMask() const { return distance_mask_; }
 private:
@@ -149,11 +155,11 @@ private:
     bool collision_occurred_ = false;
     double water_capacity_;
     bool extinguished_fire_ = false;
+    int num_extinguished_fires_ = 0;
     enum policy_types {EXTINGUISH_FIRE, FLY_TO_GROUNDSTATION, RECHARGE, EXPLORE};
     int policy_type_ = EXTINGUISH_FIRE;
     bool extinguished_last_fire_ = false;
     bool active_ = false;
-    bool collision_ = true;
 
     TextureRenderer drone_texture_renderer_;
     TextureRenderer goal_texture_renderer_;
@@ -181,6 +187,9 @@ private:
     int last_step_total_revisited_cells_of_all_agents_{};
     bool should_render_ = true; // If false, the agent will not render anything
     bool is_explorer_ = false;
+    bool is_planner_agent_ = false;
+    bool planner_commanded_recharge_ = false;
+    bool still_charging_ = false;
 };
 
 #endif //ROSHAN_FLY_AGENT_H

@@ -4,15 +4,15 @@
 
 #include "fly_agent.h"
 
-FlyAgent::FlyAgent(FireModelParameters &parameters, int id, int time_steps) :
+FlyAgent::FlyAgent(FireModelParameters &parameters, int total_id, int id, int time_steps) :
 Agent(parameters, 300){
+    total_id_ = total_id;
     id_ = id;
     agent_sub_type_ = "fly_agent";
     agent_type_ = FLY_AGENT;
     time_steps_ = time_steps;
     water_capacity_ = parameters_.GetWaterCapacity();
     frame_skips_ = parameters_.fly_agent_frame_skips_;
-    collision_ = parameters_.fly_agent_collision_;
     frame_ctrl_ = 0;
     out_of_area_counter_ = 0;
     vel_vector_ = {0.0, 0.0};
@@ -38,6 +38,9 @@ void FlyAgent::Initialize(int mode,
     if (agent_sub_type_ == "ExploreFlyAgent") {
         is_explorer_ = true;
     }
+    if (agent_sub_type_ == "PlannerFlyAgent") {
+        is_planner_agent_ = true;
+    }
     max_speed_ = std::make_pair(speed, speed);
     max_acceleration_ = std::make_pair(speed / 2, speed / 2);
     view_range_ = view_range;
@@ -55,7 +58,10 @@ void FlyAgent::Reset(Mode mode,
     did_hierarchy_step = false;
     collision_occurred_ = false;
     extinguished_fire_ = false;
+    planner_commanded_recharge_ = false;
+    still_charging_ = false;
     reward_components_.clear();
+    num_extinguished_fires_ = 0;
     vel_vector_ = {0.0, 0.0};
     // DONT clear this here, because we must calculate the distances before we call this function!
     // distance_to_other_agents_.clear();
@@ -75,17 +81,16 @@ std::shared_ptr<AgentState> FlyAgent::BuildAgentState(const std::shared_ptr<Grid
     state->SetNormScale(norm_scale_);
     state->SetMaxSpeed(max_speed_);
     state->SetVelocity(this->vel_vector_);
-    state->SetDroneView(grid_map->GetDroneView(GetGridPosition(), GetViewRange()));
-    state->SetTotalDroneView(grid_map->GetInterpolatedDroneView(GetGridPosition(), GetViewRange()));
-    state->SetExplorationMap(grid_map->GetExploredMap());
-    state->SetFireMap(grid_map->GetFireMap());
     state->SetPosition(position_);
     state->SetGoalPosition(goal_position_);
-    state->SetMapDimensions({grid_map->GetRows(), grid_map->GetCols()});
     state->SetCellSize(parameters_.GetCellSize());
     state->SetDistancesToOtherAgents(std::make_shared<std::vector<std::vector<double>>>(distance_to_other_agents_));
     state->SetDistancesMask(std::make_shared<std::vector<bool>>(distance_mask_));
-
+//    state->SetDroneView(grid_map->GetDroneView(GetGridPosition(), GetViewRange()));
+//    state->SetTotalDroneView(grid_map->GetInterpolatedDroneView(GetGridPosition(), GetViewRange()));
+//    state->SetExplorationMap(grid_map->GetExploredMap());
+//    state->SetFireMap(grid_map->GetFireMap());
+//    state->SetMapDimensions({grid_map->GetRows(), grid_map->GetCols()});
     return state;
 }
 
@@ -98,21 +103,46 @@ void FlyAgent::InitializeFlyAgentStates(const std::shared_ptr<GridMap>& grid_map
 void FlyAgent::PerformFly(FlyAction* action, const std::string& hierarchy_type, const std::shared_ptr<GridMap>& gridMap) {
 
     this->Step(action->GetSpeedX(), action->GetSpeedY(), gridMap);
+    // Four different modes for low level agents
+    // (1) fly_agent with complex policy: extinguish fires until none are left (no_explorers should be used here)
+    // (2) fly_agent with simple policy: just reach the goal (no_explorers should be used here)
+    // (3) fly_agent EvaluationPolicy: Behaviour described by the FlyPolicy function (no_explorers should be used here)
+    // (4) explore_agents and planner_agents fly_agents: just reach the goal (the explore agents don't set hierarchy steps and don't care about selected policies)
+    // (hierarchy_type == "fly_agent" && !parameters_.use_simple_policy_ && !is_explorer_);
+    // (hierarchy_type == "fly_agent" && parameters_.use_simple_policy_ && !is_explorer_);
+    // (hierarchy_type == "fly_agent" && parameters_.eval_fly_policy_ && !is_explorer_);
 
-    if (hierarchy_type == "fly_agent" && !parameters_.use_simple_policy_) {
+    if (hierarchy_type == "fly_agent" && !parameters_.use_simple_policy_ && !is_explorer_ && !parameters_.eval_fly_policy_) {
         if (almostEqual(this->GetGoalPosition(), this->GetGridPositionDouble())) {
             this->DispenseWaterCertain(gridMap);
+            gridMap->RemoveReservation(this->GetGoalPositionInt());
             this->SetGoalPosition(gridMap->GetNextFire(this->GetGridPositionDouble()));
         }
         did_hierarchy_step = true;
-    } else if (hierarchy_type == "fly_agent" && parameters_.use_simple_policy_) {
+    } else if (hierarchy_type == "fly_agent" && parameters_.use_simple_policy_ && !is_explorer_ && !parameters_.eval_fly_policy_) {
         if (almostEqual(this->GetGoalPosition(), this->GetGridPositionDouble())) {
             objective_reached_ = true;
         }
+        did_hierarchy_step = true;
+    } else if (hierarchy_type == "fly_agent" && parameters_.eval_fly_policy_ && !is_explorer_) {
+        FlyPolicy(gridMap);
         did_hierarchy_step = true;
     } else {
         if (almostEqual(this->GetGoalPosition(), this->GetGridPositionDouble())) {
             objective_reached_ = true;
+        }
+        if (is_planner_agent_) {
+            this->DispenseWaterCertain(gridMap);
+            if (planner_commanded_recharge_){
+                if(this->GetGoalPositionInt() == this->GetGridPosition()){
+                    if (this->water_capacity_ < parameters_.GetWaterCapacity()) {
+                        this->water_capacity_ += parameters_.GetWaterRefillDt();
+                    } else {
+                        planner_commanded_recharge_ = false;
+                        still_charging_ = false;
+                    }
+                }
+            }
         }
     }
 }
@@ -129,35 +159,45 @@ double FlyAgent::CalculateReward(const std::shared_ptr<GridMap>& grid_map) {
     // that also sets the current objective to true, current objectives get set to true in PerformAction(simplePolicy) OR GetTerminals(ComplexPolicy) noodle code wtf
     // Terminal Reward should go to all agents when the objective is reached (For the simple policy that does not apply here, but for the complex case it does)
     if (objective_reached_ || (grid_map->GetTerminalOccured())) {
-        reward_components["GoalReached"] = 1;
+        reward_components["GoalReached"] = parameters_.FlyGoalReached_;
     }
 
     if (!drone_in_grid && agent_terminal_state_) {
-        reward_components["BoundaryTerminal"] = -1;
+        reward_components["BoundaryTerminal"] = parameters_.FlyBoundaryTerminal_;
     }
 
     if (agent_terminal_state_ && (env_steps_remaining_ <= 0)) {
-        reward_components["TimeOut"] = -1;
+        reward_components["TimeOut"] = parameters_.FlyTimeOut_;
     }
 
     // Use the extinguishing code only in the complex policy since the simple one only cares about reaching the goal
     if (extinguished_fire_ && !parameters_.use_simple_policy_) {
         //auto bonus_log = 0.05 * std::log(double(grid_map->GetNRefFires() + 1) / double(grid_map->GetNumBurningCells() + 1));
-        reward_components["Extinguish"] = 0.01; // + bonus_log;
+        reward_components["Extinguish"] = parameters_.FlyExtinguish_; // + bonus_log;
     }
 
-    if (collision_occurred_ && collision_) {
-        reward_components["Collision"] = -1;
+    if (collision_occurred_ && parameters_.fly_agent_collision_) {
+        reward_components["Collision"] = parameters_.FlyCollision_;
     }
 
     if (delta_distance > 0) {
 //        auto safety_factor = std::tanh(10 * distance_to_boundary);
-        reward_components["DistanceImprovement"] = 0.1 * delta_distance; // * safety_factor;
+        reward_components["DistanceImprovement"] = parameters_.FlyDistanceImprovement_ * delta_distance; // * safety_factor;
     }
 
-//    if (distance_to_boundary < 0.125) {
-//        reward_components["Boundary"] = -0.5 * distance_to_boundary;
-//    }
+    if (parameters_.fly_agent_collision_){
+        auto distances_to_objects = this->GetLastState().GetDistancesToOtherAgents();
+        for (auto & dist : distances_to_objects) {
+            double dx = std::abs(dist[0]);
+            double dy = std::abs(dist[1]);
+            if (dx < 0.1) {
+                reward_components["ProximityPenalty"] += parameters_.FlyProximityPenalty_ * dx;
+            }
+            if (dy < 0.1) {
+                reward_components["ProximityPenalty"] += parameters_.FlyProximityPenalty_ * dy;
+            }
+        }
+    }
 
     total_reward = ComputeTotalReward(reward_components);
     LogRewards(reward_components);
@@ -182,7 +222,7 @@ AgentTerminal FlyAgent::GetTerminalStates(bool eval_mode, const std::shared_ptr<
             t.reason = FailureReason::BoundaryExit;
         }
 
-        if (collision_occurred_ && collision_) {
+        if (collision_occurred_ && parameters_.fly_agent_collision_) {
             t.is_terminal = true;
             t.reason = FailureReason::Collision;
         }
@@ -310,6 +350,7 @@ void FlyAgent::DispenseWater(const std::shared_ptr<GridMap>& grid_map, int water
             if (grid_map->GetNumBurningCells() == 0) {
                 extinguished_last_fire_ = true;
             }
+            num_extinguished_fires_++;
         }
     } else {
         dispensed_water_ = false;
@@ -325,12 +366,13 @@ bool FlyAgent::DispenseWaterCertain(const std::shared_ptr<GridMap>& grid_map) {
     }
     if (cell_is_burning) {
         dispensed_water_ = true;
-        water_capacity_ -= 1;
+        water_capacity_ -= parameters_.use_water_limit_ ? 1 : 0;
         extinguished_fire_ = grid_map->WaterDispension(grid_position.first, grid_position.second);
         if (extinguished_fire_) {
             if (grid_map->GetNumBurningCells() == 0) {
                 extinguished_last_fire_ = true;
             }
+            num_extinguished_fires_++;
         }
         return extinguished_fire_;
     } else {
@@ -375,6 +417,7 @@ void FlyAgent::FlyPolicy(const std::shared_ptr<GridMap>& gridmap){
     if(this->policy_type_ == EXTINGUISH_FIRE) {
         if (almostEqual(this->GetGoalPosition(), this->GetGridPositionDouble())) {
             this->DispenseWaterCertain(gridmap);
+            gridmap->RemoveReservation(this->GetGoalPositionInt());
             if (this->water_capacity_ <= 0) {
                 this->SetGoalPosition(gridmap->GetGroundstation()->GetGridPositionDouble());
                 this->policy_type_ = FLY_TO_GROUNDSTATION;
@@ -389,7 +432,7 @@ void FlyAgent::FlyPolicy(const std::shared_ptr<GridMap>& gridmap){
         }
     }
     else if (this->policy_type_ == RECHARGE) {
-        if (parameters_.recharge_time_active_) {
+        if (parameters_.use_water_limit_) {
             if (this->water_capacity_ < parameters_.GetWaterCapacity()) {
                 this->water_capacity_ += parameters_.GetWaterRefillDt();
             } else {

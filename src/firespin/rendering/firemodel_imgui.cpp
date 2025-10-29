@@ -223,7 +223,7 @@ void ImguiHandler::RLStatusParser(const py::dict& rl_status) {
     ImGui::Separator();
     ImGui::SetWindowFontScale(1.5f);
     ImGui::PushStyleColor(ImGuiCol_Text, color);
-    if (ImGui::Selectable("Mode of operation:")) {
+    if (ImGui::Selectable("Mode of operation:") && !parameters_.eval_fly_policy_) {
         ImGui::OpenPopup("Warning RL Mode");
     }
     ImGui::SetWindowFontScale(1.0f);
@@ -555,11 +555,11 @@ void ImguiHandler::PyConfig(std::string &user_input,
                                                               selected_drone->GetLastState().GetGridPositionDoubleNorm().first,
                                                               selected_drone->GetLastState().GetGridPositionDoubleNorm().second);
 
-                        ImGui::TableNextRow();
-                        ImGui::TableNextColumn(); ImGui::Text("GetPositionInExplorationMap");
-                        ImGui::TableNextColumn(); ImGui::Text("(%.6f, %.6f)",
-                                                              selected_drone->GetLastState().GetPositionInExplorationMap().first,
-                                                              selected_drone->GetLastState().GetPositionInExplorationMap().second);
+//                        ImGui::TableNextRow();
+//                        ImGui::TableNextColumn(); ImGui::Text("GetPositionInExplorationMap");
+//                        ImGui::TableNextColumn(); ImGui::Text("(%.6f, %.6f)",
+//                                                              selected_drone->GetLastState().GetPositionInExplorationMap().first,
+//                                                              selected_drone->GetLastState().GetPositionInExplorationMap().second);
 
                         ImGui::TableNextRow();
                         ImGui::TableNextColumn(); ImGui::Text("GetPositionNormAroundCenter");
@@ -646,11 +646,12 @@ void ImguiHandler::PyConfig(std::string &user_input,
                         {
                             ImGui::TableNextColumn();
                             ImGui::Text("GetTerrainView");
-                            DrawGrid(selected_drone->GetLastState().GetTerrainView(), "terrain");
+                            auto drone_view = gridmap->GetDroneView(selected_drone->GetGridPosition(), selected_drone->GetViewRange());
+                            DrawGrid((*drone_view)[0], "terrain");
 
                             ImGui::TableNextColumn();
                             ImGui::Text("GetFireView");
-                            DrawGrid(selected_drone->GetLastState().GetFireView(), "fire");
+                            DrawGrid((*drone_view)[1], "fire");
 
                             ImGui::EndTable();
                         }
@@ -821,9 +822,9 @@ void ImguiHandler::PyConfig(std::string &user_input,
                                           "and only stops if the Map is burned down too much or he extinguished all fires.");
 
                     ImGui::TableNextRow();
-                    ImGui::TableNextColumn(); ImGui::Text("Recharge Time");
+                    ImGui::TableNextColumn(); ImGui::Text("Water Limit");
                     ImGui::TableNextColumn(); ImGui::SetCursorPosX(ImGui::GetCursorPosX() + (ImGui::GetContentRegionAvail().x / 2) - 10);
-                    ImGui::Checkbox("##RechargeTime", &parameters_.recharge_time_active_);
+                    ImGui::Checkbox("##Water Limit", &parameters_.use_water_limit_);
 
                     if (ImGui::IsItemHovered())
                         ImGui::SetTooltip("If checked the Extinguishing Agent must recharge \n"

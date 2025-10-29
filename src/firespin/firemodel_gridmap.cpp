@@ -171,16 +171,24 @@ void GridMap::pruneReservations() {
     }
 }
 
+void GridMap::RemoveReservation(std::pair<int, int> cell) {
+    const int64_t id = idx(cell.first, cell.second);
+    reserved_positions_.erase(id);
+}
+
 std::pair<double, double> GridMap::GetNextFire(std::pair<int, int> drone_position) {
     pruneReservations();
-    if (burning_cells_.empty()) {
-        auto st = this->GetRandomPointInGrid();
-        return {st.first + 0.5, st.second + 0.5};
+    auto possible_fires = parameters_.eval_fly_policy_ ? this->GetRawFirePositionsFromFireMap() : burning_cells_;
+
+    if (possible_fires.empty()) {
+        auto st = this->GetGroundstation()->GetGridPositionDouble();
+        return {st.first, st.second};
     }
 
     double min_distance = std::numeric_limits<double>::max();
     int best_x = -1, best_y = -1;
-    for (auto cell : burning_cells_) {
+
+    for (auto cell : possible_fires) {
         const int64_t id = idx(cell.x_, cell.y_);
         if (reserved_positions_.count(id)) continue;
 
@@ -197,8 +205,8 @@ std::pair<double, double> GridMap::GetNextFire(std::pair<int, int> drone_positio
     }
 
     // all fires are reserved
-    auto st = this->GetRandomPointInGrid();
-    return {st.first + 0.5, st.second + 0.5};
+    auto st = this->GetGroundstation()->GetGridPositionDouble(); //this->GetRandomPointInGrid();
+    return {st.first, st.second};
 }
 
 void GridMap::IgniteCell(int x, int y) {
@@ -710,6 +718,32 @@ std::shared_ptr<std::vector<std::pair<double, double>>> GridMap::GetFirePosition
     fire_positions->emplace_back(groundstation_position); // Add a dummy value to indicate no fire
     for (const auto& cell : burning_cells_) {
         fire_positions->emplace_back(cell.x_ + 0.5, cell.y_ + 0.5);
+    }
+    return fire_positions;
+}
+
+std::shared_ptr<std::vector<std::pair<double, double>>> GridMap::GetFirePositionsFromFireMap() const {
+    std::vector<std::pair<double, double>> fire_positions;
+    // Append Wait Token for the Network at (-1, -1)
+    fire_positions.emplace_back(-1.0, -1.0);
+    for (size_t i = 0; i < fire_map_.size(); ++i) {
+        for (size_t j = 0; j < fire_map_[i].size(); ++j) {
+            if (fire_map_[i][j] > 0) {
+                fire_positions.emplace_back(static_cast<double>(i) + 0.5, static_cast<double>(j) + 0.5);
+            }
+        }
+    }
+    return std::make_shared<std::vector<std::pair<double, double>>>(fire_positions);
+}
+
+std::unordered_set<Point> GridMap::GetRawFirePositionsFromFireMap() const {
+    std::unordered_set<Point> fire_positions;
+    for (int x = 0; x < rows_; ++x) {
+        for (int y = 0; y < cols_; ++y) {
+            if (fire_map_[x][y] == 1) {
+                fire_positions.insert(Point(x, y));
+            }
+        }
     }
     return fire_positions;
 }

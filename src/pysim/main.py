@@ -33,6 +33,12 @@ def assert_config(config):
     used_algo = c_agent["algorithm"]
     c_algo = config["algorithm"].get(used_algo, "no_algo")
     rl_mode = c_settings["rl_mode"]
+    if c_settings["eval_fly_policy"]:
+        assert hierarchy_type in ["fly_agent", "planner_agent"], "eval_fly_policy can only be True when hierarchy_type is 'fly_agent' or 'planner_agent' in config.yaml."
+        assert rl_mode == "eval", "eval_fly_policy can only be True when rl_mode is 'eval' in config.yaml."
+        assert c_settings["log_eval"], "log_eval must be True when eval_fly_policy is True in config.yaml."
+    if config["environment"]["agent"]["use_water_limit"]:
+        assert c_settings["eval_fly_policy"], "Water limit use can only be True when eval_fly_policy is True in config.yaml."
     assert c_settings["mode"] in [0, 2], "Invalid mode in config.yaml. Must be 0 (GUI_RL), 2 (NoGUI_RL)"
     assert hierarchy_type in ["fly_agent", "explore_agent", "planner_agent"], \
         "Invalid hierarchy_type in config.yaml. Must be 'fly_agent', 'explore_agent', or 'planner_agent'."

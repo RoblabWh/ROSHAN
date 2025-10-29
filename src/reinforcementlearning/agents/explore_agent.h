@@ -14,7 +14,7 @@ class FireModelRenderer;
 
 class ExploreAgent : public Agent {
 public:
-    explicit ExploreAgent(FireModelParameters &parameters, int id, int time_steps);
+    explicit ExploreAgent(FireModelParameters &parameters, int total_id, int id, int time_steps);
 
     void ExecuteAction(std::shared_ptr<Action> action, std::string hierarchy_type, std::shared_ptr<GridMap> gridMap) override {
         action->ExecuteOn(shared_from_this(), hierarchy_type, gridMap);

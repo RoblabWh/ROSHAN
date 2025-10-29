@@ -10,6 +10,7 @@
 #include <utility>
 #include <SDL.h>
 #include <yaml-cpp/yaml.h>
+#include <algorithm>
 #include "utils.h"
 
 class FireModelParameters {
@@ -29,6 +30,7 @@ public:
         gen_.seed(seed_);
         init_rl_mode_ = config["settings"]["rl_mode"].as<std::string>();
         cia_mode_ = config["settings"]["cia_mode"].as<bool>();
+        eval_fly_policy_ = config["settings"]["eval_fly_policy"].as<bool>();
 
         // Paths
         auto paths = config["paths"];
@@ -109,7 +111,6 @@ public:
         fire_percentage_ = fire_behaviour["fire_percentage"].as<float>();
         fire_spread_prob_ = fire_behaviour["fire_spread_prob"].as<float>();
         fire_noise_ = fire_behaviour["fire_noise"].as<float>();
-        recharge_time_active_ = fire_behaviour["recharge_time_active"].as<bool>();
 
         // Agent parameters
         auto agent = environment["agent"];
@@ -124,6 +125,15 @@ public:
         use_simple_policy_ = flyagent["use_simple_policy"].as<bool>();
         use_velocity_change_ = flyagent["use_velocity_change"].as<bool>();
         use_vel_bins_ = flyagent["use_vel_bins"].as<bool>();
+        auto fly_reward = flyagent["rewards"];
+        FlyGoalReached_ = fly_reward["GoalReached"].as<double>();
+        FlyBoundaryTerminal_ = fly_reward["BoundaryTerminal"].as<double>();
+        FlyExtinguish_ = fly_reward["Extinguish"].as<double>();
+        FlyProximityPenalty_ = fly_reward["ProximityPenalty"].as<double>();
+        FlyTimeOut_ = fly_reward["TimeOut"].as<double>();
+        FlyDistanceImprovement_ = fly_reward["DistanceImprovement"].as<double>();
+        FlyCollision_ = fly_reward["Collision"].as<double>();
+
 
         auto exploreagent = agent["explore_agent"];
         number_of_explorers_ = exploreagent["num_agents"].as<int>();
@@ -138,8 +148,23 @@ public:
         extinguisher_speed_ = planneragent["max_speed"].as<double>();
         extinguisher_view_range_ = planneragent["view_range"].as<int>();
         planner_agent_time_steps_ = planneragent["time_steps"].as<int>();
+        auto planner_reward = planneragent["rewards"];
+        PlannerGoalReached_ = planner_reward["GoalReached"].as<double>();
+        PlannerMapBurnedTooMuch_ = planner_reward["MapBurnedTooMuch"].as<double>();
+        PlannerFlyingTowardsGroundstation_ = planner_reward["FlyingTowardsGroundStation"].as<double>();
+        PlannerTimeOut_ = planner_reward["TimeOut"].as<double>();
+        PlannerSameGoalPenalty_ = planner_reward["SameGoalPenalty"].as<double>();
+        PlannerExtinguishFires_ = planner_reward["ExtinguishFires"].as<double>();
+        PlannerFastExtinguish_ = planner_reward["FastExtinguish"].as<double>();
+
+        //Hierarchy steps
+        auto hierarchy_type_ = config["settings"]["hierarchy_type"].as<std::string>();
+        hierarchy_time_steps_ = hierarchy_type_ == "planner_agent" ? planneragent["hierarchy_timesteps"].as<int>() : 1;
+//        hierarchy_time_steps_ = config["settings"]["hierarchy_type"].as<std::string>() == "planner_agent" ? planneragent["hierarchy_timesteps"].as<int>() : 1;
 
         water_capacity_ = agent["water_capacity"].as<int>();
+        use_water_limit_ = agent["use_water_limit"].as<bool>();
+        recharge_time_ = agent["recharge_time"].as<double>();
 
         auto agent_behaviour = environment["agent_behaviour"];
         groundstation_start_percentage_ = agent_behaviour["groundstation_start_percentage"].as<float>();
@@ -285,7 +310,8 @@ public:
     float fire_percentage_{}; // in percent (%)
     float fire_spread_prob_{}; // in percent (%)
     float fire_noise_{};
-    bool recharge_time_active_{};
+    bool use_water_limit_{};
+    double recharge_time_{};
     bool manual_control_{false};
     int active_drone_{0};
 
@@ -305,6 +331,7 @@ public:
     int explore_agent_frame_skips_{};
     int planner_agent_frame_skips_{};
     std::string hierarchy_type{};
+    int hierarchy_time_steps_{};
     double drone_size_{};
     void SetHierarchyType(std::string type) { hierarchy_type = std::move(type);}
     [[nodiscard]] std::string GetHierarchyType() const {return hierarchy_type;}
@@ -322,7 +349,12 @@ public:
     int total_env_steps_ = 0;
     double k_turn_ = 1.5; // Factor to account for turns and non-optimal paths
     double slack_ = 2.0; // Slack factor to allow for exploration and other tasks
+    const double beta_ = 0.4; // Scaling factor for path length estimation
+    const double beta_2_ = 0.32; // Alternative scaling factor for path length estimation
+    const double fire_time_ = 1; // Scaling factor for time spent extinguishing each fire in seconds (s)
     std::string env_step_string_;
+
+
 
     int GetTotalEnvSteps(bool is_eval) {
         const double D = cell_size_ * std::hypot((double)grid_nx_, (double)grid_ny_); // Diagonal distance in meters
@@ -331,14 +363,12 @@ public:
         int T_physical = (int)std::ceil(base_time / dt_); // Convert to time steps
         int T_Task = T_physical; // default
 
-        if (hierarchy_type == "fly_agent") {
+        if (hierarchy_type == "fly_agent" && !eval_fly_policy_) {
             T_Task = (int)std::ceil(slack_ * T_physical);
             if (use_simple_policy_ && is_eval) {
-                const double beta = 0.23;
                 const int F = (int)std::ceil(fire_percentage_ * (double)(grid_nx_ * grid_ny_));
-                T_Task *= (int)std::ceil(beta * std::sqrt(std::max(1e-9, (double)(grid_nx_ * grid_ny_))) * std::sqrt((double)F) / (max_speed * dt_));
+                T_Task *= (int)std::ceil(beta_2_ * std::sqrt(std::max(1e-9, (double)(grid_nx_ * grid_ny_))) * std::sqrt((double)F) / (max_speed * dt_));
             }
-
         }
         else if (hierarchy_type == "explore_agent") {
             const double A = (double)grid_nx_ * (double)grid_ny_;
@@ -346,14 +376,12 @@ public:
             T_Task = (int)std::ceil(steps_cover);
             T_Task = std::max(T_Task, (int)(slack_ * T_physical));
         }
-        else if (hierarchy_type == "planner_agent") {
+        else if (hierarchy_type == "planner_agent" || eval_fly_policy_) {
             const double area_m2 = (grid_nx_ * cell_size_) * (grid_ny_ * cell_size_);
-            const double beta = 0.3; // BHH constant
-            const double fire_time = 200; // Time a fire burns in seconds
             const int F = (int)std::ceil(fire_percentage_ * (double)(grid_nx_ * grid_ny_));
-            double L = beta * std::sqrt(std::max(1e-9, area_m2)) * std::sqrt((double)F);
+            double L = beta_ * std::sqrt(std::max(1e-9, area_m2)) * std::sqrt((double)F);
             double t_move = L / std::max(1e-6, max_speed);
-            double t_svc  = F * std::max(0.0, fire_time);
+            double t_svc  = F * std::max(0.0, fire_time_);
             int steps = (int)std::ceil((t_move + t_svc) / std::max(1e-9, dt_));
             T_Task = std::max(steps, (int)std::ceil(slack_ * T_physical));
         }
@@ -380,7 +408,7 @@ public:
         oss << "Physical steps = ceil(base_time / dt) = " << T_physical << "\n";
         oss << "Slack factor = " << slack_ << "\n";
 
-        if (hierarchy_type == "fly_agent") {
+        if (hierarchy_type == "fly_agent" && !eval_fly_policy_) {
             oss << "\nAgent Type: Fly\n";
             oss << "Total steps = ceil(slack * T_physical) = "
                 << (int)std::ceil(slack_ * T_physical);
@@ -396,15 +424,14 @@ public:
             T_Task = std::max(T_Task, (int)(slack_ * T_physical));
             oss << "Total steps = max(coverage, slack*physical) = " << T_Task;
         }
-        else if (hierarchy_type == "planner_agent") {
+        else if (hierarchy_type == "planner_agent" || eval_fly_policy_) {
             oss << "\nAgent Type: Planner\n";
             const double area_m2 = (grid_nx_ * cell_size_) * (grid_ny_ * cell_size_);
-            const double beta = 0.72;
-            const double fire_time = 300;
+
             const int F = (int)std::ceil(fire_percentage_ * (double)(grid_nx_ * grid_ny_));
-            double L = beta * std::sqrt(std::max(1e-9, area_m2)) * std::sqrt((double)F);
+            double L = beta_ * std::sqrt(std::max(1e-9, area_m2)) * std::sqrt((double)F);
             double t_move = L / std::max(1e-6, max_speed);
-            double t_svc  = F * std::max(0.0, fire_time);
+            double t_svc  = F * std::max(0.0, fire_time_);
             int steps = (int)std::ceil((t_move + t_svc) / std::max(1e-9, dt_));
             int T_Task = std::max(steps, (int)std::ceil(slack_ * T_physical));
             oss << "Area = " << area_m2 << " m²\n";
@@ -426,7 +453,16 @@ public:
     int fly_agent_view_range_{};
     int fly_agent_time_steps_{};
     bool fly_agent_collision_{};
+    bool eval_fly_policy_{};
     bool use_simple_policy_{};
+    // Fly Reward
+    double FlyGoalReached_{};
+    double FlyBoundaryTerminal_{};
+    double FlyExtinguish_{};
+    double FlyCollision_{};
+    double FlyTimeOut_{};
+    double FlyDistanceImprovement_{};
+    double FlyProximityPenalty_{};
     bool use_velocity_change_{};
     bool use_vel_bins_{};
     int number_of_explorers_{};
@@ -437,6 +473,14 @@ public:
     double extinguisher_speed_{};
     int extinguisher_view_range_{};
     int planner_agent_time_steps_{};
+    // Planner Agent Reward
+    double PlannerGoalReached_{};
+    double PlannerMapBurnedTooMuch_{};
+    double PlannerFlyingTowardsGroundstation_{};
+    double PlannerTimeOut_{};
+    double PlannerSameGoalPenalty_{};
+    double PlannerExtinguishFires_{};
+    double PlannerFastExtinguish_{};
     int water_capacity_{};
     [[nodiscard]] int GetNumberOfFlyAgents() const {return number_of_flyagents_;}
     [[nodiscard]] int GetNumberOfExplorers() const {return number_of_explorers_;}
@@ -445,7 +489,7 @@ public:
     void SetNumberOfExplorers(int number) {number_of_explorers_ = number;}
     void SetNumberOfExtinguishers(int number) {number_of_extinguishers_ = number;}
     [[nodiscard]] int GetWaterCapacity() const {return water_capacity_;}
-    [[nodiscard]] double GetWaterRefillDt() const {return GetWaterCapacity() / (5 * 60 / GetDt());}
+    [[nodiscard]] double GetWaterRefillDt() const {return std::clamp((water_capacity_ / (recharge_time_ + 0.0001) / GetDt()), 0.0, static_cast<double>(water_capacity_));}
 };
 
 

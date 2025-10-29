@@ -676,7 +676,7 @@ class Evaluator:
     number of agents that died, and number of agents that reached the goal.
     """
 
-    def __init__(self, log_dir: str, auto_train_dict: dict, max_train: int, sim_bridge: SimulationBridge, no_gui: bool, start_eval: bool, log_eval: bool, logger: Union[None, TensorboardLogger] = None):
+    def __init__(self, log_dir: str, config: dict, max_train: int, sim_bridge: SimulationBridge, no_gui: bool, start_eval: bool, log_eval: bool, logger: Union[None, TensorboardLogger] = None):
         # self.stats = [EvaluationStats()]
         # Python logger for evaluation messages
         self.logger = logging.getLogger("Evaluator")
@@ -685,6 +685,7 @@ class Evaluator:
         self.log_dir = log_dir
         self.sim_bridge = sim_bridge
         self.eval_steps = 0
+        auto_train_dict = config["settings"]["auto_train"]
         self.use_auto_train = auto_train_dict["use_auto_train"]
         self.no_gui = no_gui
         self.no_gui_eval = no_gui and start_eval # We stop the agent after evaluation because we are in NoGui Mode
@@ -696,7 +697,7 @@ class Evaluator:
         self.avg_objective = 0
         # History of per-episode metric values
         self.history: List[Dict[str, float]] = []
-        registry = METRIC_REGISTRY_FLY_AGENT if self.sim_bridge.get("hierarchy_type") == "fly_agent" else METRIC_REGISTRY
+        registry = METRIC_REGISTRY if not (self.sim_bridge.get("hierarchy_type") == "fly_agent" and not config["settings"]["eval_fly_policy"]) else METRIC_REGISTRY_FLY_AGENT
         self.metrics = [m() for m in registry]  # Initialize metrics from the registry
         self.terminal_episode_dict = {}
         self.log_eval = log_eval

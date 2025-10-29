@@ -15,7 +15,7 @@ class FireModelRenderer;
 
 class PlannerAgent : public Agent {
 public:
-    explicit PlannerAgent(FireModelParameters &parameters, int id, int time_steps);
+    explicit PlannerAgent(FireModelParameters &parameters, int total_id, int id, int time_steps);
 
     void ExecuteAction(std::shared_ptr<Action> action, std::string hierarchy_type, std::shared_ptr<GridMap> gridMap) override {
         action->ExecuteOn(shared_from_this(), hierarchy_type, gridMap);
@@ -37,7 +37,7 @@ public:
     }
 
     AgentTerminal GetTerminalStates(bool eval_mode, const std::shared_ptr<GridMap>& grid_map, int total_env_steps) override;
-    void SetGridMap(std::shared_ptr<GridMap> gridmap) { gridmap_ = std::move(gridmap); }
+    void SetEvalMode(bool eval_mode) { eval_mode_ = eval_mode; }
 private:
     void InitializePlannerAgentStates(const std::shared_ptr<GridMap> &grid_map);
 
@@ -57,6 +57,7 @@ private:
     // Rewards Collection for Debugging!
     bool explored_fires_equals_actual_fires_ = false;
     bool extinguished_last_fire_ = false;
+    bool eval_mode_ = false;
 
     std::shared_ptr<AgentState> BuildAgentState(const std::shared_ptr<GridMap> &grid_map) override;
 };

@@ -1,10 +1,12 @@
 settings:
   # 0: GUI_RL, 2: NoGUI_RL, # Mode 1 is GUI and Mode 2 is NoGUI (ONLY Simulation)
-  mode: 0
+  mode: 2
   # Random seed for reproducibility (-1 for random seed)
   seed: -1
   # RL_MODE: Either "train" or "eval"
   rl_mode: train
+  # This parameter determines whether to evaluate the fly_agent policy with the extinguishing heuristic
+  eval_fly_policy: false
   # Resume training from a checkpoint
   # If set to true, the training will continue from the specified checkpoint
   resume: false
@@ -62,7 +64,7 @@ paths:
   # Name of the CORINE dataset-file, Path to the Corine dataset file must be set in project_paths.json (generated default paths at compile time)
   corine_dataset_name: CLMS_CLCplus_RASTER_2021_010m_eu_03035_V1_1.tif
   # This map is used in NoGUI & skip_gui_init setup, if left empty("") the default map (uniform map) will be used.
-  init_map: 35x36_Woods.tif
+  init_map: 81x129_Campsite.tif #35x36_Woods.tif
 #{'entropy_coeff': 1.230811218699769e-06, 'gamma': 0.9773972579784836, '_lambda': 0.9096741778233516, 'eps_clip': 0.22816431818213967}
 algorithm:
   # Share the encoder(Inputspace in the network files) between the policy and value networks
@@ -121,7 +123,7 @@ algorithm:
     # can be used to implement early stopping based on KL divergence
     # the early stopping will not stop the overall training, but only the current update step
     # If kl_early_stop is true, training will stop early if the kl divergence exceeds kl_target
-    kl_early_stop: true
+    kl_early_stop: false
     # This value should ideally be set between 0.01 and 0.05
     kl_target: 0.02
     # Whether to use the first KL divergence estimate or the second (unbiased, lesser variance)
@@ -231,10 +233,10 @@ environment:
   fire_behaviour:
     # Percentage of cells that should be ignited at the start of the simulation [0.0 - 1.0]
     # Setting this to < 0.0 will lead to randomly generated fire_percentage between (0, 1]
-    fire_percentage: 0.01
+    fire_percentage: 0.40 #0.01
     # How many clusters of fire should be started at the beginning of the simulation
     # Setting this to <= 0 will lead to single cells being ignited randomly according to fire_percentage
-    num_fire_clusters: 1
+    num_fire_clusters: 2
     # This probability is used to determine if a fire spreads to a neighboring cell
     # It is only used to control starting Fire Clusters, not the actual fire spread during simulation
     # Setting this to < 0.0 will lead to random fire_noise between 0 and 1
@@ -242,8 +244,6 @@ environment:
     # Noise ([-0.5, 0,5]*noise) for the fire spread probability, to introduce randomness in the fire spread
     # Setting this to < 0.0 will lead to random fire_noise between 0 and 1
     fire_noise: 1
-    # TODO: OLD PARAMETER, REMOVE LATER IF NOT NEEDED ANYMORE
-    recharge_time_active: false
   agent_behaviour:
     # Percentage of initial goal set (for fly_agents) that are at a fire_position
     fire_goal_percentage: 1
@@ -251,16 +251,20 @@ environment:
     groundstation_start_percentage: 1
     # Other parameters that are currently hard-coded or only accessible via GUI will be added here later
   agent:
+    # If true, drones have a water limit and need to recharge at the groundstation
+    # Should only be used in evaluation mode for fly_policy eval for now
+    use_water_limit: false
     # Number of water units a drone can carry (one unit extinguishes one cell)
-    # Currently not used, needs to be implemented in the fire extinguishing logic
-    water_capacity: 10 
-    # Size of the drone in m (used for rendering and collision detection); 
+    water_capacity: 2
+    # Time in seconds to recharge water at the groundstation (set this to 0 for instant recharge)
+    recharge_time: 0.0
+    # Size of the drone in m (used for rendering and collision detection);
     # for convenience, all drones have the same size
-    drone_size: 2 
+    drone_size: 2
     fly_agent:
       # Whether the agent should avoid collisions with other agents
       # This changes the network input space and terminal conditions
-      collision: true
+      collision: false
       # Two types of policies can be learned:
       # Simple Policy: The episode ends when one agent reaches its goal_position
       # Complex Policy: The episode ends when all fires are extinguished (this influences the reward structure slightly)
@@ -278,31 +282,48 @@ environment:
       # Number of fly_agents
       num_agents: 4
       # Number of time steps to consider in the FlyAgent's memory
-      time_steps: 3
+      time_steps: 4
       # Maximum speed of the FlyAgent in m/s
       max_speed: 10.0
       # View range of the FlyAgent in cells
       view_range: 10 
+      rewards:
+        # Reward for reaching the goal (depending on simple or complex policy)
+        GoalReached: 1.0
+        # Penalty for going out of map bounds
+        BoundaryTerminal: -1.0
+        # Reward for extinguishing a fire cell (only complex policy)
+        Extinguish: 0.01
+        # Penalty for each time step to encourage faster completion
+        TimeOut: -1.0
+        # Penalty for colliding with another agent
+        Collision: -1.0
+        # Reward FACTOR for improving distance to the goal
+        DistanceImprovement: 0.1
+        # Penalty FACTOR for being to close to other agents
+        ProximityPenalty: -0.05
     explore_agent:
       # Determines the frequency of action selection (1 = every frame, 2 = every 2nd frame, etc.)
       frame_skips: 1 
       # Algorithm used by the explore_agent (currently no training implemented, so set to no_algo)
       algorithm: no_algo 
       # Number of explore_agents
-      num_agents: 3 
+      num_agents: 6
       # Number of time steps to consider in the ExploreAgent's memory
-      time_steps: 3
+      time_steps: 4
       # Maximum speed of the explore_agent in m/s
       # Should be set to the max_speed of the fly_agent uses
       max_speed: 10.0 
       # View range of the explore_agent in cells
       view_range: 12 
       # Default model path for the fly_agent (either absolute or relative to the project root)
-      default_model_folder: "models/SimpleInputTest/" 
+      default_model_folder: "models/SimpleInput/" 
       # You can fast load models with suffixes ["latest", "best_reward", "best_objective"]
       # If you want to load a specific model, set the model_name to the name of the model file
       default_model_name: best_obj
     planner_agent:
+      # Hierarchy Timesteps (number of low-level steps per high-level step)
+      hierarchy_timesteps: 20
       # Determines the frequency of action selection (1 = every frame, 2 = every 2nd frame, etc.)
       frame_skips: 1 
       # Algorithm used by the planner_agent
@@ -310,13 +331,28 @@ environment:
       # These parameters are used to configure the planner_agents LOW-LEVEL AGENTS
       num_agents: 4
       # Number of time steps to consider in the ExtinguishAgent's memory
-      time_steps: 3 
+      time_steps: 4 
       # Maximum speed of the ExtinguishAgent (low-level-agent of the Planner) in m/s
       max_speed: 10.0 
       # View range of the ExtinguishAgent in cells
       view_range: 10 
       # Default model path for the fly_agent (either absolute or relative to the project root)
-      default_model_folder: "models/SimpleInputTest/"
+      default_model_folder: "models/SimpleInput/"
       # You can fast load models with suffixes ["latest", "best_reward", "best_objective"]
       # If you want to load a specific model, set the model_name to the name of the model file
       default_model_name: best_obj
+      rewards:
+        # Reward for reaching the goal (extinguishing all fires)
+        GoalReached: 1.0
+        # Penalty for the Map being burned too much
+        MapBurnedTooMuch: -2.0
+        # Penalty for selecting the default goal (needed for the attention network when there are no valid fires)
+        FlyingTowardsGroundStation: -0.01
+        # Penalty for each time step to encourage faster completion
+        TimeOut: -2.0
+        # Penalty FACTOR for selecting the same goal for multiple agents
+        SameGoalPenalty: -0.1
+        # Reward FACTOR for each fire cell extinguished from the low level agents during one high-level step
+        ExtinguishFires: 0.2
+        # Reward FACTOR for fast extinguishing
+        FastExtinguish: 0.5

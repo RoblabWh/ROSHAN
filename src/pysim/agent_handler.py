@@ -142,7 +142,8 @@ class AgentHandler:
             logging.getLogger().addHandler(file_handler)
 
         # If this is not a sub agent, we can now log everything
-        self.logger = logging.getLogger(agent_type)
+        loggername = subtype if subtype else agent_type
+        self.logger = logging.getLogger(loggername)
         if not self.is_sub_agent:
             self.logger.info(f"Logging File at {logging_file}")
         if later_logs["msg"] is not None:
@@ -165,6 +166,7 @@ class AgentHandler:
                 share_encoder = injecting_config["algorithm"]["share_encoder"]
                 use_tanh_dist = injecting_config["algorithm"]["use_tanh_dist"]
                 collision = injecting_config["environment"]["agent"]["fly_agent"]["collision"]
+                time_steps = injecting_config["environment"]["agent"]["fly_agent"]["time_steps"]
                 self.logger.info("Injected network parameters from sub agent config at {}".format(config_path))
             else:
                 self.logger.warning("No config file found at {}, cannot inject network parameters".format(config_path))
@@ -292,7 +294,7 @@ class AgentHandler:
 
             max_train = at_dict["max_train"] if not algorithm == 'IQL' else config["algorithm"]["IQL"]["offline_updates"] + config["algorithm"]["IQL"]["online_updates"]
             self.evaluator = Evaluator(log_dir=logging_path,
-                                       auto_train_dict=at_dict,
+                                       config=config,
                                        max_train = max_train,
                                        no_gui=self.no_gui,
                                        start_eval=self.rl_mode == "eval",
@@ -471,7 +473,7 @@ class AgentHandler:
             return FlyAgent("PlannerFlyAgent")
         if agent_type == "explore_agent":
             return ExploreAgent()
-        if agent_type == "planner_agent":
+        else:
             return PlannerAgent(num_drones)
 
     def should_train(self):
