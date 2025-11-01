@@ -391,6 +391,7 @@ StepResult ReinforcementLearningHandler::Step(const std::string& agent_type, std
         }
     }
 
+    // This should probably go right after the step and the reward should be calculated after collisions are found
     if (agents[0]->GetAgentType() == FLY_AGENT) {
         auto fly_agents = CastAgents<FlyAgent>(agents);
         findCollisions(fly_agents, gridmap_);

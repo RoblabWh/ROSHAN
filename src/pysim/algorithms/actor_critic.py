@@ -27,6 +27,8 @@ class CategoricalActorCritic(nn.Module):
         """
         with torch.no_grad():
             probs = self.actor(state)  # logits: [batch_size, num_drones, num_fires]
+
+            # TODO: Maybe add epsilon greedy here for exploration (otherwise be sure to have entropy bonus in the loss)
             cat_dist = torch.distributions.Categorical(probs=probs)
 
             actions_idx = cat_dist.sample()  # [batch_size, num_drones]
@@ -51,9 +53,9 @@ class CategoricalActorCritic(nn.Module):
         :return: The action from the actor's distribution.
         """
         with torch.no_grad():
-            action_logits = self.actor(state)
+            probs = self.actor(state)
             # Shape: [batch_size, action_size]
-            actions_idx = torch.argmax(action_logits, dim=-1)
+            actions_idx = torch.argmax(probs, dim=-1)
             _, _, possible_goals = state# [batch_size, num_drones]
             possible_goals = possible_goals.squeeze(1)
 
@@ -70,7 +72,7 @@ class CategoricalActorCritic(nn.Module):
         distribution.
 
         :param state: A tuple of the current lidar scan, orientation to goal, distance to goal, and velocity.
-        :param action: The action to evaluate.
+        :param actions: The action to evaluate.
         :return: A tuple of the log probability of the given action, the value of the given state, and the entropy of the
         actor's distribution.
         """
@@ -80,14 +82,24 @@ class CategoricalActorCritic(nn.Module):
 
         probs = self.actor(state, masks)  # logits: [batch_size, num_drones, num_fires]
         cat_dist = torch.distributions.Categorical(probs)
-        # Sample action for each drone
-        actions = cat_dist.sample()  # [batch_size, num_drones]
+        # Don't sample action for each drone
+        # actions = cat_dist.sample()  # [batch_size, num_drones]
+
+        # Rebuild indices from coordinates in the SAME state instead
+        _, _, possible_goals = state  # expect [B, N_G, 2]
+        possible_goals = possible_goals.squeeze(1)
+        dists = torch.cdist(actions, possible_goals)  # [B, N_D, N_G]
+        actions_idx = dists.argmin(dim=-1)
+        min_d = dists.gather(-1, actions_idx.unsqueeze(-1)).squeeze(-1)
+        if torch.any(min_d > 1.0e-8):
+            raise RuntimeError("Action doesn't match any possible goal within tolerance.")
+
         # Log probability for each action (per drone)
-        action_logprob = cat_dist.log_prob(actions)  # [batch_size, num_drones]
+        action_logprob = cat_dist.log_prob(actions_idx)  # [batch_size, num_drones]
         dist_entropy = cat_dist.entropy()  # [B, D]
 
-        action_logprob = action_logprob.mean(dim=1)  # [B]
-        dist_entropy = dist_entropy.mean(dim=1)  # [B]
+        action_logprob = action_logprob.sum(dim=1)  # [B]
+        dist_entropy = dist_entropy.sum(dim=1)  # [B]
         state_value = torch.squeeze(state_value.mean(dim=1))  # [B]
 
         return action_logprob, state_value, dist_entropy
@@ -281,13 +293,14 @@ class ActorCriticIQL(StochasticActor):
     A PyTorch Module that represents the actor-critic network of an IQL agent.
     """
     def __init__(self, actor_network, critic_network, value_network, action_dim, vision_range, drone_count, map_size, time_steps, share_encoder, use_tanh_dist, collision):
-        super(StochasticActor, self).__init__(actor_network=actor_network,
+        super(ActorCriticIQL, self).__init__(actor_network=actor_network,
                                              vision_range=vision_range,
                                              drone_count=drone_count,
                                              map_size=map_size,
                                              time_steps=time_steps,
                                              use_tanh_dist=use_tanh_dist,
-                                             collision=collision)
+                                             collision=collision,
+                                             manual_decay=False)
 
         self._fixed_log_std = nn.Parameter(
             torch.full((2,), -3.0),  # std ≈ 0.05
@@ -296,9 +309,20 @@ class ActorCriticIQL(StochasticActor):
 
         inputspace = None if not share_encoder else self.actor.Inputspace
 
-        self.critic = critic_network(vision_range, drone_count, map_size, time_steps, action_dim, inputspace).to(self.device)
+        self.critic = critic_network(vision_range=vision_range,
+                                     drone_count=drone_count,
+                                     map_size=map_size,
+                                     time_steps=time_steps,
+                                     action_dim=action_dim,
+                                     inputspace=inputspace,
+                                     collision=collision).to(self.device)
         self.critic.apply(init_fn)
-        self.value = value_network(vision_range, drone_count, map_size, time_steps, inputspace).to(self.device)
+        self.value = value_network(vision_range=vision_range,
+                                   drone_count=drone_count,
+                                   map_size=map_size,
+                                   time_steps=time_steps,
+                                   inputspace=inputspace,
+                                   collision=collision).to(self.device)
         self.value.apply(init_fn)
 
     def act(self, state):

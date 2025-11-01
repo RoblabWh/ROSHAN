@@ -769,7 +769,7 @@ class AgentHandler:
             # Need to inject and load BEST model here
             model_name, _ = self.get_model_name(path=str(self.algorithm.get_model_path()), model_string="best_obj",
                                                 agent_type=self.agent_type_str, is_loading_name=True)
-            self.algorithm.loading_path = self.root_model_path
+            self.algorithm.loading_path = self.algorithm.get_model_path()
             self.algorithm.loading_name = model_name
             self.load_model(new_rl_mode="eval")
 
@@ -777,7 +777,7 @@ class AgentHandler:
 
     def act(self, observations):
         actions, action_logprobs = self.algorithm.select_action(observations)
-        return actions, action_logprobs.ravel() if action_logprobs is not None else None
+        return actions, action_logprobs if action_logprobs is not None else None
 
     def get_action(self, actions):
         return self.agent_type.get_action(actions)

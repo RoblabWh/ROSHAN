@@ -23,7 +23,7 @@ class Metric:
         """Reset metric value for a new episode."""
         self.value: float = 0.0
 
-    def update(self, stats: Dict[str, Any]) -> None:  # pragma: no cover - interface
+    def update(self, stats: Dict[str, Any], hierarchy_steps=None) -> None:  # pragma: no cover - interface
         """Update the metric using environment statistics."""
         raise NotImplementedError
 
@@ -138,7 +138,7 @@ class RewardMetric(Metric):
     def __init__(self) -> None:
         super().__init__("Reward", dtype="float", agg="mean")
     def reset(self) -> None: self.value = 0.0
-    def update(self, stats: Dict[str, Any]) -> None:
+    def update(self, stats: Dict[str, Any], hierarchy_steps=None) -> None:
         # Maybe I should not use the mean of all agents here and keep track of each agent's reward separately?
         # On the contrary, what does it even tell me if I do that?
         # All agents share the same network, so the difference in rewards must be attributed to the environment.
@@ -149,15 +149,14 @@ class TimeMetric(Metric):
     def __init__(self) -> None:
         super().__init__("Time", dtype="int", agg="mean")
     def reset(self) -> None: self.value = 0
-    def update(self, stats: Dict[str, Any]) -> None:
-        self.value += 1
-
+    def update(self, stats: Dict[str, Any], hierarchy_steps=None) -> None:
+        self.value += hierarchy_steps
 
 class PercentBurnedMetric(Metric):
     def __init__(self) -> None:
         super().__init__("Percent_Burned", dtype="float", agg="mean")
     def reset(self) -> None: self.value = 0.0
-    def update(self, stats: Dict[str, Any]) -> None:
+    def update(self, stats: Dict[str, Any], hierarchy_steps=None) -> None:
         if stats["terminal_result"].env_reset:
             self.value = float(stats["percent_burned"])
 
@@ -165,7 +164,7 @@ class SuccessMetric(Metric):
     def __init__(self) -> None:
         super().__init__("Success", dtype="percent", agg="rate")
     def reset(self) -> None: self.value = 0.0
-    def update(self, stats: Dict[str, Any]) -> None:
+    def update(self, stats: Dict[str, Any], hierarchy_steps=None) -> None:
         if stats["terminal_result"].env_reset:
             self.value = 0.0 if stats["terminal_result"].any_failed else 1.0
 
@@ -173,6 +172,6 @@ class FailureReason(Metric):
     def __init__(self) -> None:
         super().__init__("Failure_Reason", dtype="string", agg="distribution")
     def reset(self) -> None: self.value = "None"
-    def update(self, stats: Dict[str, Any]) -> None:
+    def update(self, stats: Dict[str, Any], hierarchy_steps=None) -> None:
         if stats["terminal_result"].env_reset and stats["terminal_result"].any_failed:
             self.value = stats["terminal_result"].reason.name if stats["terminal_result"].reason else "Unknown"

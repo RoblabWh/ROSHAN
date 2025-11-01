@@ -171,7 +171,7 @@ class Memory(object):
 
         self.state = [0 for _ in range(self.max_size)]
         self.action = np.zeros((self.max_size, action_dim)) if isinstance(action_dim, int) else np.zeros((self.max_size, *action_dim))
-        self.logprobs = np.zeros((self.max_size,))
+        self.logprobs = np.zeros((self.max_size,)) if isinstance(action_dim, int) else np.zeros((self.max_size, action_dim[0]))
         self.reward = np.zeros((self.max_size,))
         self.not_done = np.zeros((self.max_size,))
         self.masks = []
@@ -242,9 +242,8 @@ class Memory(object):
 
         # Re-init backing storage
         self.state = [0 for _ in range(self.max_size)]
-        self.action = np.zeros((self.max_size, self.action.shape[1])) \
-            if isinstance(self.action_dim, int) else np.zeros((self.max_size, *self.action_dim))
-        self.logprobs = np.zeros((self.max_size,))
+        self.action = np.zeros((self.max_size, self.action.shape[1])) if isinstance(self.action_dim, int) else np.zeros((self.max_size, *self.action_dim))
+        self.logprobs = np.zeros((self.max_size,)) if isinstance(self.action_dim, int) else np.zeros((self.max_size, self.action_dim[0]))
         self.reward = np.zeros((self.max_size,))
         self.not_done = np.zeros((self.max_size,))
         self.masks = state.get("masks", [])

@@ -261,11 +261,15 @@ class PPO(RLAlgorithm):
                 batch_adv = advantages[index]
                 batch_adv = (batch_adv - batch_adv.mean()) / (batch_adv.std() + 1e-8)
                 batch_variable_masks = variable_state_masks[0][index] if self.use_variable_state_masks and len(variable_state_masks[0]) > 0 else None
+                batch_old_logprobs = old_logprobs[index]
+                # Joint log_probs for multi-discrete actions
+                if batch_old_logprobs.dim() == 2:
+                    batch_old_logprobs = batch_old_logprobs.sum(dim=1)
                 logprobs, values, dist_entropy = self.policy.evaluate(batch_states, batch_actions, batch_variable_masks)
 
                 # Importance ratio: p/q
                 # Clamp the ratios for stability (higher LRs can cause overflow, which results in NaNs)
-                log_ratio = logprobs - old_logprobs[index]
+                log_ratio = logprobs - batch_old_logprobs
                 clamped_ratio = torch.clamp(log_ratio, -10, 10)  # avoid overflow
                 ratios = torch.exp(clamped_ratio)
 
@@ -286,7 +290,7 @@ class PPO(RLAlgorithm):
                     epoch_values.append(values.detach().cpu().numpy())
                     epoch_returns.append(returns[index].detach().cpu().numpy())
                     clip_fraction = ((ratios < (1 - self.eps_clip)) | (ratios > (1 + self.eps_clip))).float().mean().cpu().numpy()
-                    approx_kl = (old_logprobs[index] - logprobs).mean().detach().cpu().numpy()
+                    approx_kl = (batch_old_logprobs - logprobs).mean().detach().cpu().numpy()
                     if not self.use_kl_1:
                         approx_kl = ((ratios - 1 - log_ratio).mean()).detach().cpu().numpy()
                     # Stop the policy updates early when the new policy diverges too much from the old one

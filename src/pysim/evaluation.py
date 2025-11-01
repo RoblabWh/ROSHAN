@@ -686,6 +686,7 @@ class Evaluator:
         self.sim_bridge = sim_bridge
         self.eval_steps = 0
         auto_train_dict = config["settings"]["auto_train"]
+        self.hierarchy_steps = 1 if not config["settings"]["hierarchy_type"] == "planner_agent" else config["environment"]["agent"]["planner_agent"]["hierarchy_timesteps"]
         self.use_auto_train = auto_train_dict["use_auto_train"]
         self.no_gui = no_gui
         self.no_gui_eval = no_gui and start_eval # We stop the agent after evaluation because we are in NoGui Mode
@@ -695,6 +696,7 @@ class Evaluator:
         self.current_episode = 0  # Current episode number
         self.avg_reward = -np.inf
         self.avg_objective = 0
+        self.tte = np.inf
         # History of per-episode metric values
         self.history: List[Dict[str, float]] = []
         registry = METRIC_REGISTRY if not (self.sim_bridge.get("hierarchy_type") == "fly_agent" and not config["settings"]["eval_fly_policy"]) else METRIC_REGISTRY_FLY_AGENT
@@ -817,6 +819,9 @@ class Evaluator:
             if self.eval_steps >= self.max_eval:
                 self.avg_reward = float(np.mean([s["Reward"] for s in self.history])) if self.history else 0.0
                 self.avg_objective = float(np.mean([s["Success"] for s in self.history])) if self.history else 0.0
+                self.avg_tte = float(
+                    np.mean([s["Time"] for s in self.history])) if self.history and self.sim_bridge.get(
+                    "hierarchy_type") == "planner_agent" else 0.0
                 self.logger.info(f"Evaluation finished, after {self.eval_steps} evaluation "
                                  f"steps with average reward: {self.avg_reward} and average objective: {self.avg_objective}")
                 self.save_to_csv(os.path.join(self.log_dir, "evaluation_stats.csv"))
@@ -832,7 +837,7 @@ class Evaluator:
         """Returns the final evaluation metrics after all evaluation episodes are completed.
            Only used for Optuna Optimization and otherwise saved in CSV and Plots, as well as the logs
         """
-        return {"reward": self.avg_reward, "objective": self.avg_objective}
+        return {"reward": self.avg_reward, "objective": self.avg_objective, "time_to_end": self.avg_tte}
 
     def update_evaluation_metrics(self, rewards, terminal_result, percent_burned):
         step_stats = {
@@ -843,7 +848,7 @@ class Evaluator:
 
         metrics: Dict[str, Any] = {"episode": self.current_episode + 1, "episode_over": False}
         for metric in self.metrics:
-            metric.update(step_stats)
+            metric.update(step_stats, self.hierarchy_steps)
             metrics[metric.name] = metric.value
 
         if terminal_result.env_reset:

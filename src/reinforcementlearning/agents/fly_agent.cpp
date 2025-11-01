@@ -207,8 +207,6 @@ double FlyAgent::CalculateReward(const std::shared_ptr<GridMap>& grid_map) {
     return total_reward;
 }
 
-//TODO TIDY UP !!!!
-
 AgentTerminal FlyAgent::GetTerminalStates(bool eval_mode, const std::shared_ptr<GridMap>& grid_map, int env_steps_remaining) {
     std::vector<bool> terminal_states;
     // bool eval = eval_mode && parameters_.extinguish_all_fires_;
@@ -217,12 +215,12 @@ AgentTerminal FlyAgent::GetTerminalStates(bool eval_mode, const std::shared_ptr<
 
     if(!is_explorer_){
         // If the agent has flown out of the grid it has reached a terminal state and died
-        if (GetOutOfAreaCounter() > 1) {
+        if (GetOutOfAreaCounter() > 1 && !parameters_.eval_fly_policy_) {
             t.is_terminal = true;
             t.reason = FailureReason::BoundaryExit;
         }
 
-        if (collision_occurred_ && parameters_.fly_agent_collision_) {
+        if (collision_occurred_ && parameters_.fly_agent_collision_ && !parameters_.eval_fly_policy_) {
             t.is_terminal = true;
             t.reason = FailureReason::Collision;
         }
@@ -415,6 +413,16 @@ double FlyAgent::GetDistanceToGoal() {
 
 void FlyAgent::FlyPolicy(const std::shared_ptr<GridMap>& gridmap){
     if(this->policy_type_ == EXTINGUISH_FIRE) {
+        // If policy is to extinguish fire and the goal is set to groundstation(start of mission), set new goal to next fire
+        // as soon as some fire is explored
+        if (almostEqual(this->GetGoalPosition(), gridmap->GetGroundstation()->GetGridPositionDouble())) {
+            auto fire_map_empty = gridmap->GetRawFirePositionsFromFireMap().empty();
+            if (!fire_map_empty) {
+                this->SetGoalPosition(gridmap->GetNextFire(this->GetGridPosition()));
+                return;
+            }
+        }
+        // If at goal position, dispense water and set new goal
         if (almostEqual(this->GetGoalPosition(), this->GetGridPositionDouble())) {
             this->DispenseWaterCertain(gridmap);
             gridmap->RemoveReservation(this->GetGoalPositionInt());

@@ -85,6 +85,13 @@ def sim(config : dict, overrides: dict = None, trial=None):
     config = inject_overrides(config, overrides, trial)
     assert_config(config)
 
+    # Always safe the initial config to a dummy file in the root directory
+    # This is not beautiful, but it works for now, the main cause for this is
+    # that the config object can be modified at runtime (e.g. optuna overrides)
+    dummy_config_path = os.path.join(get_project_paths("root_path"), "used_config.yaml")
+    with open(dummy_config_path, 'w') as f:
+        yaml.dump(config, f)
+
     if config["settings"].get("pytorch_detect_anomaly"):
         os.environ["PYTORCH_DETECT_ANOMALY"] = "true"
 
@@ -109,7 +116,7 @@ def sim(config : dict, overrides: dict = None, trial=None):
 
     # Initialize the EngineCore and send the RL_Status
     engine = firesim.EngineCore()
-    engine.Init(config["settings"]["mode"], config_path)
+    engine.Init(config["settings"]["mode"], dummy_config_path)
     engine.SendRLStatusToModel(sim_bridge.get_status())
     engine.InitializeMap()
 
