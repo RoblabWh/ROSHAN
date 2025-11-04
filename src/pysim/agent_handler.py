@@ -483,7 +483,7 @@ class AgentHandler:
             # Train always during offline phase, during online phase check policy frequency
             return (self.env_step < self.algorithm.offline_updates) or (self.env_step % self.algorithm.policy_freq == 0)
         elif self.algorithm_name == 'TD3':
-            return len(self.memory) >= self.algorithm.min_memory_size
+            return len(self.memory) >= self.algorithm.min_memory_size #TODO: Could do tests here after each env_reset(first tests didn't show improvements)
         else:
             raise NotImplementedError("Algorithm {} not implemented".format(self.algorithm_name))
 

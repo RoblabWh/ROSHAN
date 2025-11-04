@@ -63,8 +63,10 @@ def assert_config(config):
                                                              "resume training from the last checkpoint, which is not what you want when evaluating a model.")
 
     if c_settings["optuna"]["use_optuna"]:
-        assert c_settings["optuna"]["objective"] in ["objective", "reward"], "Invalid objective in config.yaml for optuna. Must be 'objective' or 'reward'."
+        assert c_settings["optuna"]["objective"] in ["objective", "reward", "time_to_end"], "Invalid objective in config.yaml for optuna. Must be 'objective' or 'reward'."
         assert rl_mode == "train", "rl_mode must be 'train' when using optuna in config.yaml."
+        assert not (c_settings["optuna"]["use_pruning"] and c_settings["optuna"]["objective"] == "time_to_end"), \
+            "Pruning cannot be used when objective is 'time_to_end' in config.yaml. Minimizing time_to_end is not compatible with pruning currently."
     if c_settings["save_replay_buffer"]:
         assert used_algo != "IQL", "save_replay_buffer not supported for IQL."
         assert rl_mode != "train", "save_replay_buffer cannot be True when rl_mode is 'train'."
@@ -75,7 +77,7 @@ def assert_config(config):
             assert config["algorithm"]["share_encoder"] == False, "When using separate optimizers, their encoders can't be shared"
     if used_algo == "TD3":
         assert hierarchy_type != "planner_agent", "TD3 not supported for planner_agent."
-        assert not c_algo["use_tanh"], ("TD3 does not support tanh action distribution. It doesn't use a distribution "
+        assert not config["algorithm"]["use_tanh_dist"], ("TD3 does not support tanh action distribution. It doesn't use a distribution "
                                         "at all and the Outputs of the Network need a tanh activation instead. "
                                         "Disable use_tanh in config.yaml.")
     if used_algo == "IQL":
@@ -296,6 +298,7 @@ def objective_factory(config: dict):
             # "share_encoder": trial.suggest_categorical("share_encoder", [True, False]),
         }
 
+        # FlyAgent rewards
         rewards = {
             "GoalReached": trial.suggest_float("GoalReached", 0.2, 5, log=True),
             "BoundaryTerminal": trial.suggest_float("BoundaryTerminal", -5, -0.2),
@@ -303,6 +306,17 @@ def objective_factory(config: dict):
             "TimeOut": trial.suggest_float("TimeOut", -5, -0.2),
             "DistanceImprovement": trial.suggest_float("DistanceImprovement", 1e-3, 0.5, log=True),
             "ProximityPenalty": trial.suggest_float("ProximityPenalty", -0.5, -1e-3),
+        }
+
+        # PlannerAgent rewards
+        rewards = {
+            "GoalReached": trial.suggest_float("GoalReached", 0.1, 5),
+            "MapBurnedTooMuch": trial.suggest_float("MapBurnedTooMuch", -5, -0.1),
+            "FlyingTowardsGroundStation": trial.suggest_float("FlyingTowardsGroundStation", -1, -1e-3),
+            "SameGoalPenalty": trial.suggest_float("SameGoalPenalty", -2, -1e-4),
+            "TimeOut": trial.suggest_float("TimeOut", -5, -0.2),
+            "ExtinguishFires": trial.suggest_float("ExtinguishFires", 1e-3, 0.8),
+            "FastExtinguish": trial.suggest_float("FastExtinguish", 1e-3, 0.8),
         }
 
         overrides = {
@@ -329,4 +343,7 @@ if __name__ == '__main__':
         metric = sim(config_)
         print(f"Final Objective: {metric}")
     else:
-        optuna_run(config_)
+        direction = "maximize"
+        if config_["settings"]["optuna"]["objective"] == "time_to_end":
+            direction = "minimize"
+        optuna_run(config_, direction)

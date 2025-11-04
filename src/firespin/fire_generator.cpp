@@ -22,7 +22,7 @@ void FireGenerator::StartFires() {
             do {
                 start_point = gridmap_->GetRandomPointInGrid();
                 attempts++;
-            } while ((used.find(start_point) != used.end() || !gridmap_->CellCanIgnite(start_point.first, start_point.second)) && attempts < 1000);
+            } while ((used.find(start_point) != used.end() || !gridmap_->CellCanIgnite(start_point.first, start_point.second)) && attempts < 100000);
             IgniteFireCluster(cluster_size, start_point, used);
         }
     }

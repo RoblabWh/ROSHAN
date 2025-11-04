@@ -181,7 +181,7 @@ class DeterministicActorCritic(nn.Module):
     """
     A PyTorch Module that represents the actor-critic network of a deterministic agent.
     """
-    def __init__(self, actor_network, critic_network, action_dim, exploration_noise, vision_range, drone_count, map_size, time_steps, collision):
+    def __init__(self, actor_network, critic_network, action_dim, exploration_noise, vision_range, drone_count, map_size, time_steps, collision, share_encoder):
         super(DeterministicActorCritic, self).__init__()
         self.device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
         self.actor = actor_network(vision_range=vision_range,
@@ -190,11 +190,13 @@ class DeterministicActorCritic(nn.Module):
                                    time_steps=time_steps,
                                    collision=collision).to(self.device)
         self.actor.apply(init_fn)
+        inputspace = None if not share_encoder else self.actor.Inputspace
         self.critic = critic_network(vision_range=vision_range,
                                      drone_count=drone_count,
                                      map_size=map_size,
                                      time_steps=time_steps,
                                      action_dim=action_dim,
+                                     inputspace=inputspace,
                                      collision=collision).to(self.device)
         self.critic.apply(init_fn)
         self.exploration_noise = exploration_noise

@@ -35,7 +35,7 @@ settings:
     # Maximum number of train_steps(NOT policy steps) to perform
     # this setting is also used in case of NoGUI mode to determine when to stop training and switch to evaluation
     # This setting gets overridden in IQL settings and is calculated as the total number of offline_updates + online_updates
-    max_train: 400
+    max_train: 300 #12000 for TD3 ~ 8.5h
     # Maximum number of evaluations(one evaluation = one environment completed) to perform
     max_eval: 200
   optuna:
@@ -56,15 +56,15 @@ paths:
   # This is the root_path where your NEW trained models data is stored
   # Loading for your ROOT Model(chosen hierarchy) is ALSO done from here (Eval and Resuming Training)
   # Absolute or relative to the project root
-  model_directory: models/MediumBaseline2 #PPO_4A_NoManualDecay_P9Like
+  model_directory: models/NewBaselineFlyAgent_10T #PPO_4A_NoManualDecay_P9Like
   # Leave this empty to get a default name from this config (best practice for training)
   # You can fast load models with suffixes ["latest", "best_reward", "best_obj"]
   # If you want to load a specific model, set the model_name to the name of the model file
-  model_name: "best_obj"
+  model_name: ""
   # Name of the CORINE dataset-file, Path to the Corine dataset file must be set in project_paths.json (generated default paths at compile time)
   corine_dataset_name: CLMS_CLCplus_RASTER_2021_010m_eu_03035_V1_1.tif
   # This map is used in NoGUI & skip_gui_init setup, if left empty("") the default map (uniform map) will be used.
-  init_map: 81x129_Campsite.tif #35x36_Woods.tif
+  init_map: 35x36_Woods.tif #81x129_Campsite.tif
 #{'entropy_coeff': 1.230811218699769e-06, 'gamma': 0.9773972579784836, '_lambda': 0.9096741778233516, 'eps_clip': 0.22816431818213967}
 algorithm:
   # Share the encoder(Inputspace in the network files) between the policy and value networks
@@ -74,7 +74,7 @@ algorithm:
   # If set to false, a normal distribution will be used and the actions will be clipped to the action space limits
   # Note: This leads to log_prob issues and suboptimal policies
   # TanhNormal is generally preferred as it naturally bounds the actions within the action space limits
-  use_tanh_dist: true
+  use_tanh_dist: false
   PPO:
     # Size of the Replay Buffer 
     # Gets cleaned up after each training episode
@@ -83,9 +83,9 @@ algorithm:
     # Learning rate for the optimizer #1.575e-4 
     lr: 1.575e-4 # Learning rate for the optimizer
     # Batch size for the optimizer
-    batch_size: 1000 #2000 #300 #2048
+    batch_size: 2000 #2000 #300 #2048
     # Number of steps to collect before updating the model
-    horizon: 12000 #66000 #3600 #65536
+    horizon: 66000 #66000 #3600 #65536
     # Number of epochs to update the model
     k_epochs: 3
     # Coefficient for the entropy loss
@@ -123,7 +123,7 @@ algorithm:
     # can be used to implement early stopping based on KL divergence
     # the early stopping will not stop the overall training, but only the current update step
     # If kl_early_stop is true, training will stop early if the kl divergence exceeds kl_target
-    kl_early_stop: false
+    kl_early_stop: true
     # This value should ideally be set between 0.01 and 0.05
     kl_target: 0.02
     # Whether to use the first KL divergence estimate or the second (unbiased, lesser variance)
@@ -164,16 +164,16 @@ algorithm:
     beta2: 0.999 
   TD3:
     # Learning rate for the optimizer
-    lr: 3.0e-4
+    lr: 1.0e-4
     # Batch size for the optimizer
-    batch_size: 512
+    batch_size: 16000
     memory_size: 1.0e+6 # Max Size of the Replay Buffer
-    min_memory_size: 100000 # Minimum number of samples in the replay buffer before training starts
+    min_memory_size: 25000 # Minimum number of samples in the replay buffer before training starts
     k_epochs: 1 # Number of epochs to update the model
     discount: 0.99 # Discount factor for the rewards
-    tau: 0.005 # Target network update rate
-    exploration_noise: 0.1 # Exploration noise for the action space
-    policy_noise: 0.2 # Noise added to the policy network
+    tau: 0.001 # Target network update rate
+    exploration_noise: 0.15 # Exploration noise for the action space
+    policy_noise: 0.15 # Noise added to the policy network
     noise_clip: 0.5 # Clipping value for the noise
     policy_freq: 2 # Frequency of policy updates
     beta1: 0.9 # Beta1 for the Adam optimizer

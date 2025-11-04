@@ -809,7 +809,6 @@ class Evaluator:
                                      logger=self.logger)
             plotter.plot_all()
 
-
     def evaluate(self, rewards, terminal_result, percent_burned):
         metrics = self.update_evaluation_metrics(rewards, terminal_result, percent_burned)
         flag_dict = {"auto_train": self.use_auto_train, "reset": False}
@@ -830,6 +829,9 @@ class Evaluator:
                     flag_dict.__setitem__("auto_train_not_finished", False)
                 self.sim_bridge.set("agent_is_running", False)
                 flag_dict.__setitem__("reset", True)
+            else:
+                self.avg_reward = float(np.mean([s["Reward"] for s in self.history])) if self.history else 0.0
+
 
         return flag_dict
 

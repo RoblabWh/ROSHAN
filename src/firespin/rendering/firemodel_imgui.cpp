@@ -68,6 +68,9 @@ void ImguiHandler::ImGuiSimulationControls(const std::shared_ptr<GridMap>& gridm
                 std::string analysis_text;
                 analysis_text += "Number of particles: " + std::to_string(gridmap->GetNumParticles()) + "\n";
                 analysis_text += "Number of cells: " + std::to_string(gridmap->GetNumCells()) + "\n";
+                analysis_text += "Number of burning cells: " + std::to_string(gridmap->GetNumBurningCells()) + "\n";
+                analysis_text += "Number of burned cells: " + std::to_string(gridmap->GetNumBurnedCells()) + "\n";
+                analysis_text += "Percentage burned: " + std::to_string(gridmap->PercentageBurned() * 100) + " %\n";
                 analysis_text += "Running Time: " + formatTime(int(running_time)) + "\n";
                 analysis_text +=
                         "Height: " + std::to_string(gridmap->GetRows() * parameters_.GetCellSize() / 1000) + "km | ";

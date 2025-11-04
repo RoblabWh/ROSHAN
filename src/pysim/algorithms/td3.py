@@ -50,7 +50,9 @@ class TD3(RLAlgorithm):
             drone_count=self.drone_count,
             map_size=self.map_size,
             time_steps=self.time_steps,
-            exploration_noise=self.exploration_noise
+            share_encoder=self.share_encoder,
+            exploration_noise=self.exploration_noise,
+            collision=self.collision,
         )
         self.actor_target = copy.deepcopy(self.policy.actor)
         self.critic_target = copy.deepcopy(self.policy.critic)
@@ -96,6 +98,8 @@ class TD3(RLAlgorithm):
         self.critic_target.eval()
 
     def update(self, memory: SwarmMemory, batch_size, next_obs, logger):
+        # TODO test faster batch sampling
+        # t_dicter = memory._sample_batch(64)
         t_dict = memory.to_tensor()
         states = memory.rearrange_states(t_dict['state'])  # [N, ...]
         next_states = memory.rearrange_states(t_dict['next_obs'])  # [N, ...]
