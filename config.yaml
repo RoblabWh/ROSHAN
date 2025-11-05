@@ -1,10 +1,10 @@
 settings:
   # 0: GUI_RL, 2: NoGUI_RL, # Mode 1 is GUI and Mode 2 is NoGUI (ONLY Simulation)
-  mode: 2
+  mode: 0
   # Random seed for reproducibility (-1 for random seed)
   seed: -1
   # RL_MODE: Either "train" or "eval"
-  rl_mode: train
+  rl_mode: eval
   # This parameter determines whether to evaluate the fly_agent policy with the extinguishing heuristic
   eval_fly_policy: false
   # Resume training from a checkpoint
@@ -13,7 +13,7 @@ settings:
   # Whether to log evaluation results in tensorboard, plot their metrics and create the CSV files
   # Should generally be true during training or evaluation. 
   # If you only want to SEE what the agent does, set to false so your evaluation is not overridden
-  log_eval: true
+  log_eval: false
   # LLM support for the environment (currently not supported; was tested in very early prototypes)
   # Will probably break everything if set to true
   llm_support: false
@@ -56,7 +56,7 @@ paths:
   # This is the root_path where your NEW trained models data is stored
   # Loading for your ROOT Model(chosen hierarchy) is ALSO done from here (Eval and Resuming Training)
   # Absolute or relative to the project root
-  model_directory: models/NewBaselineFlyAgent_10T #PPO_4A_NoManualDecay_P9Like
+  model_directory: models/PPOSimpleBaseline/training_1 #PPO_4A_NoManualDecay_P9Like
   # Leave this empty to get a default name from this config (best practice for training)
   # You can fast load models with suffixes ["latest", "best_reward", "best_obj"]
   # If you want to load a specific model, set the model_name to the name of the model file
@@ -69,7 +69,7 @@ paths:
 algorithm:
   # Share the encoder(Inputspace in the network files) between the policy and value networks
   # This option should generally only be used for PPO, but can be used for other algorithms as well
-  share_encoder: true
+  share_encoder: false
   # Use TanhNormal distribution for stochastic policy networks
   # If set to false, a normal distribution will be used and the actions will be clipped to the action space limits
   # Note: This leads to log_prob issues and suboptimal policies
@@ -83,9 +83,9 @@ algorithm:
     # Learning rate for the optimizer #1.575e-4 
     lr: 1.575e-4 # Learning rate for the optimizer
     # Batch size for the optimizer
-    batch_size: 2000 #2000 #300 #2048
+    batch_size: 300 #2000 #300 #2048
     # Number of steps to collect before updating the model
-    horizon: 66000 #66000 #3600 #65536
+    horizon: 1200 #66000 #3600 #65536
     # Number of epochs to update the model
     k_epochs: 3
     # Coefficient for the entropy loss
@@ -123,7 +123,7 @@ algorithm:
     # can be used to implement early stopping based on KL divergence
     # the early stopping will not stop the overall training, but only the current update step
     # If kl_early_stop is true, training will stop early if the kl divergence exceeds kl_target
-    kl_early_stop: true
+    kl_early_stop: false
     # This value should ideally be set between 0.01 and 0.05
     kl_target: 0.02
     # Whether to use the first KL divergence estimate or the second (unbiased, lesser variance)
@@ -264,11 +264,11 @@ environment:
     fly_agent:
       # Whether the agent should avoid collisions with other agents
       # This changes the network input space and terminal conditions
-      collision: true
+      collision: false
       # Two types of policies can be learned:
       # Simple Policy: The episode ends when one agent reaches its goal_position
       # Complex Policy: The episode ends when all fires are extinguished (this influences the reward structure slightly)
-      use_simple_policy: false
+      use_simple_policy: true
       # Two types of action space use:
       # If true, the agent's action represents accelerations (half times max_velocity^2)
       # If false, the agent's action represents an absolute velocity of the agent's max_velocity
@@ -289,19 +289,19 @@ environment:
       view_range: 10 
       rewards:
         # Reward for reaching the goal (depending on simple or complex policy)
-        GoalReached: 0.22955571088458304 #0.4177111856211469 #1.0
+        GoalReached: 1.0 #0.22955571088458304 #0.4177111856211469 #1.0
         # Penalty for going out of map bounds
-        BoundaryTerminal: -4.73712001364079 #-4.6304964328217935 #-1.0
+        BoundaryTerminal: -1.0 #-4.73712001364079 #-4.6304964328217935 #-1.0
         # Reward for extinguishing a fire cell (only complex policy)
-        Extinguish: 0.012840080439462583 #0.0046422313960206695 #0.01
+        Extinguish: 0.01 #0.012840080439462583 #0.0046422313960206695 #0.01
         # Penalty for each time step to encourage faster completion
-        TimeOut: -3.049763143781944 #-4.226137821180779 #-1.0
+        TimeOut: -1.0 #-3.049763143781944 #-4.226137821180779 #-1.0
         # Penalty for colliding with another agent
-        Collision: -4.73712001364079 #-4.6304964328217935 #-1.0
+        Collision: -1.0 #-4.73712001364079 #-4.6304964328217935 #-1.0
         # Reward FACTOR for improving distance to the goal
-        DistanceImprovement: 0.2778255915926747 #0.32301751873846973 #0.1
+        DistanceImprovement: 0.1 #0.2778255915926747 #0.32301751873846973 #0.1
         # Penalty FACTOR for being to close to other agents
-        ProximityPenalty: -0.18892218077569323 #-0.09674793059735592 #-0.05
+        ProximityPenalty: -0.05 #-0.18892218077569323 #-0.09674793059735592 #-0.05
     explore_agent:
       # Determines the frequency of action selection (1 = every frame, 2 = every 2nd frame, etc.)
       frame_skips: 1 

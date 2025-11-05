@@ -365,9 +365,9 @@ public:
 
         if (hierarchy_type == "fly_agent" && !eval_fly_policy_) {
             T_Task = (int)std::ceil(slack_ * T_physical);
-            if (use_simple_policy_ && is_eval) {
+            if (!use_simple_policy_) {
                 const int F = (int)std::ceil(fire_percentage_ * (double)(grid_nx_ * grid_ny_));
-                T_Task *= (int)std::ceil(beta_2_ * std::sqrt(std::max(1e-9, (double)(grid_nx_ * grid_ny_))) * std::sqrt((double)F) / (max_speed * dt_));
+                T_Task *= (int)std::ceil(beta_2_ * std::sqrt(std::max(1e-9, (double)(grid_nx_ * grid_ny_))) * std::sqrt((double)F) / max_speed);
             }
         }
         else if (hierarchy_type == "explore_agent") {
