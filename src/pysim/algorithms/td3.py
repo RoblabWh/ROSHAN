@@ -100,34 +100,35 @@ class TD3(RLAlgorithm):
     def update(self, memory: SwarmMemory, batch_size, next_obs, logger):
         # TODO test faster batch sampling
         # t_dicter = memory._sample_batch(64)
-        t_dict = memory.to_tensor()
-        states = memory.rearrange_states(t_dict['state'])  # [N, ...]
-        next_states = memory.rearrange_states(t_dict['next_obs'])  # [N, ...]
-        actions = torch.cat(t_dict['action'])  # [N, ...]
-        ext_rewards = t_dict['reward']  # [D, N]
-        not_dones = torch.cat(t_dict['not_done'])  # [N]
+        # t_dict = memory.to_tensor()
+        # states = memory.rearrange_states(t_dict['state'])  # [N, ...]
+        # next_states = memory.rearrange_states(t_dict['next_obs'])  # [N, ...]
+        # actions = torch.cat(t_dict['action'])  # [N, ...]
+        # ext_rewards = t_dict['reward']  # [D, N]
+        # not_dones = torch.cat(t_dict['not_done'])  # [N]
 
-        rewards, log_rewards_raw, log_rewards_scaled = self.prepare_rewards(ext_rewards, t_dict)
-        logger.add_metric("Rewards/Rewards_Raw", log_rewards_raw)
-        logger.add_metric("Rewards/Rewards_norm", log_rewards_scaled)
-        rewards = torch.cat(rewards)
+        # rewards, log_rewards_raw, log_rewards_scaled = self.prepare_rewards(ext_rewards, t_dict)
+        # logger.add_metric("Rewards/Rewards_Raw", log_rewards_raw)
+        # logger.add_metric("Rewards/Rewards_norm", log_rewards_scaled)
+        # rewards = torch.cat(rewards)
 
-        N = rewards.shape[0]
+        # N = rewards.shape[0]
 
         # Save current weights if mean reward or objective is higher than the best so far
         # (Save BEFORE training, so if the policy worsens we can still go back)
         self.save(logger)
 
         for _ in range(self.k_epochs):
-            perm = torch.randperm(N)
-            batch_idx = perm[0:batch_size]
+            # perm = torch.randperm(N)
+            # batch_idx = perm[0:batch_size]
+            batch = memory.sample_batch(batch_size)
             self.total_it += 1
 
-            b_states = tuple(state[batch_idx] for state in states)
-            b_actions = actions[batch_idx]
-            b_rewards = rewards[batch_idx]
-            b_next_states = tuple(state[batch_idx] for state in next_states)
-            b_not_dones = not_dones[batch_idx]
+            b_states = batch["state"]
+            b_actions = batch["action"]
+            b_rewards = batch["reward"]
+            b_next_states = batch["next_obs"]
+            b_not_dones = batch["not_done"]
 
             with torch.no_grad():
                 noise = (torch.randn_like(b_actions) * self.policy_noise).clamp(-self.noise_clip, self.noise_clip)

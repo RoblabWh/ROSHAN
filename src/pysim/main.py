@@ -286,7 +286,7 @@ def objective_factory(config: dict):
         batch_size = [2 ** x for x in [11, 12, 13, 14, 15]]
         horizon = [2 ** x for x in [15, 16, 17, 18, 19]]
         hparams = {
-            # "lr": trial.suggest_float("lr", 1e-5, 1e-3, log=True),
+            "lr": trial.suggest_float("lr", 1e-5, 1e-3),
             # "batch_size": trial.suggest_categorical("batch_size", batch_size),
             # "horizon": trial.suggest_categorical("horizon", horizon),
             # "k_epochs": trial.suggest_int("k_epochs", 1, 20),
@@ -299,29 +299,29 @@ def objective_factory(config: dict):
         }
 
         # FlyAgent rewards
-        rewards = {
-            "GoalReached": trial.suggest_float("GoalReached", 0.2, 5, log=True),
-            "BoundaryTerminal": trial.suggest_float("BoundaryTerminal", -5, -0.2),
-            "Extinguish": trial.suggest_float("Extinguish", 1e-3, 0.2, log=True),
-            "TimeOut": trial.suggest_float("TimeOut", -5, -0.2),
-            "DistanceImprovement": trial.suggest_float("DistanceImprovement", 1e-3, 0.5, log=True),
-            "ProximityPenalty": trial.suggest_float("ProximityPenalty", -0.5, -1e-3),
-        }
+        # rewards = {
+        #     "GoalReached": trial.suggest_float("GoalReached", 0.2, 5, log=True),
+        #     "BoundaryTerminal": trial.suggest_float("BoundaryTerminal", -5, -0.2),
+        #     "Extinguish": trial.suggest_float("Extinguish", 1e-3, 0.2, log=True),
+        #     "TimeOut": trial.suggest_float("TimeOut", -5, -0.2),
+        #     "DistanceImprovement": trial.suggest_float("DistanceImprovement", 1e-3, 0.5, log=True),
+        #     "ProximityPenalty": trial.suggest_float("ProximityPenalty", -0.5, -1e-3),
+        # }
 
         # PlannerAgent rewards
-        rewards = {
-            "GoalReached": trial.suggest_float("GoalReached", 0.1, 5),
-            "MapBurnedTooMuch": trial.suggest_float("MapBurnedTooMuch", -5, -0.1),
-            "FlyingTowardsGroundStation": trial.suggest_float("FlyingTowardsGroundStation", -1, -1e-3),
-            "SameGoalPenalty": trial.suggest_float("SameGoalPenalty", -2, -1e-4),
-            "TimeOut": trial.suggest_float("TimeOut", -5, -0.2),
-            "ExtinguishFires": trial.suggest_float("ExtinguishFires", 1e-3, 0.8),
-            "FastExtinguish": trial.suggest_float("FastExtinguish", 1e-3, 0.8),
-        }
+        # rewards = {
+        #     "GoalReached": trial.suggest_float("GoalReached", 0.1, 5),
+        #     "MapBurnedTooMuch": trial.suggest_float("MapBurnedTooMuch", -5, -0.1),
+        #     "FlyingTowardsGroundStation": trial.suggest_float("FlyingTowardsGroundStation", -1, -1e-3),
+        #     "SameGoalPenalty": trial.suggest_float("SameGoalPenalty", -2, -1e-4),
+        #     "TimeOut": trial.suggest_float("TimeOut", -5, -0.2),
+        #     "ExtinguishFires": trial.suggest_float("ExtinguishFires", 1e-3, 0.8),
+        #     "FastExtinguish": trial.suggest_float("FastExtinguish", 1e-3, 0.8),
+        # }
 
         overrides = {
             "hparams": hparams,
-            "rewards": rewards
+            #"rewards": rewards
         }
 
         # run the sim; pass trial to enable pruning reports

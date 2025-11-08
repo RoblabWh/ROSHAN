@@ -81,7 +81,7 @@ class CategoricalActorCritic(nn.Module):
         # state_value = torch.squeeze(state_value)
 
         probs = self.actor(state, masks)  # logits: [batch_size, num_drones, num_fires]
-        cat_dist = torch.distributions.Categorical(probs)
+        cat_dist = torch.distributions.Categorical(probs=probs)
         # Don't sample action for each drone
         # actions = cat_dist.sample()  # [batch_size, num_drones]
 

@@ -696,6 +696,7 @@ class Evaluator:
         self.current_episode = 0  # Current episode number
         self.avg_reward = -np.inf
         self.avg_objective = 0
+        self.avg_tte = +np.inf
         self.tte = np.inf
         # History of per-episode metric values
         self.history: List[Dict[str, float]] = []

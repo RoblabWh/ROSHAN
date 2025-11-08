@@ -130,14 +130,15 @@ class RLAlgorithm:
         """
         return self.policy.act_certain(observations)
 
-    def prepare_rewards(self, rewards: torch.FloatTensor, t_dict: dict):
+    def prepare_rewards(self, rewards: torch.FloatTensor, t_dict: dict, already_fit=False):
         # Check for intrinsic rewards
         intrinsic_rewards = None
         int_rewards_np = None
         if 'intrinsic_reward' in t_dict.keys():
             intrinsic_rewards = t_dict['intrinsic_reward']
             int_rewards_np = torch.cat(intrinsic_rewards).detach().cpu().numpy()
-            self.int_reward_rms.update(int_rewards_np)
+            if not already_fit:
+                self.int_reward_rms.update(int_rewards_np)
 
         # Compute all raw rewards for logging
         ext_rewards_np = torch.cat(rewards).detach().cpu().numpy()
@@ -146,11 +147,15 @@ class RLAlgorithm:
         # DON'T DO THIS: rewards = [np.clip(np.array(reward.detach().cpu()) / self.running_reward_std.get_std(), -10, 10) for reward in rewards]
         # !!!!DON'T SHIFT THE REWARDS BECAUSE YOU F UP YOUR OBJECTIVE FUNCTION!!!!; Clipping most likely is unnecessary
         # Normalize external rewards by reward running std
-        self.reward_rms.update(ext_rewards_np)
-        ext_rewards = [reward / self.reward_rms.get_std() for reward in rewards]
+        if not already_fit:
+            self.reward_rms.update(ext_rewards_np)
+            ext_rewards = [reward / self.reward_rms.get_std() for reward in rewards]
 
-        # Normalize for logging
-        ext_rewards_norm = ext_rewards_np / self.reward_rms.get_std()
+            # Normalize for logging
+            ext_rewards_norm = ext_rewards_np / self.reward_rms.get_std()
+        else:
+            ext_rewards = [reward / self.reward_rms.get_std() for reward in rewards]
+            ext_rewards_norm = ext_rewards_np / self.reward_rms.get_std()
 
         # Combine normalized rewards
         if intrinsic_rewards is not None:

@@ -1,10 +1,10 @@
 settings:
   # 0: GUI_RL, 2: NoGUI_RL, # Mode 1 is GUI and Mode 2 is NoGUI (ONLY Simulation)
-  mode: 0
+  mode: 2
   # Random seed for reproducibility (-1 for random seed)
-  seed: -1
+  seed: 67
   # RL_MODE: Either "train" or "eval"
-  rl_mode: eval
+  rl_mode: train
   # This parameter determines whether to evaluate the fly_agent policy with the extinguishing heuristic
   eval_fly_policy: false
   # Resume training from a checkpoint
@@ -13,12 +13,12 @@ settings:
   # Whether to log evaluation results in tensorboard, plot their metrics and create the CSV files
   # Should generally be true during training or evaluation. 
   # If you only want to SEE what the agent does, set to false so your evaluation is not overridden
-  log_eval: false
+  log_eval: true
   # LLM support for the environment (currently not supported; was tested in very early prototypes)
   # Will probably break everything if set to true
   llm_support: false
   # Type of hierarchy to use for the agents (fly_agent, explore_agent, planner_agent)
-  hierarchy_type: fly_agent
+  hierarchy_type: planner_agent
   # Uses this config as default and skips the GUI setup
   skip_gui_init: true
   # Enable PyTorch autograd anomaly detection (useful for debugging; slows down training)
@@ -28,24 +28,24 @@ settings:
   # Settings for automatic training of multiple runs under the same config
   auto_train:
     # Use or don't use automatic training
-    use_auto_train: false
+    use_auto_train: true
     # Number of total trainings, each containing max_train train_steps
     # automatically set to 1 when use_auto_train is false
-    train_episodes: 10
+    train_episodes: 3
     # Maximum number of train_steps(NOT policy steps) to perform
     # this setting is also used in case of NoGUI mode to determine when to stop training and switch to evaluation
     # This setting gets overridden in IQL settings and is calculated as the total number of offline_updates + online_updates
-    max_train: 300 #12000 for TD3 ~ 8.5h
+    max_train: 100 #12000 for TD3 ~ 8.5h
     # Maximum number of evaluations(one evaluation = one environment completed) to perform
-    max_eval: 200
+    max_eval: 100
   optuna:
     use_optuna: false # Whether to use Optuna for hyperparameter optimization
-    study_name: "fly_model_study" # Name of the Optuna study
+    study_name: "fly_model_study_LR" # Name of the Optuna study
     study_root: "models" # Root directory to store the Optuna study and trials
-    n_trials: 300 # Number of trials to perform
+    n_trials: 200 # Number of trials to perform
     n_startup_trials: 15 # Number of initial random trials before using the optimization algorithm
-    n_warmup_steps: 30 # Number of warmup steps before starting the optimization
-    use_pruning: false # Prune training episodes with MedianPruner
+    n_warmup_steps: 200 # Number of warmup steps before starting the optimization
+    use_pruning: true # Prune training episodes with MedianPruner
     objective: "objective" # Objective to optimize ("reward", "objective" or "time_to_end")
    # Whether to save the replay buffer when it's full (to model_directory/memory.pkl) 
    # This has only effect in evaluation mode
@@ -56,7 +56,7 @@ paths:
   # This is the root_path where your NEW trained models data is stored
   # Loading for your ROOT Model(chosen hierarchy) is ALSO done from here (Eval and Resuming Training)
   # Absolute or relative to the project root
-  model_directory: models/PPOSimpleBaseline/training_1 #PPO_4A_NoManualDecay_P9Like
+  model_directory: models/BaselinePlanner_Optimized_Long #PPO_4A_NoManualDecay_P9Like
   # Leave this empty to get a default name from this config (best practice for training)
   # You can fast load models with suffixes ["latest", "best_reward", "best_obj"]
   # If you want to load a specific model, set the model_name to the name of the model file
@@ -69,27 +69,27 @@ paths:
 algorithm:
   # Share the encoder(Inputspace in the network files) between the policy and value networks
   # This option should generally only be used for PPO, but can be used for other algorithms as well
-  share_encoder: false
+  share_encoder: true
   # Use TanhNormal distribution for stochastic policy networks
   # If set to false, a normal distribution will be used and the actions will be clipped to the action space limits
   # Note: This leads to log_prob issues and suboptimal policies
   # TanhNormal is generally preferred as it naturally bounds the actions within the action space limits
-  use_tanh_dist: false
+  use_tanh_dist: true
   PPO:
     # Size of the Replay Buffer 
     # Gets cleaned up after each training episode
     # Needs to be bigger when trying to safe the buffer
     memory_size: 1.0e+6
-    # Learning rate for the optimizer #1.575e-4 
-    lr: 1.575e-4 # Learning rate for the optimizer
+    # Learning rate for the optimizer #1.575e-4 for FlyAgent #1.0e-4 for PlannerAgent
+    lr: 1.0e-4 #Top10: 2.965e-4 # Learning rate for the optimizer
     # Batch size for the optimizer
-    batch_size: 300 #2000 #300 #2048
+    batch_size: 1000 #2000 #300 #2048
     # Number of steps to collect before updating the model
-    horizon: 1200 #66000 #3600 #65536
+    horizon: 12000 #66000 #3600 #65536
     # Number of epochs to update the model
     k_epochs: 3
     # Coefficient for the entropy loss
-    entropy_coeff: 0.01
+    entropy_coeff: 0.0005
     # Coefficient for the value loss (no effect if separate_optimizers is true)
     value_loss_coef: 0.5
     # Use separate optimizers for the policy and value networks
@@ -101,9 +101,9 @@ algorithm:
     # Beta2 for the Adam optimizer
     beta2: 0.999 
     # Discount factor for the rewards
-    gamma: 0.9635
+    gamma: 0.999
     # Lambda for the Generalized Advantage Estimation (GAE)
-    _lambda: 0.90
+    _lambda: 0.98
     # Clipping value for the PPO loss #0.2783
     eps_clip: 0.2
     # Manual decay of the log_std parameter in stochastic policies
@@ -125,7 +125,7 @@ algorithm:
     # If kl_early_stop is true, training will stop early if the kl divergence exceeds kl_target
     kl_early_stop: false
     # This value should ideally be set between 0.01 and 0.05
-    kl_target: 0.02
+    kl_target: 0.2
     # Whether to use the first KL divergence estimate or the second (unbiased, lesser variance)
     # The second estimate is less harsh on the cutting, but might lead to larger policy updates
     # kl_1 = (old_logprobs - logprobs).mean()
@@ -135,11 +135,11 @@ algorithm:
     # Path to the replay buffer file (absolute or relative to the project root)
     # Size of the Replay Buffer is determined by the size used to create this buffer
     # Keep this in mind for Online Fine-Tuning
-    buffer_path: "models/MediumBaseline_RewardAltered/memory.pkl"
+    buffer_path: "models/PPOCollisionBaseline_OptimizedReward_Top10Mean_Tanh/training_8/memory.pkl"
     # Learning rate for the optimizer
     lr: 1.575e-4
     # Batch size for the optimizer
-    batch_size: 1024
+    batch_size: 250
     # Discount factor for the rewards
     discount: 0.99
     # Expectile for the IQL loss
@@ -150,10 +150,10 @@ algorithm:
     temperature: 3.0 
     # Frequency of policy updates in online finetuning
     # i.e. how many environment steps between the next policy update
-    policy_freq: 2000
+    policy_freq: 50
     # Offline Training Steps (before eventually doing an online finetuning)
     # One offline update goes through the entire dataset once
-    offline_updates: 50
+    offline_updates: 10
     # Online Training Steps after offline training
     online_updates: 0
     # Number of epochs in online-finetuning, has no effect on offline training
@@ -166,14 +166,14 @@ algorithm:
     # Learning rate for the optimizer
     lr: 1.0e-4
     # Batch size for the optimizer
-    batch_size: 16000
+    batch_size: 512
     memory_size: 1.0e+6 # Max Size of the Replay Buffer
-    min_memory_size: 25000 # Minimum number of samples in the replay buffer before training starts
+    min_memory_size: 512 # Minimum number of samples in the replay buffer before training starts
     k_epochs: 1 # Number of epochs to update the model
     discount: 0.99 # Discount factor for the rewards
-    tau: 0.001 # Target network update rate
+    tau: 0.005 # Target network update rate
     exploration_noise: 0.15 # Exploration noise for the action space
-    policy_noise: 0.15 # Noise added to the policy network
+    policy_noise: 0.2 # Noise added to the policy network
     noise_clip: 0.5 # Clipping value for the noise
     policy_freq: 2 # Frequency of policy updates
     beta1: 0.9 # Beta1 for the Adam optimizer
@@ -233,7 +233,7 @@ environment:
   fire_behaviour:
     # Percentage of cells that should be ignited at the start of the simulation [0.0 - 1.0]
     # Setting this to < 0.0 will lead to randomly generated fire_percentage between (0, 1]
-    fire_percentage: 0.01
+    fire_percentage: 0.35
     # How many clusters of fire should be started at the beginning of the simulation
     # Setting this to <= 0 will lead to single cells being ignited randomly according to fire_percentage
     num_fire_clusters: 2
@@ -264,11 +264,11 @@ environment:
     fly_agent:
       # Whether the agent should avoid collisions with other agents
       # This changes the network input space and terminal conditions
-      collision: false
+      collision: true
       # Two types of policies can be learned:
       # Simple Policy: The episode ends when one agent reaches its goal_position
       # Complex Policy: The episode ends when all fires are extinguished (this influences the reward structure slightly)
-      use_simple_policy: true
+      use_simple_policy: false
       # Two types of action space use:
       # If true, the agent's action represents accelerations (half times max_velocity^2)
       # If false, the agent's action represents an absolute velocity of the agent's max_velocity
@@ -289,19 +289,19 @@ environment:
       view_range: 10 
       rewards:
         # Reward for reaching the goal (depending on simple or complex policy)
-        GoalReached: 1.0 #0.22955571088458304 #0.4177111856211469 #1.0
+        GoalReached: 0.8785929835412102 #Top10: 0.8785929835412102 #Default: 1.0
         # Penalty for going out of map bounds
-        BoundaryTerminal: -1.0 #-4.73712001364079 #-4.6304964328217935 #-1.0
+        BoundaryTerminal: -4.328008565212994 #Top10: -4.328008565212994 #Default: -1.0
         # Reward for extinguishing a fire cell (only complex policy)
-        Extinguish: 0.01 #0.012840080439462583 #0.0046422313960206695 #0.01
+        Extinguish: 0.007235210886951731 #Top10: 0.007235210886951731 #Default: 0.01
         # Penalty for each time step to encourage faster completion
-        TimeOut: -1.0 #-3.049763143781944 #-4.226137821180779 #-1.0
+        TimeOut: -3.732236611159567 #Top10: -3.732236611159567 #Default: -1.0
         # Penalty for colliding with another agent
-        Collision: -1.0 #-4.73712001364079 #-4.6304964328217935 #-1.0
+        Collision: -4.328008565212994 #Top10: -4.328008565212994 #Default: -1.0
         # Reward FACTOR for improving distance to the goal
-        DistanceImprovement: 0.1 #0.2778255915926747 #0.32301751873846973 #0.1
+        DistanceImprovement: 0.29559098335108996 #Top10: 0.29559098335108996 #Default: 0.1
         # Penalty FACTOR for being to close to other agents
-        ProximityPenalty: -0.05 #-0.18892218077569323 #-0.09674793059735592 #-0.05
+        ProximityPenalty: -0.11500008188778862 #Top10: -0.11500008188778862 #Default: -0.05
     explore_agent:
       # Determines the frequency of action selection (1 = every frame, 2 = every 2nd frame, etc.)
       frame_skips: 1 
@@ -310,17 +310,17 @@ environment:
       # Number of explore_agents
       num_agents: 12
       # Number of time steps to consider in the ExploreAgent's memory
-      time_steps: 4
+      time_steps: 3
       # Maximum speed of the explore_agent in m/s
       # Should be set to the max_speed of the fly_agent uses
       max_speed: 20.0 
       # View range of the explore_agent in cells
       view_range: 20 
       # Default model path for the fly_agent (either absolute or relative to the project root)
-      default_model_folder: "models/SimpleInput/" 
+      default_model_folder: "models/SimpleFlyAgent/" 
       # You can fast load models with suffixes ["latest", "best_reward", "best_objective"]
       # If you want to load a specific model, set the model_name to the name of the model file
-      default_model_name: best_obj
+      default_model_name: best_reward
     planner_agent:
       # Hierarchy Timesteps (number of low-level steps per high-level step)
       hierarchy_timesteps: 20
@@ -337,22 +337,22 @@ environment:
       # View range of the ExtinguishAgent in cells
       view_range: 10 
       # Default model path for the fly_agent (either absolute or relative to the project root)
-      default_model_folder: "models/BigBaseline_RewardAltered/"
+      default_model_folder: "models/GoodEnoughFlyAgent/"
       # You can fast load models with suffixes ["latest", "best_reward", "best_objective"]
       # If you want to load a specific model, set the model_name to the name of the model file
       default_model_name: best_obj
       rewards:
         # Reward for reaching the goal (extinguishing all fires)
-        GoalReached: 1.0
+        GoalReached: 4.655971820921882
         # Penalty for the Map being burned too much
-        MapBurnedTooMuch: -2.0
+        MapBurnedTooMuch: -0.8855989149143488
         # Penalty for selecting the default goal (needed for the attention network when there are no valid fires)
-        FlyingTowardsGroundStation: -0.01
+        FlyingTowardsGroundStation: -0.235805617086198
         # Penalty for each time step to encourage faster completion
-        TimeOut: -2.0
+        TimeOut: -0.4349801175644862
         # Penalty FACTOR for selecting the same goal for multiple agents
-        SameGoalPenalty: -0.1
+        SameGoalPenalty: -1.9122979032212362
         # Reward FACTOR for each fire cell extinguished from the low level agents during one high-level step
-        ExtinguishFires: 0.2
+        ExtinguishFires: 0.5227860868317401
         # Reward FACTOR for fast extinguishing
-        FastExtinguish: 0.5
+        FastExtinguish: 0.5227860868317401

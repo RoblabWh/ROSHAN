@@ -74,6 +74,8 @@ class IQL(RLAlgorithm):
         self.actor_scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(self.actor_optimizer, T_max=int(1e6))
         self.critic_scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(self.critic_optimizer, T_max=int(1e6))
         self.value_scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(self.value_optimizer, T_max=int(1e6))
+        self.offline_start = True
+        self.offline_end = False
 
     def save_optimizers(self, path: str):
         path += "_iql_optimizers.pth"
@@ -186,7 +188,7 @@ class IQL(RLAlgorithm):
         ext_rewards = t_dict['reward']  # [D, N]
         not_dones = torch.cat(t_dict['not_done'])  # [N]
 
-        rewards, log_rewards_raw, log_rewards_scaled = self.prepare_rewards(ext_rewards, t_dict)
+        rewards, log_rewards_raw, log_rewards_scaled = self.prepare_rewards(ext_rewards, t_dict, already_fit=self.offline_start)
         rewards = torch.cat(rewards)
 
         if self.offline_start or self.offline_end:

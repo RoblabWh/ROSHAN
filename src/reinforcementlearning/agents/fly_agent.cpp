@@ -248,6 +248,9 @@ AgentTerminal FlyAgent::GetTerminalStates(bool eval_mode, const std::shared_ptr<
         if (objective_reached_) {
             t.is_terminal = true;
         }
+        if (parameters_.eval_fly_policy_ && !grid_map->HasBurningFires()){
+            t.is_terminal = true;
+        }
     }
 
     if (t.is_terminal && t.reason != FailureReason::None) { t.kind = TerminationKind::Failed; }
@@ -280,7 +283,7 @@ void FlyAgent::Render(const FireModelCamera& camera) {
                                                                            goal_position_.second - 0.5);
 
     const auto fast_drone = this->GetAgentSubType() == "ExploreFlyAgent";
-    if (!fast_drone) {
+    if (true) {
         goal_texture_renderer_.RenderGoal(goal_screen_position, cell_size);
     }
     // Render a glowing circle beneath the drone if active

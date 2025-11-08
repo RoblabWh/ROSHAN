@@ -293,7 +293,7 @@ GeneratePaths(
                         paths[i].emplace_back(x, y);
                     }
                     if ((x1 - x0) % x_step != 0 && x0 <= x1 - 1) {
-                        paths[i].emplace_back(x0, y);  // Left edge
+                        paths[i].emplace_back(x0, y - 1);  // Left edge
                     }
                 }
                 forward = !forward;
@@ -332,7 +332,7 @@ GeneratePaths(
                         paths[i].emplace_back(x, y);
                     }
                     if ((y1 - y0) % y_step != 0 && y0 <= y1 - 1) {
-                        paths[i].emplace_back(x, y0);  // Top edge
+                        paths[i].emplace_back(x - 1, y0);  // Top edge
                     }
                 }
                 forward = !forward;

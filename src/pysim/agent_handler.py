@@ -693,7 +693,8 @@ class AgentHandler:
                     self.evaluator.tb_logger = self.tensorboard
 
                 # Reset memory
-                self.memory.clear_memory()
+                if self.algorithm_name != 'IQL':
+                    self.memory.clear_memory()
 
             self.hierarchy_steps = 0
             self.ctrl_ctr = 0  # Reset control counter to avoid issues

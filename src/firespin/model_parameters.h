@@ -27,6 +27,7 @@ public:
         if (seed_ == -1) {
             seed_ = static_cast<int>(std::random_device{}());
         }
+        std::cout << "Using seed " << seed_ << std::endl;
         gen_.seed(seed_);
         init_rl_mode_ = config["settings"]["rl_mode"].as<std::string>();
         cia_mode_ = config["settings"]["cia_mode"].as<bool>();
@@ -96,8 +97,6 @@ public:
         auto degrees_wind_angle = wind["wind_angle"].as<double>();
         if (degrees_wind_angle == -1.0) {
             // If the wind angle is -1, we set it to a random angle
-            std::random_device rd;
-            std::mt19937 gen(rd());
             std::uniform_real_distribution<> dis(0.0, 360.0);
             degrees_wind_angle = dis(gen_);
         }
@@ -299,7 +298,7 @@ public:
     }
 
     // Random Generator
-    std::mt19937 gen_{std::random_device{}()};
+    std::mt19937 gen_;
 
 
     //
@@ -349,9 +348,9 @@ public:
     int total_env_steps_ = 0;
     double k_turn_ = 1.5; // Factor to account for turns and non-optimal paths
     double slack_ = 2.0; // Slack factor to allow for exploration and other tasks
-    const double beta_ = 0.4; // Scaling factor for path length estimation
+    const double beta_ = 0.3; // Scaling factor for path length estimation
     const double beta_2_ = 0.32; // Alternative scaling factor for path length estimation
-    const double fire_time_ = 1; // Scaling factor for time spent extinguishing each fire in seconds (s)
+    const double fire_time_ = this->GetDt(); // Scaling factor for time spent extinguishing each fire in seconds (s)
     std::string env_step_string_;
 
 
@@ -381,7 +380,7 @@ public:
             const int F = (int)std::ceil(fire_percentage_ * (double)(grid_nx_ * grid_ny_));
             double L = beta_ * std::sqrt(std::max(1e-9, area_m2)) * std::sqrt((double)F);
             double t_move = L / std::max(1e-6, max_speed);
-            double t_svc  = F * std::max(0.0, fire_time_);
+            double t_svc  = F * std::max(0.0, this->GetDt()); // actually use fire_time instead (but its dt for now since a fire is extinguished in one step)
             int steps = (int)std::ceil((t_move + t_svc) / std::max(1e-9, dt_));
             T_Task = std::max(steps, (int)std::ceil(slack_ * T_physical));
         }
@@ -431,7 +430,7 @@ public:
             const int F = (int)std::ceil(fire_percentage_ * (double)(grid_nx_ * grid_ny_));
             double L = beta_ * std::sqrt(std::max(1e-9, area_m2)) * std::sqrt((double)F);
             double t_move = L / std::max(1e-6, max_speed);
-            double t_svc  = F * std::max(0.0, fire_time_);
+            double t_svc  = F * std::max(0.0, this->GetDt());
             int steps = (int)std::ceil((t_move + t_svc) / std::max(1e-9, dt_));
             int T_Task = std::max(steps, (int)std::ceil(slack_ * T_physical));
             oss << "Area = " << area_m2 << " m²\n";

@@ -72,11 +72,17 @@ class SwarmMemory(object):
             return np.expand_dims(state[agent_id], axis=0)
 
     @staticmethod
-    def rearrange_states(states):
+    def rearrange_states2(states):
         states_ = tuple()
         for i in range(len(states[0])):
             states_ += (torch.cat([states[k][i] for k in range(len(states))]),)
         return states_
+
+    @staticmethod
+    def rearrange_states(states):
+        # Transpose list-of-tuples -> tuple-of-lists
+        fields = list(zip(*states))  # length K, each is a list of length T
+        return tuple(torch.cat(field_tensors, dim=0) for field_tensors in fields)
 
     @staticmethod
     def rearrange_masks(masks):
@@ -147,10 +153,87 @@ class SwarmMemory(object):
         # TODO: Deprecated (needs rewrite, now dirty fix with to_tensor, which is inefficient)
         batch = defaultdict(list)
         for i in range(self.num_agents):
-            agent_batch = self.memory[i]._sample_batch(batch_size)
+            idxs = self._get_batch_idx(batch_size)
+            agent_batch = self.memory[i]._sample_batch(idxs)
             for key, value in agent_batch.items():
                 batch[key].append(value)
         return dict(batch)
+
+    def _get_batch_idx(self, batch_size):
+        N = self.__len__()
+        assert N >= batch_size, f"Not enough samples: have {N}, need {batch_size}"
+        idxs = np.random.randint(0, N, size=(batch_size,), dtype=np.int64)
+        # Test deterministic batch
+        idxs = np.arange(batch_size, dtype=np.int64)
+        return idxs
+
+    def sample_batch(self, batch_size: int):
+        """
+        Uniform over all transitions across all agents.
+        Returns a dict like your to_tensor(), but only for the sampled rows.
+        """
+        # Build cumulative lengths to map global -> (agent, local)
+        lengths = np.array([len(m) for m in self.memory], dtype=np.int64)
+        cumsum = np.cumsum(lengths)
+        # sample global indices
+        gidx = self._get_batch_idx(batch_size)
+        # find which agent each global index belongs to
+        agent_ids = np.searchsorted(cumsum, gidx, side='right')
+        # local index within that agent
+        starts = np.concatenate(([0], cumsum[:-1]))
+        local_idx = gidx - starts[agent_ids]
+
+        # bucket local indices per agent to minimize per-agent overhead
+        idx_per_agent = {a: [] for a in range(self.num_agents)}
+        for a, li in zip(agent_ids, local_idx):
+            idx_per_agent[int(a)].append(int(li))
+
+        # Gather per agent, then concat
+        collected = []
+        for a, idxs in idx_per_agent.items():
+            if not idxs:
+                continue
+            batch_a = self.memory[a].gather(idxs)
+            collected.append((a, batch_a))
+
+        # Now merge all per-agent dicts
+        # We must handle tuples (state, next_obs) by field-wise concat.
+        def concat_field(values, is_tuple=False):
+            if is_tuple:
+                # values: list of tuples of tensors; need field-wise cat
+                num_fields = len(values[0])
+                return tuple(torch.cat([v[i] for v in values], dim=0) for i in range(num_fields))
+            else:
+                return torch.cat(values, dim=0)
+
+        # Collect keys
+        keys = set().union(*[d.keys() for _, d in collected])
+
+        merged = {}
+        for key in keys:
+            vals = [d[key] for _, d in collected if key in d and d[key] is not None]
+            if not vals:
+                merged[key] = None
+                continue
+            if isinstance(vals[0], tuple):
+                merged[key] = concat_field(vals, is_tuple=True)
+            else:
+                merged[key] = concat_field(vals, is_tuple=False)
+
+        # # Optional: shuffle within the batch to remove agent clustering artifacts
+        # B = merged["action"].shape[0]
+        # perm = torch.randperm(B, device=self.device)
+        # # apply same perm to all tensor fields
+        # def apply_perm(x):
+        #     if x is None: return None
+        #     if isinstance(x, tuple):
+        #         return tuple(xx[perm] for xx in x)
+        #     return x[perm]
+        #
+        # for k in merged:
+        #     merged[k] = apply_perm(merged[k])
+
+        return merged
 
     def change_horizon(self, new_horizon):
         for i in range(self.num_agents):
@@ -438,9 +521,44 @@ class Memory(object):
 
         return data
 
-    def _sample_batch(self, batch_size):
-        # TODO: Deprecated (needs rewrite, now dirty fix with to_tensor, which is inefficient)
-        idxs = np.random.randint(0, self.size, size=batch_size)
+    # return ONLY the selected indices as tensors on device
+    def gather(self, idx, *, as_tensors=True):
+        # idx: 1D LongTensor or numpy array of indices into this buffer
+        # --- states ---
+        # state is a list of tuples; we want tuples of tensors for the chosen indices
+        # shape: each field becomes tensor [B, ...]
+        selected_states = [self.state[i] for i in idx]
+        state_fields = list(zip(*selected_states))  # tuple-of-lists grouped per field
+        state_tuple, mask = self.create_state_tuple(state_fields)
+
+        actions   = torch.as_tensor(np.array([self.action[i]   for i in idx]), dtype=torch.float32, device=self.device)
+        logprobs  = torch.as_tensor(np.array([self.logprobs[i] for i in idx]), dtype=torch.float32, device=self.device)
+        rewards   = torch.as_tensor(np.array([self.reward[i]   for i in idx]), dtype=torch.float32, device=self.device)
+        not_dones = torch.as_tensor(np.array([self.not_done[i] for i in idx]), dtype=torch.float32, device=self.device)
+
+        out = {
+            "state": state_tuple,
+            "mask": mask,
+            "action": actions,
+            "logprobs": logprobs,
+            "reward": rewards,
+            "not_done": not_dones,
+        }
+
+        if self.use_intrinsic_reward and len(self.intrinsic_reward) > 0:
+            out["intrinsic_reward"] = torch.as_tensor(
+                np.array([self.intrinsic_reward[i] for i in idx]), dtype=torch.float32, device=self.device
+            )
+
+        if self.use_next_obs and len(self.next_obs) > 0:
+            selected_next = [self.next_obs[i] for i in idx]
+            next_fields = list(zip(*selected_next))
+            next_state_tuple, next_mask = self.create_state_tuple(next_fields)
+            out["next_obs"] = next_state_tuple
+
+        return out
+
+    def _sample_batch(self, idxs):
 
         # Build state tuple correctly
         state_fields = list(zip(*[self.state[i] for i in idxs]))
@@ -459,8 +577,7 @@ class Memory(object):
 
         if self.use_next_obs:
             next_obs_fields = list(zip(*[self.next_obs[i] for i in idxs]))
-            next_obs_batch = tuple(
-                torch.FloatTensor(np.array(field)).squeeze(1).to(self.device) for field in next_obs_fields)
+            next_obs_batch = tuple(torch.FloatTensor(np.array(field)).squeeze(1).to(self.device) for field in next_obs_fields)
             batch['next_state'] = next_obs_batch
 
         return batch
