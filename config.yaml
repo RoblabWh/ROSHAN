@@ -37,7 +37,7 @@ settings:
     # This setting gets overridden in IQL settings and is calculated as the total number of offline_updates + online_updates
     max_train: 100 #12000 for TD3 ~ 8.5h
     # Maximum number of evaluations(one evaluation = one environment completed) to perform
-    max_eval: 100
+    max_eval: 1
   optuna:
     use_optuna: false # Whether to use Optuna for hyperparameter optimization
     study_name: "fly_model_study_LR" # Name of the Optuna study
@@ -56,7 +56,7 @@ paths:
   # This is the root_path where your NEW trained models data is stored
   # Loading for your ROOT Model(chosen hierarchy) is ALSO done from here (Eval and Resuming Training)
   # Absolute or relative to the project root
-  model_directory: models/BaselinePlanner_Optimized_Long #PPO_4A_NoManualDecay_P9Like
+  model_directory: models/BaselinePlanner3_OptiReward_3HRLsteps_LargeHorizon_TestCopy #PPO_4A_NoManualDecay_P9Like
   # Leave this empty to get a default name from this config (best practice for training)
   # You can fast load models with suffixes ["latest", "best_reward", "best_obj"]
   # If you want to load a specific model, set the model_name to the name of the model file
@@ -83,15 +83,15 @@ algorithm:
     # Learning rate for the optimizer #1.575e-4 for FlyAgent #1.0e-4 for PlannerAgent
     lr: 1.0e-4 #Top10: 2.965e-4 # Learning rate for the optimizer
     # Batch size for the optimizer
-    batch_size: 1000 #2000 #300 #2048
+    batch_size: 1200 #2000 #300 #2048
     # Number of steps to collect before updating the model
-    horizon: 12000 #66000 #3600 #65536
+    horizon: 4800 #66000 #3600 #65536
     # Number of epochs to update the model
     k_epochs: 3
     # Coefficient for the entropy loss
     entropy_coeff: 0.0005
     # Coefficient for the value loss (no effect if separate_optimizers is true)
-    value_loss_coef: 0.5
+    value_loss_coef: 0.001
     # Use separate optimizers for the policy and value networks
     # If this is set to false, a single optimizer will be used for 
     # both networks (only works if share_encoder is false)
@@ -323,7 +323,7 @@ environment:
       default_model_name: best_reward
     planner_agent:
       # Hierarchy Timesteps (number of low-level steps per high-level step)
-      hierarchy_timesteps: 20
+      hierarchy_timesteps: 3
       # Determines the frequency of action selection (1 = every frame, 2 = every 2nd frame, etc.)
       frame_skips: 1 
       # Algorithm used by the planner_agent
@@ -337,22 +337,22 @@ environment:
       # View range of the ExtinguishAgent in cells
       view_range: 10 
       # Default model path for the fly_agent (either absolute or relative to the project root)
-      default_model_folder: "models/GoodEnoughFlyAgent/"
+      default_model_folder: "models/SimpleFlyAgent/"
       # You can fast load models with suffixes ["latest", "best_reward", "best_objective"]
       # If you want to load a specific model, set the model_name to the name of the model file
-      default_model_name: best_obj
+      default_model_name: best_reward
       rewards:
         # Reward for reaching the goal (extinguishing all fires)
-        GoalReached: 4.655971820921882
+        GoalReached: 3.9105863581302542
         # Penalty for the Map being burned too much
-        MapBurnedTooMuch: -0.8855989149143488
+        MapBurnedTooMuch: -2.1999479401238373
         # Penalty for selecting the default goal (needed for the attention network when there are no valid fires)
-        FlyingTowardsGroundStation: -0.235805617086198
+        FlyingTowardsGroundStation: -0.29328248592328265
         # Penalty for each time step to encourage faster completion
-        TimeOut: -0.4349801175644862
+        TimeOut: -2.3843039593546047
         # Penalty FACTOR for selecting the same goal for multiple agents
-        SameGoalPenalty: -1.9122979032212362
+        SameGoalPenalty: -1.552461776799054
         # Reward FACTOR for each fire cell extinguished from the low level agents during one high-level step
-        ExtinguishFires: 0.5227860868317401
+        ExtinguishFires: 0.6054212968617818
         # Reward FACTOR for fast extinguishing
-        FastExtinguish: 0.5227860868317401
+        FastExtinguish: 0.21654104693212245

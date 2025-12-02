@@ -1,84 +1,99 @@
-# ROSHAN
-![](ROSHAN_uebersicht.png)
-ROSHAN (Reinforcement-learning Oriented Simulation for Hierarchical Agent Navigation), is a wildfire simulation tool. ROSHAN integrates the principles of cellular automata with reinforcement learning to simulate wildfire dynamics and automatic handling. entral to this simulation tool is its rendering and simulation of fire spread, achieved by integrating data from the CORINE database. The interactive graphical interface of ROSHAN facilitates real-time monitoring and manipulation of fire scenarios. A key component in ROSHAN is the incorporation of a Reinforcement Learning agent, embodied as a drone, which learns to detect and mitigate fires.
+# ROSHAN  
+![Overview](ROSHAN_uebersicht.png)
 
-You can read everything about the development [here](paper.pdf).
+**ROSHAN** (Reinforcement-learning Oriented Simulation for Hierarchical Agent Navigation) is a wildfire simulation and reinforcement-learning framework.   
+It combines a **C++ wildfire model** based on cellular automata with a **Python-based hierarchical RL system** for autonomous UAV firefighting.
 
-![Agent Demo](agent.gif)
+ROSHAN supports:
+- 🔥 Wildfire propagation simulation  
+- 🛰 Autonomous firefighting agents (FlyAgent, ExploreAgent, PlannerAgent)  
+- 🖥 An interactive GUI for visualization and debugging  
+- ⚙️ Full No-GUI operation for large-scale or headless experiments  
+- 🤖 Integration with PyTorch for training agents  
+- 🌍 Optional real-world map generation via CORINE datasets  
 
-# Installation
+You can read more about the system’s development in the accompanying master thesis:  
+📄 [Thesis](meine_thesis.pdf)
 
-Clone the repositories with submodules
+---
 
-`git clone --recurse-submodules https://github.com/RoblabWh/ROSHAN.git`
+![Agent Demo](planner_agent.gif)
 
-#### NodeJS
+# 🚀 Installation
 
-`cd openstreetmap`
+Clone the repository with all submodules:
 
-`npm install express body-parser`
+```bash
+git clone --recurse-submodules https://github.com/RoblabWh/ROSHAN.git
+```
 
-`npm install --save-dev nodemon`
+### CORINE CLC+ (optional, only for generating real-world maps)
+ROSHAN can generate maps from the **CORINE Land Cover** database.  
+If you do not need real-world maps, simply use the sample maps included in the repository.
 
-#### CORINE CLC+ 
+To use custom maps:
+1. Register for EU Login
+2. Download the CLC+ Backbone dataset (10 m resolution):
 
-ROSHAN offers the possibility to generate custom Maps from realworld data using the CORINE Landcover Database. **If you wish NOT to use custom maps you can use the small sample maps provided by this repository, you don't need to download the database in this case!**
+👉 [Download CLC+ Backbone (2018/2021)](https://land.copernicus.eu/pan-european/clc-plus/clc-backbone/clc-backbone?tab=download)
 
-To load custom maps from all over Europe you need to register to **EU Login**, the European Commission's user authentication service and download the
-CLC+ Backbone Database:
+After downloading, set the dataset path in project_paths.json.
+The default location is:
 
-[Download Corine CLC+ Backbone - 10 meter (Year 2018 or 2021)](https://land.copernicus.eu/pan-european/clc-plus/clc-backbone/clc-backbone?tab=download)
+```bash
+ROSHAN/assets/dataset/CLMS_CLCplus_RASTER_2021_010m_eu_03035_V1_1.tif
+```
 
-Once compiled you can set the dataset_path in the **project_paths.json**, the standard path is **/ROSHAN/assets/dataset/CLMS_CLCplus_RASTER_2021_010m_eu_03035_V1_1.tif**.
+## 📦 Dependencies
 
-## Dependencies
+### NodeJS (for OpenStreetMap support)
+```bash
+cd openstreetmap
+npm install express body-parser
+npm install --save-dev nodemon
+```
 
-#### GDAL and GDAL C++ headers
+### GDAL, SDL2, and system libraries
+```bash
+sudo apt install libgdal-dev gdal-bin libsdl2-image-dev
+sudo apt install libsdl2-2.0-0 libsdl2-image-2.0-0
+```
 
-`sudo apt install libgdal-dev gdal-bin libsdl2-image-dev`
+### Python Environment (Anaconda + PyTorch)
+```bash
+conda create --name roshan python=3.9 libffi==3.3
+conda activate roshan
+pip install torch torchvision tabulate scipy
+conda install tensorboard
+conda install packaging
+```
 
-#### SDL2 - min. 2.0.17 
+### Optional: LLM support (experimental)
+```
+pip install transformers[torch] onnxruntime bitsandbytes optimum onnx
+```
 
-Install SDL2 according to:
+## 🔧 Build Instructions
+```bash
+cd ROSHAN
+mkdir build && cd build
+cmake .. && make -j$(nproc)
+```
 
-`sudo apt-get install libsdl2-2.0-0 libsdl2-image-2.0-0`
+# ▶️ Usage
 
-##### Anaconda & PyTorch
+ROSHAN can be launched in two main modes:
 
-`conda create --name roshan python=3.9 libffi==3.3`
-
-`conda activate roshan`
-
-`pip install torch torchvision tabulate scipy`
-
-`conda install tensorboard`
-
-`conda install packaging`
-
-##### LLM Support
-
-`pip install transformers[torch] onnxruntime bitsandbytes optimum onnx`
-
-#### Compile
-
-`cd \ROSHAN`
-
-`mkdir build && cd build`
-
-`cmake .. && make -j&(nproc)`
-
-# Usage
-
-Start ROSHAN either as pure C++ Simulation or with Reinforcement Learning Support:
-
-### ROSHAN Sim
-
-`cd to/your/build/directory`
-
-`./ROSHAN`
-
-### ROSHAN Sim + Reinforcement Learning
-
-`cd ROSHAN/src/pysim/`
-
-`python main.py`
+## 1. C++ Simulation Only
+For running the simulator without reinforcement learning:
+```bash
+cd path/to/build/directory
+./ROSHAN
+```
+## 2. Simulation + Reinforcement Learning
+Run ROSHAN with the Python RL framework (PPO, hierarchical agents, etc.):
+```bash
+cd ROSHAN/src/pysim/ 
+python main.py ["optional/path/to/your/own/config.yaml"]
+```
+The Python interface loads your configuration, initializes the C++ simulator, and trains/evaluates agents depending on the settings in the config file.
