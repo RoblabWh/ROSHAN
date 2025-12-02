@@ -1,0 +1,185 @@
+settings:
+    mode: 0
+    seed: -1
+    rl_mode: eval
+    eval_fly_policy: false
+    resume: false
+    log_eval: false
+    llm_support: false
+    hierarchy_type: explore_agent
+    skip_gui_init: true
+    pytorch_detect_anomaly: false
+    cia_mode: false
+    auto_train:
+        use_auto_train: false
+        train_episodes: 10
+        max_train: 300
+        max_eval: 200
+    optuna:
+        use_optuna: false
+        study_name: fly_model_study
+        study_root: models
+        n_trials: 300
+        n_startup_trials: 15
+        n_warmup_steps: 30
+        use_pruning: false
+        objective: objective
+    save_replay_buffer: false
+    save_size: 200000.0
+paths:
+    model_directory: models/SimpleFlyAgent
+    model_name: 'best_obj'
+    corine_dataset_name: CLMS_CLCplus_RASTER_2021_010m_eu_03035_V1_1.tif
+    init_map: 35x36_Woods.tif
+algorithm:
+    share_encoder: true
+    use_tanh_dist: false
+    PPO:
+        memory_size: 1000000.0
+        lr: 0.0001575
+        batch_size: 200
+        horizon: 1200
+        k_epochs: 3
+        entropy_coeff: 0.01
+        value_loss_coef: 0.5
+        separate_optimizers: false
+        beta1: 0.9
+        beta2: 0.999
+        gamma: 0.9635
+        _lambda: 0.9
+        eps_clip: 0.2
+        manual_decay: false
+        use_logstep_decay: false
+        decay_rate: 0.9999
+        kl_early_stop: false
+        kl_target: 0.02
+        use_kl_1: true
+    IQL:
+        buffer_path: models/MediumBaseline_RewardAltered/memory.pkl
+        lr: 0.0001575
+        batch_size: 1024
+        discount: 0.99
+        expectile: 0.7
+        tau: 0.005
+        temperature: 3.0
+        policy_freq: 2000
+        offline_updates: 50
+        online_updates: 0
+        k_epochs: 1
+        beta1: 0.9
+        beta2: 0.999
+    TD3:
+        lr: 0.0001
+        batch_size: 16000
+        memory_size: 1000000.0
+        min_memory_size: 25000
+        k_epochs: 1
+        discount: 0.99
+        tau: 0.001
+        exploration_noise: 0.15
+        policy_noise: 0.15
+        noise_clip: 0.5
+        policy_freq: 2
+        beta1: 0.9
+        beta2: 0.999
+fire_model:
+    rendering:
+        render_grid: false
+        has_noise: true
+        lingering: false
+        noise_level: 20
+        noise_size: 2
+        background_color:
+        - 21
+        - 19
+        - 51
+        - 255
+    simulation:
+        time:
+            dt: 0.1
+            min_dt: 0.0001
+            max_dt: 5.0
+        cells:
+            cell_ignition_threshold: 100.0
+            cell_burning_duration: 120.0
+            cell_size: 10.0
+            flood_duration: 5.0
+        particles:
+            emit_convective: true
+            virtualparticle_y_st: 1.0
+            virtualparticle_y_lim: 0.2
+            virtualparticle_fl: 0.15
+            virtualparticle_c0: 1.98
+            virtualparticle_tau_mem: 10.0
+            Lt: 80.0
+            emit_radiation: true
+            radiationparticle_y_st: 1.0
+            radiationparticle_y_lim: 0.165
+        grid:
+            uniform_nx: 50
+            uniform_ny: 50
+            exploration_map_size: 50
+        wind:
+            wind_uw: 10.0
+            wind_angle: -1.0
+            wind_a: 0.314
+environment:
+    fire_behaviour:
+        fire_percentage: 0.01
+        num_fire_clusters: 2
+        fire_spread_prob: 0.5
+        fire_noise: 1
+    agent_behaviour:
+        fire_goal_percentage: 1
+        groundstation_start_percentage: 1
+    agent:
+        use_water_limit: false
+        water_capacity: 5
+        recharge_time: 0.0
+        drone_size: 2
+        fly_agent:
+            collision: false
+            use_simple_policy: true
+            use_velocity_change: false
+            use_vel_bins: true
+            frame_skips: 1
+            algorithm: PPO
+            num_agents: 4
+            time_steps: 3
+            max_speed: 10.0
+            view_range: 10
+            rewards:
+                GoalReached: 1.0
+                BoundaryTerminal: -1.0
+                Extinguish: 0.01
+                TimeOut: -1.0
+                Collision: -1.0
+                DistanceImprovement: 0.1
+                ProximityPenalty: -0.05
+        explore_agent:
+            frame_skips: 1
+            algorithm: no_algo
+            num_agents: 12
+            time_steps: 3
+            max_speed: 20.0
+            view_range: 20
+            default_model_folder: models/SimpleFlyAgent/
+            default_model_name: best_reward
+        planner_agent:
+            hierarchy_timesteps: 20
+            frame_skips: 1
+            algorithm: PPO
+            num_agents: 4
+            time_steps: 3
+            max_speed: 10.0
+            view_range: 10
+            default_model_folder: models/BigBaseline_RewardAltered/
+            default_model_name: best_obj
+            rewards:
+                GoalReached: 1.0
+                MapBurnedTooMuch: -2.0
+                FlyingTowardsGroundStation: -0.01
+                TimeOut: -2.0
+                SameGoalPenalty: -0.1
+                ExtinguishFires: 0.2
+                FastExtinguish: 0.5

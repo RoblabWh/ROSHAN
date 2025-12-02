@@ -1,10 +1,10 @@
 settings:
   # 0: GUI_RL, 2: NoGUI_RL, # Mode 1 is GUI and Mode 2 is NoGUI (ONLY Simulation)
-  mode: 2
+  mode: 0
   # Random seed for reproducibility (-1 for random seed)
-  seed: 67
+  seed: -1
   # RL_MODE: Either "train" or "eval"
-  rl_mode: train
+  rl_mode: eval
   # This parameter determines whether to evaluate the fly_agent policy with the extinguishing heuristic
   eval_fly_policy: false
   # Resume training from a checkpoint
@@ -13,7 +13,7 @@ settings:
   # Whether to log evaluation results in tensorboard, plot their metrics and create the CSV files
   # Should generally be true during training or evaluation. 
   # If you only want to SEE what the agent does, set to false so your evaluation is not overridden
-  log_eval: true
+  log_eval: false
   # LLM support for the environment (currently not supported; was tested in very early prototypes)
   # Will probably break everything if set to true
   llm_support: false
@@ -28,7 +28,7 @@ settings:
   # Settings for automatic training of multiple runs under the same config
   auto_train:
     # Use or don't use automatic training
-    use_auto_train: true
+    use_auto_train: false
     # Number of total trainings, each containing max_train train_steps
     # automatically set to 1 when use_auto_train is false
     train_episodes: 3
@@ -56,11 +56,11 @@ paths:
   # This is the root_path where your NEW trained models data is stored
   # Loading for your ROOT Model(chosen hierarchy) is ALSO done from here (Eval and Resuming Training)
   # Absolute or relative to the project root
-  model_directory: models/BaselinePlanner3_OptiReward_3HRLsteps_LargeHorizon_TestCopy #PPO_4A_NoManualDecay_P9Like
+  model_directory: models/PlannerAgentBaseline #PPO_4A_NoManualDecay_P9Like
   # Leave this empty to get a default name from this config (best practice for training)
   # You can fast load models with suffixes ["latest", "best_reward", "best_obj"]
   # If you want to load a specific model, set the model_name to the name of the model file
-  model_name: ""
+  model_name: "latest"
   # Name of the CORINE dataset-file, Path to the Corine dataset file must be set in project_paths.json (generated default paths at compile time)
   corine_dataset_name: CLMS_CLCplus_RASTER_2021_010m_eu_03035_V1_1.tif
   # This map is used in NoGUI & skip_gui_init setup, if left empty("") the default map (uniform map) will be used.
@@ -308,7 +308,7 @@ environment:
       # Algorithm used by the explore_agent (currently no training implemented, so set to no_algo)
       algorithm: no_algo 
       # Number of explore_agents
-      num_agents: 12
+      num_agents: 3
       # Number of time steps to consider in the ExploreAgent's memory
       time_steps: 3
       # Maximum speed of the explore_agent in m/s
@@ -323,7 +323,7 @@ environment:
       default_model_name: best_reward
     planner_agent:
       # Hierarchy Timesteps (number of low-level steps per high-level step)
-      hierarchy_timesteps: 3
+      hierarchy_timesteps: 5
       # Determines the frequency of action selection (1 = every frame, 2 = every 2nd frame, etc.)
       frame_skips: 1 
       # Algorithm used by the planner_agent
@@ -337,10 +337,10 @@ environment:
       # View range of the ExtinguishAgent in cells
       view_range: 10 
       # Default model path for the fly_agent (either absolute or relative to the project root)
-      default_model_folder: "models/SimpleFlyAgent/"
+      default_model_folder: "models/CollisionFlyAgent/"
       # You can fast load models with suffixes ["latest", "best_reward", "best_objective"]
       # If you want to load a specific model, set the model_name to the name of the model file
-      default_model_name: best_reward
+      default_model_name: best_obj
       rewards:
         # Reward for reaching the goal (extinguishing all fires)
         GoalReached: 3.9105863581302542

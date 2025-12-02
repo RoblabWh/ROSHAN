@@ -1,5 +1,5 @@
 # ROSHAN  
-![Overview](ROSHAN_uebersicht.png)
+![Overview](assets/ROSHAN_uebersicht.png)
 
 **ROSHAN** (Reinforcement-learning Oriented Simulation for Hierarchical Agent Navigation) is a wildfire simulation and reinforcement-learning framework.   
 It combines a **C++ wildfire model** based on cellular automata with a **Python-based hierarchical RL system** for autonomous UAV firefighting.
@@ -13,11 +13,10 @@ ROSHAN supports:
 - 🌍 Optional real-world map generation via CORINE datasets  
 
 You can read more about the system’s development in the accompanying master thesis:  
-📄 [Thesis](meine_thesis.pdf)
+📄 [Thesis](assets/meine_thesis.pdf)
 
 ---
-
-![Agent Demo](planner_agent.gif)
+<video src="assets/planner_agent.mp4" controls></video>
 
 # 🚀 Installation
 
@@ -68,7 +67,7 @@ conda install tensorboard
 conda install packaging
 ```
 
-### Optional: LLM support (experimental)
+### Optional: LLM support (experimental and currently non-functional)
 ```
 pip install transformers[torch] onnxruntime bitsandbytes optimum onnx
 ```
@@ -82,7 +81,7 @@ cmake .. && make -j$(nproc)
 
 # ▶️ Usage
 
-ROSHAN can be launched in two main modes:
+ROSHAN can be launched in two main modes and through a testing notebook:
 
 ## 1. C++ Simulation Only
 For running the simulator without reinforcement learning:

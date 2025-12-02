@@ -1,0 +1,732 @@
+2025-11-04 22:58:43,285 - WARNING - fly_agent - RL Mode changed from eval to train
+2025-11-04 22:58:43,703 - INFO - PPO - Saving at Episode 0/Train Step 0, best Reward: 0.00
+2025-11-04 22:58:43,704 - INFO - PPO - Saving at Episode 0/Train Step 0, best Objective 0.00
+2025-11-04 22:58:44,362 - INFO - PPO - Saving at Episode 0/Train Step 1, best Reward: 0.00
+2025-11-04 22:58:44,364 - INFO - PPO - Saving at Episode 0/Train Step 1, best Objective 0.00
+2025-11-04 22:58:45,029 - INFO - PPO - Saving at Episode 0/Train Step 2, best Objective 0.00
+2025-11-04 22:58:45,664 - INFO - PPO - Saving at Episode 0/Train Step 3, best Objective 0.00
+2025-11-04 22:58:46,313 - INFO - PPO - Saving at Episode 0/Train Step 4, best Objective 0.00
+2025-11-04 22:58:47,009 - INFO - PPO - Saving at Episode 5/Train Step 5, best Objective 0.00
+2025-11-04 22:58:47,671 - INFO - PPO - Saving at Episode 5/Train Step 6, best Objective 0.00
+2025-11-04 22:58:48,316 - INFO - PPO - Saving at Episode 9/Train Step 7, best Objective 0.00
+2025-11-04 22:58:48,966 - INFO - PPO - Saving at Episode 9/Train Step 8, best Reward: 0.00
+2025-11-04 22:58:48,968 - INFO - PPO - Saving at Episode 9/Train Step 8, best Objective 0.00
+2025-11-04 22:58:49,630 - INFO - PPO - Saving at Episode 9/Train Step 9, best Reward: 0.00
+2025-11-04 22:58:49,632 - INFO - PPO - Saving at Episode 9/Train Step 9, best Objective 0.00
+2025-11-04 22:58:50,267 - INFO - PPO - Saving at Episode 9/Train Step 10, best Objective 0.00
+2025-11-04 22:58:50,902 - INFO - PPO - Saving at Episode 9/Train Step 11, best Objective 0.00
+2025-11-04 22:58:51,556 - INFO - PPO - Saving at Episode 10/Train Step 12, best Objective 0.00
+2025-11-04 22:58:52,172 - INFO - PPO - Saving at Episode 10/Train Step 13, best Objective 0.00
+2025-11-04 22:58:52,803 - INFO - PPO - Saving at Episode 10/Train Step 14, best Objective 0.00
+2025-11-04 22:58:53,434 - INFO - PPO - Saving at Episode 10/Train Step 15, best Objective 0.00
+2025-11-04 22:58:54,073 - INFO - PPO - Saving at Episode 10/Train Step 16, best Objective 0.00
+2025-11-04 22:58:54,712 - INFO - PPO - Saving at Episode 11/Train Step 17, best Objective 0.00
+2025-11-04 22:58:55,346 - INFO - PPO - Saving at Episode 11/Train Step 18, best Objective 0.00
+2025-11-04 22:58:55,973 - INFO - PPO - Saving at Episode 11/Train Step 19, best Objective 0.00
+2025-11-04 22:58:56,606 - INFO - PPO - Saving at Episode 11/Train Step 20, best Objective 0.00
+2025-11-04 22:58:57,231 - INFO - PPO - Saving at Episode 11/Train Step 21, best Objective 0.00
+2025-11-04 22:58:57,870 - INFO - PPO - Saving at Episode 12/Train Step 22, best Reward: 0.00
+2025-11-04 22:58:57,872 - INFO - PPO - Saving at Episode 12/Train Step 22, best Objective 0.00
+2025-11-04 22:58:58,502 - INFO - PPO - Saving at Episode 12/Train Step 23, best Objective 0.00
+2025-11-04 22:58:59,159 - INFO - PPO - Saving at Episode 14/Train Step 24, best Objective 0.00
+2025-11-04 22:58:59,811 - INFO - PPO - Saving at Episode 14/Train Step 25, best Objective 0.00
+2025-11-04 22:59:00,464 - INFO - PPO - Saving at Episode 15/Train Step 26, best Objective 0.00
+2025-11-04 22:59:01,105 - INFO - PPO - Saving at Episode 16/Train Step 27, best Reward: 0.01
+2025-11-04 22:59:01,107 - INFO - PPO - Saving at Episode 16/Train Step 27, best Objective 0.00
+2025-11-04 22:59:01,759 - INFO - PPO - Saving at Episode 16/Train Step 28, best Reward: 0.01
+2025-11-04 22:59:01,761 - INFO - PPO - Saving at Episode 16/Train Step 28, best Objective 0.00
+2025-11-04 22:59:02,402 - INFO - PPO - Saving at Episode 16/Train Step 29, best Objective 0.00
+2025-11-04 22:59:03,037 - INFO - PPO - Saving at Episode 16/Train Step 30, best Objective 0.00
+2025-11-04 22:59:03,664 - INFO - PPO - Saving at Episode 16/Train Step 31, best Objective 0.00
+2025-11-04 22:59:04,302 - INFO - PPO - Saving at Episode 17/Train Step 32, best Objective 0.00
+2025-11-04 22:59:04,934 - INFO - PPO - Saving at Episode 17/Train Step 33, best Objective 0.00
+2025-11-04 22:59:05,586 - INFO - PPO - Saving at Episode 18/Train Step 34, best Objective 0.00
+2025-11-04 22:59:06,202 - INFO - PPO - Saving at Episode 18/Train Step 35, best Objective 0.00
+2025-11-04 22:59:06,834 - INFO - PPO - Saving at Episode 18/Train Step 36, best Objective 0.00
+2025-11-04 22:59:07,471 - INFO - PPO - Saving at Episode 19/Train Step 37, best Reward: 0.01
+2025-11-04 22:59:07,473 - INFO - PPO - Saving at Episode 19/Train Step 37, best Objective 0.00
+2025-11-04 22:59:08,106 - INFO - PPO - Saving at Episode 19/Train Step 38, best Objective 0.00
+2025-11-04 22:59:08,732 - INFO - PPO - Saving at Episode 19/Train Step 39, best Objective 0.00
+2025-11-04 22:59:09,368 - INFO - PPO - Saving at Episode 19/Train Step 40, best Objective 0.00
+2025-11-04 22:59:09,989 - INFO - PPO - Saving at Episode 20/Train Step 41, best Objective 0.00
+2025-11-04 22:59:10,612 - INFO - PPO - Saving at Episode 21/Train Step 42, best Reward: 0.01
+2025-11-04 22:59:10,614 - INFO - PPO - Saving at Episode 21/Train Step 42, best Objective 0.00
+2025-11-04 22:59:11,228 - INFO - PPO - Saving at Episode 21/Train Step 43, best Objective 0.00
+2025-11-04 22:59:11,862 - INFO - PPO - Saving at Episode 22/Train Step 44, best Reward: 0.01
+2025-11-04 22:59:11,863 - INFO - PPO - Saving at Episode 22/Train Step 44, best Objective 0.00
+2025-11-04 22:59:12,485 - INFO - PPO - Saving at Episode 24/Train Step 45, best Objective 0.00
+2025-11-04 22:59:13,105 - INFO - PPO - Saving at Episode 24/Train Step 46, best Objective 0.00
+2025-11-04 22:59:13,728 - INFO - PPO - Saving at Episode 24/Train Step 47, best Objective 0.00
+2025-11-04 22:59:14,365 - INFO - PPO - Saving at Episode 24/Train Step 48, best Objective 0.00
+2025-11-04 22:59:15,004 - INFO - PPO - Saving at Episode 25/Train Step 49, best Objective 0.00
+2025-11-04 22:59:15,645 - INFO - PPO - Saving at Episode 25/Train Step 50, best Objective 0.00
+2025-11-04 22:59:16,263 - INFO - PPO - Saving at Episode 26/Train Step 51, best Objective 0.00
+2025-11-04 22:59:16,903 - INFO - PPO - Saving at Episode 26/Train Step 52, best Objective 0.00
+2025-11-04 22:59:17,557 - INFO - PPO - Saving at Episode 27/Train Step 53, best Reward: 0.01
+2025-11-04 22:59:17,559 - INFO - PPO - Saving at Episode 27/Train Step 53, best Objective 0.00
+2025-11-04 22:59:18,204 - INFO - PPO - Saving at Episode 27/Train Step 54, best Objective 0.00
+2025-11-04 22:59:18,816 - INFO - PPO - Saving at Episode 28/Train Step 55, best Objective 0.00
+2025-11-04 22:59:19,473 - INFO - PPO - Saving at Episode 29/Train Step 56, best Reward: 0.01
+2025-11-04 22:59:19,475 - INFO - PPO - Saving at Episode 29/Train Step 56, best Objective 0.00
+2025-11-04 22:59:20,117 - INFO - PPO - Saving at Episode 30/Train Step 57, best Objective 0.00
+2025-11-04 22:59:20,748 - INFO - PPO - Saving at Episode 30/Train Step 58, best Objective 0.00
+2025-11-04 22:59:21,363 - INFO - PPO - Saving at Episode 31/Train Step 59, best Objective 0.00
+2025-11-04 22:59:21,986 - INFO - PPO - Saving at Episode 32/Train Step 60, best Objective 0.00
+2025-11-04 22:59:22,623 - INFO - PPO - Saving at Episode 34/Train Step 61, best Reward: 0.01
+2025-11-04 22:59:22,625 - INFO - PPO - Saving at Episode 34/Train Step 61, best Objective 0.00
+2025-11-04 22:59:23,256 - INFO - PPO - Saving at Episode 34/Train Step 62, best Objective 0.00
+2025-11-04 22:59:23,889 - INFO - PPO - Saving at Episode 35/Train Step 63, best Objective 0.00
+2025-11-04 22:59:24,531 - INFO - PPO - Saving at Episode 35/Train Step 64, best Objective 0.00
+2025-11-04 22:59:25,157 - INFO - PPO - Saving at Episode 37/Train Step 65, best Reward: 0.01
+2025-11-04 22:59:25,160 - INFO - PPO - Saving at Episode 37/Train Step 65, best Objective 0.00
+2025-11-04 22:59:25,779 - INFO - PPO - Saving at Episode 37/Train Step 66, best Objective 0.00
+2025-11-04 22:59:26,409 - INFO - PPO - Saving at Episode 39/Train Step 67, best Objective 0.00
+2025-11-04 22:59:27,048 - INFO - PPO - Saving at Episode 39/Train Step 68, best Objective 0.00
+2025-11-04 22:59:27,689 - INFO - PPO - Saving at Episode 40/Train Step 69, best Objective 0.00
+2025-11-04 22:59:28,328 - INFO - PPO - Saving at Episode 41/Train Step 70, best Reward: 0.01
+2025-11-04 22:59:28,330 - INFO - PPO - Saving at Episode 41/Train Step 70, best Objective 0.00
+2025-11-04 22:59:28,958 - INFO - PPO - Saving at Episode 43/Train Step 71, best Objective 0.00
+2025-11-04 22:59:29,609 - INFO - PPO - Saving at Episode 45/Train Step 72, best Objective 0.00
+2025-11-04 22:59:30,249 - INFO - PPO - Saving at Episode 45/Train Step 73, best Objective 0.00
+2025-11-04 22:59:30,892 - INFO - PPO - Saving at Episode 46/Train Step 74, best Objective 0.00
+2025-11-04 22:59:31,540 - INFO - PPO - Saving at Episode 47/Train Step 75, best Objective 0.00
+2025-11-04 22:59:32,169 - INFO - PPO - Saving at Episode 47/Train Step 76, best Objective 0.00
+2025-11-04 22:59:32,807 - INFO - PPO - Saving at Episode 48/Train Step 77, best Objective 0.00
+2025-11-04 22:59:33,457 - INFO - PPO - Saving at Episode 49/Train Step 78, best Objective 0.00
+2025-11-04 22:59:34,088 - INFO - PPO - Saving at Episode 51/Train Step 79, best Reward: 0.01
+2025-11-04 22:59:34,097 - INFO - PPO - Saving at Episode 51/Train Step 79, best Objective 0.00
+2025-11-04 22:59:34,729 - INFO - PPO - Saving at Episode 51/Train Step 80, best Objective 0.00
+2025-11-04 22:59:35,365 - INFO - PPO - Saving at Episode 52/Train Step 81, best Objective 0.00
+2025-11-04 22:59:36,002 - INFO - PPO - Saving at Episode 53/Train Step 82, best Objective 0.00
+2025-11-04 22:59:36,632 - INFO - PPO - Saving at Episode 54/Train Step 83, best Objective 0.00
+2025-11-04 22:59:37,268 - INFO - PPO - Saving at Episode 55/Train Step 84, best Objective 0.00
+2025-11-04 22:59:37,906 - INFO - PPO - Saving at Episode 55/Train Step 85, best Objective 0.00
+2025-11-04 22:59:38,555 - INFO - PPO - Saving at Episode 56/Train Step 86, best Objective 0.00
+2025-11-04 22:59:39,189 - INFO - PPO - Saving at Episode 58/Train Step 87, best Reward: 0.01
+2025-11-04 22:59:39,198 - INFO - PPO - Saving at Episode 58/Train Step 87, best Objective 0.00
+2025-11-04 22:59:39,837 - INFO - PPO - Saving at Episode 59/Train Step 88, best Objective 0.00
+2025-11-04 22:59:40,469 - INFO - PPO - Saving at Episode 60/Train Step 89, best Objective 0.00
+2025-11-04 22:59:41,098 - INFO - PPO - Saving at Episode 61/Train Step 90, best Objective 0.00
+2025-11-04 22:59:41,726 - INFO - PPO - Saving at Episode 62/Train Step 91, best Objective 0.00
+2025-11-04 22:59:42,350 - INFO - PPO - Saving at Episode 63/Train Step 92, best Objective 0.00
+2025-11-04 22:59:42,964 - INFO - PPO - Saving at Episode 65/Train Step 93, best Objective 0.00
+2025-11-04 22:59:43,614 - INFO - PPO - Saving at Episode 66/Train Step 94, best Reward: 0.01
+2025-11-04 22:59:43,616 - INFO - PPO - Saving at Episode 66/Train Step 94, best Objective 0.00
+2025-11-04 22:59:44,233 - INFO - PPO - Saving at Episode 67/Train Step 95, best Objective 0.00
+2025-11-04 22:59:44,884 - INFO - PPO - Saving at Episode 69/Train Step 96, best Reward: 0.01
+2025-11-04 22:59:44,886 - INFO - PPO - Saving at Episode 69/Train Step 96, best Objective 0.00
+2025-11-04 22:59:45,521 - INFO - PPO - Saving at Episode 70/Train Step 97, best Objective 0.00
+2025-11-04 22:59:46,153 - INFO - PPO - Saving at Episode 71/Train Step 98, best Objective 0.00
+2025-11-04 22:59:46,776 - INFO - PPO - Saving at Episode 72/Train Step 99, best Reward: 0.01
+2025-11-04 22:59:46,778 - INFO - PPO - Saving at Episode 72/Train Step 99, best Objective 0.00
+2025-11-04 22:59:47,407 - INFO - PPO - Saving at Episode 73/Train Step 100, best Objective 0.00
+2025-11-04 22:59:48,050 - INFO - PPO - Saving at Episode 74/Train Step 101, best Objective 0.00
+2025-11-04 22:59:48,684 - INFO - PPO - Saving at Episode 75/Train Step 102, best Objective 0.00
+2025-11-04 22:59:49,308 - INFO - PPO - Saving at Episode 76/Train Step 103, best Objective 0.00
+2025-11-04 22:59:49,940 - INFO - PPO - Saving at Episode 76/Train Step 104, best Objective 0.00
+2025-11-04 22:59:50,595 - INFO - PPO - Saving at Episode 79/Train Step 105, best Objective 0.00
+2025-11-04 22:59:51,235 - INFO - PPO - Saving at Episode 81/Train Step 106, best Objective 0.00
+2025-11-04 22:59:51,858 - INFO - PPO - Saving at Episode 82/Train Step 107, best Reward: 0.01
+2025-11-04 22:59:51,860 - INFO - PPO - Saving at Episode 82/Train Step 107, best Objective 0.00
+2025-11-04 22:59:52,505 - INFO - PPO - Saving at Episode 83/Train Step 108, best Objective 0.00
+2025-11-04 22:59:53,148 - INFO - PPO - Saving at Episode 84/Train Step 109, best Objective 0.00
+2025-11-04 22:59:53,795 - INFO - PPO - Saving at Episode 86/Train Step 110, best Objective 0.00
+2025-11-04 22:59:54,422 - INFO - PPO - Saving at Episode 88/Train Step 111, best Objective 0.00
+2025-11-04 22:59:55,069 - INFO - PPO - Saving at Episode 89/Train Step 112, best Objective 0.00
+2025-11-04 22:59:55,704 - INFO - PPO - Saving at Episode 90/Train Step 113, best Objective 0.00
+2025-11-04 22:59:56,333 - INFO - PPO - Saving at Episode 91/Train Step 114, best Objective 0.00
+2025-11-04 22:59:56,988 - INFO - PPO - Saving at Episode 93/Train Step 115, best Reward: 0.01
+2025-11-04 22:59:56,990 - INFO - PPO - Saving at Episode 93/Train Step 115, best Objective 0.00
+2025-11-04 22:59:57,644 - INFO - PPO - Saving at Episode 95/Train Step 116, best Objective 0.00
+2025-11-04 22:59:58,267 - INFO - PPO - Saving at Episode 96/Train Step 117, best Reward: 0.01
+2025-11-04 22:59:58,269 - INFO - PPO - Saving at Episode 96/Train Step 117, best Objective 0.00
+2025-11-04 22:59:58,899 - INFO - PPO - Saving at Episode 97/Train Step 118, best Objective 0.00
+2025-11-04 22:59:59,532 - INFO - PPO - Saving at Episode 99/Train Step 119, best Objective 0.00
+2025-11-04 23:00:00,188 - INFO - PPO - Saving at Episode 100/Train Step 120, best Objective 0.84
+2025-11-04 23:00:00,832 - INFO - PPO - Saving at Episode 101/Train Step 121, best Objective 0.85
+2025-11-04 23:00:01,485 - INFO - PPO - Saving at Episode 102/Train Step 122, best Objective 0.86
+2025-11-04 23:00:02,117 - INFO - PPO - Saving at Episode 103/Train Step 123, best Objective 0.87
+2025-11-04 23:00:02,766 - INFO - PPO - Saving at Episode 104/Train Step 124, best Objective 0.88
+2025-11-04 23:00:03,407 - INFO - PPO - Saving at Episode 105/Train Step 125, best Objective 0.89
+2025-11-04 23:00:04,061 - INFO - PPO - Saving at Episode 107/Train Step 126, best Objective 0.90
+2025-11-04 23:00:04,700 - INFO - PPO - Saving at Episode 108/Train Step 127, best Objective 0.91
+2025-11-04 23:00:05,343 - INFO - PPO - Saving at Episode 109/Train Step 128, best Objective 0.92
+2025-11-04 23:00:05,991 - INFO - PPO - Saving at Episode 110/Train Step 129, best Objective 0.93
+2025-11-04 23:00:06,641 - INFO - PPO - Saving at Episode 113/Train Step 130, best Objective 0.94
+2025-11-04 23:00:07,273 - INFO - PPO - Saving at Episode 114/Train Step 131, best Objective 0.95
+2025-11-04 23:00:07,925 - INFO - PPO - Saving at Episode 116/Train Step 132, best Objective 0.95
+2025-11-04 23:00:08,582 - INFO - PPO - Saving at Episode 117/Train Step 133, best Objective 0.96
+2025-11-04 23:00:09,222 - INFO - PPO - Saving at Episode 117/Train Step 134, best Objective 0.96
+2025-11-04 23:00:09,867 - INFO - PPO - Saving at Episode 120/Train Step 135, best Objective 0.97
+2025-11-04 23:00:10,525 - INFO - PPO - Saving at Episode 123/Train Step 136, best Objective 0.97
+2025-11-04 23:00:11,181 - INFO - PPO - Saving at Episode 125/Train Step 137, best Objective 0.98
+2025-11-04 23:00:11,849 - INFO - PPO - Saving at Episode 127/Train Step 138, best Objective 0.98
+2025-11-04 23:00:12,487 - INFO - PPO - Saving at Episode 128/Train Step 139, best Objective 0.98
+2025-11-04 23:00:13,127 - INFO - PPO - Saving at Episode 129/Train Step 140, best Objective 0.98
+2025-11-04 23:00:13,766 - INFO - PPO - Saving at Episode 130/Train Step 141, best Objective 0.98
+2025-11-04 23:00:14,393 - INFO - PPO - Saving at Episode 131/Train Step 142, best Objective 0.98
+2025-11-04 23:00:15,032 - INFO - PPO - Saving at Episode 133/Train Step 143, best Objective 0.98
+2025-11-04 23:00:15,678 - INFO - PPO - Saving at Episode 134/Train Step 144, best Objective 0.98
+2025-11-04 23:00:16,318 - INFO - PPO - Saving at Episode 135/Train Step 145, best Objective 0.98
+2025-11-04 23:00:17,041 - INFO - PPO - Saving at Episode 136/Train Step 146, best Objective 0.98
+2025-11-04 23:00:17,685 - INFO - PPO - Saving at Episode 136/Train Step 147, best Objective 0.98
+2025-11-04 23:00:18,334 - INFO - PPO - Saving at Episode 139/Train Step 148, best Objective 0.99
+2025-11-04 23:00:18,971 - INFO - PPO - Saving at Episode 140/Train Step 149, best Objective 0.99
+2025-11-04 23:00:19,616 - INFO - PPO - Saving at Episode 142/Train Step 150, best Objective 0.99
+2025-11-04 23:00:20,241 - INFO - PPO - Saving at Episode 142/Train Step 151, best Objective 0.99
+2025-11-04 23:00:20,887 - INFO - PPO - Saving at Episode 144/Train Step 152, best Objective 0.99
+2025-11-04 23:00:21,527 - INFO - PPO - Saving at Episode 145/Train Step 153, best Objective 0.99
+2025-11-04 23:00:23,458 - INFO - PPO - Saving at Episode 150/Train Step 156, best Reward: 0.01
+2025-11-04 23:00:25,391 - INFO - PPO - Saving at Episode 155/Train Step 159, best Reward: 0.01
+2025-11-04 23:00:30,634 - INFO - PPO - Saving at Episode 171/Train Step 167, best Objective 0.99
+2025-11-04 23:00:31,287 - INFO - PPO - Saving at Episode 172/Train Step 168, best Objective 0.99
+2025-11-04 23:00:31,938 - INFO - PPO - Saving at Episode 173/Train Step 169, best Objective 0.99
+2025-11-04 23:00:32,589 - INFO - PPO - Saving at Episode 174/Train Step 170, best Objective 0.99
+2025-11-04 23:00:33,216 - INFO - PPO - Saving at Episode 175/Train Step 171, best Objective 0.99
+2025-11-04 23:00:33,866 - INFO - PPO - Saving at Episode 178/Train Step 172, best Objective 0.99
+2025-11-04 23:00:34,519 - INFO - PPO - Saving at Episode 182/Train Step 173, best Objective 0.99
+2025-11-04 23:00:35,152 - INFO - PPO - Saving at Episode 183/Train Step 174, best Objective 0.99
+2025-11-04 23:00:35,806 - INFO - PPO - Saving at Episode 184/Train Step 175, best Objective 0.99
+2025-11-04 23:00:36,450 - INFO - PPO - Saving at Episode 185/Train Step 176, best Objective 0.99
+2025-11-04 23:00:37,107 - INFO - PPO - Saving at Episode 187/Train Step 177, best Objective 0.99
+2025-11-04 23:00:37,766 - INFO - PPO - Saving at Episode 189/Train Step 178, best Objective 0.99
+2025-11-04 23:00:38,417 - INFO - PPO - Saving at Episode 191/Train Step 179, best Objective 0.99
+2025-11-04 23:00:39,069 - INFO - PPO - Saving at Episode 192/Train Step 180, best Objective 0.99
+2025-11-04 23:00:39,726 - INFO - PPO - Saving at Episode 195/Train Step 181, best Objective 0.99
+2025-11-04 23:00:40,376 - INFO - PPO - Saving at Episode 197/Train Step 182, best Objective 0.99
+2025-11-04 23:00:41,005 - INFO - PPO - Saving at Episode 199/Train Step 183, best Objective 0.99
+2025-11-04 23:00:41,664 - INFO - PPO - Saving at Episode 201/Train Step 184, best Objective 0.99
+2025-11-04 23:00:42,322 - INFO - PPO - Saving at Episode 203/Train Step 185, best Objective 0.99
+2025-11-04 23:00:42,972 - INFO - PPO - Saving at Episode 204/Train Step 186, best Objective 0.99
+2025-11-04 23:00:43,643 - INFO - PPO - Saving at Episode 207/Train Step 187, best Objective 0.99
+2025-11-04 23:00:44,296 - INFO - PPO - Saving at Episode 208/Train Step 188, best Objective 0.99
+2025-11-04 23:00:44,961 - INFO - PPO - Saving at Episode 210/Train Step 189, best Objective 0.99
+2025-11-04 23:00:45,600 - INFO - PPO - Saving at Episode 211/Train Step 190, best Objective 0.99
+2025-11-04 23:00:46,241 - INFO - PPO - Saving at Episode 214/Train Step 191, best Objective 0.99
+2025-11-04 23:00:46,885 - INFO - PPO - Saving at Episode 215/Train Step 192, best Objective 0.99
+2025-11-04 23:00:47,552 - INFO - PPO - Saving at Episode 217/Train Step 193, best Objective 0.99
+2025-11-04 23:00:48,193 - INFO - PPO - Saving at Episode 218/Train Step 194, best Objective 0.99
+2025-11-04 23:00:48,833 - INFO - PPO - Saving at Episode 219/Train Step 195, best Objective 0.99
+2025-11-04 23:00:49,509 - INFO - PPO - Saving at Episode 223/Train Step 196, best Objective 0.99
+2025-11-04 23:00:50,162 - INFO - PPO - Saving at Episode 225/Train Step 197, best Objective 0.99
+2025-11-04 23:00:50,811 - INFO - PPO - Saving at Episode 226/Train Step 198, best Objective 0.99
+2025-11-04 23:00:51,457 - INFO - PPO - Saving at Episode 228/Train Step 199, best Objective 0.99
+2025-11-04 23:00:52,124 - INFO - PPO - Saving at Episode 230/Train Step 200, best Objective 0.99
+2025-11-04 23:00:52,769 - INFO - PPO - Saving at Episode 231/Train Step 201, best Objective 0.99
+2025-11-04 23:00:53,418 - INFO - PPO - Saving at Episode 232/Train Step 202, best Objective 0.99
+2025-11-04 23:00:54,069 - INFO - PPO - Saving at Episode 233/Train Step 203, best Objective 0.99
+2025-11-04 23:00:54,709 - INFO - PPO - Saving at Episode 234/Train Step 204, best Objective 0.99
+2025-11-04 23:00:55,353 - INFO - PPO - Saving at Episode 235/Train Step 205, best Objective 0.99
+2025-11-04 23:00:55,998 - INFO - PPO - Saving at Episode 237/Train Step 206, best Objective 0.99
+2025-11-04 23:00:56,648 - INFO - PPO - Saving at Episode 240/Train Step 207, best Objective 0.99
+2025-11-04 23:00:57,291 - INFO - PPO - Saving at Episode 241/Train Step 208, best Objective 0.99
+2025-11-04 23:00:57,934 - INFO - PPO - Saving at Episode 243/Train Step 209, best Objective 0.99
+2025-11-04 23:00:58,581 - INFO - PPO - Saving at Episode 245/Train Step 210, best Objective 0.99
+2025-11-04 23:00:59,232 - INFO - PPO - Saving at Episode 246/Train Step 211, best Objective 0.99
+2025-11-04 23:00:59,891 - INFO - PPO - Saving at Episode 247/Train Step 212, best Objective 1.00
+2025-11-04 23:01:00,546 - INFO - PPO - Saving at Episode 248/Train Step 213, best Objective 1.00
+2025-11-04 23:01:31,093 - INFO - PPO - Saving at Episode 328/Train Step 260, best Reward: 0.01
+2025-11-04 23:01:38,248 - INFO - PPO - Saving at Episode 346/Train Step 271, best Reward: 0.01
+2025-11-04 23:01:56,500 - INFO - Evaluator - Training finished, after 300 training steps, now starting Evaluation
+2025-11-04 23:01:56,505 - INFO - fly_agent - Load model from checkpoint: /home/roblabuser/julien/ROSHAN/models/PPOSimpleBaseline_ShareEncoder/training_2/ppo_fly_agent_best_obj.pt - Model set to evaluation mode
+2025-11-04 23:01:56,580 - WARNING - fly_agent - RL Mode changed from train to eval
+2025-11-04 23:02:26,999 - INFO - Evaluator - 
+╭──────────────┬───────────────────────┬───────────────────────────┬───────────────────────┬────────────────────────╮
+│ Episode      │ Reward                │ Time                      │ Success               │ Failure_Reason         │
+├──────────────┼───────────────────────┼───────────────────────────┼───────────────────────┼────────────────────────┤
+│ 1            │ 2.9681                │ 226                       │ 1.00                  │ None                   │
+├──────────────┼───────────────────────┼───────────────────────────┼───────────────────────┼────────────────────────┤
+│ 2            │ 2.8024                │ 274                       │ 1.00                  │ None                   │
+├──────────────┼───────────────────────┼───────────────────────────┼───────────────────────┼────────────────────────┤
+│ 3            │ 0.5588                │ 63                        │ 1.00                  │ None                   │
+├──────────────┼───────────────────────┼───────────────────────────┼───────────────────────┼────────────────────────┤
+│ 4            │ 2.1400                │ 160                       │ 1.00                  │ None                   │
+├──────────────┼───────────────────────┼───────────────────────────┼───────────────────────┼────────────────────────┤
+│ 5            │ 2.6376                │ 234                       │ 1.00                  │ None                   │
+├──────────────┼───────────────────────┼───────────────────────────┼───────────────────────┼────────────────────────┤
+│ 6            │ 1.7545                │ 158                       │ 1.00                  │ None                   │
+├──────────────┼───────────────────────┼───────────────────────────┼───────────────────────┼────────────────────────┤
+│ 7            │ 0.7999                │ 55                        │ 1.00                  │ None                   │
+├──────────────┼───────────────────────┼───────────────────────────┼───────────────────────┼────────────────────────┤
+│ 8            │ 2.1261                │ 188                       │ 1.00                  │ None                   │
+├──────────────┼───────────────────────┼───────────────────────────┼───────────────────────┼────────────────────────┤
+│ 9            │ 1.9685                │ 200                       │ 1.00                  │ None                   │
+├──────────────┼───────────────────────┼───────────────────────────┼───────────────────────┼────────────────────────┤
+│ 10           │ 2.1700                │ 214                       │ 1.00                  │ None                   │
+├──────────────┼───────────────────────┼───────────────────────────┼───────────────────────┼────────────────────────┤
+│ 11           │ 0.2954                │ 11                        │ 1.00                  │ None                   │
+├──────────────┼───────────────────────┼───────────────────────────┼───────────────────────┼────────────────────────┤
+│ 12           │ 1.1840                │ 119                       │ 1.00                  │ None                   │
+├──────────────┼───────────────────────┼───────────────────────────┼───────────────────────┼────────────────────────┤
+│ 13           │ 3.8337                │ 320                       │ 1.00                  │ None                   │
+├──────────────┼───────────────────────┼───────────────────────────┼───────────────────────┼────────────────────────┤
+│ 14           │ 2.0970                │ 166                       │ 1.00                  │ None                   │
+├──────────────┼───────────────────────┼───────────────────────────┼───────────────────────┼────────────────────────┤
+│ 15           │ 2.5923                │ 202                       │ 1.00                  │ None                   │
+├──────────────┼───────────────────────┼───────────────────────────┼───────────────────────┼────────────────────────┤
+│ 16           │ 1.6730                │ 145                       │ 1.00                  │ None                   │
+├──────────────┼───────────────────────┼───────────────────────────┼───────────────────────┼────────────────────────┤
+│ 17           │ 1.7791                │ 174                       │ 1.00                  │ None                   │
+├──────────────┼───────────────────────┼───────────────────────────┼───────────────────────┼────────────────────────┤
+│ 18           │ 2.1905                │ 185                       │ 1.00                  │ None                   │
+├──────────────┼───────────────────────┼───────────────────────────┼───────────────────────┼────────────────────────┤
+│ 19           │ 3.0952                │ 214                       │ 1.00                  │ None                   │
+├──────────────┼───────────────────────┼───────────────────────────┼───────────────────────┼────────────────────────┤
+│ 20           │ 1.2765                │ 105                       │ 1.00                  │ None                   │
+├──────────────┼───────────────────────┼───────────────────────────┼───────────────────────┼────────────────────────┤
+│ 21           │ 1.6009                │ 135                       │ 1.00                  │ None                   │
+├──────────────┼───────────────────────┼───────────────────────────┼───────────────────────┼────────────────────────┤
+│ 22           │ 3.5491                │ 308                       │ 1.00                  │ None                   │
+├──────────────┼───────────────────────┼───────────────────────────┼───────────────────────┼────────────────────────┤
+│ 23           │ 1.1330                │ 87                        │ 1.00                  │ None                   │
+├──────────────┼───────────────────────┼───────────────────────────┼───────────────────────┼────────────────────────┤
+│ 24           │ 3.2404                │ 306                       │ 1.00                  │ None                   │
+├──────────────┼───────────────────────┼───────────────────────────┼───────────────────────┼────────────────────────┤
+│ 25           │ 3.0157                │ 214                       │ 1.00                  │ None                   │
+├──────────────┼───────────────────────┼───────────────────────────┼───────────────────────┼────────────────────────┤
+│ 26           │ 1.2249                │ 97                        │ 1.00                  │ None                   │
+├──────────────┼───────────────────────┼───────────────────────────┼───────────────────────┼────────────────────────┤
+│ 27           │ 2.4406                │ 224                       │ 1.00                  │ None                   │
+├──────────────┼───────────────────────┼───────────────────────────┼───────────────────────┼────────────────────────┤
+│ 28           │ 0.8419                │ 55                        │ 1.00                  │ None                   │
+├──────────────┼───────────────────────┼───────────────────────────┼───────────────────────┼────────────────────────┤
+│ 29           │ 2.4285                │ 230                       │ 1.00                  │ None                   │
+├──────────────┼───────────────────────┼───────────────────────────┼───────────────────────┼────────────────────────┤
+│ 30           │ 2.9176                │ 290                       │ 1.00                  │ None                   │
+├──────────────┼───────────────────────┼───────────────────────────┼───────────────────────┼────────────────────────┤
+│ 31           │ 1.5110                │ 126                       │ 1.00                  │ None                   │
+├──────────────┼───────────────────────┼───────────────────────────┼───────────────────────┼────────────────────────┤
+│ 32           │ 1.2472                │ 87                        │ 1.00                  │ None                   │
+├──────────────┼───────────────────────┼───────────────────────────┼───────────────────────┼────────────────────────┤
+│ 33           │ 0.5828                │ 65                        │ 1.00                  │ None                   │
+├──────────────┼───────────────────────┼───────────────────────────┼───────────────────────┼────────────────────────┤
+│ 34           │ 2.4883                │ 244                       │ 1.00                  │ None                   │
+├──────────────┼───────────────────────┼───────────────────────────┼───────────────────────┼────────────────────────┤
+│ 35           │ 1.8460                │ 156                       │ 1.00                  │ None                   │
+├──────────────┼───────────────────────┼───────────────────────────┼───────────────────────┼────────────────────────┤
+│ 36           │ 2.3993                │ 234                       │ 1.00                  │ None                   │
+├──────────────┼───────────────────────┼───────────────────────────┼───────────────────────┼────────────────────────┤
+│ 37           │ 1.5968                │ 127                       │ 1.00                  │ None                   │
+├──────────────┼───────────────────────┼───────────────────────────┼───────────────────────┼────────────────────────┤
+│ 38           │ 0.5138                │ 32                        │ 1.00                  │ None                   │
+├──────────────┼───────────────────────┼───────────────────────────┼───────────────────────┼────────────────────────┤
+│ 39           │ 2.6217                │ 219                       │ 1.00                  │ None                   │
+├──────────────┼───────────────────────┼───────────────────────────┼───────────────────────┼────────────────────────┤
+│ 40           │ 3.4432                │ 315                       │ 1.00                  │ None                   │
+├──────────────┼───────────────────────┼───────────────────────────┼───────────────────────┼────────────────────────┤
+│ 41           │ 2.6838                │ 184                       │ 1.00                  │ None                   │
+├──────────────┼───────────────────────┼───────────────────────────┼───────────────────────┼────────────────────────┤
+│ 42           │ 2.7019                │ 192                       │ 1.00                  │ None                   │
+├──────────────┼───────────────────────┼───────────────────────────┼───────────────────────┼────────────────────────┤
+│ 43           │ 1.6410                │ 156                       │ 1.00                  │ None                   │
+├──────────────┼───────────────────────┼───────────────────────────┼───────────────────────┼────────────────────────┤
+│ 44           │ 1.9119                │ 188                       │ 1.00                  │ None                   │
+├──────────────┼───────────────────────┼───────────────────────────┼───────────────────────┼────────────────────────┤
+│ 45           │ 1.4228                │ 113                       │ 1.00                  │ None                   │
+├──────────────┼───────────────────────┼───────────────────────────┼───────────────────────┼────────────────────────┤
+│ 46           │ 1.8578                │ 190                       │ 1.00                  │ None                   │
+├──────────────┼───────────────────────┼───────────────────────────┼───────────────────────┼────────────────────────┤
+│ 47           │ 2.2675                │ 185                       │ 1.00                  │ None                   │
+├──────────────┼───────────────────────┼───────────────────────────┼───────────────────────┼────────────────────────┤
+│ 48           │ 1.7603                │ 175                       │ 1.00                  │ None                   │
+├──────────────┼───────────────────────┼───────────────────────────┼───────────────────────┼────────────────────────┤
+│ 49           │ 3.0102                │ 254                       │ 1.00                  │ None                   │
+├──────────────┼───────────────────────┼───────────────────────────┼───────────────────────┼────────────────────────┤
+│ 50           │ 3.1736                │ 275                       │ 1.00                  │ None                   │
+├──────────────┼───────────────────────┼───────────────────────────┼───────────────────────┼────────────────────────┤
+│ 51           │ 2.1625                │ 215                       │ 1.00                  │ None                   │
+├──────────────┼───────────────────────┼───────────────────────────┼───────────────────────┼────────────────────────┤
+│ 52           │ 1.1695                │ 114                       │ 1.00                  │ None                   │
+├──────────────┼───────────────────────┼───────────────────────────┼───────────────────────┼────────────────────────┤
+│ 53           │ 0.3033                │ 11                        │ 1.00                  │ None                   │
+├──────────────┼───────────────────────┼───────────────────────────┼───────────────────────┼────────────────────────┤
+│ 54           │ 3.1301                │ 250                       │ 1.00                  │ None                   │
+├──────────────┼───────────────────────┼───────────────────────────┼───────────────────────┼────────────────────────┤
+│ 55           │ 2.3240                │ 214                       │ 1.00                  │ None                   │
+├──────────────┼───────────────────────┼───────────────────────────┼───────────────────────┼────────────────────────┤
+│ 56           │ 2.4061                │ 224                       │ 1.00                  │ None                   │
+├──────────────┼───────────────────────┼───────────────────────────┼───────────────────────┼────────────────────────┤
+│ 57           │ 3.0941                │ 304                       │ 1.00                  │ None                   │
+├──────────────┼───────────────────────┼───────────────────────────┼───────────────────────┼────────────────────────┤
+│ 58           │ 0.6276                │ 69                        │ 1.00                  │ None                   │
+├──────────────┼───────────────────────┼───────────────────────────┼───────────────────────┼────────────────────────┤
+│ 59           │ 2.7559                │ 245                       │ 1.00                  │ None                   │
+├──────────────┼───────────────────────┼───────────────────────────┼───────────────────────┼────────────────────────┤
+│ 60           │ 1.2386                │ 100                       │ 1.00                  │ None                   │
+├──────────────┼───────────────────────┼───────────────────────────┼───────────────────────┼────────────────────────┤
+│ 61           │ 3.0462                │ 298                       │ 1.00                  │ None                   │
+├──────────────┼───────────────────────┼───────────────────────────┼───────────────────────┼────────────────────────┤
+│ 62           │ 1.3801                │ 128                       │ 1.00                  │ None                   │
+├──────────────┼───────────────────────┼───────────────────────────┼───────────────────────┼────────────────────────┤
+│ 63           │ 2.8076                │ 254                       │ 1.00                  │ None                   │
+├──────────────┼───────────────────────┼───────────────────────────┼───────────────────────┼────────────────────────┤
+│ 64           │ 2.5719                │ 235                       │ 1.00                  │ None                   │
+├──────────────┼───────────────────────┼───────────────────────────┼───────────────────────┼────────────────────────┤
+│ 65           │ 3.1042                │ 274                       │ 1.00                  │ None                   │
+├──────────────┼───────────────────────┼───────────────────────────┼───────────────────────┼────────────────────────┤
+│ 66           │ 0.2214                │ 48                        │ 0.00                  │ BoundaryExit           │
+├──────────────┼───────────────────────┼───────────────────────────┼───────────────────────┼────────────────────────┤
+│ 67           │ 1.1720                │ 95                        │ 1.00                  │ None                   │
+├──────────────┼───────────────────────┼───────────────────────────┼───────────────────────┼────────────────────────┤
+│ 68           │ 1.1240                │ 115                       │ 1.00                  │ None                   │
+├──────────────┼───────────────────────┼───────────────────────────┼───────────────────────┼────────────────────────┤
+│ 69           │ 2.1319                │ 204                       │ 1.00                  │ None                   │
+├──────────────┼───────────────────────┼───────────────────────────┼───────────────────────┼────────────────────────┤
+│ 70           │ 2.2649                │ 205                       │ 1.00                  │ None                   │
+├──────────────┼───────────────────────┼───────────────────────────┼───────────────────────┼────────────────────────┤
+│ 71           │ 1.4355                │ 101                       │ 1.00                  │ None                   │
+├──────────────┼───────────────────────┼───────────────────────────┼───────────────────────┼────────────────────────┤
+│ 72           │ 0.8432                │ 54                        │ 1.00                  │ None                   │
+├──────────────┼───────────────────────┼───────────────────────────┼───────────────────────┼────────────────────────┤
+│ 73           │ 2.7622                │ 200                       │ 1.00                  │ None                   │
+├──────────────┼───────────────────────┼───────────────────────────┼───────────────────────┼────────────────────────┤
+│ 74           │ 2.4709                │ 225                       │ 1.00                  │ None                   │
+├──────────────┼───────────────────────┼───────────────────────────┼───────────────────────┼────────────────────────┤
+│ 75           │ 2.5941                │ 174                       │ 1.00                  │ None                   │
+├──────────────┼───────────────────────┼───────────────────────────┼───────────────────────┼────────────────────────┤
+│ 76           │ 1.3702                │ 115                       │ 1.00                  │ None                   │
+├──────────────┼───────────────────────┼───────────────────────────┼───────────────────────┼────────────────────────┤
+│ 77           │ 1.7690                │ 165                       │ 1.00                  │ None                   │
+├──────────────┼───────────────────────┼───────────────────────────┼───────────────────────┼────────────────────────┤
+│ 78           │ 2.8730                │ 245                       │ 1.00                  │ None                   │
+├──────────────┼───────────────────────┼───────────────────────────┼───────────────────────┼────────────────────────┤
+│ 79           │ 1.2844                │ 112                       │ 1.00                  │ None                   │
+├──────────────┼───────────────────────┼───────────────────────────┼───────────────────────┼────────────────────────┤
+│ 80           │ 1.6529                │ 115                       │ 1.00                  │ None                   │
+├──────────────┼───────────────────────┼───────────────────────────┼───────────────────────┼────────────────────────┤
+│ 81           │ 1.5440                │ 140                       │ 1.00                  │ None                   │
+├──────────────┼───────────────────────┼───────────────────────────┼───────────────────────┼────────────────────────┤
+│ 82           │ 2.0943                │ 204                       │ 1.00                  │ None                   │
+├──────────────┼───────────────────────┼───────────────────────────┼───────────────────────┼────────────────────────┤
+│ 83           │ 1.4001                │ 148                       │ 1.00                  │ None                   │
+├──────────────┼───────────────────────┼───────────────────────────┼───────────────────────┼────────────────────────┤
+│ 84           │ 1.6122                │ 134                       │ 1.00                  │ None                   │
+├──────────────┼───────────────────────┼───────────────────────────┼───────────────────────┼────────────────────────┤
+│ 85           │ 3.7141                │ 304                       │ 1.00                  │ None                   │
+├──────────────┼───────────────────────┼───────────────────────────┼───────────────────────┼────────────────────────┤
+│ 86           │ 3.1412                │ 264                       │ 1.00                  │ None                   │
+├──────────────┼───────────────────────┼───────────────────────────┼───────────────────────┼────────────────────────┤
+│ 87           │ 1.3852                │ 134                       │ 1.00                  │ None                   │
+├──────────────┼───────────────────────┼───────────────────────────┼───────────────────────┼────────────────────────┤
+│ 88           │ 2.0406                │ 196                       │ 1.00                  │ None                   │
+├──────────────┼───────────────────────┼───────────────────────────┼───────────────────────┼────────────────────────┤
+│ 89           │ 2.9782                │ 264                       │ 1.00                  │ None                   │
+├──────────────┼───────────────────────┼───────────────────────────┼───────────────────────┼────────────────────────┤
+│ 90           │ 2.4452                │ 234                       │ 1.00                  │ None                   │
+├──────────────┼───────────────────────┼───────────────────────────┼───────────────────────┼────────────────────────┤
+│ 91           │ 2.8950                │ 271                       │ 1.00                  │ None                   │
+├──────────────┼───────────────────────┼───────────────────────────┼───────────────────────┼────────────────────────┤
+│ 92           │ 0.6832                │ 69                        │ 1.00                  │ None                   │
+├──────────────┼───────────────────────┼───────────────────────────┼───────────────────────┼────────────────────────┤
+│ 93           │ 2.5817                │ 212                       │ 1.00                  │ None                   │
+├──────────────┼───────────────────────┼───────────────────────────┼───────────────────────┼────────────────────────┤
+│ 94           │ 3.2764                │ 264                       │ 1.00                  │ None                   │
+├──────────────┼───────────────────────┼───────────────────────────┼───────────────────────┼────────────────────────┤
+│ 95           │ 0.4311                │ 25                        │ 1.00                  │ None                   │
+├──────────────┼───────────────────────┼───────────────────────────┼───────────────────────┼────────────────────────┤
+│ 96           │ 0.8215                │ 70                        │ 1.00                  │ None                   │
+├──────────────┼───────────────────────┼───────────────────────────┼───────────────────────┼────────────────────────┤
+│ 97           │ 1.9769                │ 200                       │ 1.00                  │ None                   │
+├──────────────┼───────────────────────┼───────────────────────────┼───────────────────────┼────────────────────────┤
+│ 98           │ 2.5112                │ 244                       │ 1.00                  │ None                   │
+├──────────────┼───────────────────────┼───────────────────────────┼───────────────────────┼────────────────────────┤
+│ 99           │ 1.0455                │ 87                        │ 1.00                  │ None                   │
+├──────────────┼───────────────────────┼───────────────────────────┼───────────────────────┼────────────────────────┤
+│ 100          │ 2.0662                │ 165                       │ 1.00                  │ None                   │
+├──────────────┼───────────────────────┼───────────────────────────┼───────────────────────┼────────────────────────┤
+│ 101          │ 3.0509                │ 255                       │ 1.00                  │ None                   │
+├──────────────┼───────────────────────┼───────────────────────────┼───────────────────────┼────────────────────────┤
+│ 102          │ 1.8749                │ 149                       │ 1.00                  │ None                   │
+├──────────────┼───────────────────────┼───────────────────────────┼───────────────────────┼────────────────────────┤
+│ 103          │ 3.3537                │ 314                       │ 1.00                  │ None                   │
+├──────────────┼───────────────────────┼───────────────────────────┼───────────────────────┼────────────────────────┤
+│ 104          │ 1.5112                │ 115                       │ 1.00                  │ None                   │
+├──────────────┼───────────────────────┼───────────────────────────┼───────────────────────┼────────────────────────┤
+│ 105          │ 1.6427                │ 144                       │ 1.00                  │ None                   │
+├──────────────┼───────────────────────┼───────────────────────────┼───────────────────────┼────────────────────────┤
+│ 106          │ 3.3218                │ 285                       │ 1.00                  │ None                   │
+├──────────────┼───────────────────────┼───────────────────────────┼───────────────────────┼────────────────────────┤
+│ 107          │ 2.3252                │ 156                       │ 1.00                  │ None                   │
+├──────────────┼───────────────────────┼───────────────────────────┼───────────────────────┼────────────────────────┤
+│ 108          │ 1.6137                │ 155                       │ 1.00                  │ None                   │
+├──────────────┼───────────────────────┼───────────────────────────┼───────────────────────┼────────────────────────┤
+│ 109          │ 0.9252                │ 82                        │ 1.00                  │ None                   │
+├──────────────┼───────────────────────┼───────────────────────────┼───────────────────────┼────────────────────────┤
+│ 110          │ 1.2582                │ 110                       │ 1.00                  │ None                   │
+├──────────────┼───────────────────────┼───────────────────────────┼───────────────────────┼────────────────────────┤
+│ 111          │ 0.7367                │ 60                        │ 1.00                  │ None                   │
+├──────────────┼───────────────────────┼───────────────────────────┼───────────────────────┼────────────────────────┤
+│ 112          │ 2.1986                │ 184                       │ 1.00                  │ None                   │
+├──────────────┼───────────────────────┼───────────────────────────┼───────────────────────┼────────────────────────┤
+│ 113          │ 2.5327                │ 254                       │ 1.00                  │ None                   │
+├──────────────┼───────────────────────┼───────────────────────────┼───────────────────────┼────────────────────────┤
+│ 114          │ 0.8865                │ 89                        │ 1.00                  │ None                   │
+├──────────────┼───────────────────────┼───────────────────────────┼───────────────────────┼────────────────────────┤
+│ 115          │ 0.2813                │ 54                        │ 0.00                  │ BoundaryExit           │
+├──────────────┼───────────────────────┼───────────────────────────┼───────────────────────┼────────────────────────┤
+│ 116          │ 2.6706                │ 270                       │ 1.00                  │ None                   │
+├──────────────┼───────────────────────┼───────────────────────────┼───────────────────────┼────────────────────────┤
+│ 117          │ 2.2184                │ 186                       │ 1.00                  │ None                   │
+├──────────────┼───────────────────────┼───────────────────────────┼───────────────────────┼────────────────────────┤
+│ 118          │ 2.8790                │ 265                       │ 1.00                  │ None                   │
+├──────────────┼───────────────────────┼───────────────────────────┼───────────────────────┼────────────────────────┤
+│ 119          │ 2.7326                │ 264                       │ 1.00                  │ None                   │
+├──────────────┼───────────────────────┼───────────────────────────┼───────────────────────┼────────────────────────┤
+│ 120          │ 2.0839                │ 147                       │ 1.00                  │ None                   │
+├──────────────┼───────────────────────┼───────────────────────────┼───────────────────────┼────────────────────────┤
+│ 121          │ 2.9719                │ 254                       │ 1.00                  │ None                   │
+├──────────────┼───────────────────────┼───────────────────────────┼───────────────────────┼────────────────────────┤
+│ 122          │ 1.1805                │ 75                        │ 1.00                  │ None                   │
+├──────────────┼───────────────────────┼───────────────────────────┼───────────────────────┼────────────────────────┤
+│ 123          │ 2.0209                │ 195                       │ 1.00                  │ None                   │
+├──────────────┼───────────────────────┼───────────────────────────┼───────────────────────┼────────────────────────┤
+│ 124          │ 1.9557                │ 184                       │ 1.00                  │ None                   │
+├──────────────┼───────────────────────┼───────────────────────────┼───────────────────────┼────────────────────────┤
+│ 125          │ 2.5414                │ 214                       │ 1.00                  │ None                   │
+├──────────────┼───────────────────────┼───────────────────────────┼───────────────────────┼────────────────────────┤
+│ 126          │ 1.9494                │ 146                       │ 1.00                  │ None                   │
+├──────────────┼───────────────────────┼───────────────────────────┼───────────────────────┼────────────────────────┤
+│ 127          │ 3.1822                │ 303                       │ 1.00                  │ None                   │
+├──────────────┼───────────────────────┼───────────────────────────┼───────────────────────┼────────────────────────┤
+│ 128          │ 2.4029                │ 228                       │ 1.00                  │ None                   │
+├──────────────┼───────────────────────┼───────────────────────────┼───────────────────────┼────────────────────────┤
+│ 129          │ 1.6016                │ 134                       │ 1.00                  │ None                   │
+├──────────────┼───────────────────────┼───────────────────────────┼───────────────────────┼────────────────────────┤
+│ 130          │ 2.1549                │ 160                       │ 1.00                  │ None                   │
+├──────────────┼───────────────────────┼───────────────────────────┼───────────────────────┼────────────────────────┤
+│ 131          │ 2.7812                │ 255                       │ 1.00                  │ None                   │
+├──────────────┼───────────────────────┼───────────────────────────┼───────────────────────┼────────────────────────┤
+│ 132          │ 3.3945                │ 324                       │ 1.00                  │ None                   │
+├──────────────┼───────────────────────┼───────────────────────────┼───────────────────────┼────────────────────────┤
+│ 133          │ 2.2051                │ 210                       │ 1.00                  │ None                   │
+├──────────────┼───────────────────────┼───────────────────────────┼───────────────────────┼────────────────────────┤
+│ 134          │ 3.9846                │ 315                       │ 1.00                  │ None                   │
+├──────────────┼───────────────────────┼───────────────────────────┼───────────────────────┼────────────────────────┤
+│ 135          │ 2.4386                │ 195                       │ 1.00                  │ None                   │
+├──────────────┼───────────────────────┼───────────────────────────┼───────────────────────┼────────────────────────┤
+│ 136          │ 1.7294                │ 151                       │ 1.00                  │ None                   │
+├──────────────┼───────────────────────┼───────────────────────────┼───────────────────────┼────────────────────────┤
+│ 137          │ 3.3121                │ 311                       │ 1.00                  │ None                   │
+├──────────────┼───────────────────────┼───────────────────────────┼───────────────────────┼────────────────────────┤
+│ 138          │ 2.8134                │ 240                       │ 1.00                  │ None                   │
+├──────────────┼───────────────────────┼───────────────────────────┼───────────────────────┼────────────────────────┤
+│ 139          │ 1.9442                │ 155                       │ 1.00                  │ None                   │
+├──────────────┼───────────────────────┼───────────────────────────┼───────────────────────┼────────────────────────┤
+│ 140          │ 0.3202                │ 9                         │ 1.00                  │ None                   │
+├──────────────┼───────────────────────┼───────────────────────────┼───────────────────────┼────────────────────────┤
+│ 141          │ 0.3089                │ 14                        │ 1.00                  │ None                   │
+├──────────────┼───────────────────────┼───────────────────────────┼───────────────────────┼────────────────────────┤
+│ 142          │ 0.9370                │ 54                        │ 1.00                  │ None                   │
+├──────────────┼───────────────────────┼───────────────────────────┼───────────────────────┼────────────────────────┤
+│ 143          │ 3.8896                │ 324                       │ 1.00                  │ None                   │
+├──────────────┼───────────────────────┼───────────────────────────┼───────────────────────┼────────────────────────┤
+│ 144          │ 1.3495                │ 124                       │ 1.00                  │ None                   │
+├──────────────┼───────────────────────┼───────────────────────────┼───────────────────────┼────────────────────────┤
+│ 145          │ 3.2957                │ 270                       │ 1.00                  │ None                   │
+├──────────────┼───────────────────────┼───────────────────────────┼───────────────────────┼────────────────────────┤
+│ 146          │ 1.8689                │ 165                       │ 1.00                  │ None                   │
+├──────────────┼───────────────────────┼───────────────────────────┼───────────────────────┼────────────────────────┤
+│ 147          │ 1.3274                │ 135                       │ 1.00                  │ None                   │
+├──────────────┼───────────────────────┼───────────────────────────┼───────────────────────┼────────────────────────┤
+│ 148          │ 2.0641                │ 200                       │ 1.00                  │ None                   │
+├──────────────┼───────────────────────┼───────────────────────────┼───────────────────────┼────────────────────────┤
+│ 149          │ 2.4465                │ 226                       │ 1.00                  │ None                   │
+├──────────────┼───────────────────────┼───────────────────────────┼───────────────────────┼────────────────────────┤
+│ 150          │ 0.8446                │ 69                        │ 1.00                  │ None                   │
+├──────────────┼───────────────────────┼───────────────────────────┼───────────────────────┼────────────────────────┤
+│ 151          │ 2.2466                │ 214                       │ 1.00                  │ None                   │
+├──────────────┼───────────────────────┼───────────────────────────┼───────────────────────┼────────────────────────┤
+│ 152          │ 2.3677                │ 224                       │ 1.00                  │ None                   │
+├──────────────┼───────────────────────┼───────────────────────────┼───────────────────────┼────────────────────────┤
+│ 153          │ 2.4592                │ 184                       │ 1.00                  │ None                   │
+├──────────────┼───────────────────────┼───────────────────────────┼───────────────────────┼────────────────────────┤
+│ 154          │ 2.3422                │ 224                       │ 1.00                  │ None                   │
+├──────────────┼───────────────────────┼───────────────────────────┼───────────────────────┼────────────────────────┤
+│ 155          │ 1.3871                │ 97                        │ 1.00                  │ None                   │
+├──────────────┼───────────────────────┼───────────────────────────┼───────────────────────┼────────────────────────┤
+│ 156          │ 3.3908                │ 334                       │ 1.00                  │ None                   │
+├──────────────┼───────────────────────┼───────────────────────────┼───────────────────────┼────────────────────────┤
+│ 157          │ 3.0074                │ 254                       │ 1.00                  │ None                   │
+├──────────────┼───────────────────────┼───────────────────────────┼───────────────────────┼────────────────────────┤
+│ 158          │ 2.1610                │ 214                       │ 1.00                  │ None                   │
+├──────────────┼───────────────────────┼───────────────────────────┼───────────────────────┼────────────────────────┤
+│ 159          │ 2.5678                │ 194                       │ 1.00                  │ None                   │
+├──────────────┼───────────────────────┼───────────────────────────┼───────────────────────┼────────────────────────┤
+│ 160          │ 0.7377                │ 59                        │ 1.00                  │ None                   │
+├──────────────┼───────────────────────┼───────────────────────────┼───────────────────────┼────────────────────────┤
+│ 161          │ 2.8048                │ 284                       │ 1.00                  │ None                   │
+├──────────────┼───────────────────────┼───────────────────────────┼───────────────────────┼────────────────────────┤
+│ 162          │ 1.2554                │ 124                       │ 1.00                  │ None                   │
+├──────────────┼───────────────────────┼───────────────────────────┼───────────────────────┼────────────────────────┤
+│ 163          │ 2.9178                │ 294                       │ 1.00                  │ None                   │
+├──────────────┼───────────────────────┼───────────────────────────┼───────────────────────┼────────────────────────┤
+│ 164          │ 2.1662                │ 194                       │ 1.00                  │ None                   │
+├──────────────┼───────────────────────┼───────────────────────────┼───────────────────────┼────────────────────────┤
+│ 165          │ 3.1027                │ 296                       │ 1.00                  │ None                   │
+├──────────────┼───────────────────────┼───────────────────────────┼───────────────────────┼────────────────────────┤
+│ 166          │ 2.3801                │ 215                       │ 1.00                  │ None                   │
+├──────────────┼───────────────────────┼───────────────────────────┼───────────────────────┼────────────────────────┤
+│ 167          │ 1.0818                │ 115                       │ 1.00                  │ None                   │
+├──────────────┼───────────────────────┼───────────────────────────┼───────────────────────┼────────────────────────┤
+│ 168          │ 2.3504                │ 215                       │ 1.00                  │ None                   │
+├──────────────┼───────────────────────┼───────────────────────────┼───────────────────────┼────────────────────────┤
+│ 169          │ 1.5906                │ 125                       │ 1.00                  │ None                   │
+├──────────────┼───────────────────────┼───────────────────────────┼───────────────────────┼────────────────────────┤
+│ 170          │ 2.8633                │ 234                       │ 1.00                  │ None                   │
+├──────────────┼───────────────────────┼───────────────────────────┼───────────────────────┼────────────────────────┤
+│ 171          │ 1.5992                │ 144                       │ 1.00                  │ None                   │
+├──────────────┼───────────────────────┼───────────────────────────┼───────────────────────┼────────────────────────┤
+│ 172          │ 2.5925                │ 248                       │ 1.00                  │ None                   │
+├──────────────┼───────────────────────┼───────────────────────────┼───────────────────────┼────────────────────────┤
+│ 173          │ 1.3277                │ 116                       │ 1.00                  │ None                   │
+├──────────────┼───────────────────────┼───────────────────────────┼───────────────────────┼────────────────────────┤
+│ 174          │ 1.2348                │ 128                       │ 1.00                  │ None                   │
+├──────────────┼───────────────────────┼───────────────────────────┼───────────────────────┼────────────────────────┤
+│ 175          │ 0.5999                │ 34                        │ 1.00                  │ None                   │
+├──────────────┼───────────────────────┼───────────────────────────┼───────────────────────┼────────────────────────┤
+│ 176          │ 1.8824                │ 184                       │ 1.00                  │ None                   │
+├──────────────┼───────────────────────┼───────────────────────────┼───────────────────────┼────────────────────────┤
+│ 177          │ 1.6236                │ 149                       │ 1.00                  │ None                   │
+├──────────────┼───────────────────────┼───────────────────────────┼───────────────────────┼────────────────────────┤
+│ 178          │ 1.1903                │ 124                       │ 1.00                  │ None                   │
+├──────────────┼───────────────────────┼───────────────────────────┼───────────────────────┼────────────────────────┤
+│ 179          │ 1.3467                │ 138                       │ 1.00                  │ None                   │
+├──────────────┼───────────────────────┼───────────────────────────┼───────────────────────┼────────────────────────┤
+│ 180          │ 1.4456                │ 103                       │ 1.00                  │ None                   │
+├──────────────┼───────────────────────┼───────────────────────────┼───────────────────────┼────────────────────────┤
+│ 181          │ 2.9163                │ 288                       │ 1.00                  │ None                   │
+├──────────────┼───────────────────────┼───────────────────────────┼───────────────────────┼────────────────────────┤
+│ 182          │ 1.9732                │ 200                       │ 1.00                  │ None                   │
+├──────────────┼───────────────────────┼───────────────────────────┼───────────────────────┼────────────────────────┤
+│ 183          │ 3.7851                │ 334                       │ 1.00                  │ None                   │
+├──────────────┼───────────────────────┼───────────────────────────┼───────────────────────┼────────────────────────┤
+│ 184          │ 1.8668                │ 174                       │ 1.00                  │ None                   │
+├──────────────┼───────────────────────┼───────────────────────────┼───────────────────────┼────────────────────────┤
+│ 185          │ 2.8901                │ 218                       │ 1.00                  │ None                   │
+├──────────────┼───────────────────────┼───────────────────────────┼───────────────────────┼────────────────────────┤
+│ 186          │ 0.3070                │ 11                        │ 1.00                  │ None                   │
+├──────────────┼───────────────────────┼───────────────────────────┼───────────────────────┼────────────────────────┤
+│ 187          │ 0.9463                │ 90                        │ 1.00                  │ None                   │
+├──────────────┼───────────────────────┼───────────────────────────┼───────────────────────┼────────────────────────┤
+│ 188          │ 2.0005                │ 194                       │ 1.00                  │ None                   │
+├──────────────┼───────────────────────┼───────────────────────────┼───────────────────────┼────────────────────────┤
+│ 189          │ 3.4349                │ 324                       │ 1.00                  │ None                   │
+├──────────────┼───────────────────────┼───────────────────────────┼───────────────────────┼────────────────────────┤
+│ 190          │ 2.2871                │ 204                       │ 1.00                  │ None                   │
+├──────────────┼───────────────────────┼───────────────────────────┼───────────────────────┼────────────────────────┤
+│ 191          │ 0.8166                │ 74                        │ 1.00                  │ None                   │
+├──────────────┼───────────────────────┼───────────────────────────┼───────────────────────┼────────────────────────┤
+│ 192          │ 1.8518                │ 124                       │ 1.00                  │ None                   │
+├──────────────┼───────────────────────┼───────────────────────────┼───────────────────────┼────────────────────────┤
+│ 193          │ 0.8390                │ 74                        │ 1.00                  │ None                   │
+├──────────────┼───────────────────────┼───────────────────────────┼───────────────────────┼────────────────────────┤
+│ 194          │ 1.5145                │ 148                       │ 1.00                  │ None                   │
+├──────────────┼───────────────────────┼───────────────────────────┼───────────────────────┼────────────────────────┤
+│ 195          │ 2.7657                │ 233                       │ 1.00                  │ None                   │
+├──────────────┼───────────────────────┼───────────────────────────┼───────────────────────┼────────────────────────┤
+│ 196          │ 2.0739                │ 204                       │ 1.00                  │ None                   │
+├──────────────┼───────────────────────┼───────────────────────────┼───────────────────────┼────────────────────────┤
+│ 197          │ 1.9708                │ 179                       │ 1.00                  │ None                   │
+├──────────────┼───────────────────────┼───────────────────────────┼───────────────────────┼────────────────────────┤
+│ 198          │ 2.1223                │ 197                       │ 1.00                  │ None                   │
+├──────────────┼───────────────────────┼───────────────────────────┼───────────────────────┼────────────────────────┤
+│ 199          │ 3.7959                │ 354                       │ 1.00                  │ None                   │
+├──────────────┼───────────────────────┼───────────────────────────┼───────────────────────┼────────────────────────┤
+│ 200          │ 1.2678                │ 128                       │ 1.00                  │ None                   │
+├──────────────┼───────────────────────┼───────────────────────────┼───────────────────────┼────────────────────────┤
+│ Total(N=200) │ mean=2.043            │ mean=180.020              │ rate=0.990            │ None: 198 (99.0%)      │
+│              │ std=0.870             │ std=79.541                │ 95% CI=(0.964, 0.997) │ BoundaryExit: 2 (1.0%) │
+│              │ median=2.089          │ median=185.500            │ n=200                 │                        │
+│              │ 95% CI=(1.921, 2.164) │ 95% CI=(168.929, 191.111) │                       │                        │
+╰──────────────┴───────────────────────┴───────────────────────────┴───────────────────────┴────────────────────────╯
+2025-11-04 23:02:27,003 - INFO - Evaluator - Evaluation finished, after 200 evaluation steps with average reward: 2.042574683434759 and average objective: 0.99
+2025-11-04 23:02:28,157 - INFO - Evaluator - Resume with next training step 3/10
+2025-11-07 01:35:41,997 - INFO - explore_agent - Logging File at /home/nex/Dokumente/Code/ROSHAN/models/SimpleFlyAgent/logs/logging.log
+2025-11-07 01:35:42,466 - INFO - explore_agent - Top Level Hierarchy: explore_agent
+2025-11-07 01:35:42,466 - INFO - explore_agent - explore_agent initialized
+2025-11-07 01:35:42,466 - INFO - explore_agent - Algorithm: no_algo
+2025-11-07 01:35:42,467 - INFO - explore_agent - 12 Agents control 12 Drones
+2025-11-07 01:35:42,467 - INFO - explore_agent - No algorithm used, no model to load
+2025-11-07 01:35:42,590 - INFO - ExploreFlyAgent - Injected network parameters from sub agent config at /home/nex/Dokumente/Code/ROSHAN/models/SimpleFlyAgent/config.yaml
+2025-11-07 01:35:42,591 - INFO - ExploreFlyAgent - Network sources loaded from /home/nex/Dokumente/Code/ROSHAN/src/pysim/networks/network_fly.py
+2025-11-07 01:35:43,268 - INFO - ExploreFlyAgent - Network sources archived at /home/nex/Dokumente/Code/ROSHAN/models/SimpleFlyAgent/networks
+2025-11-07 01:35:43,351 - INFO - ExploreFlyAgent - ExploreFlyAgent initialized
+2025-11-07 01:35:43,356 - INFO - ExploreFlyAgent - Load model from checkpoint: /home/nex/Dokumente/Code/ROSHAN/models/SimpleFlyAgent/ppo_fly_agent_best_reward.pt - Model set to evaluation mode
+2025-11-07 01:35:43,357 - INFO - HierarchyManager - Hierarchy Level: medium
+2025-11-07 01:37:31,993 - INFO - explore_agent - Logging File at /home/nex/Dokumente/Code/ROSHAN/models/SimpleFlyAgent/logs/logging.log
+2025-11-07 01:37:32,455 - INFO - explore_agent - Top Level Hierarchy: explore_agent
+2025-11-07 01:37:32,455 - INFO - explore_agent - explore_agent initialized
+2025-11-07 01:37:32,455 - INFO - explore_agent - Algorithm: no_algo
+2025-11-07 01:37:32,455 - INFO - explore_agent - 12 Agents control 12 Drones
+2025-11-07 01:37:32,455 - INFO - explore_agent - No algorithm used, no model to load
+2025-11-07 01:37:32,586 - INFO - ExploreFlyAgent - Injected network parameters from sub agent config at /home/nex/Dokumente/Code/ROSHAN/models/GoodEnoughFlyAgent/config.yaml
+2025-11-07 01:37:32,595 - INFO - ExploreFlyAgent - Network sources loaded from /home/nex/Dokumente/Code/ROSHAN/models/GoodEnoughFlyAgent/networks/network_fly.py
+2025-11-07 01:37:33,330 - INFO - ExploreFlyAgent - ExploreFlyAgent initialized
+2025-11-07 01:37:33,358 - INFO - ExploreFlyAgent - Load model from checkpoint: /home/nex/Dokumente/Code/ROSHAN/models/GoodEnoughFlyAgent/ppo_fly_agent_best_obj.pt - Model set to evaluation mode
+2025-11-07 01:37:33,358 - INFO - HierarchyManager - Hierarchy Level: medium
+2025-11-07 01:38:09,937 - INFO - explore_agent - Logging File at /home/nex/Dokumente/Code/ROSHAN/models/SimpleFlyAgent/logs/logging.log
+2025-11-07 01:38:10,395 - INFO - explore_agent - Top Level Hierarchy: explore_agent
+2025-11-07 01:38:10,395 - INFO - explore_agent - explore_agent initialized
+2025-11-07 01:38:10,395 - INFO - explore_agent - Algorithm: no_algo
+2025-11-07 01:38:10,395 - INFO - explore_agent - 12 Agents control 12 Drones
+2025-11-07 01:38:10,395 - INFO - explore_agent - No algorithm used, no model to load
+2025-11-07 01:38:10,524 - INFO - ExploreFlyAgent - Injected network parameters from sub agent config at /home/nex/Dokumente/Code/ROSHAN/models/SimpleFlyAgent/config.yaml
+2025-11-07 01:38:10,535 - INFO - ExploreFlyAgent - Network sources loaded from /home/nex/Dokumente/Code/ROSHAN/models/SimpleFlyAgent/networks/network_fly.py
+2025-11-07 01:38:11,262 - INFO - ExploreFlyAgent - ExploreFlyAgent initialized
+2025-11-07 01:38:11,268 - INFO - ExploreFlyAgent - Load model from checkpoint: /home/nex/Dokumente/Code/ROSHAN/models/SimpleFlyAgent/ppo_fly_agent_best_obj.pt - Model set to evaluation mode
+2025-11-07 01:38:11,268 - INFO - HierarchyManager - Hierarchy Level: medium
+2025-11-07 01:38:38,162 - INFO - explore_agent - Logging File at /home/nex/Dokumente/Code/ROSHAN/models/SimpleFlyAgent/logs/logging.log
+2025-11-07 01:38:38,638 - INFO - explore_agent - Top Level Hierarchy: explore_agent
+2025-11-07 01:38:38,638 - INFO - explore_agent - explore_agent initialized
+2025-11-07 01:38:38,638 - INFO - explore_agent - Algorithm: no_algo
+2025-11-07 01:38:38,638 - INFO - explore_agent - 12 Agents control 12 Drones
+2025-11-07 01:38:38,638 - INFO - explore_agent - No algorithm used, no model to load
+2025-11-07 01:38:38,765 - INFO - ExploreFlyAgent - Injected network parameters from sub agent config at /home/nex/Dokumente/Code/ROSHAN/models/SimpleFlyAgent/config.yaml
+2025-11-07 01:38:38,766 - INFO - ExploreFlyAgent - Network sources loaded from /home/nex/Dokumente/Code/ROSHAN/models/SimpleFlyAgent/networks/network_fly.py
+2025-11-07 01:38:39,482 - INFO - ExploreFlyAgent - ExploreFlyAgent initialized
+2025-11-07 01:38:39,487 - INFO - ExploreFlyAgent - Load model from checkpoint: /home/nex/Dokumente/Code/ROSHAN/models/SimpleFlyAgent/ppo_fly_agent_latest.pt - Model set to evaluation mode
+2025-11-07 01:38:39,487 - INFO - HierarchyManager - Hierarchy Level: medium
+2025-11-07 01:38:54,256 - INFO - explore_agent - Logging File at /home/nex/Dokumente/Code/ROSHAN/models/SimpleFlyAgent/logs/logging.log
+2025-11-07 01:38:54,714 - INFO - explore_agent - Top Level Hierarchy: explore_agent
+2025-11-07 01:38:54,714 - INFO - explore_agent - explore_agent initialized
+2025-11-07 01:38:54,714 - INFO - explore_agent - Algorithm: no_algo
+2025-11-07 01:38:54,714 - INFO - explore_agent - 12 Agents control 12 Drones
+2025-11-07 01:38:54,714 - INFO - explore_agent - No algorithm used, no model to load
+2025-11-07 01:38:54,836 - INFO - ExploreFlyAgent - Injected network parameters from sub agent config at /home/nex/Dokumente/Code/ROSHAN/models/SimpleFlyAgent/config.yaml
+2025-11-07 01:38:54,836 - INFO - ExploreFlyAgent - Network sources loaded from /home/nex/Dokumente/Code/ROSHAN/models/SimpleFlyAgent/networks/network_fly.py
+2025-11-07 01:38:55,487 - INFO - ExploreFlyAgent - ExploreFlyAgent initialized
+2025-11-07 01:38:55,493 - INFO - ExploreFlyAgent - Load model from checkpoint: /home/nex/Dokumente/Code/ROSHAN/models/SimpleFlyAgent/ppo_fly_agent_best_reward.pt - Model set to evaluation mode
+2025-11-07 01:38:55,493 - INFO - HierarchyManager - Hierarchy Level: medium
+2025-11-07 01:40:20,057 - INFO - explore_agent - Logging File at /home/nex/Dokumente/Code/ROSHAN/models/SimpleFlyAgent/logs/logging.log
+2025-11-07 01:40:20,514 - INFO - explore_agent - Top Level Hierarchy: explore_agent
+2025-11-07 01:40:20,514 - INFO - explore_agent - explore_agent initialized
+2025-11-07 01:40:20,514 - INFO - explore_agent - Algorithm: no_algo
+2025-11-07 01:40:20,514 - INFO - explore_agent - 12 Agents control 12 Drones
+2025-11-07 01:40:20,515 - INFO - explore_agent - No algorithm used, no model to load
+2025-11-07 01:40:20,640 - INFO - ExploreFlyAgent - Injected network parameters from sub agent config at /home/nex/Dokumente/Code/ROSHAN/models/SimpleFlyAgent/config.yaml
+2025-11-07 01:40:20,641 - INFO - ExploreFlyAgent - Network sources loaded from /home/nex/Dokumente/Code/ROSHAN/models/SimpleFlyAgent/networks/network_fly.py
+2025-11-07 01:40:21,365 - INFO - ExploreFlyAgent - ExploreFlyAgent initialized
+2025-11-07 01:40:21,370 - INFO - ExploreFlyAgent - Load model from checkpoint: /home/nex/Dokumente/Code/ROSHAN/models/SimpleFlyAgent/ppo_fly_agent_best_reward.pt - Model set to evaluation mode
+2025-11-07 01:40:21,370 - INFO - HierarchyManager - Hierarchy Level: medium
+2025-11-07 01:42:02,014 - INFO - explore_agent - Logging File at /home/nex/Dokumente/Code/ROSHAN/models/SimpleFlyAgent/logs/logging.log
+2025-11-07 01:42:02,473 - INFO - explore_agent - Top Level Hierarchy: explore_agent
+2025-11-07 01:42:02,480 - INFO - explore_agent - explore_agent initialized
+2025-11-07 01:42:02,481 - INFO - explore_agent - Algorithm: no_algo
+2025-11-07 01:42:02,481 - INFO - explore_agent - 12 Agents control 12 Drones
+2025-11-07 01:42:02,481 - INFO - explore_agent - No algorithm used, no model to load
+2025-11-07 01:42:02,605 - INFO - ExploreFlyAgent - Injected network parameters from sub agent config at /home/nex/Dokumente/Code/ROSHAN/models/SimpleFlyAgent/config.yaml
+2025-11-07 01:42:02,606 - INFO - ExploreFlyAgent - Network sources loaded from /home/nex/Dokumente/Code/ROSHAN/models/SimpleFlyAgent/networks/network_fly.py
+2025-11-07 01:42:03,371 - INFO - ExploreFlyAgent - ExploreFlyAgent initialized
+2025-11-07 01:42:03,376 - INFO - ExploreFlyAgent - Load model from checkpoint: /home/nex/Dokumente/Code/ROSHAN/models/SimpleFlyAgent/ppo_fly_agent_best_reward.pt - Model set to evaluation mode
+2025-11-07 01:42:03,377 - INFO - HierarchyManager - Hierarchy Level: medium
+2025-11-07 01:47:31,209 - INFO - explore_agent - Logging File at /home/nex/Dokumente/Code/ROSHAN/models/SimpleFlyAgent/logs/logging.log
+2025-11-07 01:47:31,676 - INFO - explore_agent - Top Level Hierarchy: explore_agent
+2025-11-07 01:47:31,677 - INFO - explore_agent - explore_agent initialized
+2025-11-07 01:47:31,677 - INFO - explore_agent - Algorithm: no_algo
+2025-11-07 01:47:31,677 - INFO - explore_agent - 12 Agents control 12 Drones
+2025-11-07 01:47:31,677 - INFO - explore_agent - No algorithm used, no model to load
+2025-11-07 01:47:31,799 - INFO - ExploreFlyAgent - Injected network parameters from sub agent config at /home/nex/Dokumente/Code/ROSHAN/models/SimpleFlyAgent/config.yaml
+2025-11-07 01:47:31,808 - INFO - ExploreFlyAgent - Network sources loaded from /home/nex/Dokumente/Code/ROSHAN/models/SimpleFlyAgent/networks/network_fly.py
+2025-11-07 01:47:32,456 - INFO - ExploreFlyAgent - ExploreFlyAgent initialized
+2025-11-07 01:47:32,468 - INFO - ExploreFlyAgent - Load model from checkpoint: /home/nex/Dokumente/Code/ROSHAN/models/SimpleFlyAgent/ppo_fly_agent_best_reward.pt - Model set to evaluation mode
+2025-11-07 01:47:32,468 - INFO - HierarchyManager - Hierarchy Level: medium
