@@ -16,7 +16,8 @@ You can read more about the system’s development in the accompanying master th
 📄 [Thesis](assets/meine_thesis.pdf)
 
 ---
-<video src="assets/planner_agent.mp4" controls></video>
+![Small Planner Agent Demo](assets/compressed.gif)  
+[Larger Planner Agent Demo](assets/planner_agent.mp4)
 
 # 🚀 Installation
 

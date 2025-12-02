@@ -55,7 +55,7 @@ class LLMPredictorCPU(object):
 class LLMPredictorAPI(object):
 
     def __init__(self, model_id):
-        self.API_TOKEN = "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"
+        self.API_TOKEN = ""
         self.API_URL = f"https://api-inference.huggingface.co/models/{model_id}"
         self.headers = {"Authorization": f"Bearer {self.API_TOKEN}"}
         self.context = "You are ROSHAN-AI, your task is answering user questions and provide information about the system." \

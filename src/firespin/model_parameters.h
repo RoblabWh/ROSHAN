@@ -348,7 +348,7 @@ public:
     int total_env_steps_ = 0;
     double k_turn_ = 1.5; // Factor to account for turns and non-optimal paths
     double slack_ = 2.0; // Slack factor to allow for exploration and other tasks
-    const double beta_ = 0.3; // Scaling factor for path length estimation
+    const double beta_ = 0.42; // Scaling factor for path length estimation
     const double beta_2_ = 0.32; // Alternative scaling factor for path length estimation
     const double fire_time_ = this->GetDt(); // Scaling factor for time spent extinguishing each fire in seconds (s)
     std::string env_step_string_;

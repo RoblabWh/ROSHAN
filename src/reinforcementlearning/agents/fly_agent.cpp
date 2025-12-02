@@ -283,7 +283,7 @@ void FlyAgent::Render(const FireModelCamera& camera) {
                                                                            goal_position_.second - 0.5);
 
     const auto fast_drone = this->GetAgentSubType() == "ExploreFlyAgent";
-    if (true) {
+    if (!fast_drone) {
         goal_texture_renderer_.RenderGoal(goal_screen_position, cell_size);
     }
     // Render a glowing circle beneath the drone if active
@@ -307,8 +307,8 @@ void FlyAgent::Render(const FireModelCamera& camera) {
             }
         }
     }
-    drone_texture_renderer_.RenderDrone(drone_position, static_cast<int>(drone_size), fast_drone ? 190 : 255);
-    drone_texture_renderer_.RenderViewRange(view_range_position, cell_size, view_range_, fast_drone ? 190 : 255);
+    drone_texture_renderer_.RenderDrone(drone_position, static_cast<int>(drone_size), fast_drone ? 150 : 255);
+    drone_texture_renderer_.RenderViewRange(view_range_position, cell_size, view_range_, fast_drone ? 150 : 255);
 }
 
 void FlyAgent::AppendTrail(const std::pair<int, int> &position) {

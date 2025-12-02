@@ -2,7 +2,7 @@ import yaml
 import optuna
 import os, shutil
 import sys
-from utils import SimulationBridge, get_project_paths
+from utils import SimulationBridge, get_project_paths, looks_like_a_notebook
 import logging
 
 module_directory = get_project_paths('module_directory')
@@ -157,9 +157,15 @@ def sim(config : dict, overrides: dict = None, trial=None):
             # Ask the user here if they want to delete the contents of the model path
             # If the user does not want to delete the contents, we will exit the program
             if config["settings"]["mode"] != 0:  # GUI Mode only ask in non-GUI mode
-                user_input = input(f"Do you want to delete the contents of {sim_bridge.get('model_path')}? (y/n): ")
-                if user_input.lower() != 'y':
-                    print("Exiting program.")
+                if not looks_like_a_notebook():
+                    user_input = input(f"Do you want to delete the contents of {sim_bridge.get('model_path')}? (y/n): ")
+                    if user_input.lower() != 'y':
+                        print("Exiting program.")
+                        engine.Clean()
+                        return
+                else:
+                    print(f"\033[31mNotebook environment detected. For safety reasons, exiting program to avoid accidental data loss."
+                          f"\nIf you want to overwrite your training session, please delete the contents of {sim_bridge.get('model_path')} manually and restart\033[0m")
                     engine.Clean()
                     return
             # Go through all files and directories in the model path and delete them

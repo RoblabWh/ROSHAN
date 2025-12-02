@@ -233,3 +233,9 @@ def standardize(tensor):
 def torch_to_numpy(tensor: torch.Tensor) -> np.ndarray:
     return tensor.detach().cpu().numpy()
 
+def looks_like_a_notebook():
+    return (
+        'JPY_PARENT_PID' in os.environ or
+        'JUPYTERHUB_API_TOKEN' in os.environ or
+        'JPY_API_TOKEN' in os.environ
+    )
