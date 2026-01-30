@@ -324,23 +324,39 @@ void ReinforcementLearningHandler::ResetEnvironment(Mode mode) {
 }
 
 void ReinforcementLearningHandler::StepDroneManual(int drone_idx, double speed_x, double speed_y, int water_dispense) {
+    // Find fly agents from any of the possible buckets (same logic as GetDrones)
+    std::vector<std::shared_ptr<FlyAgent>> fly_agents;
 
-    if (agents_by_type_.find("fly_agent") == agents_by_type_.end() || gridmap_ == nullptr) {
-        std::cerr << "No fly_agents or invalid GridMap.\n";
+    auto add_fly_agents_from = [&](const std::string& type_key) {
+        if (agents_by_type_.find(type_key) != agents_by_type_.end()) {
+            for (const auto& agent : agents_by_type_[type_key]) {
+                auto fly_agent = std::dynamic_pointer_cast<FlyAgent>(agent);
+                if (fly_agent) {
+                    fly_agents.push_back(fly_agent);
+                }
+            }
+        }
+    };
+
+    add_fly_agents_from("fly_agent");
+    add_fly_agents_from("ExploreFlyAgent");
+    add_fly_agents_from("PlannerFlyAgent");
+
+    if (fly_agents.empty()) {
+        std::cerr << "[StepDroneManual] No fly agents found in any bucket.\n";
         return;
     }
 
-    auto &agents = agents_by_type_["fly_agent"];
-    auto fly_agents = CastAgents<FlyAgent>(agents);
-
-    if (drone_idx < agents_by_type_["fly_agent"].size()) {
-        auto agent = std::dynamic_pointer_cast<FlyAgent>(agents_by_type_["fly_agent"][drone_idx]);
+    if (drone_idx < static_cast<int>(fly_agents.size())) {
+        auto& agent = fly_agents[drone_idx];
         agent->Step(speed_x, speed_y, gridmap_);
         agent->DispenseWater(gridmap_, water_dispense);
         // Always Update States. Manual control doesn't have frame skipping and will most likely botch training
         // So just use it for Debugging!
         findCollisions(fly_agents, gridmap_);
         agent->UpdateStates(gridmap_);
+    } else {
+        std::cerr << "[StepDroneManual] drone_idx " << drone_idx << " >= agent count " << fly_agents.size() << std::endl;
     }
 }
 

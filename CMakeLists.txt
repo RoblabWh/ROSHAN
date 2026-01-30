@@ -120,7 +120,15 @@ include_directories(${CMAKE_SOURCE_DIR}/externals/imgui/backends)
 include_directories(${CMAKE_SOURCE_DIR}/externals/nlohmann)
 include_directories(${CMAKE_SOURCE_DIR}/externals/yaml-cpp)
 
-set(PYTHON_EXECUTABLE "$ENV{CONDA_PREFIX}/bin/python")
+# Set Python executable - prefer activated virtual environment, fallback to CMake-discovered Python
+if(DEFINED ENV{VIRTUAL_ENV})
+    set(PYTHON_EXECUTABLE "$ENV{VIRTUAL_ENV}/bin/python")
+elseif(DEFINED ENV{CONDA_PREFIX})
+    set(PYTHON_EXECUTABLE "$ENV{CONDA_PREFIX}/bin/python")
+else()
+    set(PYTHON_EXECUTABLE "${Python3_EXECUTABLE}")
+endif()
+message(STATUS "Using Python executable: ${PYTHON_EXECUTABLE}")
 
 # Core sources
 set(CORE_SOURCES
@@ -181,6 +189,28 @@ set(FIREMODEL_SOURCES
         src/firespin/cell_classes/cell_generic_burned.cpp src/firespin/cell_classes/cell_generic_burned.h
         src/firespin/rendering/firemodel_pixelbuffer.cpp src/firespin/rendering/firemodel_pixelbuffer.h
         src/firespin/rendering/firemodel_imgui.cpp src/firespin/rendering/firemodel_imgui.h
+        # New modular ImGui UI
+        src/firespin/rendering/imgui/UITypes.h
+        src/firespin/rendering/imgui/UIState.h
+        src/firespin/rendering/imgui/UICallbacks.h
+        src/firespin/rendering/imgui/UIManager.cpp src/firespin/rendering/imgui/UIManager.h
+        src/firespin/rendering/imgui/MenuBar.h
+        src/firespin/rendering/imgui/components/ConfigTable.h
+        src/firespin/rendering/imgui/components/LogConsoleWidget.h
+        src/firespin/rendering/imgui/components/GridVisualizer.h
+        src/firespin/rendering/imgui/components/DroneInfoWidget.h
+        src/firespin/rendering/imgui/components/RewardPlot.h
+        src/firespin/rendering/imgui/windows/IWindow.h
+        src/firespin/rendering/imgui/windows/SimulationControlsWindow.h
+        src/firespin/rendering/imgui/windows/ParameterConfigWindow.h
+        src/firespin/rendering/imgui/windows/StartupWizard.h
+        src/firespin/rendering/imgui/windows/FileDialogWindow.h
+        src/firespin/rendering/imgui/windows/CellPopupManager.h
+        src/firespin/rendering/imgui/windows/RLStatusWindow.h
+        # New UI enhancements
+        src/firespin/rendering/imgui/ThemeManager.h
+        src/firespin/rendering/imgui/components/ProgressBar.h
+        src/firespin/rendering/imgui/components/StatusIndicator.h
 )
 
 # Core library

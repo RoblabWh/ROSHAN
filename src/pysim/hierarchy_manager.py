@@ -22,6 +22,7 @@ class HierarchyManager:
     def _reset_agent(self, agent):
         agent.hierarchy_steps = 0
         agent.hierarchy_early_stop = False
+        agent.env_reset = False
         self.sim_bridge.set("env_reset", False)
 
     def restruct_current_obs(self, observations_):

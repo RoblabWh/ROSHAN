@@ -1,3 +1,26 @@
+Metadata-Version: 2.4
+Name: roshan
+Version: 0.1.0
+Summary: Reinforcement-learning Oriented Simulation for Hierarchical Agent Navigation
+Requires-Python: >=3.9
+Description-Content-Type: text/markdown
+Requires-Dist: torch
+Requires-Dist: torchvision
+Requires-Dist: numpy
+Requires-Dist: scipy
+Requires-Dist: tabulate
+Requires-Dist: tensorboard
+Requires-Dist: pyyaml
+Requires-Dist: optuna
+Requires-Dist: packaging
+Provides-Extra: llm
+Requires-Dist: transformers[torch]; extra == "llm"
+Requires-Dist: optimum; extra == "llm"
+Requires-Dist: onnxruntime; extra == "llm"
+Requires-Dist: onnx; extra == "llm"
+Requires-Dist: bitsandbytes; extra == "llm"
+Requires-Dist: requests; extra == "llm"
+
 # ROSHAN  
 ![Overview](assets/ROSHAN_uebersicht.png)
 
@@ -55,7 +78,7 @@ npm install --save-dev nodemon
 
 ### GDAL, SDL2, and system libraries
 ```bash
-sudo apt install libgdal-dev gdal-bin libsdl2-image-dev python3-dev
+sudo apt install libgdal-dev gdal-bin libsdl2-image-dev
 sudo apt install libsdl2-2.0-0 libsdl2-image-2.0-0
 ```
 
@@ -72,7 +95,6 @@ uv sync --extra llm
 ## 🔧 Build Instructions
 ```bash
 cd ROSHAN
-source .venv/bin/activate  # Activate the virtual environment
 mkdir build && cd build
 cmake .. && make -j$(nproc)
 ```

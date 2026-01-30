@@ -1,0 +1,17 @@
+torch
+torchvision
+numpy
+scipy
+tabulate
+tensorboard
+pyyaml
+optuna
+packaging
+
+[llm]
+transformers[torch]
+optimum
+onnxruntime
+onnx
+bitsandbytes
+requests

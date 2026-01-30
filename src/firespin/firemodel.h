@@ -16,7 +16,7 @@
 #include "model_interface.h"
 #include "firemodel_gridmap.h"
 #include "firespin/rendering/firemodel_renderer.h"
-#include "firespin/rendering/firemodel_imgui.h"
+#include "firespin/rendering/imgui/UIManager.h"
 #include "model_parameters.h"
 #include "wind.h"
 #include "corine/dataset_handler.h"
@@ -94,7 +94,7 @@ private:
     Timer timer_;
 
     //ImGui Stuff
-    std::shared_ptr<ImguiHandler> imgui_handler_;
+    std::unique_ptr<ui::UIManager> ui_manager_;
     void setupImGui();
 
     void SetUniformRasterData();

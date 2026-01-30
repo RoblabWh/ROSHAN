@@ -40,7 +40,7 @@ FireModel::FireModel(Mode mode, const std::string& config_path) : mode_(mode)
         std::cout << "Running in NoGUI_RL mode. Agent always runs." << std::endl;
     }
     if (parameters_.skip_gui_init_ && (mode_ != Mode::NoGUI_RL && mode_ != Mode::NoGUI)) {
-        imgui_handler_->DefaultModeSelected();
+        ui_manager_->DefaultModeSelected();
     }
     rl_handler_->SetRLStatus(rl_status);
     std::cout << "Created FireModel" << std::endl;
@@ -223,33 +223,34 @@ void FireModel::setupRLHandler() {
 }
 
 void FireModel::setupImGui() {
-    imgui_handler_ = std::make_shared<ImguiHandler>(mode_, parameters_);
-    imgui_handler_->onGetRLStatus = [this]() {return rl_handler_->GetRLStatus();};
-    imgui_handler_->onResetDrones = [this]() { rl_handler_->ResetEnvironment(mode_);};
-    imgui_handler_->onResetGridMap = [this](std::vector<std::vector<int>>* rasterData, bool full_reset=false) {ResetGridMap(rasterData, full_reset);};
-    imgui_handler_->onFillRasterWithEnum = [this]() {FillRasterWithEnum();};
-    imgui_handler_->onSetUniformRasterData = [this]() {SetUniformRasterData();};
-    imgui_handler_->onMoveDrone = [this](int drone_idx, double speed_x, double speed_y, int water_dispense) {return rl_handler_->StepDroneManual(
+    ui_manager_ = std::make_unique<ui::UIManager>(mode_, parameters_);
+    ui_manager_->onGetRLStatus = [this]() {return rl_handler_->GetRLStatus();};
+    ui_manager_->onResetDrones = [this]() { rl_handler_->ResetEnvironment(mode_);};
+    ui_manager_->onResetGridMap = [this](std::vector<std::vector<int>>* rasterData, bool full_reset=false) {ResetGridMap(rasterData, full_reset);};
+    ui_manager_->onFillRasterWithEnum = [this]() {FillRasterWithEnum();};
+    ui_manager_->onSetUniformRasterData = [this]() {SetUniformRasterData();};
+    ui_manager_->onMoveDrone = [this](int drone_idx, double speed_x, double speed_y, int water_dispense) {return rl_handler_->StepDroneManual(
             drone_idx, speed_x, speed_y, water_dispense);};
-    imgui_handler_->startFires = [this]() { fire_generator_->StartFires(); };
-    imgui_handler_->onSetNoise = [this](CellState state, int noise_level, int noise_size) {GridMap::SetCellNoise(state, noise_level, noise_size);};
-    imgui_handler_->onSetRLStatus = [this](py::dict status) {rl_handler_->SetRLStatus(std::move(status));};
-    rl_handler_->onUpdateRLStatus = [this]() {imgui_handler_->updateOnRLStatusChange();};
+    ui_manager_->startFires = [this]() { fire_generator_->StartFires(); };
+    ui_manager_->onSetNoise = [this](CellState state, int noise_level, int noise_size) {GridMap::SetCellNoise(state, noise_level, noise_size);};
+    ui_manager_->onSetRLStatus = [this](py::dict status) {rl_handler_->SetRLStatus(std::move(status));};
+    ui_manager_->Init();  // Wire callbacks to windows (safe - doesn't access model_path)
+    rl_handler_->onUpdateRLStatus = [this]() {ui_manager_->updateOnRLStatusChange();};
 }
 
 void FireModel::ImGuiRendering(bool &update_simulation, bool &render_simulation, int &delay, float framerate) {
-    imgui_handler_->ImGuiSimulationControls(gridmap_, current_raster_data_, model_renderer_,
+    ui_manager_->ImGuiSimulationControls(gridmap_, current_raster_data_, model_renderer_,
                                             update_simulation, render_simulation, delay, framerate,
                                             running_time_);
-    imgui_handler_->ImGuiModelMenu(current_raster_data_);
-    imgui_handler_->Config(model_renderer_, current_raster_data_, wind_);
-    imgui_handler_->PyConfig(user_input_,model_output_, gridmap_, rl_handler_->GetDrones(), model_renderer_);
-    imgui_handler_->FileHandling(dataset_handler_, current_raster_data_);
-    imgui_handler_->ShowPopups(gridmap_, current_raster_data_);
+    ui_manager_->ImGuiModelMenu(current_raster_data_);
+    ui_manager_->Config(model_renderer_, current_raster_data_, wind_);
+    ui_manager_->PyConfig(user_input_,model_output_, gridmap_, rl_handler_->GetDrones(), model_renderer_);
+    ui_manager_->FileHandling(dataset_handler_, current_raster_data_);
+    ui_manager_->ShowPopups(gridmap_, current_raster_data_);
 }
 
 void FireModel::HandleEvents(SDL_Event event, ImGuiIO *io) {
-    imgui_handler_->HandleEvents(event, io, gridmap_, model_renderer_, dataset_handler_, current_raster_data_);
+    ui_manager_->HandleEvents(event, io, gridmap_, model_renderer_, dataset_handler_, current_raster_data_);
 }
 
 std::string FireModel::GetUserInput() {

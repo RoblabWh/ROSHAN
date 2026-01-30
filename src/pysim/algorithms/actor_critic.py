@@ -144,10 +144,8 @@ class StochasticActor(nn.Module):
         with torch.no_grad():
             action_mean, action_var = self.actor(state)
 
-            # Move Tensors to CPU
-            action_mean = action_mean.cpu()
-            action_var = action_var.cpu()
-
+            # Keep computation on GPU for consistency with evaluate()
+            # (CPU vs GPU numerical differences cause first batch ratios != 1.0)
             dist = self.get_distribution(action_mean, torch.sqrt(action_var))
 
             # Sample actions from the distributions
@@ -163,7 +161,8 @@ class StochasticActor(nn.Module):
             # Compute log probabilities of the sampled actions
             action_logprob = dist.log_prob(action)
 
-            return action.detach().numpy(), action_logprob.detach().numpy()
+            # Only convert to CPU/numpy at the very end
+            return action.detach().cpu().numpy(), action_logprob.detach().cpu().numpy()
 
     def act_certain(self, state):
         """

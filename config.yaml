@@ -37,7 +37,7 @@ settings:
     # This setting gets overridden in IQL settings and is calculated as the total number of offline_updates + online_updates
     max_train: 100 #12000 for TD3 ~ 8.5h
     # Maximum number of evaluations(one evaluation = one environment completed) to perform
-    max_eval: 1
+    max_eval: 2
   optuna:
     use_optuna: false # Whether to use Optuna for hyperparameter optimization
     study_name: "fly_model_study_LR" # Name of the Optuna study
