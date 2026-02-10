@@ -144,49 +144,24 @@ class Inputspace(nn.Module):
 
         self.flatten = nn.Flatten()
 
+    def _ensure_tensor(self, x, dtype=torch.float32):
+        if not torch.is_tensor(x):
+            x = torch.as_tensor(x, dtype=dtype)
+        if x.device != self.device:
+            x = x.to(self.device, non_blocking=True)
+        return x
+
     def prepare_tensor(self, states):
         self_id, velocity, delta_goal, cos_sin_goal, speed, distance_to_goal, distances_to_others, distances_mask = states
 
-        if not torch.is_tensor(velocity):
-            velocity = torch.as_tensor(velocity, dtype=torch.float32)
-
-        if not torch.is_tensor(delta_goal):
-            delta_goal = torch.as_tensor(delta_goal, dtype=torch.float32)
-
-        if not torch.is_tensor(cos_sin_goal):
-            cos_sin_goal = torch.as_tensor(cos_sin_goal, dtype=torch.float32)
-
-        if not torch.is_tensor(speed):
-            speed = torch.as_tensor(speed, dtype=torch.float32)
-
-        if not torch.is_tensor(distance_to_goal):
-            distance_to_goal = torch.as_tensor(distance_to_goal, dtype=torch.float32)
-
-        if not torch.is_tensor(distances_to_others):
-            distances_to_others = torch.as_tensor(distances_to_others, dtype=torch.float32)
-
-        distances_mask = torch.as_tensor(distances_mask, dtype=torch.bool)
-
-        if not torch.is_tensor(self_id):
-            self_id = torch.as_tensor(self_id, dtype=torch.int64)
-
-        # Only move if needed
-        if velocity.device != self.device:
-            velocity = velocity.to(self.device)
-        if delta_goal.device != self.device:
-            delta_goal = delta_goal.to(self.device)
-        if cos_sin_goal.device != self.device:
-            cos_sin_goal = cos_sin_goal.to(self.device)
-        if speed.device != self.device:
-            speed = speed.to(self.device)
-        if distance_to_goal.device != self.device:
-            distance_to_goal = distance_to_goal.to(self.device)
-        if distances_to_others.device != self.device:
-            distances_to_others = distances_to_others.to(self.device)
-        if distances_mask.device != self.device:
-            distances_mask = distances_mask.to(self.device)
-        if self_id.device != self.device:
-            self_id = self_id.to(self.device)
+        self_id = self._ensure_tensor(self_id, dtype=torch.int64)
+        velocity = self._ensure_tensor(velocity)
+        delta_goal = self._ensure_tensor(delta_goal)
+        cos_sin_goal = self._ensure_tensor(cos_sin_goal)
+        speed = self._ensure_tensor(speed)
+        distance_to_goal = self._ensure_tensor(distance_to_goal)
+        distances_to_others = self._ensure_tensor(distances_to_others)
+        distances_mask = self._ensure_tensor(distances_mask, dtype=torch.bool)
 
         return self_id, velocity, delta_goal, cos_sin_goal, speed, distance_to_goal, distances_to_others, distances_mask
 

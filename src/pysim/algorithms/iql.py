@@ -146,6 +146,7 @@ class IQL(RLAlgorithm):
         logger.add_metric("train/q1", q1.mean().detach().cpu().numpy())
         logger.add_metric("train/q2", q2.mean().detach().cpu().numpy())
 
+    @torch.no_grad()
     def update_target(self):
         for param, target_param in zip(self.policy.critic.parameters(), self.critic_target.parameters()):
             target_param.data.copy_(self.tau * param.data + (1 - self.tau) * target_param.data)

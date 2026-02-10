@@ -1,12 +1,9 @@
 import os
-import numpy as np
 import torch.nn as nn
 import torch
 
 if os.getenv("PYTORCH_DETECT_ANOMALY", "").lower() in ("1", "true"):
     torch.autograd.set_detect_anomaly(True)
-
-device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
 
 class CNNSpatialEncoder(nn.Module):
     def __init__(self, in_channels, out_features):
@@ -51,6 +48,7 @@ class Inputspace(nn.Module):
         """
         super(Inputspace, self).__init__()
 
+        self.device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
         self.drone_count = drone_count
         self.time_steps = time_steps
 
@@ -71,16 +69,18 @@ class Inputspace(nn.Module):
             nn.Linear(spatial_outfeatures + position_outfeatures, self.out_features),
             nn.ReLU(),
         )
-    @staticmethod
-    def prepare_tensor(states):
+
+    def _ensure_tensor(self, x, dtype=torch.float32):
+        if not torch.is_tensor(x):
+            x = torch.as_tensor(x, dtype=dtype)
+        if x.device != self.device:
+            x = x.to(self.device, non_blocking=True)
+        return x
+
+    def prepare_tensor(self, states):
         agent_positions, exploration_maps = states
-
-        if isinstance(agent_positions, np.ndarray):
-            agent_positions = torch.tensor(agent_positions, dtype=torch.float32).to(device)
-
-        if isinstance(exploration_maps, np.ndarray):
-            exploration_maps = torch.tensor(exploration_maps, dtype=torch.float32).to(device)
-
+        agent_positions = self._ensure_tensor(agent_positions)
+        exploration_maps = self._ensure_tensor(exploration_maps)
         return agent_positions, exploration_maps
 
     def forward(self, states):

@@ -12,16 +12,21 @@ set(MY_CPP_BUILD_PATH "${CMAKE_BINARY_DIR}")
 # Set CMAKE Module Path for FindSDL2_image.cmake
 set(CMAKE_MODULE_PATH ${CMAKE_MODULE_PATH} "${CMAKE_SOURCE_DIR}/cmake/")
 
-# Enable optimizations
-#set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -O3 -march=native -flto -funroll-loops \
-#        -fno-omit-frame-pointer -ffunction-sections -fdata-sections")
-#set(CMAKE_EXE_LINKER_FLAGS "${CMAKE_EXE_LINKER_FLAGS} -Wl,-O2 -Wl,--as-needed -Wl,--gc-sections")
-#set(CMAKE_SHARED_LINKER_FLAGS "${CMAKE_SHARED_LINKER_FLAGS} -Wl,-O2 -Wl,--as-needed -Wl,--gc-sections")
-# Enable faster-build optimizations
-#set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -O3")
-# Development flags
-#set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -O2")
-set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -g -O0")
+# Build type: Release for optimized builds, Debug for development
+if(NOT CMAKE_BUILD_TYPE)
+    set(CMAKE_BUILD_TYPE Release CACHE STRING "Build type" FORCE)
+endif()
+
+if(CMAKE_BUILD_TYPE STREQUAL "Release")
+    set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -O3 -march=native -flto -funroll-loops \
+            -fno-omit-frame-pointer -ffunction-sections -fdata-sections")
+    set(CMAKE_EXE_LINKER_FLAGS "${CMAKE_EXE_LINKER_FLAGS} -Wl,-O2 -Wl,--as-needed -Wl,--gc-sections")
+    set(CMAKE_SHARED_LINKER_FLAGS "${CMAKE_SHARED_LINKER_FLAGS} -Wl,-O2 -Wl,--as-needed -Wl,--gc-sections")
+elseif(CMAKE_BUILD_TYPE STREQUAL "RelWithDebInfo")
+    set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -O2 -g")
+elseif(CMAKE_BUILD_TYPE STREQUAL "Debug")
+    set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -g -O0")
+endif()
 
 find_program(CCACHE_PROGRAM ccache)
 if (CCACHE_PROGRAM)

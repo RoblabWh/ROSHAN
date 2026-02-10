@@ -258,6 +258,8 @@ GeneratePaths(
 ) {
     std::vector<std::deque<std::pair<double, double>>> paths(num_drones);
 
+    if (view_range < 2) view_range = 2;
+
     bool split_vertical = (width >= height);
 
     bool x_inc = (start.first < static_cast<double>(width) / 2);   // Sweep right if true
@@ -269,8 +271,7 @@ GeneratePaths(
         int x0 = 0;
 
         for (int i = 0; i < num_drones; ++i) {
-            int x1 = x0 + stripe_w;
-            if (x1 > width) x1 = width;
+            int x1 = (i == num_drones - 1) ? width : x0 + stripe_w;
 
             int x_step = std::max(1, stripe_w / static_cast<int>(std::ceil((float)stripe_w / (static_cast<float>(view_range) - 1))));
             int y_step = std::max(1, height / static_cast<int>(std::ceil((float)height / (static_cast<float>(view_range) - 1))));
@@ -293,7 +294,7 @@ GeneratePaths(
                         paths[i].emplace_back(x, y);
                     }
                     if ((x1 - x0) % x_step != 0 && x0 <= x1 - 1) {
-                        paths[i].emplace_back(x0, y - 1);  // Left edge
+                        paths[i].emplace_back(x0, y);  // Left edge
                     }
                 }
                 forward = !forward;
@@ -308,8 +309,7 @@ GeneratePaths(
         int y0 = 0;
 
         for (int i = 0; i < num_drones; ++i) {
-            int y1 = y0 + stripe_h;
-            if (y1 > height) y1 = height;
+            int y1 = (i == num_drones - 1) ? height : y0 + stripe_h;
 
             int y_step = std::max(1, stripe_h / static_cast<int>(std::ceil((float)stripe_h / (static_cast<float>(view_range) - 1))));
             int x_step = std::max(1, width / static_cast<int>(std::ceil((float)width / (static_cast<float>(view_range) - 1))));
@@ -332,7 +332,7 @@ GeneratePaths(
                         paths[i].emplace_back(x, y);
                     }
                     if ((y1 - y0) % y_step != 0 && y0 <= y1 - 1) {
-                        paths[i].emplace_back(x - 1, y0);  // Top edge
+                        paths[i].emplace_back(x, y0);  // Top edge
                     }
                 }
                 forward = !forward;

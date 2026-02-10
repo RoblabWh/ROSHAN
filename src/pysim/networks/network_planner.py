@@ -1,5 +1,6 @@
 import os
 import torch.nn as nn
+import torch.nn.functional as F
 import torch
 
 if os.getenv("PYTORCH_DETECT_ANOMALY", "").lower() in ("1", "true"):
@@ -23,42 +24,29 @@ class Inputspace(nn.Module):
         self.cross_attn = nn.MultiheadAttention(embed_dim=hidden_dim, num_heads=4, batch_first=True)
         self.out_features = hidden_dim
 
+    def _ensure_tensor(self, x, dtype=torch.float32):
+        if not torch.is_tensor(x):
+            x = torch.as_tensor(x, dtype=dtype)
+        if x.device != self.device:
+            x = x.to(self.device, non_blocking=True)
+        return x
+
+    @staticmethod
+    def _select_last_timestep(x):
+        """Reduce 4D/5D tensors to 3D by selecting the last timestep."""
+        if x.dim() == 5:
+            return x[:, -1, -1, :, :]
+        if x.dim() == 4:
+            return x[:, -1, :, :]
+        return x
+
     def prepare_tensor(self, states):
         drone_states, goal_positions, fire_states = states
-
-        if not torch.is_tensor(drone_states):
-            drone_states = torch.as_tensor(drone_states, dtype=torch.float32)
-
-        if not torch.is_tensor(fire_states):
-            fire_states = torch.as_tensor(fire_states, dtype=torch.float32)
-
-        if not torch.is_tensor(goal_positions):
-            goal_positions = torch.as_tensor(goal_positions, dtype=torch.float32)
-
-        # If input is 4D (batch, time, n, feat), select last time step
-        if drone_states.dim() == 4:
-            drone_states = drone_states[:, -1, :, :]
-        if fire_states.dim() == 4:
-            fire_states = fire_states[:, -1, :, :]
-        if goal_positions.dim() == 4:
-            goal_positions = goal_positions[:, -1, :, :]
-        if drone_states.dim() == 5:
-            drone_states = drone_states[:, -1, -1, :, :]
-        if fire_states.dim() == 5:
-            fire_states = fire_states[:, -1, -1, :, :]
-        if goal_positions.dim() == 5:
-            goal_positions = goal_positions[:, -1, -1, :, :]
-
-        # Only move if needed
-        if drone_states.device != self.device:
-            drone_states = drone_states.to(self.device)
-        if fire_states.device != self.device:
-            fire_states = fire_states.to(self.device)
-        if goal_positions.device != self.device:
-            goal_positions = goal_positions.to(self.device)
-
+        drone_states = self._select_last_timestep(self._ensure_tensor(drone_states))
+        goal_positions = self._select_last_timestep(self._ensure_tensor(goal_positions))
+        fire_states = self._select_last_timestep(self._ensure_tensor(fire_states))
         batch_size, n_drones, _ = drone_states.shape
-        agent_ids = torch.arange(n_drones, device=drone_states.device).unsqueeze(0).expand(batch_size, -1)
+        agent_ids = torch.arange(n_drones, device=self.device).unsqueeze(0).expand(batch_size, -1)
         return drone_states, goal_positions, fire_states, agent_ids
 
     def forward(self, states, mask=None):

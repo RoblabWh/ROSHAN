@@ -143,32 +143,38 @@ class PPO(RLAlgorithm):
 
     def get_advantages(self, values, masks, rewards):
         """
-        Computes the advantages of the given rewards and values.
+        Computes the advantages using vectorized GAE (Generalized Advantage Estimation).
 
-        :param values: The values of the states.
-        :param masks: The masks of the states.
+        :param values: The values of the states. May have len(rewards)+1 if bootstrapped.
+        :param masks: The masks of the states (1 = not done, 0 = done).
         :param rewards: The rewards of the states.
-        :return: The advantages of the states.
+        :return: The advantages and returns as tensors on self.device.
         """
-        advantages = []
-        returns = []
-        gae = 0
+        # Ensure tensors are on the correct device
+        if not isinstance(rewards, torch.Tensor):
+            rewards = torch.FloatTensor(rewards)
+        if not isinstance(masks, torch.Tensor):
+            masks = torch.FloatTensor(masks)
+        if not isinstance(values, torch.Tensor):
+            values = torch.FloatTensor(values)
 
-        for i in reversed(range(len(rewards))):
-            delta = rewards[i] - values[i]
-            if masks[i] == 1:
-                delta = delta + self.gamma * values[i + 1]
-            gae = delta + self.gamma * self._lambda * masks[i] * gae
-            advantages.append(gae)
-            returns.append(gae + values[i])
+        rewards = rewards.to(self.device)
+        masks = masks.to(self.device)
+        values = values.to(self.device)
 
-        # Reverse to restore original order
-        advantages = torch.FloatTensor(list(reversed(advantages))).to(self.device)
-        returns = torch.FloatTensor(list(reversed(returns))).to(self.device)
+        T = len(rewards)
+        # next_values: values[1:] when bootstrapped, else zeros for terminal
+        next_values = values[1:T+1] if len(values) > T else torch.zeros_like(rewards)
+        deltas = rewards + self.gamma * masks * next_values - values[:T]
 
-        # Norm advantages (Norm the adv in mini_batch)
-        # advantages = (advantages - advantages.mean()) / (advantages.std() + 1e-10)
+        # Vectorized GAE: reverse scan with discount factor gamma * lambda
+        advantages = torch.zeros_like(deltas)
+        gae = torch.tensor(0.0, device=self.device)
+        for t in reversed(range(T)):
+            gae = deltas[t] + self.gamma * self._lambda * masks[t] * gae
+            advantages[t] = gae
 
+        returns = advantages + values[:T]
         return advantages, returns
 
     @staticmethod
@@ -284,15 +290,16 @@ class PPO(RLAlgorithm):
                 # https://iclr-blog-track.github.io/2022/03/25/ppo-implementation-details/
                 value_loss = self.MSE_loss(values, returns[index].squeeze())
 
-                # Log loss
+                # Log loss — single CPU transfer for values (used by both logging_values and epoch_values)
                 with torch.no_grad():
-                    logging_values.append(values.detach().cpu().numpy())
-                    epoch_values.append(values.detach().cpu().numpy())
+                    values_np = values.detach().cpu().numpy()
+                    logging_values.append(values_np)
+                    epoch_values.append(values_np)
                     epoch_returns.append(returns[index].detach().cpu().numpy())
-                    clip_fraction = ((ratios < (1 - self.eps_clip)) | (ratios > (1 + self.eps_clip))).float().mean().cpu().numpy()
-                    approx_kl = (batch_old_logprobs - logprobs).mean().detach().cpu().numpy()
+                    clip_fraction = ((ratios < (1 - self.eps_clip)) | (ratios > (1 + self.eps_clip))).float().mean().item()
+                    approx_kl = (batch_old_logprobs - logprobs).mean().detach().item()
                     if not self.use_kl_1:
-                        approx_kl = ((ratios - 1 - log_ratio).mean()).detach().cpu().numpy()
+                        approx_kl = (ratios - 1 - log_ratio).mean().detach().item()
                     # Stop the policy updates early when the new policy diverges too much from the old one
                     if self.kl_early_stop and approx_kl >= self.kl_target:
                         self.logger.warning(
@@ -300,9 +307,9 @@ class PPO(RLAlgorithm):
                         break
                     logger.add_metric("Training/Approx_KL", approx_kl)
                     logger.add_metric("Training/Clip_Fraction", clip_fraction)
-                    logger.add_metric("Training/value_loss", value_loss.detach().cpu().numpy())
-                    logger.add_metric("Training/actor_loss", actor_loss.detach().cpu().numpy())
-                    logger.add_metric("Training/entropy_loss", entropy_loss.detach().cpu().numpy())
+                    logger.add_metric("Training/value_loss", value_loss.detach().item())
+                    logger.add_metric("Training/actor_loss", actor_loss.detach().item())
+                    logger.add_metric("Training/entropy_loss", entropy_loss.detach().item())
                     logger.add_metric("Training/log_std", torch.exp(self.policy.actor.log_std).detach().cpu().numpy())
 
                 # Sanity checks
@@ -331,18 +338,19 @@ class PPO(RLAlgorithm):
                     self.scheduler_a.step()
                     logger.add_metric("Training/LR", self.scheduler_a.get_last_lr())
                 else:
+                    # Combine losses and backward once to avoid retain_graph=True,
+                    # which would keep the entire computation graph in memory.
+                    # Each optimizer still steps only its own parameter group.
                     self.optimizer_a.zero_grad()
-                    actor_loss.backward(retain_graph=True)
+                    self.optimizer_c.zero_grad()
+                    total_loss = actor_loss + value_loss * self.value_loss_coef
+                    total_loss.backward()
                     # Global gradient norm clipping https://vitalab.github.io/article/2020/01/14/Implementation_Matters.html
                     torch.nn.utils.clip_grad_norm_(self.actor_params, max_norm=0.5)
-                    self.optimizer_a.step()
-                    self.scheduler_a.step()
-
-                    self.optimizer_c.zero_grad()
-                    value_loss.backward()
-                    # Global gradient norm clipping https://vitalab.github.io/article/2020/01/14/Implementation_Matters.html
                     torch.nn.utils.clip_grad_norm_(self.critic_params, max_norm=0.5)
+                    self.optimizer_a.step()
                     self.optimizer_c.step()
+                    self.scheduler_a.step()
                     self.scheduler_c.step()
                     logger.add_metric("Training/LR", self.scheduler_a.get_last_lr() + self.scheduler_c.get_last_lr())
 

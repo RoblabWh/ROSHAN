@@ -40,6 +40,7 @@ private:
     std::vector<std::shared_ptr<FlyAgent>> fly_agents_;
     std::vector<std::deque<std::pair<double, double>>> perfect_goals_;
     int goal_idx_ = 0;
+    bool forward_ = true;
     int revisited_cells_{};
 
     // Rewards Collection for Debugging!

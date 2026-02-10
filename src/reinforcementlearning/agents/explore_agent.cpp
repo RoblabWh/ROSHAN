@@ -31,7 +31,17 @@ void ExploreAgent::Initialize(std::vector<std::shared_ptr<FlyAgent>> fly_agents,
         fly_agent->SetRevisitedCells(revisited_cells_);
     }
 
-    goal_idx_ < perfect_goals_[0].size() - 1 ? goal_idx_++ : goal_idx_ = 0;
+    if (forward_) {
+        if (goal_idx_ < perfect_goals_[0].size() - 1)
+            goal_idx_++;
+        else
+            forward_ = false;
+    } else {
+        if (goal_idx_ > 0)
+            goal_idx_--;
+        else
+            forward_ = true;
+    }
 
     InitializeExploreAgentStates(grid_map);
 }
@@ -45,6 +55,7 @@ void ExploreAgent::Reset(Mode mode,
     did_hierarchy_step = false;
     reward_components_.clear();
     goal_idx_ = 0;
+    forward_ = true;
     revisited_cells_ = 0;
     frame_ctrl_ = 0;
     perfect_goals_.clear();
@@ -108,7 +119,17 @@ void ExploreAgent::PerformExplore(ExploreAction *action, const std::string& hier
         fly_agent->SetRevisitedCells(revisited_cells_);
 //        fly_agent->SetGoalPosition({goal_x, goal_y});
     }
-    goal_idx_ < perfect_goals_[0].size() - 1 ? goal_idx_++ : goal_idx_ = 0;
+    if (forward_) {
+        if (goal_idx_ < perfect_goals_[0].size() - 1)
+            goal_idx_++;
+        else
+            forward_ = false;
+    } else {
+        if (goal_idx_ > 0)
+            goal_idx_--;
+        else
+            forward_ = true;
+    }
     if(hierarchy_type == "explore_agent") {
         did_hierarchy_step = true;
         // Pick first agent to get the exploration map scalar

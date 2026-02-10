@@ -163,8 +163,6 @@ class SwarmMemory(object):
         N = self.__len__()
         assert N >= batch_size, f"Not enough samples: have {N}, need {batch_size}"
         idxs = np.random.randint(0, N, size=(batch_size,), dtype=np.int64)
-        # Test deterministic batch
-        idxs = np.arange(batch_size, dtype=np.int64)
         return idxs
 
     def sample_batch(self, batch_size: int):

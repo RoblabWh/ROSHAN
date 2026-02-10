@@ -21,7 +21,7 @@ GridMap::GridMap(std::shared_ptr<Wind> wind, FireModelParameters &parameters,
     fire_map_ = std::vector<std::vector<int>>(rows, std::vector<int>(cols, 0));
     visited_cells_ = std::vector<std::vector<bool>>(rows, std::vector<bool>(cols, false));
 
-//#pragma omp parallel for collapse(2)
+#pragma omp parallel for collapse(2)
     for (int x = 0; x < rows; ++x) {
         for (int y = 0; y < cols; ++y) {
             cells_[x][y] = std::make_shared<FireCell>(x, y, parameters_, (*rasterData)[y][x]);
@@ -62,7 +62,7 @@ void GridMap::Reset(std::vector<std::vector<int>>* rasterData) {
         rows_ = rows;
     }
 
-//#pragma omp parallel for collapse(2)
+#pragma omp parallel for collapse(2)
     for (int x = 0; x < rows_; ++x) {
         for (int y = 0; y < cols_; ++y) {
             if (cells_[x][y]) {
@@ -540,7 +540,7 @@ void GridMap::GenerateNoiseMap() {
     if (!noise_generated_ || parameters_.has_noise_ != last_has_noise_) {
         if (parameters_.has_noise_) {
             int rows = static_cast<int>(cells_.size());
-//#pragma omp parallel for
+#pragma omp parallel for
             for(int i = 0; i < rows; ++i) {
                 const auto& cell_row = cells_[i];
 //        for(const auto& cell_row : cells_) {
