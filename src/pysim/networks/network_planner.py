@@ -23,6 +23,9 @@ class Inputspace(nn.Module):
         self.id_emb = nn.Embedding(drone_dim, hidden_dim)
         self.cross_attn = nn.MultiheadAttention(embed_dim=hidden_dim, num_heads=4, batch_first=True)
         self.out_features = hidden_dim
+        # Cached constant tensors (zero-cost expand views at runtime)
+        self.register_buffer('_agent_ids', torch.arange(drone_dim, device=self.device))
+        self.register_buffer('_default_mask', torch.tensor([[True, False]], device=self.device))
 
     def _ensure_tensor(self, x, dtype=torch.float32):
         if not torch.is_tensor(x):
@@ -46,15 +49,14 @@ class Inputspace(nn.Module):
         goal_positions = self._select_last_timestep(self._ensure_tensor(goal_positions))
         fire_states = self._select_last_timestep(self._ensure_tensor(fire_states))
         batch_size, n_drones, _ = drone_states.shape
-        agent_ids = torch.arange(n_drones, device=self.device).unsqueeze(0).expand(batch_size, -1)
+        agent_ids = self._agent_ids.unsqueeze(0).expand(batch_size, -1)
         return drone_states, goal_positions, fire_states, agent_ids
 
     def forward(self, states, mask=None):
         # drone_states (B,N,F), fire_states (B,2,F), mask (B,2)
         drone_pos, goal_positions, fire_states, agent_ids = self.prepare_tensor(states)
         if mask is None:
-            mask = torch.zeros(fire_states.shape[0], fire_states.shape[1], device=drone_pos.device, dtype=torch.bool)
-            mask[:, 0] = True  # Mask for fire state 0, which is the groundstation
+            mask = self._default_mask.expand(fire_states.shape[0], -1)
         pos_emb = self.pos_emb(drone_pos) # (B,N,F)
         goal_emb = self.goal_emb(goal_positions) # (B,N,F)
         fire_emb = self.fire_emb(fire_states) # (B,2,F)

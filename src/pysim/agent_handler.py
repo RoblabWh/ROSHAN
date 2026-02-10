@@ -542,7 +542,7 @@ class AgentHandler:
     def restruct_current_obs(self, observations):
         self.current_obs = self.restructure_data(observations)
 
-    def intrinsic_reward(self):
+    def intrinsic_reward(self, terminals_vector, engine):
         intrinsic_reward = None
         if self.use_intrinsic_reward:
             intrinsic_reward = self.agent_type.get_intrinsic_reward(self.current_obs)
@@ -580,8 +580,8 @@ class AgentHandler:
 
             next_obs = self.restructure_data(next_obs_)
 
-            # Intrinsic Reward Calculation (optinoal)
-            intrinsic_reward = self.intrinsic_reward()
+            # Intrinsic Reward Calculation (optional)
+            intrinsic_reward = self.intrinsic_reward(terminals_vector, engine)
 
             # Memory Adding
             self.add_memory_entry(self.current_obs,
@@ -626,7 +626,7 @@ class AgentHandler:
         # Only do these extra steps when you SHOULD populate memory
         if self.save_replay_buffer:
             # Intrinsic Reward Calculation (optional)
-            intrinsic_reward = self.intrinsic_reward()
+            intrinsic_reward = self.intrinsic_reward(terminals_vector, engine)
             if self.env_step % 5000 == 0:
                 self.logger.info(f"Replay Buffer size: {len(self.memory)}/{int(self.save_size)}")
             # Memory Adding

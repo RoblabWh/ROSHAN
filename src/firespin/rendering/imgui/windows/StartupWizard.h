@@ -22,7 +22,7 @@ namespace py = pybind11;
 
 namespace ui {
 
-class StartupWizard : public IWindow {
+class __attribute__((visibility("hidden"))) StartupWizard : public IWindow {
 public:
     StartupWizard(FireModelParameters& parameters,
                   std::shared_ptr<FireModelRenderer> renderer,

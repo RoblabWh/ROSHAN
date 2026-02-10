@@ -243,24 +243,33 @@ class SwarmMemory(object):
 
 
 class Memory(object):
+    def _alloc_buffer(self, shape):
+        """Allocate numpy buffer, pinned if CUDA available."""
+        if torch.cuda.is_available():
+            t = torch.zeros(shape, dtype=torch.float32, pin_memory=True)
+            self._pinned_refs.append(t)  # prevent GC
+            return t.numpy()
+        return np.zeros(shape)
+
     def __init__(self, action_dim=2, max_size=int(1e5), use_intrinsic_reward=False, use_next_obs=False):
         self.max_size = int(max_size)
         self.action_dim = action_dim
         self.ptr = 0
         self.batch_ptr = 0
         self.size = 0
+        self._pinned_refs = []
 
         self.state = [0 for _ in range(self.max_size)]
-        self.action = np.zeros((self.max_size, action_dim)) if isinstance(action_dim, int) else np.zeros((self.max_size, *action_dim))
-        self.logprobs = np.zeros((self.max_size,)) if isinstance(action_dim, int) else np.zeros((self.max_size, action_dim[0]))
-        self.reward = np.zeros((self.max_size,))
-        self.not_done = np.zeros((self.max_size,))
+        self.action = self._alloc_buffer((self.max_size, action_dim)) if isinstance(action_dim, int) else self._alloc_buffer((self.max_size, *action_dim))
+        self.logprobs = self._alloc_buffer((self.max_size,)) if isinstance(action_dim, int) else self._alloc_buffer((self.max_size, action_dim[0]))
+        self.reward = self._alloc_buffer((self.max_size,))
+        self.not_done = self._alloc_buffer((self.max_size,))
         self.masks = []
 
         # Optional
         self.use_intrinsic_reward = use_intrinsic_reward
         if self.use_intrinsic_reward:
-            self.intrinsic_reward = np.zeros((self.max_size,))
+            self.intrinsic_reward = self._alloc_buffer((self.max_size,))
         else:
             self.intrinsic_reward = None
 
@@ -299,15 +308,15 @@ class Memory(object):
 
             # Buffers truncated to current size
             "state": _convert_state_list(self.state),
-            "action": self.action[:self.size].copy(),
-            "logprobs": self.logprobs[:self.size].copy(),
-            "reward": self.reward[:self.size].copy(),
-            "not_done": self.not_done[:self.size].copy(),
+            "action": self.action[:self.size],
+            "logprobs": self.logprobs[:self.size],
+            "reward": self.reward[:self.size],
+            "not_done": self.not_done[:self.size],
             # masks is unused in your current flow; keep for completeness
             "masks": self.masks,
 
             "intrinsic_reward": (
-                None if not self.use_intrinsic_reward else self.intrinsic_reward[:self.size].copy()
+                None if not self.use_intrinsic_reward else self.intrinsic_reward[:self.size]
             ),
             "next_obs": _convert_state_list(self.next_obs) if self.use_next_obs else None,
         }
@@ -322,15 +331,16 @@ class Memory(object):
         self.use_next_obs = bool(state["use_next_obs"])
 
         # Re-init backing storage
+        self._pinned_refs = []
         self.state = [0 for _ in range(self.max_size)]
-        self.action = np.zeros((self.max_size, self.action.shape[1])) if isinstance(self.action_dim, int) else np.zeros((self.max_size, *self.action_dim))
-        self.logprobs = np.zeros((self.max_size,)) if isinstance(self.action_dim, int) else np.zeros((self.max_size, self.action_dim[0]))
-        self.reward = np.zeros((self.max_size,))
-        self.not_done = np.zeros((self.max_size,))
+        self.action = self._alloc_buffer((self.max_size, self.action.shape[1])) if isinstance(self.action_dim, int) else self._alloc_buffer((self.max_size, *self.action_dim))
+        self.logprobs = self._alloc_buffer((self.max_size,)) if isinstance(self.action_dim, int) else self._alloc_buffer((self.max_size, self.action_dim[0]))
+        self.reward = self._alloc_buffer((self.max_size,))
+        self.not_done = self._alloc_buffer((self.max_size,))
         self.masks = state.get("masks", [])
 
         if self.use_intrinsic_reward:
-            self.intrinsic_reward = np.zeros((self.max_size,))
+            self.intrinsic_reward = self._alloc_buffer((self.max_size,))
         else:
             self.intrinsic_reward = None
 
@@ -503,18 +513,18 @@ class Memory(object):
         # state_tuple = tuple(torch.FloatTensor(np.array(state)).squeeze(1).to(self.device) for state in zip(*self.state[:self.size]))
         data['state'] = state_tuple
         data['mask'] = mask  # Store mask for variable-length states
-        data['action'] = torch.FloatTensor(self.action[:self.size]).to(self.device)
-        data['logprobs'] = torch.FloatTensor(self.logprobs[:self.size]).to(self.device)
-        data['reward'] = torch.FloatTensor(self.reward[:self.size]).to(self.device)
-        data['not_done'] = torch.FloatTensor(self.not_done[:self.size]).to(self.device)
+        data['action'] = torch.as_tensor(self.action[:self.size], dtype=torch.float32).to(self.device, non_blocking=True)
+        data['logprobs'] = torch.as_tensor(self.logprobs[:self.size], dtype=torch.float32).to(self.device, non_blocking=True)
+        data['reward'] = torch.as_tensor(self.reward[:self.size], dtype=torch.float32).to(self.device, non_blocking=True)
+        data['not_done'] = torch.as_tensor(self.not_done[:self.size], dtype=torch.float32).to(self.device, non_blocking=True)
 
         # Only add intrinsic reward if it is available
         if self.use_intrinsic_reward:
-            data['intrinsic_reward'] = torch.FloatTensor(self.intrinsic_reward[:self.size]).to(self.device)
+            data['intrinsic_reward'] = torch.as_tensor(self.intrinsic_reward[:self.size], dtype=torch.float32).to(self.device, non_blocking=True)
 
         # Only add next_obs if it is available
         if self.use_next_obs:
-            next_obs_tuple = tuple(torch.FloatTensor(np.array(state)).squeeze(1).to(self.device) for state in zip(*self.next_obs[:self.size]))
+            next_obs_tuple = tuple(torch.as_tensor(np.array(state), dtype=torch.float32).squeeze(1).to(self.device, non_blocking=True) for state in zip(*self.next_obs[:self.size]))
             data['next_obs'] = next_obs_tuple
 
         return data
@@ -529,10 +539,11 @@ class Memory(object):
         state_fields = list(zip(*selected_states))  # tuple-of-lists grouped per field
         state_tuple, mask = self.create_state_tuple(state_fields)
 
-        actions   = torch.as_tensor(np.array([self.action[i]   for i in idx]), dtype=torch.float32, device=self.device)
-        logprobs  = torch.as_tensor(np.array([self.logprobs[i] for i in idx]), dtype=torch.float32, device=self.device)
-        rewards   = torch.as_tensor(np.array([self.reward[i]   for i in idx]), dtype=torch.float32, device=self.device)
-        not_dones = torch.as_tensor(np.array([self.not_done[i] for i in idx]), dtype=torch.float32, device=self.device)
+        idx_arr = np.asarray(idx)
+        actions   = torch.as_tensor(self.action[idx_arr], dtype=torch.float32, device=self.device)
+        logprobs  = torch.as_tensor(self.logprobs[idx_arr], dtype=torch.float32, device=self.device)
+        rewards   = torch.as_tensor(self.reward[idx_arr], dtype=torch.float32, device=self.device)
+        not_dones = torch.as_tensor(self.not_done[idx_arr], dtype=torch.float32, device=self.device)
 
         out = {
             "state": state_tuple,
@@ -545,7 +556,7 @@ class Memory(object):
 
         if self.use_intrinsic_reward and len(self.intrinsic_reward) > 0:
             out["intrinsic_reward"] = torch.as_tensor(
-                np.array([self.intrinsic_reward[i] for i in idx]), dtype=torch.float32, device=self.device
+                self.intrinsic_reward[idx_arr], dtype=torch.float32, device=self.device
             )
 
         if self.use_next_obs and len(self.next_obs) > 0:
@@ -560,11 +571,11 @@ class Memory(object):
 
         # Build state tuple correctly
         state_fields = list(zip(*[self.state[i] for i in idxs]))
-        state_batch = tuple(torch.FloatTensor(np.array(field)).squeeze(1).to(self.device) for field in state_fields)
+        state_batch = tuple(torch.as_tensor(np.array(field), dtype=torch.float32).squeeze(1).to(self.device, non_blocking=True) for field in state_fields)
 
-        action_batch = torch.FloatTensor(self.action[idxs]).to(self.device)
-        reward_batch = torch.FloatTensor(self.reward[idxs]).to(self.device)
-        not_done_batch = torch.FloatTensor(self.not_done[idxs]).to(self.device)
+        action_batch = torch.as_tensor(self.action[idxs], dtype=torch.float32).to(self.device, non_blocking=True)
+        reward_batch = torch.as_tensor(self.reward[idxs], dtype=torch.float32).to(self.device, non_blocking=True)
+        not_done_batch = torch.as_tensor(self.not_done[idxs], dtype=torch.float32).to(self.device, non_blocking=True)
 
         batch = {
             'state': state_batch,
@@ -575,18 +586,19 @@ class Memory(object):
 
         if self.use_next_obs:
             next_obs_fields = list(zip(*[self.next_obs[i] for i in idxs]))
-            next_obs_batch = tuple(torch.FloatTensor(np.array(field)).squeeze(1).to(self.device) for field in next_obs_fields)
+            next_obs_batch = tuple(torch.as_tensor(np.array(field), dtype=torch.float32).squeeze(1).to(self.device, non_blocking=True) for field in next_obs_fields)
             batch['next_state'] = next_obs_batch
 
         return batch
 
     def change_horizon(self, new_horizon):
         self.max_size = new_horizon
+        self._pinned_refs = []
         self.state = [0 for _ in range(self.max_size)]
-        self.action = np.zeros((self.max_size, self.action_dim))
-        self.logprobs = np.zeros((self.max_size,))
-        self.reward = np.zeros((self.max_size,))
-        self.not_done = np.zeros((self.max_size,))
+        self.action = self._alloc_buffer((self.max_size, self.action_dim))
+        self.logprobs = self._alloc_buffer((self.max_size,))
+        self.reward = self._alloc_buffer((self.max_size,))
+        self.not_done = self._alloc_buffer((self.max_size,))
 
         # Reset optional fields
         self.intrinsic_reward = None

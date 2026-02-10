@@ -40,6 +40,10 @@ class RLConfig:
     use_tanh_dist: bool = True
     collision: bool = True
 
+    # torch.compile options
+    use_torch_compile: bool = False
+    compile_mode: str = "reduce-overhead"
+
 @dataclass
 class NoAlgorithmConfig(RLConfig):
     """

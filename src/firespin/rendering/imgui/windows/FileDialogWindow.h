@@ -23,7 +23,7 @@ namespace py = pybind11;
 
 namespace ui {
 
-class FileDialogWindow : public IWindow {
+class __attribute__((visibility("hidden"))) FileDialogWindow : public IWindow {
 public:
     FileDialogWindow(FireModelParameters& parameters,
                      std::shared_ptr<DatasetHandler> datasetHandler)

@@ -9,8 +9,6 @@ from algorithms.rl_algorithm import RLAlgorithm
 from algorithms.rl_config import PPOConfig
 from torch.utils.data.sampler import BatchSampler, SubsetRandomSampler
 
-device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
-
 class PPO(RLAlgorithm):
     """
     This class represents the PPO Algorithm. It is used to train an actor-critic network.
@@ -120,6 +118,13 @@ class PPO(RLAlgorithm):
                                          use_tanh_dist=self.use_tanh_dist,
                                          collision=self.collision)
 
+        if self.use_torch_compile:
+            try:
+                self.policy.actor = torch.compile(self.policy.actor, mode=self.compile_mode)
+                self.policy.critic = torch.compile(self.policy.critic, mode=self.compile_mode)
+            except Exception as e:
+                self.logger.warning(f"torch.compile failed, using eager mode: {e}")
+
         self.actor_params = self.policy.actor.parameters()
         self.critic_params = self.policy.critic.value.parameters() if self.share_encoder else self.policy.critic.parameters()
 
@@ -152,15 +157,17 @@ class PPO(RLAlgorithm):
         """
         # Ensure tensors are on the correct device
         if not isinstance(rewards, torch.Tensor):
-            rewards = torch.FloatTensor(rewards)
+            rewards = torch.as_tensor(rewards, dtype=torch.float32, device=self.device)
+        elif rewards.device != self.device:
+            rewards = rewards.to(self.device, non_blocking=True)
         if not isinstance(masks, torch.Tensor):
-            masks = torch.FloatTensor(masks)
+            masks = torch.as_tensor(masks, dtype=torch.float32, device=self.device)
+        elif masks.device != self.device:
+            masks = masks.to(self.device, non_blocking=True)
         if not isinstance(values, torch.Tensor):
-            values = torch.FloatTensor(values)
-
-        rewards = rewards.to(self.device)
-        masks = masks.to(self.device)
-        values = values.to(self.device)
+            values = torch.as_tensor(values, dtype=torch.float32, device=self.device)
+        elif values.device != self.device:
+            values = values.to(self.device, non_blocking=True)
 
         T = len(rewards)
         # next_values: values[1:] when bootstrapped, else zeros for terminal
@@ -224,14 +231,27 @@ class PPO(RLAlgorithm):
         # (Save BEFORE training, so if the policy worsens we can still go back)
         self.save(logger)
 
-        # Advantages
+        # Advantages — single batched evaluate across all agents
         with (torch.no_grad()):
+            all_states = memory.rearrange_states(states)
+            all_actions = torch.cat(actions)
+            all_mask_arg = (
+                torch.cat(variable_state_masks)
+                if self.use_variable_state_masks and len(variable_state_masks[0]) > 0
+                else None
+            )
+            _, all_values, _ = self.policy.evaluate(all_states, all_actions, all_mask_arg)
+
+            # Split values back per-agent for bootstrap + GAE
+            agent_sizes = [actions[i].shape[0] for i in range(memory.num_agents)]
+            values_per_agent = torch.split(all_values.squeeze(-1), agent_sizes)
+
             advantages = []
             returns = []
             for i in range(memory.num_agents):
-                _, values_, _ = self.policy.evaluate(states[i], actions[i], variable_state_masks[0] if self.use_variable_state_masks and len(variable_state_masks[0]) > 0 else None)
+                values_ = values_per_agent[i]
                 if masks[i][-1] == 1:
-                    last_state = tuple(torch.FloatTensor(np.array(state)).to(self.device) if np.array(state).dtype!=bool else torch.BoolTensor(np.array(state)).to(self.device) for state in memory.get_agent_state(next_obs, i))
+                    last_state = tuple(torch.as_tensor(np.array(state), dtype=torch.float32).to(self.device, non_blocking=True) if np.array(state).dtype != bool else torch.as_tensor(np.array(state), dtype=torch.bool).to(self.device, non_blocking=True) for state in memory.get_agent_state(next_obs, i))
                     bootstrapped_value = self.policy.critic(last_state).detach()
                     if bootstrapped_value.dim() != 1:
                         bootstrapped_value = bootstrapped_value.mean(dim=1)
@@ -243,12 +263,12 @@ class PPO(RLAlgorithm):
                 advantages.append(adv)
                 returns.append(ret)
 
-        # Merge all agent states, actions, rewards etc.
+        # Merge advantages/returns; reuse already-merged states and actions
         advantages = torch.cat(advantages)
         returns = torch.cat(returns)
-        actions = torch.cat(actions)
         old_logprobs = torch.cat(old_logprobs).detach()
-        states = memory.rearrange_states(states)
+        states = all_states
+        actions = all_actions
         #v_masks = memory.rearrange_masks(variable_state_masks) if self.use_variable_state_masks else None
         logger.add_metric("Rewards/Returns", returns.detach().cpu().numpy())
         logger.add_metric("Rewards/Advantages", advantages.detach().cpu().numpy())

@@ -100,8 +100,6 @@ private:
                 ImGui::MenuItem("RL Status", nullptr, showRLStatus_);
             if (showParameterConfig_)
                 ImGui::MenuItem("Parameter Config", nullptr, showParameterConfig_);
-            if (parameters_.has_noise_ && showNoiseConfig_)
-                ImGui::MenuItem("Noise Config", nullptr, showNoiseConfig_);
 
             ImGui::Separator();
 
@@ -127,6 +125,8 @@ private:
 
     void RenderHelpMenu() {
         if (ImGui::BeginMenu("Help")) {
+            if (parameters_.has_noise_ && showNoiseConfig_)
+                ImGui::MenuItem("Noise Config", nullptr, showNoiseConfig_);
             if (showDemoWindow_)
                 ImGui::MenuItem("ImGui Help", nullptr, showDemoWindow_);
             ImGui::EndMenu();

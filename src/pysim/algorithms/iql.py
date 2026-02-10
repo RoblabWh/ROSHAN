@@ -60,6 +60,13 @@ class IQL(RLAlgorithm):
                                      share_encoder=self.share_encoder,
                                      use_tanh_dist=self.use_tanh_dist,
                                      collision=self.collision)
+        if self.use_torch_compile:
+            try:
+                self.policy.actor = torch.compile(self.policy.actor, mode=self.compile_mode)
+                self.policy.critic = torch.compile(self.policy.critic, mode=self.compile_mode)
+                self.policy.value = torch.compile(self.policy.value, mode=self.compile_mode)
+            except Exception as e:
+                self.logger.warning(f"torch.compile failed, using eager mode: {e}")
         # Target Q network
         self.critic_target = copy.deepcopy(self.policy.critic)
 
@@ -125,8 +132,7 @@ class IQL(RLAlgorithm):
         self.value_scheduler.step()
 
         logger.add_metric("train/value_LR", self.value_scheduler.get_last_lr())
-        logger.add_metric("train/value_loss", value_loss.detach().cpu().numpy())
-        logger.add_metric("train/v", v.mean().detach().cpu().numpy())
+        return value_loss.detach(), v.mean().detach()
 
     def update_q(self, states, actions, rewards, next_states, not_dones, logger=None):
         with torch.no_grad():
@@ -142,9 +148,7 @@ class IQL(RLAlgorithm):
         self.critic_scheduler.step()
 
         logger.add_metric("train/critic_LR", self.critic_scheduler.get_last_lr())
-        logger.add_metric("train/critic_loss", critic_loss.detach().cpu().numpy())
-        logger.add_metric("train/q1", q1.mean().detach().cpu().numpy())
-        logger.add_metric("train/q2", q2.mean().detach().cpu().numpy())
+        return critic_loss.detach(), q1.mean().detach(), q2.mean().detach()
 
     @torch.no_grad()
     def update_target(self):
@@ -156,7 +160,8 @@ class IQL(RLAlgorithm):
             v = self.policy.value(states)
             q1, q2 = self.critic_target(states, actions)
             q = torch.minimum(q1, q2)
-            exp_a = torch.exp((q - v) * self.temperature)
+            adv = (q - v)
+            exp_a = torch.exp(adv * self.temperature)
             exp_a = torch.clamp(exp_a, max=100.0).squeeze(-1).detach()
 
         action_log_prob = self.policy.get_logprobs(states, actions)
@@ -172,8 +177,7 @@ class IQL(RLAlgorithm):
         self.actor_scheduler.step()
 
         logger.add_metric("train/actor_LR", self.actor_scheduler.get_last_lr())
-        logger.add_metric("train/actor_loss", actor_loss.detach().cpu().numpy())
-        logger.add_metric("train/advantage", (q - v).mean().detach().cpu().numpy())
+        return actor_loss.detach(), adv.mean().detach()
 
     def get_batches_and_epochs(self, N, batch_size):
         batches_per_epoch = math.ceil(N / batch_size) if not self.offline_end else 1
@@ -204,6 +208,10 @@ class IQL(RLAlgorithm):
         N = rewards.shape[0]
         batches_per_epoch, epochs = self.get_batches_and_epochs(N, batch_size)
 
+        _log_value_loss, _log_v = [], []
+        _log_critic_loss, _log_q1, _log_q2 = [], [], []
+        _log_actor_loss, _log_advantage = [], []
+
         for epoch in range(epochs):
             perm = torch.randperm(N)
             for i in range(batches_per_epoch):
@@ -215,7 +223,24 @@ class IQL(RLAlgorithm):
                 b_not_dones = not_dones[batch_idx]
 
                 # Update
-                self.update_v(b_states, b_actions, logger)
-                self.update_q(b_states, b_actions, b_rewards, b_next_states, b_not_dones, logger)
-                self.update_actor(b_states, b_actions, logger)
+                vl, v = self.update_v(b_states, b_actions, logger)
+                cl, q1, q2 = self.update_q(b_states, b_actions, b_rewards, b_next_states, b_not_dones, logger)
+                al, adv = self.update_actor(b_states, b_actions, logger)
                 self.update_target()
+
+                _log_value_loss.append(vl)
+                _log_v.append(v)
+                _log_critic_loss.append(cl)
+                _log_q1.append(q1)
+                _log_q2.append(q2)
+                _log_actor_loss.append(al)
+                _log_advantage.append(adv)
+
+        # Single GPU->CPU sync for all accumulated metrics
+        logger.add_metric("train/value_loss", torch.stack(_log_value_loss).cpu().numpy())
+        logger.add_metric("train/v", torch.stack(_log_v).cpu().numpy())
+        logger.add_metric("train/critic_loss", torch.stack(_log_critic_loss).cpu().numpy())
+        logger.add_metric("train/q1", torch.stack(_log_q1).cpu().numpy())
+        logger.add_metric("train/q2", torch.stack(_log_q2).cpu().numpy())
+        logger.add_metric("train/actor_loss", torch.stack(_log_actor_loss).cpu().numpy())
+        logger.add_metric("train/advantage", torch.stack(_log_advantage).cpu().numpy())

@@ -54,6 +54,12 @@ class TD3(RLAlgorithm):
             exploration_noise=self.exploration_noise,
             collision=self.collision,
         )
+        if self.use_torch_compile:
+            try:
+                self.policy.actor = torch.compile(self.policy.actor, mode=self.compile_mode)
+                self.policy.critic = torch.compile(self.policy.critic, mode=self.compile_mode)
+            except Exception as e:
+                self.logger.warning(f"torch.compile failed, using eager mode: {e}")
         self.actor_target = copy.deepcopy(self.policy.actor)
         self.critic_target = copy.deepcopy(self.policy.critic)
 
@@ -118,6 +124,9 @@ class TD3(RLAlgorithm):
         # (Save BEFORE training, so if the policy worsens we can still go back)
         self.save(logger)
 
+        _log_critic_loss = []
+        _log_actor_loss = []
+
         for _ in range(self.k_epochs):
             # perm = torch.randperm(N)
             # batch_idx = perm[0:batch_size]
@@ -145,7 +154,7 @@ class TD3(RLAlgorithm):
 
             # Compute critic loss
             critic_loss = self.MSE_loss(current_Q1, target_Q) + self.MSE_loss(current_Q2, target_Q)
-            logger.add_metric("Training/critic_loss", critic_loss.detach().cpu().numpy())
+            _log_critic_loss.append(critic_loss.detach())
             # Optimize the critic
             self.critic_optimizer.zero_grad()
             critic_loss.backward()
@@ -158,7 +167,7 @@ class TD3(RLAlgorithm):
 
                 # Compute actor loss
                 actor_loss = -self.policy.critic.Q1(b_states, self.policy.actor(b_states)).mean()
-                logger.add_metric("Training/actor_loss", actor_loss.detach().cpu().numpy())
+                _log_actor_loss.append(actor_loss.detach())
 
                 # Optimize the actor
                 self.actor_optimizer.zero_grad()
@@ -174,3 +183,8 @@ class TD3(RLAlgorithm):
 
                     for param, target_param in zip(self.policy.actor.parameters(), self.actor_target.parameters()):
                         target_param.data.copy_(self.tau * param.data + (1 - self.tau) * target_param.data)
+
+        # Single GPU->CPU sync for accumulated metrics
+        logger.add_metric("Training/critic_loss", torch.stack(_log_critic_loss).cpu().numpy())
+        if _log_actor_loss:
+            logger.add_metric("Training/actor_loss", torch.stack(_log_actor_loss).cpu().numpy())

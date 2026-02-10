@@ -19,7 +19,7 @@ namespace ui {
 // These will be replaced with actual includes in implementation files
 
 // Callback group for RL-related operations
-struct RLCallbacks {
+struct __attribute__((visibility("hidden"))) RLCallbacks {
     std::function<py::dict()> getRLStatus;
     std::function<void(py::dict)> setRLStatus;
     std::function<void()> resetDrones;
@@ -44,7 +44,7 @@ struct FireCallbacks {
 };
 
 // Central callbacks container that aggregates all callback groups
-struct UICallbacks {
+struct __attribute__((visibility("hidden"))) UICallbacks {
     RLCallbacks rl;
     GridMapCallbacks gridMap;
     DroneCallbacks drone;

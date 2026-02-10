@@ -38,7 +38,7 @@ namespace py = pybind11;
 
 namespace ui {
 
-class RLStatusWindow : public IWindow {
+class __attribute__((visibility("hidden"))) RLStatusWindow : public IWindow {
 public:
     RLStatusWindow(FireModelParameters& parameters,
                    std::shared_ptr<GridMap> gridmap,

@@ -223,7 +223,7 @@ bool UIManager::ImGuiOnStartup(const std::shared_ptr<FireModelRenderer>& modelRe
         startupWizard_->SetRenderer(modelRenderer);
         startupWizard_->SetRasterData(&currentRasterData);
         startupWizard_->Render();
-        return startupWizard_->IsVisible();
+        return !state_.startup.modelStartupComplete;
     }
 
     if (!state_.startup.modelStartupComplete) {

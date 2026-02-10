@@ -75,6 +75,11 @@ algorithm:
   # Note: This leads to log_prob issues and suboptimal policies
   # TanhNormal is generally preferred as it naturally bounds the actions within the action space limits
   use_tanh_dist: true
+  # JIT-compile actor/critic networks with torch.compile() for faster forward/backward passes
+  # First episode will be slower due to compilation; subsequent episodes 10-30% faster
+  use_torch_compile: true
+  # Compilation mode: "reduce-overhead" (best for small models), "default", or "max-autotune"
+  compile_mode: "reduce-overhead"
   PPO:
     # Size of the Replay Buffer 
     # Gets cleaned up after each training episode

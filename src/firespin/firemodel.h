@@ -27,7 +27,7 @@
 
 namespace py = pybind11;
 
-class FireModel : public IModel{
+class __attribute__((visibility("hidden"))) FireModel : public IModel{
 public:
     explicit FireModel(Mode mode, const std::string& config_path);
 

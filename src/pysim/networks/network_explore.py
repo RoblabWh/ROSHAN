@@ -10,28 +10,28 @@ class CNNSpatialEncoder(nn.Module):
         super().__init__()
         self.cnn_layers = nn.Sequential(
             nn.Conv2d(in_channels, 32, kernel_size=3, padding=1),
-            nn.ReLU(),
+            nn.ReLU(inplace=True),
             nn.Conv2d(32, 64, kernel_size=3, padding=1),
-            nn.ReLU(),
+            nn.ReLU(inplace=True),
             nn.MaxPool2d(2),  # Downsample (W,H)/2
 
             nn.Conv2d(64, 128, kernel_size=3, padding=1),
-            nn.ReLU(),
+            nn.ReLU(inplace=True),
             nn.Conv2d(128, 128, kernel_size=3, padding=1),
-            nn.ReLU(),
+            nn.ReLU(inplace=True),
             nn.MaxPool2d(2),  # Downsample again (W,H)/4
 
             nn.Conv2d(128, 256, kernel_size=3, padding=1),
-            nn.ReLU(),
+            nn.ReLU(inplace=True),
             nn.AdaptiveAvgPool2d((4, 4))  # Fixed spatial dimension
         )
 
         self.flatten = nn.Flatten()
         self.fc = nn.Sequential(
             nn.Linear(256 * 4 * 4, 512),
-            nn.ReLU(),
+            nn.ReLU(inplace=True),
             nn.Linear(512, out_features),
-            nn.ReLU()
+            nn.ReLU(inplace=True)
         )
 
     def forward(self, x):
@@ -61,13 +61,13 @@ class Inputspace(nn.Module):
         self.feature_extractor = CNNSpatialEncoder(self.time_steps, spatial_outfeatures)
         self.mlp_pos = nn.Sequential(
             nn.Linear(self.time_steps, 64),
-            nn.ReLU(),
+            nn.ReLU(inplace=True),
             nn.Linear(64, position_outfeatures)
         )
         # Final linear layer to merge features
         self.merge_layer = nn.Sequential(
             nn.Linear(spatial_outfeatures + position_outfeatures, self.out_features),
-            nn.ReLU(),
+            nn.ReLU(inplace=True),
         )
 
     def _ensure_tensor(self, x, dtype=torch.float32):

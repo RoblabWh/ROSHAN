@@ -38,7 +38,7 @@ namespace py = pybind11;
 
 namespace ui {
 
-class UIManager {
+class __attribute__((visibility("hidden"))) UIManager {
 public:
     UIManager(Mode mode, FireModelParameters& parameters);
 
