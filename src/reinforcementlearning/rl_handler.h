@@ -6,6 +6,7 @@
 #define ROSHAN_REINFORCEMENTLEARNING_HANDLER_H
 
 #include <shared_mutex>
+#include <array>
 #include <deque>
 #include <utility>
 #include <vector>
@@ -83,10 +84,17 @@ inline void findCollisions(const std::vector<std::shared_ptr<FlyAgent>>& agents,
         agent->AppendDistance(bvec_norm);  // e.g., store alongside neighbor features
         agent->AppendMask(mask);
     }
+    // Cache agent positions to avoid repeated virtual calls
+    std::vector<std::pair<double,double>> positions(n);
+    for (int i = 0; i < n; ++i) {
+        positions[i] = agents[i]->GetGridPositionDouble();
+    }
+
     for (int i = 0; i < n; ++i) {
         for (int j = i+1; j < n; ++j) {
-            auto vec_dist = dist_vec(agents[i]->GetGridPositionDouble(), agents[j]->GetGridPositionDouble());
-            if (std::fabs(vec_dist.first) < view_range_h && std::fabs(vec_dist.second) < view_range_h) {
+            const double dx = positions[j].first  - positions[i].first;
+            const double dy = positions[j].second - positions[i].second;
+            if (std::fabs(dx) < view_range_h && std::fabs(dy) < view_range_h) {
                 std::pair<double, double> a_j_dvx;
                 std::pair<double, double> a_i_dvx;
                 // If this is a reset or init we don't have set the speed to normalize yet (BAD but works for now)
@@ -98,11 +106,13 @@ inline void findCollisions(const std::vector<std::shared_ptr<FlyAgent>>& agents,
                     a_i_dvx = {0.0, 0.0};
                 }
 
-                agents[i]->AppendDistance({vec_dist.first / view_range, vec_dist.second / view_range, a_j_dvx.first, a_j_dvx.second});
-                agents[j]->AppendDistance({-vec_dist.first / view_range, -vec_dist.second / view_range, a_i_dvx.first, a_i_dvx.second});
+                agents[i]->AppendDistance({dx / view_range, dy / view_range, a_j_dvx.first, a_j_dvx.second});
+                agents[j]->AppendDistance({-dx / view_range, -dy / view_range, a_i_dvx.first, a_i_dvx.second});
                 agents[i]->AppendMask(true);
                 agents[j]->AppendMask(true);
-                if (circlesCollide(dist2(agents[i]->GetGridPositionDouble(), agents[j]->GetGridPositionDouble()), agents[i]->GetDroneSize(), agents[j]->GetDroneSize())) {
+                // Reuse already-computed dx/dy for collision check instead of calling dist2 again
+                const double d_sq = dx * dx + dy * dy;
+                if (circlesCollide(d_sq, agents[i]->GetDroneSize(), agents[j]->GetDroneSize())) {
                     hits.emplace_back(i, j);
                 }
             } else {
@@ -161,40 +171,15 @@ public:
     std::shared_ptr<std::vector<std::shared_ptr<FlyAgent>>> GetDrones() {
         auto fly_agents = std::make_shared<std::vector<std::shared_ptr<FlyAgent>>>();
 
-        bool fly_agents_exist = agents_by_type_.find("fly_agent") != agents_by_type_.end();
-        bool explore_fly_agents_exist = agents_by_type_.find("ExploreFlyAgent") != agents_by_type_.end();
-        bool planner_fly_agents_exist = agents_by_type_.find("PlannerFlyAgent") != agents_by_type_.end();
-        if (!fly_agents_exist && !explore_fly_agents_exist && !planner_fly_agents_exist) {
-            return std::make_shared<std::vector<std::shared_ptr<FlyAgent>>>();
-        }
-        if (fly_agents_exist) {
-            for(const auto& agent : agents_by_type_["fly_agent"]) {
-                auto fly_agent = std::dynamic_pointer_cast<FlyAgent>(agent);
-                if (fly_agent){
-                    fly_agents->push_back(std::shared_ptr<FlyAgent>(fly_agent));
-                } else {
-                    std::cerr << "Non-fly_agent is not a fly_agent!\n";
-                }
-            }
-        }
-        if (explore_fly_agents_exist) {
-            for(const auto& agent : agents_by_type_["ExploreFlyAgent"]) {
-                auto fly_agent = std::dynamic_pointer_cast<FlyAgent>(agent);
-                if (fly_agent){
-                    fly_agents->push_back(std::shared_ptr<FlyAgent>(fly_agent));
-                } else {
-                    std::cerr << "Non-FlyAgent is not a FlyAgent!\n";
-                }
-            }
-        }
-        if (planner_fly_agents_exist) {
-            for(const auto& agent : agents_by_type_["PlannerFlyAgent"]) {
-                auto fly_agent = std::dynamic_pointer_cast<FlyAgent>(agent);
-                if (fly_agent){
-                    fly_agents->push_back(std::shared_ptr<FlyAgent>(fly_agent));
-                } else {
-                    std::cerr << "Non-FlyAgent is not a FlyAgent!\n";
-                }
+        // Use CastAgents helper to avoid repeated dynamic_pointer_cast loops
+        static const std::array<const char*, 3> bucket_keys = {"fly_agent", "ExploreFlyAgent", "PlannerFlyAgent"};
+        for (const auto* key : bucket_keys) {
+            auto it = agents_by_type_.find(key);
+            if (it != agents_by_type_.end() && !it->second.empty()) {
+                auto casted = CastAgents<FlyAgent>(it->second);
+                fly_agents->insert(fly_agents->end(),
+                                   std::make_move_iterator(casted.begin()),
+                                   std::make_move_iterator(casted.end()));
             }
         }
         return fly_agents;

@@ -12,16 +12,27 @@
 namespace {
     constexpr double kMinZoom = 0.1;
     constexpr double kMaxZoom = 10.0;
+    constexpr double kSmoothFactor = 0.15;
+    constexpr double kSnapThreshold = 0.001;
 }
 
 class FireModelCamera {
 public:
-    FireModelCamera() : x_(0), y_(0), zoom_(1.0), camera_speed_(0.3) {};
+    FireModelCamera()
+        : x_(0), y_(0), zoom_(1.0), camera_speed_(0.3),
+          target_x_(0), target_y_(0), target_zoom_(1.0) {};
+
     void Move(double dx, double dy);
     void Zoom(double factor);
+    void ZoomToPoint(double factor, int mouseX, int mouseY, int rows, int cols);
+    void ResetView();
+
     [[nodiscard]] double GetX() const { return x_; }
     [[nodiscard]] double GetY() const { return y_; }
     [[nodiscard]] double GetZoom() const { return zoom_; }
+    [[nodiscard]] double GetTargetZoom() const { return target_zoom_; }
+    [[nodiscard]] bool IsAnimating() const;
+
     void SetCellSize(int rows, int cols);
     [[nodiscard]] double GetCellSize() const { return cell_size_; }
     void SetOffset(int rows, int cols);
@@ -34,7 +45,11 @@ public:
 
     [[nodiscard]] std::pair<int, int> ScreenToGridPosition(int screenX, int screenY) const;
     [[nodiscard]] std::pair<int, int> GridToScreenPosition(double worldX, double worldY) const;
+
+    void SetTarget(double x, double y) { target_x_ = x; target_y_ = y; }
+
 private:
+    // Current state (used for rendering, interpolated each frame)
     double x_;
     double y_;
     double zoom_;
@@ -44,6 +59,11 @@ private:
     double offset_y_{};
     double viewport_width_{};
     double viewport_height_{};
+
+    // Target state (set by input, camera lerps toward this)
+    double target_x_;
+    double target_y_;
+    double target_zoom_;
 };
 
 

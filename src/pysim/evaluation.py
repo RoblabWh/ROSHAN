@@ -537,6 +537,7 @@ class TensorboardLogger:
         self.histograms.clear()
         self.episode_ended = False
         self.logging_step += 1
+        self.writer.flush()
         self.save_state()
 
     def log_hparams(self, hparams: dict):

@@ -19,6 +19,7 @@ struct WindowVisibility {
     bool demoWindow = false;
     bool simulationControls = false;
     bool rlStatus = true;
+    bool controlPanel = true;
     bool parameterConfig = false;
     bool noiseConfig = false;
 };

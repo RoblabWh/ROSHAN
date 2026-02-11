@@ -19,7 +19,7 @@ GridMap::GridMap(std::shared_ptr<Wind> wind, FireModelParameters &parameters,
     explored_map_ = std::vector<std::vector<int>>(rows, std::vector<int>(cols, 0));
     step_explored_map_ = std::vector<std::vector<int>>(rows, std::vector<int>(cols, 0));
     fire_map_ = std::vector<std::vector<int>>(rows, std::vector<int>(cols, 0));
-    visited_cells_ = std::vector<std::vector<bool>>(rows, std::vector<bool>(cols, false));
+    visited_cells_ = std::vector<std::vector<uint32_t>>(rows, std::vector<uint32_t>(cols, 0));
 
 #pragma omp parallel for collapse(2)
     for (int x = 0; x < rows; ++x) {
@@ -37,12 +37,15 @@ GridMap::GridMap(std::shared_ptr<Wind> wind, FireModelParameters &parameters,
     x_off_ = 2 * (1 - ((rows_ - 0.5) / rows_));
     num_burned_cells_ = 0;
     num_unburnable_ = this->GetNumUnburnableCells();
-    virtual_particles_.reserve(100000);
-    radiation_particles_.reserve(100000);
-    ticking_cells_.reserve(100000);
-    burning_cells_.reserve(100000);
-    changed_cells_.reserve(100000);
-    flooded_cells_.reserve(1000);
+    // Scale reservations to map size instead of fixed 100K
+    const size_t particle_reserve = std::min(static_cast<size_t>(num_cells_) * 3, static_cast<size_t>(100000));
+    const size_t cell_reserve = std::min(static_cast<size_t>(num_cells_), static_cast<size_t>(100000));
+    virtual_particles_.reserve(particle_reserve);
+    radiation_particles_.reserve(particle_reserve);
+    ticking_cells_.reserve(cell_reserve);
+    burning_cells_.reserve(cell_reserve);
+    changed_cells_.reserve(cell_reserve);
+    flooded_cells_.reserve(std::min(static_cast<size_t>(num_cells_) / 10, static_cast<size_t>(1000)));
 
     noise_generated_ = false;
     last_has_noise_ = parameters_.has_noise_;
@@ -57,7 +60,7 @@ void GridMap::Reset(std::vector<std::vector<int>>* rasterData) {
         explored_map_.assign(rows, std::vector<int>(cols, 0));
         step_explored_map_.assign(rows, std::vector<int>(cols, 0));
         fire_map_.assign(rows, std::vector<int>(cols, 0));
-        visited_cells_.assign(rows, std::vector<bool>(cols, false));
+        visited_cells_.assign(rows, std::vector<uint32_t>(cols, 0));
         cols_ = cols;
         rows_ = rows;
     }
@@ -73,7 +76,7 @@ void GridMap::Reset(std::vector<std::vector<int>>* rasterData) {
             explored_map_[x][y] = 0;
             step_explored_map_[x][y] = 0;
             fire_map_[x][y] = 0;
-            visited_cells_[x][y] = false;
+            visited_cells_[x][y] = 0;
         }
     }
 
@@ -96,7 +99,7 @@ void GridMap::Reset(std::vector<std::vector<int>>* rasterData) {
 
 
 template <typename ParticleType>
-void GridMap::UpdateVirtualParticles(std::vector<ParticleType> &particles, std::vector<std::vector<bool>> &visited_cells) {
+void GridMap::UpdateVirtualParticles(std::vector<ParticleType> &particles, std::vector<std::vector<uint32_t>> &visited_cells) {
     size_t part = 0;
     while (part < particles.size()) {
         auto &particle = particles[part];
@@ -119,7 +122,7 @@ void GridMap::UpdateVirtualParticles(std::vector<ParticleType> &particles, std::
         }
 
         Point p = Point(i, j);
-        visited_cells[p.x_][p.y_] = true;
+        visited_cells[p.x_][p.y_] = visited_epoch_;
         if (CellCanIgnite(p.x_, p.y_)) {
             ticking_cells_.insert(p);
         }
@@ -129,15 +132,22 @@ void GridMap::UpdateVirtualParticles(std::vector<ParticleType> &particles, std::
 }
 
 void GridMap::UpdateParticles() {
-    for (auto &row : visited_cells_) {
-        std::fill(row.begin(), row.end(), false);
+    // Increment epoch instead of clearing the entire 2D matrix — O(1) vs O(rows*cols)
+    ++visited_epoch_;
+    // Handle epoch wraparound (extremely unlikely: every ~4 billion frames)
+    if (visited_epoch_ == 0) {
+        for (auto &row : visited_cells_) {
+            std::fill(row.begin(), row.end(), static_cast<uint32_t>(0));
+        }
+        visited_epoch_ = 1;
     }
+
     UpdateVirtualParticles(virtual_particles_, visited_cells_);
     UpdateVirtualParticles(radiation_particles_, visited_cells_);
 
     for (auto it = ticking_cells_.begin(); it != ticking_cells_.end(); ) {
-        // If cell is not visited, remove it from ticking cells
-        if (!visited_cells_[it->x_][it->y_]) {
+        // If cell is not visited in this epoch, remove it from ticking cells
+        if (visited_cells_[it->x_][it->y_] != visited_epoch_) {
             it = ticking_cells_.erase(it);
         } else {
             ++it;
@@ -185,18 +195,17 @@ std::pair<double, double> GridMap::GetNextFire(std::pair<int, int> drone_positio
         return {st.first, st.second};
     }
 
-    double min_distance = std::numeric_limits<double>::max();
+    double min_distance_sq = std::numeric_limits<double>::max();
     int best_x = -1, best_y = -1;
 
-    for (auto cell : possible_fires) {
+    for (const auto& cell : possible_fires) {
         const int64_t id = idx(cell.x_, cell.y_);
         if (reserved_positions_.count(id)) continue;
 
-        double distance = sqrt(
-                pow(cell.x_ - drone_position.first, 2) +
-                pow(cell.y_ - drone_position.second, 2)
-        );
-        if (distance < min_distance) { min_distance = distance; best_x = cell.x_; best_y = cell.y_; }
+        double dx = cell.x_ - drone_position.first;
+        double dy = cell.y_ - drone_position.second;
+        double distance_sq = dx * dx + dy * dy;
+        if (distance_sq < min_distance_sq) { min_distance_sq = distance_sq; best_x = cell.x_; best_y = cell.y_; }
     }
 
     if (best_x != -1) {
@@ -230,10 +239,9 @@ void GridMap::UpdateCells() {
             ++it;
         }
         changed_cells_.emplace_back(x, y);
-        auto neighbors = GetMooreNeighborhood(x, y);
-        for (const auto& neighbor : neighbors) {
-            changed_cells_.emplace_back(neighbor.first, neighbor.second);
-        }
+        ForEachMooreNeighbor(x, y, [this](int nx, int ny) {
+            changed_cells_.emplace_back(nx, ny);
+        });
     }
     // Iterate over ticking cells and ignite them if their ignition time has come
     for (auto it = ticking_cells_.begin(); it != ticking_cells_.end(); ) {
@@ -274,10 +282,9 @@ void GridMap::UpdateCells() {
             num_burned_cells_++;
             it = burning_cells_.erase(it);
             changed_cells_.emplace_back(x, y);
-            auto neighbors = GetMooreNeighborhood(x, y);
-            for (const auto& neighbor : neighbors) {
-                changed_cells_.emplace_back(neighbor.first, neighbor.second);
-            }
+            ForEachMooreNeighbor(x, y, [this](int nx, int ny) {
+                changed_cells_.emplace_back(nx, ny);
+            });
         } else {
             ++it;
         }
@@ -292,11 +299,10 @@ bool GridMap::WaterDispension(int x, int y) {
         burning_cells_.erase(Point(x, y));
         EraseParticles(x, y);
         changed_cells_.emplace_back(x, y);
-        auto neighbors = GetMooreNeighborhood(x, y);
-        for (const auto& neighbor : neighbors) {
-            changed_cells_.emplace_back(neighbor.first, neighbor.second);
-        }
-        
+        ForEachMooreNeighbor(x, y, [this](int nx, int ny) {
+            changed_cells_.emplace_back(nx, ny);
+        });
+
         flooded_cells_.insert(Point(x, y));
         cells_[x][y]->Flood();
         flooded_cells_.insert(Point(x, y));
@@ -310,10 +316,9 @@ bool GridMap::WaterDispension(int x, int y) {
         cells_[x][y]->Flood();
         EraseParticles(x, y);
         changed_cells_.emplace_back(x, y);
-        auto neighbors = GetMooreNeighborhood(x, y);
-        for (const auto& neighbor : neighbors) {
-            changed_cells_.emplace_back(neighbor.first, neighbor.second);
-        }
+        ForEachMooreNeighbor(x, y, [this](int nx, int ny) {
+            changed_cells_.emplace_back(nx, ny);
+        });
         // There was no fire in the cell so flood the cell and return false
         return false;
     }
@@ -351,10 +356,9 @@ void GridMap::ExtinguishCell(int x, int y) {
     EraseParticles(x, y);
 
     changed_cells_.emplace_back(x, y);
-    auto neighbors = GetMooreNeighborhood(x, y);
-    for (const auto& neighbor : neighbors) {
-        changed_cells_.emplace_back(neighbor.first, neighbor.second);
-    }
+    ForEachMooreNeighbor(x, y, [this](int nx, int ny) {
+        changed_cells_.emplace_back(nx, ny);
+    });
 }
 
 std::shared_ptr<const std::vector<std::vector<std::vector<int>>>> GridMap::GetDroneView(std::pair<int, int> drone_position, int drone_view_radius) {
@@ -746,4 +750,17 @@ std::unordered_set<Point> GridMap::GetRawFirePositionsFromFireMap() const {
         }
     }
     return fire_positions;
+}
+
+std::pair<double, double> GridMap::GetFireCentroid() const {
+    if (burning_cells_.empty()) {
+        return {rows_ / 2.0, cols_ / 2.0};
+    }
+    double sum_x = 0.0, sum_y = 0.0;
+    for (const auto& cell : burning_cells_) {
+        sum_x += cell.x_ + 0.5;
+        sum_y += cell.y_ + 0.5;
+    }
+    double n = static_cast<double>(burning_cells_.size());
+    return {sum_x / n, sum_y / n};
 }

@@ -1,15 +1,13 @@
 //
-// RLStatusWindow.h - Reinforcement Learning status window
+// ControlPanelWindow.h - Merged Control Panel for GUI_RL mode
 //
-// Comprehensive RL control panel with:
-// - Mode toggle (train/eval)
-// - Progress bars with speed metrics
-// - Metrics overview
-// - Tabbed interface for agents, logging, environment, settings
+// Combines SimulationControlsWindow and RLStatusWindow into a single,
+// unified window with compact header, progress bars, and 5 tabs:
+//   Agents | Environment | Simulation | Log | Settings
 //
 
-#ifndef ROSHAN_RLSTATUSWINDOW_H
-#define ROSHAN_RLSTATUSWINDOW_H
+#ifndef ROSHAN_CONTROLPANELWINDOW_H
+#define ROSHAN_CONTROLPANELWINDOW_H
 
 #include "IWindow.h"
 #include "../UITypes.h"
@@ -38,12 +36,12 @@ namespace py = pybind11;
 
 namespace ui {
 
-class __attribute__((visibility("hidden"))) RLStatusWindow : public IWindow {
+class __attribute__((visibility("hidden"))) ControlPanelWindow : public IWindow {
 public:
-    RLStatusWindow(FireModelParameters& parameters,
-                   std::shared_ptr<GridMap> gridmap,
-                   std::shared_ptr<FireModelRenderer> renderer,
-                   Mode mode)
+    ControlPanelWindow(FireModelParameters& parameters,
+                       std::shared_ptr<GridMap> gridmap,
+                       std::shared_ptr<FireModelRenderer> renderer,
+                       Mode mode)
         : parameters_(parameters)
         , gridmap_(std::move(gridmap))
         , renderer_(std::move(renderer))
@@ -54,10 +52,10 @@ public:
 
         py::dict rlStatus = getRLStatus_();
 
-        ImGui::SetNextWindowSize(ImVec2(500, 650), ImGuiCond_FirstUseEver);
-        ImGui::Begin("RL Control Panel", &visible_);
+        ImGui::SetNextWindowSize(ImVec2(540, 680), ImGuiCond_FirstUseEver);
+        ImGui::Begin("Control Panel", &visible_);
 
-        RenderModeToggle(rlStatus);
+        RenderHeader(rlStatus);
         ImGui::Spacing();
         RenderProgressSection(rlStatus);
         ImGui::Spacing();
@@ -72,11 +70,11 @@ public:
 
     bool IsVisible() const override { return visible_; }
     void SetVisible(bool visible) override { visible_ = visible; }
-    const char* GetName() const override { return "RL Control Panel"; }
+    const char* GetName() const override { return "Control Panel"; }
 
     void SetStartupComplete(bool complete) { startupComplete_ = complete; }
 
-    // Callbacks
+    // RL callbacks
     void SetRLStatusCallbacks(std::function<py::dict()> get, std::function<void(py::dict)> set) {
         getRLStatus_ = std::move(get);
         setRLStatus_ = std::move(set);
@@ -85,11 +83,20 @@ public:
     void SetResetDronesCallback(std::function<void()> cb) { onResetDrones_ = std::move(cb); }
     void SetStartFiresCallback(std::function<void()> cb) { onStartFires_ = std::move(cb); }
     void SetFileDialogCallback(std::function<void(const std::string&)> cb) { onOpenFileDialog_ = std::move(cb); }
+    void SetResetGridMapCallback(std::function<void(std::vector<std::vector<int>>*, bool)> cb) { onResetGridMap_ = std::move(cb); }
 
     // Update references
     void SetGridMap(std::shared_ptr<GridMap> gridmap) { gridmap_ = std::move(gridmap); }
     void SetRenderer(std::shared_ptr<FireModelRenderer> renderer) { renderer_ = std::move(renderer); }
     void SetDrones(std::shared_ptr<std::vector<std::shared_ptr<FlyAgent>>> drones) { drones_ = std::move(drones); }
+
+    // Simulation control pointers
+    void SetUpdateSimulation(bool* update) { updateSimulation_ = update; }
+    void SetRenderSimulation(bool* render) { renderSimulation_ = render; }
+    void SetDelay(int* delay) { delay_ = delay; }
+    void SetFramerate(float framerate) { framerate_ = framerate; }
+    void SetRunningTime(double time) { runningTime_ = time; }
+    void SetRasterData(std::vector<std::vector<int>>* data) { rasterData_ = data; }
 
     // User input/output for ROSHAN-AI
     void SetUserInput(std::string* input) { userInput_ = input; }
@@ -102,17 +109,13 @@ public:
     LogConsoleWidget& GetLogConsole() { return logConsole_; }
 
 private:
-    // ===== Section 1: Mode Toggle with Status =====
-    void RenderModeToggle(py::dict& rlStatus) {
+    // ===== Compact Header: [TRAIN][EVAL] Status [Start] [Sim][Render][Reset] =====
+    void RenderHeader(py::dict& rlStatus) {
         auto rlMode = rlStatus["rl_mode"].cast<std::string>();
         auto agentIsRunning = rlStatus["agent_is_running"].cast<bool>();
         bool isTrain = (rlMode == "train");
 
-        float buttonWidth = 80.0f;
-        float buttonHeight = 28.0f;
-
-        // Mode toggle buttons
-        ImGui::BeginGroup();
+        float buttonHeight = 26.0f;
 
         // TRAIN button
         if (isTrain) {
@@ -122,7 +125,7 @@ private:
             ImGui::PushStyleColor(ImGuiCol_Button, ImVec4(0.2f, 0.2f, 0.22f, 1.0f));
             ImGui::PushStyleColor(ImGuiCol_ButtonHovered, ImVec4(0.28f, 0.28f, 0.32f, 1.0f));
         }
-        if (ImGui::Button("TRAIN", ImVec2(buttonWidth, buttonHeight)) && !isTrain) {
+        if (ImGui::Button("TRAIN", ImVec2(65, buttonHeight)) && !isTrain) {
             if (!parameters_.eval_fly_policy_) {
                 ImGui::OpenPopup("Switch Mode");
             }
@@ -139,14 +142,12 @@ private:
             ImGui::PushStyleColor(ImGuiCol_Button, ImVec4(0.2f, 0.2f, 0.22f, 1.0f));
             ImGui::PushStyleColor(ImGuiCol_ButtonHovered, ImVec4(0.28f, 0.28f, 0.32f, 1.0f));
         }
-        if (ImGui::Button("EVAL", ImVec2(buttonWidth, buttonHeight)) && isTrain) {
+        if (ImGui::Button("EVAL", ImVec2(65, buttonHeight)) && isTrain) {
             if (!parameters_.eval_fly_policy_) {
                 ImGui::OpenPopup("Switch Mode");
             }
         }
         ImGui::PopStyleColor(2);
-
-        ImGui::EndGroup();
 
         // Mode switch confirmation popup
         if (ImGui::BeginPopupModal("Switch Mode", nullptr, ImGuiWindowFlags_AlwaysAutoResize)) {
@@ -155,8 +156,11 @@ private:
 
             if (ImGui::Button("OK", ImVec2(120, 0))) {
                 py::dict status = getRLStatus_();
-                status["rl_mode"] = isTrain ? "eval" : "train";
+                std::string newMode = isTrain ? "eval" : "train";
+                status["rl_mode"] = newMode;
                 setRLStatus_(status);
+                // Reset training timer on mode switch
+                trainingStartTime_ = ImGui::GetTime();
                 ImGui::CloseCurrentPopup();
             }
             ImGui::SameLine();
@@ -166,35 +170,81 @@ private:
             ImGui::EndPopup();
         }
 
-        // Status and control buttons on the right
-        ImGui::SameLine(ImGui::GetWindowWidth() - 180);
+        ImGui::SameLine(0, 8.0f);
 
+        // Status badge
         StatusIndicator::DrawBadge(agentIsRunning ? "Running" : "Stopped",
                                    agentIsRunning ? StatusState::Active : StatusState::Idle);
 
-        ImGui::SameLine();
+        ImGui::SameLine(0, 6.0f);
 
-        // Start/Stop button
-        bool buttonColor = false;
-        if (agentIsRunning) {
-            ImGui::PushStyleColor(ImGuiCol_Button, colors::kButtonActive);
-            ImGui::PushStyleColor(ImGuiCol_ButtonHovered, colors::kButtonActiveHovered);
-            ImGui::PushStyleColor(ImGuiCol_ButtonActive, colors::kButtonActivePressed);
-            buttonColor = true;
+        // Start/Stop RL button
+        {
+            bool colored = false;
+            if (agentIsRunning) {
+                ImGui::PushStyleColor(ImGuiCol_Button, colors::kButtonActive);
+                ImGui::PushStyleColor(ImGuiCol_ButtonHovered, colors::kButtonActiveHovered);
+                ImGui::PushStyleColor(ImGuiCol_ButtonActive, colors::kButtonActivePressed);
+                colored = true;
+            }
+            if (ImGui::Button(agentIsRunning ? "Stop" : "Start", ImVec2(42, buttonHeight))) {
+                rlStatus[py::str("agent_is_running")] = py::bool_(!agentIsRunning);
+                setRLStatus_(rlStatus);
+            }
+            if (colored) ImGui::PopStyleColor(3);
         }
 
-        const char* buttonText = agentIsRunning ? "Stop" : "Start";
-        if (ImGui::Button(buttonText, ImVec2(50, buttonHeight))) {
-            rlStatus[py::str("agent_is_running")] = py::bool_(!agentIsRunning);
-            setRLStatus_(rlStatus);
+        ImGui::SameLine(0, 10.0f);
+
+        // Simulation control buttons (compact)
+        {
+            bool simActive = updateSimulation_ && *updateSimulation_;
+            bool colored = false;
+            if (simActive) {
+                ImGui::PushStyleColor(ImGuiCol_Button, colors::kButtonActive);
+                ImGui::PushStyleColor(ImGuiCol_ButtonHovered, colors::kButtonActiveHovered);
+                ImGui::PushStyleColor(ImGuiCol_ButtonActive, colors::kButtonActivePressed);
+                colored = true;
+            }
+            if (ImGui::Button("Sim", ImVec2(34, buttonHeight)) && updateSimulation_) {
+                *updateSimulation_ = !*updateSimulation_;
+            }
+            if (ImGui::IsItemHovered())
+                ImGui::SetTooltip("%s simulation", simActive ? "Stop" : "Start");
+            if (colored) ImGui::PopStyleColor(3);
         }
 
-        if (buttonColor) {
-            ImGui::PopStyleColor(3);
+        ImGui::SameLine(0, 2.0f);
+
+        {
+            bool rendActive = renderSimulation_ && *renderSimulation_;
+            bool colored = false;
+            if (rendActive) {
+                ImGui::PushStyleColor(ImGuiCol_Button, colors::kButtonActive);
+                ImGui::PushStyleColor(ImGuiCol_ButtonHovered, colors::kButtonActiveHovered);
+                ImGui::PushStyleColor(ImGuiCol_ButtonActive, colors::kButtonActivePressed);
+                colored = true;
+            }
+            if (ImGui::Button("Rend", ImVec2(40, buttonHeight)) && renderSimulation_) {
+                *renderSimulation_ = !*renderSimulation_;
+            }
+            if (ImGui::IsItemHovered())
+                ImGui::SetTooltip("%s rendering", rendActive ? "Stop" : "Start");
+            if (colored) ImGui::PopStyleColor(3);
         }
+
+        ImGui::SameLine(0, 2.0f);
+
+        if (ImGui::Button("Reset", ImVec2(42, buttonHeight))) {
+            if (onResetGridMap_ && rasterData_) {
+                onResetGridMap_(rasterData_, false);
+            }
+        }
+        if (ImGui::IsItemHovered())
+            ImGui::SetTooltip("Reset GridMap to initial state");
     }
 
-    // ===== Section 2: Progress Section with Speed Metrics =====
+    // ===== Progress Section with Speed Metrics =====
     void RenderProgressSection(py::dict& rlStatus) {
         auto obsCollected = rlStatus["obs_collected"].cast<int>();
         auto minUpdate = rlStatus["min_update"].cast<int>();
@@ -206,7 +256,7 @@ private:
             int currentObs = obsCollected;
             if (lastSpeedUpdate_ > 0 && now > lastSpeedUpdate_) {
                 stepsPerSec_ = static_cast<float>(currentObs - lastObsCount_) / static_cast<float>(now - lastSpeedUpdate_);
-                if (stepsPerSec_ < 0) stepsPerSec_ = 0;  // Handle reset
+                if (stepsPerSec_ < 0) stepsPerSec_ = 0;
             }
             lastSpeedUpdate_ = now;
             lastObsCount_ = currentObs;
@@ -239,7 +289,7 @@ private:
         }
     }
 
-    // ===== Section 3: Metrics Overview =====
+    // ===== Metrics Overview =====
     void RenderMetricsOverview(const py::dict& rlStatus) {
         auto trainStep = rlStatus["train_step"].cast<int>();
         auto policyUpdates = rlStatus["policy_updates"].cast<int>();
@@ -260,17 +310,21 @@ private:
             ImGui::SameLine(0, 0);
             ImGui::TextColored(colors::kHighlight, "%.2f", bestObjective);
         }
+
+        // Training elapsed timer
+        double elapsed = ImGui::GetTime() - trainingStartTime_;
+        ImGui::Text("Training Time: %s", FormatTime(static_cast<int>(elapsed)).c_str());
     }
 
     // ===== Tabs =====
     void RenderTabs(py::dict& rlStatus) {
-        if (!ImGui::BeginTabBar("RLStatusTabs")) return;
+        if (!ImGui::BeginTabBar("ControlPanelTabs")) return;
 
         RenderAgentsTab(rlStatus);
-        RenderLoggingTab();
         RenderEnvironmentTab();
+        RenderSimulationTab();
+        RenderLogTab();
         RenderSettingsTab(rlStatus);
-        RenderRoshanAITab();
 
         ImGui::EndTabBar();
     }
@@ -278,7 +332,6 @@ private:
     // Tab 1: Agents
     void RenderAgentsTab(py::dict& rlStatus) {
         if (!ImGui::BeginTabItem("Agents")) {
-            // Deactivate all drones when tab not visible
             if (drones_ && !drones_->empty()) {
                 for (const auto& drone : *drones_) {
                     drone->SetActive(false);
@@ -293,7 +346,6 @@ private:
             return;
         }
 
-        // Drone selector and manual control
         RenderDroneSelector();
         auto& selectedDrone = (*drones_)[droneUI_.selectedDroneIndex];
         selectedDrone->SetActive(true);
@@ -301,12 +353,10 @@ private:
 
         ImGui::Separator();
 
-        // Per-agent reward bars (compact view)
         RenderAgentRewardBars();
 
         ImGui::Separator();
 
-        // View toggles
         ImGui::Checkbox("Show View Maps", &droneUI_.showExplorationMap);
         ImGui::SameLine();
         ImGui::Checkbox("Show Drone View", &droneUI_.showInputImages);
@@ -315,7 +365,6 @@ private:
             RenderExplorationMapWindow(selectedDrone);
         }
 
-        // Collapsible drone state info
         ImGui::BeginChild("DroneInfoScroll", ImVec2(0, ImGui::GetTextLineHeightWithSpacing() * 15),
                           true, ImGuiWindowFlags_HorizontalScrollbar);
 
@@ -342,7 +391,6 @@ private:
     void RenderAgentRewardBars() {
         if (!drones_ || drones_->empty()) return;
 
-        // Find min/max rewards for scaling
         float minReward = 0.0f;
         float maxReward = 0.0f;
         std::vector<float> currentRewards;
@@ -361,7 +409,6 @@ private:
             maxReward = 1.0f;
         }
 
-        // Render compact reward bars
         for (size_t i = 0; i < drones_->size(); ++i) {
             const auto& drone = (*drones_)[i];
             std::string label = drone->GetAgentSubType() + "_" + std::to_string(drone->GetId());
@@ -381,11 +428,136 @@ private:
         }
     }
 
-    // Tab 2: Logging
-    void RenderLoggingTab() {
-        if (!ImGui::BeginTabItem("Logging")) return;
+    // Tab 2: Environment
+    void RenderEnvironmentTab() {
+        if (!ImGui::BeginTabItem("Environment")) return;
 
-        // Read new lines periodically
+        ImGui::BeginChild("EnvControlsScroll", ImVec2(0, 0), false);
+
+        if (ImGui::CollapsingHeader("Fire Controls", ImGuiTreeNodeFlags_DefaultOpen)) {
+            ConfigTable("##FireControlsTable")
+                .SliderFloat("Fire Percentage", &parameters_.fire_percentage_, -0.001f, 1.0f)
+                .SliderFloat("Fire Spread Probability", &parameters_.fire_spread_prob_, -0.001f, 1.0f)
+                .SliderFloat("Fire Noise", &parameters_.fire_noise_, -0.001f, 1.0f)
+                .SliderInt("Number of Fire Clusters", &parameters_.num_fire_clusters_, 0, 20)
+                .Button("Start New Fires", "StartFires", [this]() {
+                    if (onStartFires_) onStartFires_();
+                })
+                .Tooltip("Click to start some fires");
+        }
+
+        if (ImGui::CollapsingHeader("Starting Positions", ImGuiTreeNodeFlags_DefaultOpen)) {
+            ConfigTable("##StartControlTable")
+                .SliderFloat("Groundstation Start %", &parameters_.groundstation_start_percentage_, 0.0f, 1.0f)
+                .Tooltip("GS vs Random starting position ratio")
+                .Checkbox("Adaptive Starting Position", &parameters_.adaptive_start_position_)
+                .Tooltip("Calculate starting position based on current objective");
+        }
+
+        if (ImGui::CollapsingHeader("Goal Configuration", ImGuiTreeNodeFlags_DefaultOpen)) {
+            ConfigTable("##GoalControlTable")
+                .SliderFloat("Fire Goal Percentage", &parameters_.fire_goal_percentage_, 0.0f, 1.0f)
+                .Tooltip("Percentage of goals set to fire locations")
+                .Checkbox("Adaptive Goal Positions", &parameters_.adaptive_goal_position_)
+                .Tooltip("Calculate goal position based on current objective");
+        }
+
+        if (ImGui::CollapsingHeader("Agent Behavior")) {
+            ConfigTable("##FlyAgentControl")
+                .Checkbox("Use Simple Policy", &parameters_.use_simple_policy_)
+                .Tooltip("Agent doesn't stop at first goal during evaluation")
+                .Checkbox("Water Limit", &parameters_.use_water_limit_)
+                .Tooltip("Agent must recharge at the Groundstation");
+        }
+
+        ImGui::EndChild();
+        ImGui::EndTabItem();
+    }
+
+    // Tab 3: Simulation (from SimulationControlsWindow tabs)
+    void RenderSimulationTab() {
+        if (!ImGui::BeginTabItem("Simulation")) return;
+
+        ImGui::BeginChild("SimTabScroll", ImVec2(0, 0), false);
+
+        if (ImGui::CollapsingHeader("Sim Info", ImGuiTreeNodeFlags_DefaultOpen)) {
+            if (gridmap_) {
+                ImGui::Text("Particles: %d", gridmap_->GetNumParticles());
+                ImGui::Text("Cells: %d", gridmap_->GetNumCells());
+                ImGui::Text("Burning: %d", gridmap_->GetNumBurningCells());
+                ImGui::Text("Burned: %d", gridmap_->GetNumBurnedCells());
+                ImGui::Text("Burned: %.1f%%", gridmap_->PercentageBurned() * 100.0);
+                ImGui::Text("Running Time: %s", FormatTime(static_cast<int>(runningTime_)).c_str());
+                ImGui::Text("Size: %.1fkm x %.1fkm",
+                            static_cast<double>(gridmap_->GetRows() * parameters_.GetCellSize()) / 1000.0,
+                            static_cast<double>(gridmap_->GetCols() * parameters_.GetCellSize()) / 1000.0);
+            }
+            ImGui::Text("%.3f ms/frame (%.1f FPS)", 1000.0f / framerate_, framerate_);
+        }
+
+        if (ImGui::CollapsingHeader("Speed")) {
+            if (delay_) {
+                ImGui::SliderInt("Delay (ms)", delay_, 0, 500);
+            }
+            ImGui::SliderScalar("dt", ImGuiDataType_Double, &parameters_.dt_,
+                                &parameters_.min_dt_, &parameters_.max_dt_, "%.8f", 1.0f);
+        }
+
+        if (ImGui::CollapsingHeader("Render Options")) {
+            if (ImGui::BeginTable("RenderOptionsTable", 2, ImGuiTableFlags_SizingStretchSame)) {
+                ImGui::TableNextColumn();
+                if (ImGui::Checkbox("Render Grid", &parameters_.render_grid_)) {
+                    if (renderer_) renderer_->SetFullRedraw();
+                }
+
+                ImGui::TableNextColumn();
+                if (ImGui::Checkbox("Render Noise", &parameters_.has_noise_)) {
+                    if (renderer_) {
+                        renderer_->SetInitCellNoise();
+                        renderer_->SetFullRedraw();
+                    }
+                }
+
+                ImGui::TableNextColumn();
+                if (ImGui::Checkbox("Lingering", &parameters_.lingering_)) {
+                    if (renderer_) renderer_->SetFullRedraw();
+                }
+
+                ImGui::TableNextColumn();
+                ImGui::Checkbox("Small Drones", &parameters_.show_small_drones_);
+
+                ImGui::TableNextRow();
+                ImGui::TableNextColumn();
+                ImGui::Checkbox("Show Drone Circles", &parameters_.show_drone_circles_);
+
+                ImGui::TableNextRow();
+                ImGui::TableNextColumn();
+                if (ImGui::Checkbox("Episode Termination Indicator", &parameters_.episode_termination_indicator_)) {
+                    if (renderer_) renderer_->SetFlashScreen(parameters_.episode_termination_indicator_);
+                }
+
+                ImGui::TableNextColumn();
+                if (ImGui::Checkbox("Render Particles", &parameters_.render_particles_)) {
+                    if (renderer_) renderer_->SetFullRedraw();
+                }
+
+                ImGui::TableNextColumn();
+                if (ImGui::Checkbox("Render Terrain Transition", &parameters_.render_terrain_transition)) {
+                    if (renderer_) renderer_->SetFullRedraw();
+                }
+
+                ImGui::EndTable();
+            }
+        }
+
+        ImGui::EndChild();
+        ImGui::EndTabItem();
+    }
+
+    // Tab 4: Log
+    void RenderLogTab() {
+        if (!ImGui::BeginTabItem("Log")) return;
+
         double now = ImGui::GetTime();
         if (now >= nextReadTime_ && logReader_) {
             std::vector<std::string> newLines = logReader_->readNewLines();
@@ -410,32 +582,13 @@ private:
         ImGui::EndTabItem();
     }
 
-    // Tab 3: Environment
-    void RenderEnvironmentTab() {
-        if (!ImGui::BeginTabItem("Environment")) return;
-
-        ImGui::BeginChild("EnvControlsScroll", ImVec2(0, 0), false);
-
-        RenderFireControls();
-        ImGui::Spacing();
-        RenderStartControls();
-        ImGui::Spacing();
-        RenderGoalControls();
-        ImGui::Spacing();
-        RenderFlyAgentControls();
-
-        ImGui::EndChild();
-        ImGui::EndTabItem();
-    }
-
-    // Tab 4: Settings
+    // Tab 5: Settings (includes ROSHAN-AI as collapsible section)
     void RenderSettingsTab(const py::dict& rlStatus) {
         if (!ImGui::BeginTabItem("Settings")) return;
 
         auto modelPath = rlStatus["model_path"].cast<std::string>();
         auto modelName = rlStatus["model_name"].cast<std::string>();
 
-        // Model path section (collapsed by default)
         if (ImGui::CollapsingHeader("Model Configuration")) {
             if (ImGui::Selectable("Model Path")) {
                 if (onOpenFileDialog_) onOpenFileDialog_("model_path");
@@ -449,7 +602,6 @@ private:
             ImGui::SameLine();
             ImGui::TextColored(colors::kHint, "%s", modelName.c_str());
 
-            // Algorithm info
             auto autoTrain = rlStatus["auto_train"].cast<bool>();
             if (autoTrain) {
                 ImGui::Separator();
@@ -463,7 +615,6 @@ private:
             }
         }
 
-        // Keyboard shortcuts section
         if (ImGui::CollapsingHeader("Keyboard Shortcuts")) {
             ImGui::BulletText("WASD - Move drone (manual control)");
             ImGui::BulletText("Mouse Wheel - Zoom in/out");
@@ -472,7 +623,26 @@ private:
             ImGui::BulletText("Middle Click - Cell info popup");
         }
 
-        // Actions
+        // ROSHAN-AI (folded into Settings)
+        if (parameters_.llm_support_) {
+            if (ImGui::CollapsingHeader("ROSHAN-AI")) {
+                static char inputText[512] = "";
+                ImGui::Text("Ask ROSHAN-AI a question:");
+                ImGui::InputText("##ai_input", inputText, IM_ARRAYSIZE(inputText));
+
+                if (ImGui::Button("Send")) {
+                    if (userInput_) *userInput_ = inputText;
+                    memset(inputText, 0, sizeof(inputText));
+                }
+
+                ImGui::BeginChild("ai_scrolling", ImVec2(0, ImGui::GetTextLineHeightWithSpacing() * 15), true);
+                ImGui::PushTextWrapPos(0.0f);
+                if (modelOutput_) ImGui::TextWrapped("%s", modelOutput_->c_str());
+                ImGui::PopTextWrapPos();
+                ImGui::EndChild();
+            }
+        }
+
         ImGui::Spacing();
         ImGui::Separator();
         ImGui::Spacing();
@@ -484,43 +654,17 @@ private:
         ImGui::EndTabItem();
     }
 
-    // Tab 5: ROSHAN-AI
-    void RenderRoshanAITab() {
-        if (!parameters_.llm_support_) return;
-        if (!ImGui::BeginTabItem("ROSHAN-AI")) return;
-
-        static char inputText[512] = "";
-        ImGui::Text("Ask ROSHAN-AI a question:");
-        ImGui::InputText("##input", inputText, IM_ARRAYSIZE(inputText));
-
-        if (ImGui::Button("Send")) {
-            if (userInput_) *userInput_ = inputText;
-            memset(inputText, 0, sizeof(inputText));
-        }
-
-        ImGui::BeginChild("scrolling", ImVec2(0, ImGui::GetTextLineHeightWithSpacing() * 15), true);
-        ImGui::PushTextWrapPos(0.0f);
-        if (modelOutput_) ImGui::TextWrapped("%s", modelOutput_->c_str());
-        ImGui::PopTextWrapPos();
-        ImGui::EndChild();
-
-        ImGui::EndTabItem();
-    }
-
     // ===== Helper Methods =====
     void RenderDroneSelector() {
-        // Deactivate all drones first
         for (const auto& drone : *drones_) {
             drone->SetActive(false);
         }
 
-        // Build drone names
         std::vector<std::string> droneNames;
         for (const auto& drone : *drones_) {
             droneNames.push_back(drone->GetAgentSubType() + "_" + std::to_string(drone->GetId()));
         }
 
-        // Combo box
         ImGui::SetNextItemWidth(150);
         ImGui::Combo("##SelectDrone", &droneUI_.selectedDroneIndex,
             [](void* data, int idx, const char** outText) {
@@ -623,102 +767,6 @@ private:
         ImGui::Separator();
     }
 
-    void RenderFireControls() {
-        ImGui::TextColored(colors::kHighlight, "Fire Controls");
-
-        ConfigTable("##FireControlsTable")
-            .SliderFloat("Fire Percentage", &parameters_.fire_percentage_, -0.001f, 1.0f)
-            .SliderFloat("Fire Spread Probability", &parameters_.fire_spread_prob_, -0.001f, 1.0f)
-            .SliderFloat("Fire Noise", &parameters_.fire_noise_, -0.001f, 1.0f)
-            .SliderInt("Number of Fire Clusters", &parameters_.num_fire_clusters_, 0, 20)
-            .Button("Start New Fires", "StartFires", [this]() {
-                if (onStartFires_) onStartFires_();
-            })
-            .Tooltip("Click to start some fires");
-    }
-
-    void RenderStartControls() {
-        ImGui::TextColored(colors::kHighlight, "Start Controls");
-
-        if (ImGui::BeginTable("##StartControl", 2, ImGuiTableFlags_Borders | ImGuiTableFlags_RowBg)) {
-            ImGui::TableSetupColumn("Label", ImGuiTableColumnFlags_WidthFixed, 200.0f);
-            ImGui::TableSetupColumn("Control", ImGuiTableColumnFlags_WidthStretch);
-            ImGui::TableHeadersRow();
-
-            ImGui::TableNextRow();
-            ImGui::TableNextColumn();
-            ImGui::Text("Groundstation Start %%");
-            ImGui::TableNextColumn();
-            ImGui::SetNextItemWidth(-1);
-            ImGui::SliderFloat("##groundstation_start_perc", &parameters_.groundstation_start_percentage_, 0, 1);
-
-            ImGui::TableNextRow();
-            ImGui::TableNextColumn();
-            ImGui::TableNextColumn();
-            ImGui::TextColored(colors::kHint, "GS: %d%% | Random: %d%%",
-                        static_cast<int>(parameters_.groundstation_start_percentage_ * 100),
-                        static_cast<int>((1 - parameters_.groundstation_start_percentage_) * 100));
-
-            ImGui::TableNextRow();
-            ImGui::TableNextColumn();
-            ImGui::Text("Adaptive Starting Position");
-            ImGui::TableNextColumn();
-            ImGui::SetCursorPosX(ImGui::GetCursorPosX() + (ImGui::GetContentRegionAvail().x / 2) - 10);
-            ImGui::Checkbox("##AdaptiveStartingPosition", &parameters_.adaptive_start_position_);
-            if (ImGui::IsItemHovered())
-                ImGui::SetTooltip("Calculate starting position based on current objective");
-
-            ImGui::EndTable();
-        }
-    }
-
-    void RenderGoalControls() {
-        ImGui::TextColored(colors::kHighlight, "Goal Controls");
-
-        if (ImGui::BeginTable("##GoalControl", 2, ImGuiTableFlags_Borders | ImGuiTableFlags_RowBg)) {
-            ImGui::TableSetupColumn("Label", ImGuiTableColumnFlags_WidthFixed, 200.0f);
-            ImGui::TableSetupColumn("Control", ImGuiTableColumnFlags_WidthStretch);
-            ImGui::TableHeadersRow();
-
-            ImGui::TableNextRow();
-            ImGui::TableNextColumn();
-            ImGui::Text("Fire Goal Percentage");
-            ImGui::TableNextColumn();
-            ImGui::SetNextItemWidth(-1);
-            ImGui::SliderFloat("##fire_goal_perc", &parameters_.fire_goal_percentage_, 0, 1);
-            if (ImGui::IsItemHovered())
-                ImGui::SetTooltip("Percentage of goals set to fire locations");
-
-            ImGui::TableNextRow();
-            ImGui::TableNextColumn();
-            ImGui::TableNextColumn();
-            ImGui::TextColored(colors::kHint, "Fire: %d%% | Non-Fire: %d%%",
-                        static_cast<int>(parameters_.fire_goal_percentage_ * 100),
-                        static_cast<int>((1 - parameters_.fire_goal_percentage_) * 100));
-
-            ImGui::TableNextRow();
-            ImGui::TableNextColumn();
-            ImGui::Text("Adaptive Goal Positions");
-            ImGui::TableNextColumn();
-            ImGui::SetCursorPosX(ImGui::GetCursorPosX() + (ImGui::GetContentRegionAvail().x / 2) - 10);
-            ImGui::Checkbox("##AdaptiveGoalPosition", &parameters_.adaptive_goal_position_);
-            if (ImGui::IsItemHovered())
-                ImGui::SetTooltip("Calculate goal position based on current objective");
-
-            ImGui::EndTable();
-        }
-    }
-
-    void RenderFlyAgentControls() {
-        ImGui::TextColored(colors::kHighlight, "FlyAgent Behavior");
-
-        ConfigTable("##FlyAgentControl")
-            .Checkbox("Use Simple Policy", &parameters_.use_simple_policy_)
-            .Tooltip("Agent doesn't stop at first goal during evaluation")
-            .Checkbox("Water Limit", &parameters_.use_water_limit_)
-            .Tooltip("Agent must recharge at the Groundstation");
-    }
-
     static void AddSeparator() {
         ImGui::TableNextRow();
         ImGui::Spacing();
@@ -736,7 +784,10 @@ private:
         } else {
             int hours = totalSeconds / 3600;
             int mins = (totalSeconds % 3600) / 60;
-            return std::to_string(hours) + "h " + std::to_string(mins) + "m";
+            int secs = totalSeconds % 60;
+            char buffer[32];
+            snprintf(buffer, sizeof(buffer), "%02d:%02d:%02d", hours, mins, secs);
+            return std::string(buffer);
         }
     }
 
@@ -755,6 +806,17 @@ private:
     int lastObsCount_ = 0;
     float stepsPerSec_ = 0.0f;
 
+    // Training elapsed timer
+    double trainingStartTime_ = 0.0;
+
+    // Simulation controls
+    bool* updateSimulation_ = nullptr;
+    bool* renderSimulation_ = nullptr;
+    int* delay_ = nullptr;
+    float framerate_ = 60.0f;
+    double runningTime_ = 0.0;
+    std::vector<std::vector<int>>* rasterData_ = nullptr;
+
     LogConsoleWidget logConsole_;
     DroneUIState droneUI_;
 
@@ -768,8 +830,9 @@ private:
     std::function<void()> onResetDrones_;
     std::function<void()> onStartFires_;
     std::function<void(const std::string&)> onOpenFileDialog_;
+    std::function<void(std::vector<std::vector<int>>*, bool)> onResetGridMap_;
 };
 
 } // namespace ui
 
-#endif // ROSHAN_RLSTATUSWINDOW_H
+#endif // ROSHAN_CONTROLPANELWINDOW_H

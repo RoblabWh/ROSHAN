@@ -39,6 +39,7 @@ public:
     // Window visibility controls
     void SetShowControls(bool* show) { showControls_ = show; }
     void SetShowRLStatus(bool* show) { showRLStatus_ = show; }
+    void SetShowControlPanel(bool* show) { showControlPanel_ = show; }
     void SetShowParameterConfig(bool* show) { showParameterConfig_ = show; }
     void SetShowNoiseConfig(bool* show) { showNoiseConfig_ = show; }
     void SetShowDemoWindow(bool* show) { showDemoWindow_ = show; }
@@ -93,11 +94,16 @@ private:
 
     void RenderViewMenu() {
         if (ImGui::BeginMenu("View")) {
-            // Window visibility toggles
-            if (showControls_)
-                ImGui::MenuItem("Simulation Controls", nullptr, showControls_);
-            if (mode_ == Mode::GUI_RL && showRLStatus_)
-                ImGui::MenuItem("RL Status", nullptr, showRLStatus_);
+            // Window visibility toggles - mode-aware
+            if (mode_ == Mode::GUI_RL) {
+                // In GUI_RL mode, show single "Control Panel" toggle
+                if (showControlPanel_)
+                    ImGui::MenuItem("Control Panel", nullptr, showControlPanel_);
+            } else {
+                // Pure GUI mode: show Simulation Controls
+                if (showControls_)
+                    ImGui::MenuItem("Simulation Controls", nullptr, showControls_);
+            }
             if (showParameterConfig_)
                 ImGui::MenuItem("Parameter Config", nullptr, showParameterConfig_);
 
@@ -139,6 +145,7 @@ private:
 
     bool* showControls_ = nullptr;
     bool* showRLStatus_ = nullptr;
+    bool* showControlPanel_ = nullptr;
     bool* showParameterConfig_ = nullptr;
     bool* showNoiseConfig_ = nullptr;
     bool* showDemoWindow_ = nullptr;

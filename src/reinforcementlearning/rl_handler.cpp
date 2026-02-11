@@ -35,7 +35,10 @@ ReinforcementLearningHandler::GetObservations() {
         agent_states.reserve(agents.size());
 
         for (const auto& agent : agents) {
-            agent_states.push_back(agent->GetObservations());
+            // Use ref to avoid copying shared_ptrs, then construct the State deque
+            const auto& obs_ref = agent->GetObservationsRef();
+            std::deque<std::shared_ptr<State>> state_deque(obs_ref.begin(), obs_ref.end());
+            agent_states.push_back(std::move(state_deque));
         }
         observations.emplace(key, std::move(agent_states));
     }

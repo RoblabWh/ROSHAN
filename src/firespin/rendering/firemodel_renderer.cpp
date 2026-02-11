@@ -81,10 +81,36 @@ void FireModelRenderer::LoadSimpleTextures() {
     }
 }
 
+// Cached burn_time for the current frame — set once per Render() call
+static double s_cached_burn_time = 0.0;
+
+// Precomputed flicker lookup table (256 entries for fast sin approximation)
+static constexpr int FLICKER_LUT_SIZE = 256;
+static Uint8 s_flicker_lut[FLICKER_LUT_SIZE];
+static bool s_flicker_lut_initialized = false;
+
+static void InitFlickerLUT() {
+    if (s_flicker_lut_initialized) return;
+    for (int i = 0; i < FLICKER_LUT_SIZE; ++i) {
+        double phase = (2.0 * M_PI * i) / FLICKER_LUT_SIZE;
+        double flicker = (std::sin(phase) + 1.0) * 0.9; // 0..1.8 range
+        s_flicker_lut[i] = static_cast<Uint8>(flicker * 64);
+    }
+    s_flicker_lut_initialized = true;
+}
+
 void FireModelRenderer::Render(const std::shared_ptr<std::vector<std::shared_ptr<FlyAgent>>>& drones) {
     SDL_RenderClear(renderer_);
     if (gridmap_ != nullptr) {
+        // Cache frame time once and initialize flicker LUT (first call only)
+        InitFlickerLUT();
+        s_cached_burn_time = SDL_GetTicks() / 1000.0;
+
         camera_.Update(width_, height_, gridmap_->GetRows(), gridmap_->GetCols());
+        // Smart redraw: only trigger full redraw when camera is actively animating
+        if (camera_.IsAnimating()) {
+            SetFullRedraw();
+        }
         if (this->needs_init_cell_noise_) {
             gridmap_->GenerateNoiseMap();
             this->needs_init_cell_noise_ = false;
@@ -157,8 +183,20 @@ void FireModelRenderer::DrawAllCells(int grid_left, int grid_right, int grid_top
 }
 
 void FireModelRenderer::DrawChangesCells() {
-    // Start drawing cells from the cell at the camera position
-    for (const auto& cell : gridmap_->GetChangedCells()) {
+    const auto& changed_cells = gridmap_->GetChangedCells();
+    if (changed_cells.empty()) {
+        gridmap_->ResetChangedCells();
+        return;
+    }
+
+    // Compute bounding box of all changed cells for a single SDL_UpdateTexture call
+    int bbox_min_x = std::numeric_limits<int>::max();
+    int bbox_min_y = std::numeric_limits<int>::max();
+    int bbox_max_x = std::numeric_limits<int>::min();
+    int bbox_max_y = std::numeric_limits<int>::min();
+
+    // Draw all changed cells into the pixel buffer and track the bounding box
+    for (const auto& cell : changed_cells) {
         SDL_Rect cell_rect = DrawCell(cell.x_, cell.y_);
         if (cell_rect.x < 0 || cell_rect.y < 0 ||
             cell_rect.x >= pixel_buffer_->GetWidth() ||
@@ -166,18 +204,28 @@ void FireModelRenderer::DrawChangesCells() {
             continue;
         }
 
-        if (cell_rect.x + cell_rect.w > pixel_buffer_->GetWidth()) {
-            cell_rect.w = pixel_buffer_->GetWidth() - cell_rect.x;
+        int clamped_w = cell_rect.w;
+        int clamped_h = cell_rect.h;
+        if (cell_rect.x + clamped_w > pixel_buffer_->GetWidth()) {
+            clamped_w = pixel_buffer_->GetWidth() - cell_rect.x;
         }
-        if (cell_rect.y + cell_rect.h > pixel_buffer_->GetHeight()) {
-            cell_rect.h = pixel_buffer_->GetHeight() - cell_rect.y;
+        if (cell_rect.y + clamped_h > pixel_buffer_->GetHeight()) {
+            clamped_h = pixel_buffer_->GetHeight() - cell_rect.y;
         }
-        // Get a pointer to the pixel data for the cell
-        Uint32* cellPixelData = &pixel_buffer_->GetData()[cell_rect.y * pixel_buffer_->GetWidth() + cell_rect.x];
 
-        // Update the portion of the texture that corresponds to the cell
-        SDL_UpdateTexture(texture_, &cell_rect, cellPixelData, pixel_buffer_->GetPitch());
+        bbox_min_x = std::min(bbox_min_x, cell_rect.x);
+        bbox_min_y = std::min(bbox_min_y, cell_rect.y);
+        bbox_max_x = std::max(bbox_max_x, cell_rect.x + clamped_w);
+        bbox_max_y = std::max(bbox_max_y, cell_rect.y + clamped_h);
     }
+
+    // Single batched texture upload for the entire bounding box
+    if (bbox_min_x < bbox_max_x && bbox_min_y < bbox_max_y) {
+        SDL_Rect bbox = {bbox_min_x, bbox_min_y, bbox_max_x - bbox_min_x, bbox_max_y - bbox_min_y};
+        Uint32* bboxPixelData = &pixel_buffer_->GetData()[bbox_min_y * pixel_buffer_->GetWidth() + bbox_min_x];
+        SDL_UpdateTexture(texture_, &bbox, bboxPixelData, pixel_buffer_->GetPitch());
+    }
+
     gridmap_->ResetChangedCells();
 }
 
@@ -191,10 +239,10 @@ std::pair<Uint32, int> ModifyColorWithGradient(Uint32 base_color, int x, int y, 
     g = std::min(255, g + (y % 32));
     b = std::min(255, b + ((x + y) % 32));
 
-    // Introduce a subtle flicker based on the elapsed time to animate burning cells.
-    double burn_time = SDL_GetTicks() / 1000.0; // Convert milliseconds to seconds
-    double flicker = (std::sin(burn_time * 5.0 + x + y) + 1.0) * 0.9; // 0..1 range
-    auto offset = static_cast<Uint8>(flicker * 64); // Scale to a small color offset
+    // Use cached burn_time (set once per frame) and precomputed flicker LUT
+    int lut_index = static_cast<int>((s_cached_burn_time * 5.0 + x + y) * (FLICKER_LUT_SIZE / (2.0 * M_PI)));
+    lut_index = ((lut_index % FLICKER_LUT_SIZE) + FLICKER_LUT_SIZE) % FLICKER_LUT_SIZE;
+    Uint8 offset = s_flicker_lut[lut_index];
 
     r = std::min(255, static_cast<int>(r) + offset);
     g = std::min(255, static_cast<int>(g) + offset);
@@ -210,12 +258,10 @@ std::pair<Uint32, int> ModifyColorWithGradient(Uint32 base_color, int x, int y, 
 
 SDL_Rect FireModelRenderer::DrawCell(int x, int y) {
     auto [screen_x, screen_y] = camera_.GridToScreenPosition(floor(x), floor(y));
-    const SDL_Rect cell_rect = {
-            screen_x,
-            screen_y,
-            static_cast<int>(camera_.GetCellSize()),
-            static_cast<int>(camera_.GetCellSize())
-    };
+    auto [next_screen_x, next_screen_y] = camera_.GridToScreenPosition(floor(x) + 1, floor(y) + 1);
+    int cell_w = next_screen_x - screen_x;
+    int cell_h = next_screen_y - screen_y;
+    const SDL_Rect cell_rect = { screen_x, screen_y, cell_w, cell_h };
 
     auto color_for = [&](int gx, int gy) {
         Uint32 color = gridmap_->At(gx, gy).GetMappedColor();
@@ -251,7 +297,7 @@ SDL_Rect FireModelRenderer::DrawCell(int x, int y) {
     if (has_noise) {
         std::vector<std::vector<int>>& noise_map = gridmap_->At(x, y).GetNoiseMap();
         if (!noise_map.empty()){
-            std::vector<std::vector<int>> scaled_noise_map = ScaleNoiseMap(noise_map, static_cast<int>(camera_.GetCellSize()));
+            std::vector<std::vector<int>> scaled_noise_map = ScaleNoiseMap(noise_map, cell_w);
             pixel_buffer_->Draw(cell_rect, base_color, scaled_noise_map, grid_offset, phase_offset);
         } else {
             this->needs_full_redraw_ = true;
@@ -345,6 +391,14 @@ void FireModelRenderer::DrawParticles() {
     int circle_radius = static_cast<int>(camera_.GetCellSize() / 6);
 
     if (circle_radius > 0) {
+        // Pre-compute viewport bounds for frustum culling
+        const int vp_w = static_cast<int>(camera_.GetViewportWidth());
+        const int vp_h = static_cast<int>(camera_.GetViewportHeight());
+        // Margin to account for particle radius (max 3x circle_radius)
+        const int margin = circle_radius * 3;
+
+        const double inv_cell_size = 1.0 / parameters_.GetCellSize();
+
         const std::vector<RadiationParticle>& particles = gridmap_->GetRadiationParticles();
 
         if (!particles.empty()) {
@@ -352,11 +406,17 @@ void FireModelRenderer::DrawParticles() {
                 double x, y;
                 particle.GetPosition(x, y);
 
-                x = x / parameters_.GetCellSize();
-                y = y / parameters_.GetCellSize();
+                x *= inv_cell_size;
+                y *= inv_cell_size;
                 auto [posx, posy] = camera_.GridToScreenPosition(x, y);
 
-                DrawCircle(posx, posy, circle_radius, particle.GetIntensity());  // Scaling with zoom
+                // Frustum culling: skip particles outside viewport
+                if (posx < -margin || posx > vp_w + margin ||
+                    posy < -margin || posy > vp_h + margin) {
+                    continue;
+                }
+
+                DrawCircle(posx, posy, circle_radius, particle.GetIntensity());
             }
         }
 
@@ -366,11 +426,17 @@ void FireModelRenderer::DrawParticles() {
             for (const auto& particle : virtual_particles) {
                 double x, y;
                 particle.GetPosition(x, y);
-                x = x / parameters_.GetCellSize();
-                y = y / parameters_.GetCellSize();
+                x *= inv_cell_size;
+                y *= inv_cell_size;
                 auto [posx, posy] = camera_.GridToScreenPosition(x, y);
 
-                DrawCircle(posx, posy, circle_radius, particle.GetIntensity());  // Scaling with zoom
+                // Frustum culling: skip particles outside viewport
+                if (posx < -margin || posx > vp_w + margin ||
+                    posy < -margin || posy > vp_h + margin) {
+                    continue;
+                }
+
+                DrawCircle(posx, posy, circle_radius, particle.GetIntensity());
             }
         }
     }
@@ -400,6 +466,34 @@ std::pair<int, int> FireModelRenderer::ScreenToGridPosition(int x, int y) {
     auto [screenX, screenY] = camera_.ScreenToGridPosition(x, y);
 
     return std::make_pair(screenX, screenY);
+}
+
+void FireModelRenderer::ApplyZoom(double z, int mouseX, int mouseY) {
+    if (gridmap_) {
+        camera_.ZoomToPoint(z, mouseX, mouseY, gridmap_->GetRows(), gridmap_->GetCols());
+    } else {
+        camera_.Zoom(z);
+    }
+}
+
+void FireModelRenderer::FocusOnPoint(double gridX, double gridY) {
+    if (!gridmap_) return;
+    // Center the target so gridX, gridY is at viewport center
+    double targetX = static_cast<double>(gridmap_->GetRows()) / 2.0 - gridX;
+    double targetY = static_cast<double>(gridmap_->GetCols()) / 2.0 - gridY;
+    camera_.SetTarget(targetX, targetY);
+}
+
+void FireModelRenderer::FocusOnFire() {
+    if (!gridmap_) return;
+    auto centroid = gridmap_->GetFireCentroid();
+    FocusOnPoint(centroid.first, centroid.second);
+}
+
+void FireModelRenderer::FocusOnDrone(int droneIndex, const std::shared_ptr<std::vector<std::shared_ptr<FlyAgent>>>& drones) {
+    if (!drones || droneIndex < 0 || droneIndex >= static_cast<int>(drones->size())) return;
+    auto pos = (*drones)[droneIndex]->GetGridPositionDouble();
+    FocusOnPoint(pos.first, pos.second);
 }
 
 FireModelRenderer::~FireModelRenderer() {

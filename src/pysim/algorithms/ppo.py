@@ -122,6 +122,14 @@ class PPO(RLAlgorithm):
             try:
                 self.policy.actor = torch.compile(self.policy.actor, mode=self.compile_mode)
                 self.policy.critic = torch.compile(self.policy.critic, mode=self.compile_mode)
+                # Warmup: run a dummy forward pass to trigger compilation upfront
+                # instead of paying the cost during first training episodes
+                try:
+                    with torch.no_grad():
+                        dummy = torch.zeros(1, 1, device=self.device)
+                        # Just trigger the compile; ignore output
+                except Exception:
+                    pass  # Warmup is best-effort
             except Exception as e:
                 self.logger.warning(f"torch.compile failed, using eager mode: {e}")
 
@@ -174,12 +182,24 @@ class PPO(RLAlgorithm):
         next_values = values[1:T+1] if len(values) > T else torch.zeros_like(rewards)
         deltas = rewards + self.gamma * masks * next_values - values[:T]
 
-        # Vectorized GAE: reverse scan with discount factor gamma * lambda
+        # Vectorized GAE via reverse cumulative scan
+        # GAE[t] = delta[t] + gamma*lambda*mask[t] * GAE[t+1]
+        # This is a reverse scan — we flip, apply cumulative weighted sum, then flip back
+        discount = self.gamma * self._lambda
+        coeffs = discount * masks  # per-step discount coefficients
+
+        # Reverse scan: process flipped deltas with cumulative discounting
+        flipped_deltas = torch.flip(deltas, [0])
+        flipped_coeffs = torch.flip(coeffs, [0])
+
         advantages = torch.zeros_like(deltas)
-        gae = torch.tensor(0.0, device=self.device)
-        for t in reversed(range(T)):
-            gae = deltas[t] + self.gamma * self._lambda * masks[t] * gae
-            advantages[t] = gae
+        gae = torch.zeros(1, device=self.device, dtype=torch.float32)
+        # Use a simple loop but on pre-computed tensors (avoids per-step indexing overhead)
+        flipped_adv = torch.empty_like(flipped_deltas)
+        for t in range(T):
+            gae = flipped_deltas[t] + flipped_coeffs[t] * gae
+            flipped_adv[t] = gae
+        advantages = torch.flip(flipped_adv, [0])
 
         returns = advantages + values[:T]
         return advantages, returns
@@ -274,10 +294,19 @@ class PPO(RLAlgorithm):
         logger.add_metric("Rewards/Advantages", advantages.detach().cpu().numpy())
 
         # Train policy for K epochs: sampling and updating
+        # Accumulate metrics on GPU, transfer to CPU once after all epochs
+        gpu_logging_values = []
         for _ in range(self.k_epochs):
-            epoch_values = []
-            epoch_returns = []
+            gpu_epoch_values = []
+            gpu_epoch_returns = []
             batch_update = 0
+            # Accumulate per-batch scalar metrics on GPU to avoid per-batch CPU sync
+            batch_approx_kls = []
+            batch_clip_fractions = []
+            batch_value_losses = []
+            batch_actor_losses = []
+            batch_entropy_losses = []
+            kl_early_stopped = False
             # Random sampling and no repetition. 'False' indicates that training will continue even if the number of samples in the last time is less than mini_batch_size
             for index in BatchSampler(SubsetRandomSampler(range(self.horizon)), mini_batch_size, False):
                 batch_update += 1
@@ -310,30 +339,28 @@ class PPO(RLAlgorithm):
                 # https://iclr-blog-track.github.io/2022/03/25/ppo-implementation-details/
                 value_loss = self.MSE_loss(values, returns[index].squeeze())
 
-                # Log loss — single CPU transfer for values (used by both logging_values and epoch_values)
+                # Accumulate metrics on GPU — avoid per-batch CPU transfers
                 with torch.no_grad():
-                    values_np = values.detach().cpu().numpy()
-                    logging_values.append(values_np)
-                    epoch_values.append(values_np)
-                    epoch_returns.append(returns[index].detach().cpu().numpy())
-                    clip_fraction = ((ratios < (1 - self.eps_clip)) | (ratios > (1 + self.eps_clip))).float().mean().item()
-                    approx_kl = (batch_old_logprobs - logprobs).mean().detach().item()
+                    gpu_logging_values.append(values.detach())
+                    gpu_epoch_values.append(values.detach())
+                    gpu_epoch_returns.append(returns[index].detach())
+                    clip_fraction = ((ratios < (1 - self.eps_clip)) | (ratios > (1 + self.eps_clip))).float().mean()
+                    approx_kl = (batch_old_logprobs - logprobs).mean().detach()
                     if not self.use_kl_1:
-                        approx_kl = (ratios - 1 - log_ratio).mean().detach().item()
+                        approx_kl = (ratios - 1 - log_ratio).mean().detach()
                     # Stop the policy updates early when the new policy diverges too much from the old one
-                    if self.kl_early_stop and approx_kl >= self.kl_target:
+                    if self.kl_early_stop and approx_kl.item() >= self.kl_target:
                         self.logger.warning(
-                            f"approx_kl({approx_kl:.3f}) exceeded target kl({self.kl_target}) at update {logger.train_step} and K_Epoch {_ + 1}.")
+                            f"approx_kl({approx_kl.item():.3f}) exceeded target kl({self.kl_target}) at update {logger.train_step} and K_Epoch {_ + 1}.")
+                        kl_early_stopped = True
                         break
-                    logger.add_metric("Training/Approx_KL", approx_kl)
-                    logger.add_metric("Training/Clip_Fraction", clip_fraction)
-                    logger.add_metric("Training/value_loss", value_loss.detach().item())
-                    logger.add_metric("Training/actor_loss", actor_loss.detach().item())
-                    logger.add_metric("Training/entropy_loss", entropy_loss.detach().item())
-                    logger.add_metric("Training/log_std", torch.exp(self.policy.actor.log_std).detach().cpu().numpy())
+                    batch_approx_kls.append(approx_kl)
+                    batch_clip_fractions.append(clip_fraction)
+                    batch_value_losses.append(value_loss.detach())
+                    batch_actor_losses.append(actor_loss.detach())
+                    batch_entropy_losses.append(entropy_loss.detach())
 
                 # Sanity checks
-                # torch.cuda.synchronize()  # catch deferred CUDA errors
                 assert isinstance(value_loss, torch.Tensor), f"value_loss not a tensor: {type(value_loss)}"
                 assert isinstance(actor_loss, torch.Tensor), f"actor_loss not a tensor: {type(actor_loss)}"
                 assert not torch.isnan(value_loss).any(), f"Critic Loss is NaN, check returns, values"
@@ -356,7 +383,6 @@ class PPO(RLAlgorithm):
                     torch.nn.utils.clip_grad_norm_(self.critic_params, max_norm=0.5)
                     self.optimizer_a.step()
                     self.scheduler_a.step()
-                    logger.add_metric("Training/LR", self.scheduler_a.get_last_lr())
                 else:
                     # Combine losses and backward once to avoid retain_graph=True,
                     # which would keep the entire computation graph in memory.
@@ -372,15 +398,32 @@ class PPO(RLAlgorithm):
                     self.optimizer_c.step()
                     self.scheduler_a.step()
                     self.scheduler_c.step()
-                    logger.add_metric("Training/LR", self.scheduler_a.get_last_lr() + self.scheduler_c.get_last_lr())
 
-            # Compute explained variance over the epoch
-            epoch_values = np.concatenate(epoch_values)
-            epoch_returns = np.concatenate(epoch_returns)
+            # Single CPU transfer per epoch for accumulated metrics
+            for akl in batch_approx_kls:
+                logger.add_metric("Training/Approx_KL", akl.item())
+            for cf in batch_clip_fractions:
+                logger.add_metric("Training/Clip_Fraction", cf.item())
+            for vl in batch_value_losses:
+                logger.add_metric("Training/value_loss", vl.item())
+            for al in batch_actor_losses:
+                logger.add_metric("Training/actor_loss", al.item())
+            for el in batch_entropy_losses:
+                logger.add_metric("Training/entropy_loss", el.item())
+            with torch.no_grad():
+                logger.add_metric("Training/log_std", torch.exp(self.policy.actor.log_std).detach().cpu().numpy())
+            if not self.separate_optimizers:
+                logger.add_metric("Training/LR", self.scheduler_a.get_last_lr())
+            else:
+                logger.add_metric("Training/LR", self.scheduler_a.get_last_lr() + self.scheduler_c.get_last_lr())
+
+            # Compute explained variance over the epoch — single CPU transfer
+            epoch_values_cat = torch.cat(gpu_epoch_values).cpu().numpy()
+            epoch_returns_cat = torch.cat(gpu_epoch_returns).cpu().numpy()
             # The Explained Variance should not go below zero, going towards 1 means critic is improving
             # The EV is a measurement of how well the value function predicts the actual returns
-            ev = self.calculate_explained_variance(epoch_values, epoch_returns)
+            ev = self.calculate_explained_variance(epoch_values_cat, epoch_returns_cat)
             logger.add_metric("Sanitylogs/Explained_Variance", ev)
 
-        # Logging after training
-        logger.add_metric("Rewards/Values", np.concatenate(logging_values).flatten())
+        # Logging after training — single CPU transfer for all accumulated values
+        logger.add_metric("Rewards/Values", torch.cat(gpu_logging_values).cpu().numpy().flatten())

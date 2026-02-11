@@ -243,6 +243,12 @@ class SwarmMemory(object):
 
 
 class Memory(object):
+    __slots__ = ('max_size', 'action_dim', 'ptr', 'batch_ptr', 'size', '_pinned_refs',
+                 '_tensor_cache', '_tensor_cache_valid',
+                 'state', 'action', 'logprobs', 'reward', 'not_done', 'masks',
+                 'use_intrinsic_reward', 'intrinsic_reward',
+                 'use_next_obs', 'next_obs', 'device')
+
     def _alloc_buffer(self, shape):
         """Allocate numpy buffer, pinned if CUDA available."""
         if torch.cuda.is_available():
@@ -258,6 +264,8 @@ class Memory(object):
         self.batch_ptr = 0
         self.size = 0
         self._pinned_refs = []
+        self._tensor_cache = None  # Cached to_tensor() result
+        self._tensor_cache_valid = False  # Dirty flag
 
         self.state = [0 for _ in range(self.max_size)]
         self.action = self._alloc_buffer((self.max_size, action_dim)) if isinstance(action_dim, int) else self._alloc_buffer((self.max_size, *action_dim))
@@ -413,6 +421,7 @@ class Memory(object):
 
         self.ptr = (self.ptr + 1) % self.max_size
         self.size = min(self.size + 1, self.max_size)
+        self._tensor_cache_valid = False  # Invalidate cache on new data
 
     def create_state_tuple(self, state_fields):
         """Pad variable-length fields into batched tensors and a mask.
@@ -503,14 +512,17 @@ class Memory(object):
         """
         Return a dict with keys: 'state', 'action', 'logprobs', 'reward', 'not_done'
         And if intrinsic reward is available, 'intrinsic_reward'
+        Uses dirty-flag caching: only rebuilds when data has changed since last call.
         """
+        if self._tensor_cache_valid and self._tensor_cache is not None:
+            return self._tensor_cache
+
         data = {}
 
         # Transpose the state buffer: now tuples are grouped per state index
         state_fields = list(zip(*self.state[:self.size]))
         state_tuple, mask = self.create_state_tuple(state_fields)
 
-        # state_tuple = tuple(torch.FloatTensor(np.array(state)).squeeze(1).to(self.device) for state in zip(*self.state[:self.size]))
         data['state'] = state_tuple
         data['mask'] = mask  # Store mask for variable-length states
         data['action'] = torch.as_tensor(self.action[:self.size], dtype=torch.float32).to(self.device, non_blocking=True)
@@ -527,6 +539,8 @@ class Memory(object):
             next_obs_tuple = tuple(torch.as_tensor(np.array(state), dtype=torch.float32).squeeze(1).to(self.device, non_blocking=True) for state in zip(*self.next_obs[:self.size]))
             data['next_obs'] = next_obs_tuple
 
+        self._tensor_cache = data
+        self._tensor_cache_valid = True
         return data
 
     # return ONLY the selected indices as tensors on device
@@ -602,6 +616,8 @@ class Memory(object):
 
         # Reset optional fields
         self.intrinsic_reward = None
+        self._tensor_cache = None
+        self._tensor_cache_valid = False
 
         self.clear_memory()
 
@@ -618,3 +634,5 @@ class Memory(object):
         self.masks = []
         if self.intrinsic_reward is not None:
             self.intrinsic_reward.fill(0)
+        self._tensor_cache = None
+        self._tensor_cache_valid = False

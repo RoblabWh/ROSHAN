@@ -19,6 +19,7 @@
 #include "windows/FileDialogWindow.h"
 #include "windows/CellPopupManager.h"
 #include "windows/RLStatusWindow.h"
+#include "windows/ControlPanelWindow.h"
 
 #include "firespin/model_parameters.h"
 #include "firespin/firemodel_gridmap.h"
@@ -113,6 +114,9 @@ private:
     bool browserSelectionFlag_ = false;
     bool resetConsole_ = false;
 
+    // Focus cycling state: -1 = fire, 0..N = drone index
+    int focusTarget_ = -1;
+
     // Log reader
     LogReader logReader_;
 
@@ -128,6 +132,7 @@ private:
     std::unique_ptr<FileDialogWindow> fileDialog_;
     std::unique_ptr<CellPopupManager> cellPopups_;
     std::unique_ptr<RLStatusWindow> rlStatus_;
+    std::unique_ptr<ControlPanelWindow> controlPanel_;
     std::unique_ptr<MenuBar> menuBar_;
 
     // Shared pointers (updated during rendering)

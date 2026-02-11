@@ -60,8 +60,13 @@ public:
     static ImVec4 GetMappedColor(int cell_type);
 
     // Camera functions
-    void ChangeCameraPosition(double x, double y) { camera_.Move(x, y); SetFullRedraw();}
-    void ApplyZoom(double z) { camera_.Zoom(z); SetFullRedraw();}
+    void ChangeCameraPosition(double x, double y) { camera_.Move(x, y); }
+    void ApplyZoom(double z) { camera_.Zoom(z); }
+    void ApplyZoom(double z, int mouseX, int mouseY);
+    void ResetCamera() { camera_.ResetView(); }
+    void FocusOnPoint(double gridX, double gridY);
+    void FocusOnFire();
+    void FocusOnDrone(int droneIndex, const std::shared_ptr<std::vector<std::shared_ptr<FlyAgent>>>& drones);
 
     // Drawing Related
     void SetFullRedraw() { needs_full_redraw_ = true; }

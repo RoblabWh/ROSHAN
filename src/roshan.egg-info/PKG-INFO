@@ -78,7 +78,7 @@ npm install --save-dev nodemon
 
 ### GDAL, SDL2, and system libraries
 ```bash
-sudo apt install libgdal-dev gdal-bin libsdl2-image-dev
+sudo apt install libgdal-dev gdal-bin libsdl2-image-dev python3-dev
 sudo apt install libsdl2-2.0-0 libsdl2-image-2.0-0
 ```
 
@@ -95,6 +95,7 @@ uv sync --extra llm
 ## 🔧 Build Instructions
 ```bash
 cd ROSHAN
+source .venv/bin/activate  # Activate the virtual environment
 mkdir build && cd build
 cmake .. && make -j$(nproc)
 ```

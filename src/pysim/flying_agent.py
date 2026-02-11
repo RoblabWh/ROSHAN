@@ -44,24 +44,44 @@ class FlyAgent(Agent):
         if not drone_state_groups:
             raise ValueError(f"No AgentState data found in observations for {self.name}")
 
-        # Single iteration extracting all fields per state (halves Python loop overhead)
-        extracted = [
-            [
-                (state.GetVelocityNorm(), state.GetDeltaGoal(), state.GetCosSinToGoal(),
-                 state.GetSpeed(), state.GetDistanceToGoal(), state.GetDistancesToOtherAgents(),
-                 state.GetDistancesMask(), state.GetID())
-                for state in group
-            ]
-            for group in drone_state_groups
-        ]
-        velocities = [[r[0] for r in group] for group in extracted]
-        delta_goals = [[r[1] for r in group] for group in extracted]
-        cos_sin_to_goal = [[r[2] for r in group] for group in extracted]
-        speed = [[r[3] for r in group] for group in extracted]
-        distance_to_goal = [[r[4] for r in group] for group in extracted]
-        distances_to_others = [[r[5] for r in group] for group in extracted]
-        distances_mask = [[r[6] for r in group] for group in extracted]
-        self_id = [[r[7] for r in group] for group in extracted]
+        # Single-pass extraction: build 8 lists of lists directly without intermediate tuples
+        num_groups = len(drone_state_groups)
+        velocities = [None] * num_groups
+        delta_goals = [None] * num_groups
+        cos_sin_to_goal = [None] * num_groups
+        speed = [None] * num_groups
+        distance_to_goal = [None] * num_groups
+        distances_to_others = [None] * num_groups
+        distances_mask = [None] * num_groups
+        self_id = [None] * num_groups
+
+        for g_idx, group in enumerate(drone_state_groups):
+            g_len = len(group)
+            g_vel = [None] * g_len
+            g_dg = [None] * g_len
+            g_cs = [None] * g_len
+            g_sp = [None] * g_len
+            g_dtg = [None] * g_len
+            g_dto = [None] * g_len
+            g_dm = [None] * g_len
+            g_id = [None] * g_len
+            for s_idx, state in enumerate(group):
+                g_vel[s_idx] = state.GetVelocityNorm()
+                g_dg[s_idx] = state.GetDeltaGoal()
+                g_cs[s_idx] = state.GetCosSinToGoal()
+                g_sp[s_idx] = state.GetSpeed()
+                g_dtg[s_idx] = state.GetDistanceToGoal()
+                g_dto[s_idx] = state.GetDistancesToOtherAgents()
+                g_dm[s_idx] = state.GetDistancesMask()
+                g_id[s_idx] = state.GetID()
+            velocities[g_idx] = g_vel
+            delta_goals[g_idx] = g_dg
+            cos_sin_to_goal[g_idx] = g_cs
+            speed[g_idx] = g_sp
+            distance_to_goal[g_idx] = g_dtg
+            distances_to_others[g_idx] = g_dto
+            distances_mask[g_idx] = g_dm
+            self_id[g_idx] = g_id
 
         all_velocities = np.stack(velocities)
         all_delta_goals = np.stack(delta_goals)

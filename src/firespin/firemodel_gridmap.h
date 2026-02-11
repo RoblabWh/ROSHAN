@@ -53,6 +53,7 @@ public:
 
     [[maybe_unused]] int GetNumOfCells() const { return num_cells_; }
 
+    std::pair<double, double> GetFireCentroid() const;
     [[maybe_unused]] std::unordered_set<Point> GetBurningCells() const { return burning_cells_; }
     int GetNumBurningCells() const { return static_cast<int>(burning_cells_.size()); }
 
@@ -111,6 +112,20 @@ public:
     };
 
     std::vector<std::pair<int, int>> GetMooreNeighborhood(int x, int y) const;
+    // Callback-based version that avoids heap allocation
+    template<typename Func>
+    void ForEachMooreNeighbor(int x, int y, Func&& func) const {
+        for (int i = -1; i <= 1; ++i) {
+            for (int j = -1; j <= 1; ++j) {
+                if (i == 0 && j == 0) continue;
+                int new_x = x + i;
+                int new_y = y + j;
+                if (IsPointInGrid(new_x, new_y)) {
+                    func(new_x, new_y);
+                }
+            }
+        }
+    }
     int UpdateExploredAreaFromDrone(std::pair<int, int> drone_position, int drone_view_radius);
     int GetRevisitedCells();
     void ResetStepExploreMap() {
@@ -156,7 +171,8 @@ private:
     std::vector<std::vector<int>> explored_map_;
     std::vector<std::vector<int>> step_explored_map_;
     std::vector<std::vector<int>> fire_map_;
-    std::vector<std::vector<bool>> visited_cells_;
+    std::vector<std::vector<uint32_t>> visited_cells_;
+    uint32_t visited_epoch_ = 0;  // Epoch counter: increment instead of clearing visited_cells_
     std::unordered_set<Point> ticking_cells_;
     std::unordered_set<Point> burning_cells_;
     std::unordered_set<Point> flooded_cells_;
@@ -166,7 +182,7 @@ private:
     std::vector<VirtualParticle> virtual_particles_;
     std::vector<RadiationParticle> radiation_particles_;
     template <typename ParticleType>
-    void UpdateVirtualParticles(std::vector<ParticleType> &particles, std::vector<std::vector<bool>> &visited_cells);
+    void UpdateVirtualParticles(std::vector<ParticleType> &particles, std::vector<std::vector<uint32_t>> &visited_cells);
 
     void EraseParticles(int x, int y);
     void pruneReservations();

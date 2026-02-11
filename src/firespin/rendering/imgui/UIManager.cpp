@@ -33,6 +33,7 @@ void UIManager::SetupWindows() {
     fileDialog_ = std::make_unique<FileDialogWindow>(parameters_, nullptr);
     cellPopups_ = std::make_unique<CellPopupManager>(parameters_, nullptr);
     rlStatus_ = std::make_unique<RLStatusWindow>(parameters_, nullptr, nullptr, mode_);
+    controlPanel_ = std::make_unique<ControlPanelWindow>(parameters_, nullptr, nullptr, mode_);
     menuBar_ = std::make_unique<MenuBar>(parameters_, mode_);
 }
 
@@ -48,8 +49,10 @@ void UIManager::SetupCallbacks() {
     startupWizard_->SetOnComplete([this]() {
         state_.startup.modelStartupComplete = true;
         state_.visibility.simulationControls = true;
+        state_.visibility.controlPanel = true;
         menuBar_->SetModelStartupComplete(true);
         rlStatus_->SetStartupComplete(true);
+        controlPanel_->SetStartupComplete(true);
     });
 
     // FileDialogWindow
@@ -59,8 +62,10 @@ void UIManager::SetupCallbacks() {
         if (!state_.startup.modelStartupComplete) {
             state_.startup.modelStartupComplete = true;
             state_.visibility.simulationControls = true;
+            state_.visibility.controlPanel = true;
             menuBar_->SetModelStartupComplete(true);
             rlStatus_->SetStartupComplete(true);
+            controlPanel_->SetStartupComplete(true);
         }
         cellPopups_->RequestGridmapInit();
     });
@@ -80,9 +85,21 @@ void UIManager::SetupCallbacks() {
         fileDialog_->OpenModelPath(key);
     });
 
+    // ControlPanelWindow (merged window for GUI_RL mode)
+    controlPanel_->SetRLStatusCallbacks(onGetRLStatus, onSetRLStatus);
+    controlPanel_->SetResetDronesCallback(onResetDrones);
+    controlPanel_->SetStartFiresCallback(startFires);
+    controlPanel_->SetResetGridMapCallback(onResetGridMap);
+    controlPanel_->SetLogReader(&logReader_);
+    controlPanel_->SetConsoleResetFlag(&resetConsole_);
+    controlPanel_->SetFileDialogCallback([this](const std::string& key) {
+        fileDialog_->OpenModelPath(key);
+    });
+
     // MenuBar
     menuBar_->SetShowControls(&state_.visibility.simulationControls);
     menuBar_->SetShowRLStatus(&state_.visibility.rlStatus);
+    menuBar_->SetShowControlPanel(&state_.visibility.controlPanel);
     menuBar_->SetShowParameterConfig(&state_.visibility.parameterConfig);
     menuBar_->SetShowNoiseConfig(&state_.visibility.noiseConfig);
     menuBar_->SetShowDemoWindow(&showDemoWindow_);
@@ -121,7 +138,20 @@ void UIManager::ImGuiSimulationControls(const std::shared_ptr<GridMap>& gridmap,
                                          int& delay, float framerate, double runningTime) {
     currentRasterData_ = &currentRasterData;
 
-    // Update window state
+    // In GUI_RL mode, store sim data on controlPanel_ and skip SimulationControlsWindow
+    if (mode_ == Mode::GUI_RL) {
+        controlPanel_->SetGridMap(gridmap);
+        controlPanel_->SetRenderer(modelRenderer);
+        controlPanel_->SetUpdateSimulation(&updateSimulation);
+        controlPanel_->SetRenderSimulation(&renderSimulation);
+        controlPanel_->SetDelay(&delay);
+        controlPanel_->SetFramerate(framerate);
+        controlPanel_->SetRunningTime(runningTime);
+        controlPanel_->SetRasterData(&currentRasterData);
+        return;
+    }
+
+    // Pure GUI mode: use SimulationControlsWindow as before
     simulationControls_->SetGridMap(gridmap);
     simulationControls_->SetRenderer(modelRenderer);
     simulationControls_->SetUpdateSimulation(&updateSimulation);
@@ -132,10 +162,8 @@ void UIManager::ImGuiSimulationControls(const std::shared_ptr<GridMap>& gridmap,
     simulationControls_->SetRasterData(&currentRasterData);
     simulationControls_->SetVisible(state_.visibility.simulationControls);
 
-    // Render
     simulationControls_->Render();
 
-    // Sync visibility back
     state_.visibility.simulationControls = simulationControls_->IsVisible();
 }
 
@@ -184,7 +212,24 @@ void UIManager::PyConfig(std::string& userInput, std::string& modelOutput,
     drones_ = drones;
     renderer_ = modelRenderer;
 
-    // Update RL status window
+    // In GUI_RL mode, render the merged Control Panel instead of RLStatusWindow
+    if (mode_ == Mode::GUI_RL) {
+        controlPanel_->SetGridMap(gridmap);
+        controlPanel_->SetRenderer(modelRenderer);
+        controlPanel_->SetDrones(drones);
+        controlPanel_->SetUserInput(&userInput);
+        controlPanel_->SetModelOutput(&modelOutput);
+        controlPanel_->SetVisible(state_.visibility.controlPanel && state_.startup.modelStartupComplete);
+
+        controlPanel_->Render();
+
+        if (state_.startup.modelStartupComplete) {
+            state_.visibility.controlPanel = controlPanel_->IsVisible();
+        }
+        return;
+    }
+
+    // Non-GUI_RL mode: use RLStatusWindow as before
     rlStatus_->SetGridMap(gridmap);
     rlStatus_->SetRenderer(modelRenderer);
     rlStatus_->SetDrones(drones);
@@ -192,10 +237,8 @@ void UIManager::PyConfig(std::string& userInput, std::string& modelOutput,
     rlStatus_->SetModelOutput(&modelOutput);
     rlStatus_->SetVisible(state_.visibility.rlStatus && state_.startup.modelStartupComplete);
 
-    // Render RL status window
     rlStatus_->Render();
 
-    // Sync visibility back
     if (state_.startup.modelStartupComplete) {
         state_.visibility.rlStatus = rlStatus_->IsVisible();
     }
@@ -280,12 +323,14 @@ void UIManager::HandleEvents(SDL_Event event, ImGuiIO* io,
                 gridmap->ExtinguishCell(x, y);
         }
     }
-    // Mouse wheel - zoom
+    // Mouse wheel - zoom toward cursor
     else if (event.type == SDL_MOUSEWHEEL && modelRenderer && !io->WantCaptureMouse) {
+        int mx, my;
+        SDL_GetMouseState(&mx, &my);
         if (event.wheel.y > 0)
-            modelRenderer->ApplyZoom(1.1);
+            modelRenderer->ApplyZoom(1.1, mx, my);
         else if (event.wheel.y < 0)
-            modelRenderer->ApplyZoom(0.9);
+            modelRenderer->ApplyZoom(0.9, mx, my);
     }
     // Mouse motion - pan with right button
     else if (event.type == SDL_MOUSEMOTION && modelRenderer && !io->WantCaptureMouse) {
@@ -329,6 +374,46 @@ void UIManager::HandleEvents(SDL_Event event, ImGuiIO* io,
             onMoveDrone(parameters_.active_drone_, 0, 0, 1);
     }
 
+    // Keyboard navigation (arrows, +/-, Home, F) - only when not typing in ImGui or manual drone control
+    if (event.type == SDL_KEYDOWN && modelRenderer && !io->WantTextInput) {
+        auto sym = event.key.keysym.sym;
+
+        // Arrow keys for panning (skip if manual control is active to avoid conflict)
+        if (!parameters_.manual_control_) {
+            if (sym == SDLK_UP)    modelRenderer->ChangeCameraPosition(0, 3);
+            if (sym == SDLK_DOWN)  modelRenderer->ChangeCameraPosition(0, -3);
+            if (sym == SDLK_LEFT)  modelRenderer->ChangeCameraPosition(3, 0);
+            if (sym == SDLK_RIGHT) modelRenderer->ChangeCameraPosition(-3, 0);
+        }
+
+        // +/- for zoom
+        if (sym == SDLK_PLUS || sym == SDLK_KP_PLUS || sym == SDLK_EQUALS)
+            modelRenderer->ApplyZoom(1.15);
+        if (sym == SDLK_MINUS || sym == SDLK_KP_MINUS)
+            modelRenderer->ApplyZoom(0.85);
+
+        // Home to reset view
+        if (sym == SDLK_HOME)
+            modelRenderer->ResetCamera();
+
+        // F to cycle focus: Fire -> Drone 0 -> Drone 1 -> ... -> Fire
+        if (sym == SDLK_f && gridmap && drones_) {
+            int numDrones = static_cast<int>(drones_->size());
+            if (focusTarget_ == -1) {
+                // Focus on fire
+                modelRenderer->FocusOnFire();
+                if (numDrones > 0)
+                    focusTarget_ = 0;
+            } else {
+                // Focus on drone
+                modelRenderer->FocusOnDrone(focusTarget_, drones_);
+                focusTarget_++;
+                if (focusTarget_ >= numDrones)
+                    focusTarget_ = -1;
+            }
+        }
+    }
+
     // Browser selection handling
     if (datasetHandler != nullptr) {
         if (datasetHandler->NewDataPointExists() && browserSelectionFlag_) {
@@ -355,9 +440,11 @@ void UIManager::updateOnRLStatusChange() {
 void UIManager::DefaultModeSelected() {
     state_.startup.modelStartupComplete = true;
     state_.visibility.simulationControls = true;
+    state_.visibility.controlPanel = true;
     state_.visibility.parameterConfig = false;
     menuBar_->SetModelStartupComplete(true);
     rlStatus_->SetStartupComplete(true);
+    controlPanel_->SetStartupComplete(true);
 }
 
 void UIManager::OpenBrowser(const std::string& url) {
