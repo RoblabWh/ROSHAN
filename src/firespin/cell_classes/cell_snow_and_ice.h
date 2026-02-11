@@ -18,9 +18,9 @@ public:
         default_noise_size_ = noise_size;
     }
 
-    CellSnowAndIce(SDL_PixelFormat* format) {
+    CellSnowAndIce() {
         color_ = {0, 255, 255, 255};
-        mapped_color_ = SDL_MapRGBA(format, color_.r, color_.g, color_.b, color_.a);
+        InitMappedColor();
         cell_burning_duration_ = 0;
         ignition_delay_time_ = -1;
         radiation_sf0_[0] = 0;

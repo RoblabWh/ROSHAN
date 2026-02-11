@@ -33,6 +33,11 @@ public:
     [[nodiscard]] virtual int GetNoiseSize() const { return noise_size_; }
 
 protected:
+    // Pack color_ into ARGB8888 without needing SDL_PixelFormat
+    void InitMappedColor() {
+        mapped_color_ = (static_cast<Uint32>(color_.a) << 24) | (static_cast<Uint32>(color_.r) << 16) |
+                        (static_cast<Uint32>(color_.g) << 8) | static_cast<Uint32>(color_.b);
+    }
     Uint32 mapped_color_;
     bool has_noise_;
     double cell_burning_duration_;

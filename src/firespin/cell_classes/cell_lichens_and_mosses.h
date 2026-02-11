@@ -18,9 +18,9 @@ public:
         default_noise_size_ = noise_size;
     }
 
-    CellLichensAndMosses(SDL_PixelFormat* format) {
+    CellLichensAndMosses() {
         color_ = {255, 153, 204, 255};
-        mapped_color_ = SDL_MapRGBA(format, color_.r, color_.g, color_.b, color_.a);
+        InitMappedColor();
         cell_burning_duration_ = 240;
         ignition_delay_time_ = 100;
         radiation_sf0_[0] = 0.1;

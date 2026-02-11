@@ -18,9 +18,9 @@ public:
         default_noise_size_ = noise_size;
     }
 
-    CellWoodyBroadleavedEvergreenTrees(SDL_PixelFormat* format) {
+    CellWoodyBroadleavedEvergreenTrees() {
         color_ = {0, 255, 0, 255};
-        mapped_color_ = SDL_MapRGBA(format, color_.r, color_.g, color_.b, color_.a);
+        InitMappedColor();
         cell_burning_duration_ = 3600;
         ignition_delay_time_ = 330;
         radiation_sf0_[0] = 0.1;

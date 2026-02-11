@@ -18,9 +18,9 @@ public:
         default_noise_size_ = noise_size;
     }
 
-    CellGenericFlooded(SDL_PixelFormat* format) {
+    CellGenericFlooded() {
         color_ = {77, 187, 230, 255};
-        mapped_color_ = SDL_MapRGBA(format, color_.r, color_.g, color_.b, color_.a);
+        InitMappedColor();
         cell_burning_duration_ = 160; // currently overwritten by model parameters
         ignition_delay_time_ = 10; // currently overwritten by model parameters
         radiation_sf0_[0] = 0.1;

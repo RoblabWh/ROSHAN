@@ -109,7 +109,7 @@ private:
         bool isTrain = (rlMode == "train");
 
         float buttonWidth = 80.0f;
-        float buttonHeight = 28.0f;
+        float buttonHeight = 30.0f;
 
         // Mode toggle buttons
         ImGui::BeginGroup();
@@ -129,7 +129,7 @@ private:
         }
         ImGui::PopStyleColor(2);
 
-        ImGui::SameLine(0, 2.0f);
+        ImGui::SameLine(0, 4.0f);
 
         // EVAL button
         if (!isTrain) {
@@ -167,7 +167,7 @@ private:
         }
 
         // Status and control buttons on the right
-        ImGui::SameLine(ImGui::GetWindowWidth() - 180);
+        ImGui::SameLine(ImGui::GetWindowWidth() - 200);
 
         StatusIndicator::DrawBadge(agentIsRunning ? "Running" : "Stopped",
                                    agentIsRunning ? StatusState::Active : StatusState::Idle);
@@ -626,12 +626,20 @@ private:
     void RenderFireControls() {
         ImGui::TextColored(colors::kHighlight, "Fire Controls");
 
-        ConfigTable("##FireControlsTable")
-            .SliderFloat("Fire Percentage", &parameters_.fire_percentage_, -0.001f, 1.0f)
-            .SliderFloat("Fire Spread Probability", &parameters_.fire_spread_prob_, -0.001f, 1.0f)
-            .SliderFloat("Fire Noise", &parameters_.fire_noise_, -0.001f, 1.0f)
-            .SliderInt("Number of Fire Clusters", &parameters_.num_fire_clusters_, 0, 20)
-            .Button("Start New Fires", "StartFires", [this]() {
+        auto pattern = parameters_.GetFirePattern();
+        bool showClusterParams = (pattern == FirePattern::Cluster || pattern == FirePattern::Random);
+        bool showNumClusters = (pattern != FirePattern::Scattered);
+        ConfigTable table("##FireControlsTable");
+        table.Combo("Fire Pattern", &parameters_.fire_pattern_index_, kFirePatternNames, kFirePatternCount)
+            .SliderFloat("Fire Percentage", &parameters_.fire_percentage_, -0.001f, 1.0f);
+        if (showClusterParams) {
+            table.SliderFloat("Fire Spread Probability", &parameters_.fire_spread_prob_, -0.001f, 1.0f)
+                 .SliderFloat("Fire Noise", &parameters_.fire_noise_, -0.001f, 1.0f);
+        }
+        if (showNumClusters) {
+            table.SliderInt("Number of Fire Clusters", &parameters_.num_fire_clusters_, 0, 20);
+        }
+        table.Button("Start New Fires", "StartFires", [this]() {
                 if (onStartFires_) onStartFires_();
             })
             .Tooltip("Click to start some fires");

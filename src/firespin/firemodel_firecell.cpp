@@ -8,8 +8,6 @@
 
 FireCell::FireCell(int x, int y, FireModelParameters &parameters, int raster_value)
 : parameters_(parameters){
-    surface_ = SDL_CreateRGBSurfaceWithFormat(0, 1, 1, 32, SDL_PIXELFORMAT_ARGB8888);
-
     //Cell State
     cell_initial_state_ = CellState(raster_value);
     cell_state_ = CellState(raster_value);
@@ -64,52 +62,52 @@ ICell *FireCell::GetCell() {
     ICell *l_cell_;
     switch (cell_state_) {
         case GENERIC_UNBURNED:
-            l_cell_ = new CellGenericUnburned(surface_->format);
+            l_cell_ = new CellGenericUnburned();
             break;
         case GENERIC_BURNING:
-            l_cell_ = new CellGenericBurning(surface_->format);
+            l_cell_ = new CellGenericBurning();
             break;
         case GENERIC_BURNED:
-            l_cell_ = new CellGenericBurned(surface_->format);
+            l_cell_ = new CellGenericBurned();
             break;
         case LICHENS_AND_MOSSES:
-            l_cell_ = new CellLichensAndMosses(surface_->format);
+            l_cell_ = new CellLichensAndMosses();
             break;
         case LOW_GROWING_WOODY_PLANTS:
-            l_cell_ = new CellLowGrowingWoodyPlants(surface_->format);
+            l_cell_ = new CellLowGrowingWoodyPlants();
             break;
         case NON_AND_SPARSLEY_VEGETATED:
-            l_cell_ = new CellNonAndSparsleyVegetated(surface_->format);
+            l_cell_ = new CellNonAndSparsleyVegetated();
             break;
         case OUTSIDE_AREA:
-            l_cell_ = new CellOutsideArea(surface_->format);
+            l_cell_ = new CellOutsideArea();
             break;
         case PERIODICALLY_HERBACEOUS:
-            l_cell_ = new CellPeriodicallyHerbaceous(surface_->format);
+            l_cell_ = new CellPeriodicallyHerbaceous();
             break;
         case PERMANENT_HERBACEOUS:
-            l_cell_ = new CellPermanentHerbaceous(surface_->format);
+            l_cell_ = new CellPermanentHerbaceous();
             break;
         case SEALED:
-            l_cell_ = new CellSealed(surface_->format);
+            l_cell_ = new CellSealed();
             break;
         case SNOW_AND_ICE:
-            l_cell_ = new CellSnowAndIce(surface_->format);
+            l_cell_ = new CellSnowAndIce();
             break;
         case WATER:
-            l_cell_ = new CellWater(surface_->format);
+            l_cell_ = new CellWater();
             break;
         case WOODY_BROADLEAVED_DECIDUOUS_TREES:
-            l_cell_ = new CellWoodyBroadleavedDeciduousTrees(surface_->format);
+            l_cell_ = new CellWoodyBroadleavedDeciduousTrees();
             break;
         case WOODY_BROADLEAVED_EVERGREEN_TREES:
-            l_cell_ = new CellWoodyBroadleavedEvergreenTrees(surface_->format);
+            l_cell_ = new CellWoodyBroadleavedEvergreenTrees();
             break;
         case WOODY_NEEDLE_LEAVED_TREES:
-            l_cell_ = new CellWoodyNeedleLeavedTrees(surface_->format);
+            l_cell_ = new CellWoodyNeedleLeavedTrees();
             break;
         case GENERIC_FLOODED:
-            l_cell_ = new CellGenericFlooded(surface_->format);
+            l_cell_ = new CellGenericFlooded();
             break;
         default:
             throw std::runtime_error("FireCell::GetCell() called on a celltype that is not defined");
@@ -254,6 +252,41 @@ void FireCell::SetCellState(CellState cell_state) {
     cell_state_ = cell_state;
     delete cell_;
     cell_ = GetCell();
+    // Cache the blended color for deterministic states
+    if (cell_state_ == GENERIC_BURNED || cell_state_ == GENERIC_FLOODED) {
+        ComputeAndCacheBlendedColor();
+    } else {
+        has_cached_color_ = false;
+    }
+}
+
+void FireCell::ComputeAndCacheBlendedColor() {
+    Uint32 mapped_cell_color = cell_->GetMappedColor();
+    Uint32 mapped_mother_cell_color = mother_cell_->GetMappedColor();
+
+    // Decompose using ARGB8888 bit layout
+    Uint8 burned_a = (mapped_cell_color >> 24) & 0xFF;
+    Uint8 burned_r = (mapped_cell_color >> 16) & 0xFF;
+    Uint8 burned_g = (mapped_cell_color >> 8) & 0xFF;
+    Uint8 burned_b = mapped_cell_color & 0xFF;
+
+    Uint8 mother_r = (mapped_mother_cell_color >> 16) & 0xFF;
+    Uint8 mother_g = (mapped_mother_cell_color >> 8) & 0xFF;
+    Uint8 mother_b = mapped_mother_cell_color & 0xFF;
+
+    int weight_a = (cell_state_ == GENERIC_BURNED) ? 20 : 40;
+    int mother_weight = 1;
+    int total_weight = weight_a + mother_weight;
+
+    Uint8 blended_r = (burned_r * weight_a + mother_r * mother_weight) / total_weight;
+    Uint8 blended_g = (burned_g * weight_a + mother_g * mother_weight) / total_weight;
+    Uint8 blended_b = (burned_b * weight_a + mother_b * mother_weight) / total_weight;
+
+    cached_mapped_color_ = (static_cast<Uint32>(255) << 24) |
+                           (static_cast<Uint32>(blended_r) << 16) |
+                           (static_cast<Uint32>(blended_g) << 8) |
+                           static_cast<Uint32>(blended_b);
+    has_cached_color_ = true;
 }
 
 void FireCell::ShowInfo(int rows, int cols) {
@@ -282,33 +315,8 @@ void FireCell::ShowInfo(int rows, int cols) {
 }
 
 Uint32 FireCell::GetMappedColor() {
-    if (cell_state_ == GENERIC_BURNED || cell_state_ == GENERIC_FLOODED) {
-        Uint32 mapped_cell_color = cell_->GetMappedColor();
-        Uint32 mapped_mother_cell_color = mother_cell_->GetMappedColor();
-
-        Uint8 burned_r, burned_g, burned_b, burned_a;
-        SDL_GetRGBA(mapped_cell_color, surface_->format, &burned_r, &burned_g, &burned_b, &burned_a);
-
-        Uint8 mother_r, mother_g, mother_b, mother_a;
-        SDL_GetRGBA(mapped_mother_cell_color, surface_->format, &mother_r, &mother_g, &mother_b, &mother_a);
-
-        //blend them
-        int weight_a;
-        int mother_weight;
-        if (cell_state_ == GENERIC_BURNED) {
-            weight_a = 20; mother_weight = 1;
-        } else {
-            weight_a = 40; mother_weight = 1;
-        }
-        int total_weight = weight_a + mother_weight;
-
-        Uint8 blended_r = (burned_r * weight_a + mother_r * mother_weight) / total_weight;
-        Uint8 blended_g = (burned_g * weight_a + mother_g * mother_weight) / total_weight;
-        Uint8 blended_b = (burned_b * weight_a + mother_b * mother_weight) / total_weight;
-        Uint8 blended_a = 255;
-
-        Uint32 blended_mapped_color = SDL_MapRGBA(surface_->format, blended_r, blended_g, blended_b, blended_a);
-        return blended_mapped_color;
+    if (has_cached_color_) {
+        return cached_mapped_color_;
     }
     return cell_->GetMappedColor();
 }
@@ -348,10 +356,6 @@ std::vector<std::vector<int>>& FireCell::GetNoiseMap() {
 
 FireCell::~FireCell() {
     delete cell_;
-    if (surface_) {
-        SDL_FreeSurface(surface_);
-        surface_ = nullptr;
-    }
 }
 
 void FireCell::Reset(int raster_value) {
@@ -397,4 +401,5 @@ void FireCell::Reset(int raster_value) {
     flood_timer_ = flood_duration_;
     tau_ign_tmp_ = 0;
     was_flooded_ = false;
+    has_cached_color_ = false;
 }

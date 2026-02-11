@@ -13,6 +13,27 @@
 #include <algorithm>
 #include "utils.h"
 
+enum class FirePattern : int { Cluster = 0, Scattered = 1, Ring = 2, Random = 3 };
+
+inline FirePattern FirePatternFromString(const std::string& s) {
+    if (s == "scattered") return FirePattern::Scattered;
+    if (s == "ring")      return FirePattern::Ring;
+    if (s == "random")    return FirePattern::Random;
+    return FirePattern::Cluster;
+}
+
+inline const char* FirePatternToString(FirePattern p) {
+    switch (p) {
+        case FirePattern::Scattered: return "scattered";
+        case FirePattern::Ring:      return "ring";
+        case FirePattern::Random:    return "random";
+        default:                     return "cluster";
+    }
+}
+
+inline constexpr const char* kFirePatternNames[] = { "Cluster", "Scattered", "Ring", "Random" };
+inline constexpr int kFirePatternCount = 4;
+
 class FireModelParameters {
 
 public:
@@ -110,6 +131,8 @@ public:
         fire_percentage_ = fire_behaviour["fire_percentage"].as<float>();
         fire_spread_prob_ = fire_behaviour["fire_spread_prob"].as<float>();
         fire_noise_ = fire_behaviour["fire_noise"].as<float>();
+        if (fire_behaviour["fire_pattern"])
+            fire_pattern_index_ = static_cast<int>(FirePatternFromString(fire_behaviour["fire_pattern"].as<std::string>()));
 
         // Agent parameters
         auto agent = environment["agent"];
@@ -309,6 +332,8 @@ public:
     float fire_percentage_{}; // in percent (%)
     float fire_spread_prob_{}; // in percent (%)
     float fire_noise_{};
+    int fire_pattern_index_{0};
+    FirePattern GetFirePattern() const { return static_cast<FirePattern>(fire_pattern_index_); }
     bool use_water_limit_{};
     double recharge_time_{};
     bool manual_control_{false};

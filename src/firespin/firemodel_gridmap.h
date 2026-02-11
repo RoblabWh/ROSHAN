@@ -70,7 +70,7 @@ public:
     int GetNumCells() const { return rows_ * cols_; }
     const std::vector<VirtualParticle>& GetVirtualParticles() const { return virtual_particles_; }
     const std::vector<RadiationParticle>& GetRadiationParticles() const { return radiation_particles_; }
-    std::vector<Point> GetChangedCells() const { return changed_cells_; }
+    const std::vector<Point>& GetChangedCells() const { return changed_cells_; }
     void ResetChangedCells() { changed_cells_.clear(); }
     std::shared_ptr<const std::vector<std::vector<std::vector<int>>>> GetDroneView(std::pair<int, int> drone_position, int drone_view_radius);
     std::vector<std::vector<int>> GetTotalDroneView(std::pair<int, int> drone_position, int view_radius) const;

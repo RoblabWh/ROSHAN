@@ -236,6 +236,8 @@ environment:
   # These parameters are used to configure the fire START behaviour in the environment
   # It does NOT affect the actual fire spread during simulation, this is handled by the fire_model
   fire_behaviour:
+    # Fire ignition pattern: "cluster", "scattered", "ring", "random" (random picks one of the others each episode)
+    fire_pattern: cluster
     # Percentage of cells that should be ignited at the start of the simulation [0.0 - 1.0]
     # Setting this to < 0.0 will lead to randomly generated fire_percentage between (0, 1]
     fire_percentage: 0.35

@@ -115,7 +115,7 @@ private:
         auto agentIsRunning = rlStatus["agent_is_running"].cast<bool>();
         bool isTrain = (rlMode == "train");
 
-        float buttonHeight = 26.0f;
+        float buttonHeight = 30.0f;
 
         // TRAIN button
         if (isTrain) {
@@ -125,14 +125,14 @@ private:
             ImGui::PushStyleColor(ImGuiCol_Button, ImVec4(0.2f, 0.2f, 0.22f, 1.0f));
             ImGui::PushStyleColor(ImGuiCol_ButtonHovered, ImVec4(0.28f, 0.28f, 0.32f, 1.0f));
         }
-        if (ImGui::Button("TRAIN", ImVec2(65, buttonHeight)) && !isTrain) {
+        if (ImGui::Button("TRAIN", ImVec2(72, buttonHeight)) && !isTrain) {
             if (!parameters_.eval_fly_policy_) {
                 ImGui::OpenPopup("Switch Mode");
             }
         }
         ImGui::PopStyleColor(2);
 
-        ImGui::SameLine(0, 2.0f);
+        ImGui::SameLine(0, 4.0f);
 
         // EVAL button
         if (!isTrain) {
@@ -142,7 +142,7 @@ private:
             ImGui::PushStyleColor(ImGuiCol_Button, ImVec4(0.2f, 0.2f, 0.22f, 1.0f));
             ImGui::PushStyleColor(ImGuiCol_ButtonHovered, ImVec4(0.28f, 0.28f, 0.32f, 1.0f));
         }
-        if (ImGui::Button("EVAL", ImVec2(65, buttonHeight)) && isTrain) {
+        if (ImGui::Button("EVAL", ImVec2(72, buttonHeight)) && isTrain) {
             if (!parameters_.eval_fly_policy_) {
                 ImGui::OpenPopup("Switch Mode");
             }
@@ -170,7 +170,7 @@ private:
             ImGui::EndPopup();
         }
 
-        ImGui::SameLine(0, 8.0f);
+        ImGui::SameLine(0, 14.0f);
 
         // Status badge
         StatusIndicator::DrawBadge(agentIsRunning ? "Running" : "Stopped",
@@ -187,14 +187,14 @@ private:
                 ImGui::PushStyleColor(ImGuiCol_ButtonActive, colors::kButtonActivePressed);
                 colored = true;
             }
-            if (ImGui::Button(agentIsRunning ? "Stop" : "Start", ImVec2(42, buttonHeight))) {
+            if (ImGui::Button(agentIsRunning ? "Stop" : "Start", ImVec2(50, buttonHeight))) {
                 rlStatus[py::str("agent_is_running")] = py::bool_(!agentIsRunning);
                 setRLStatus_(rlStatus);
             }
             if (colored) ImGui::PopStyleColor(3);
         }
 
-        ImGui::SameLine(0, 10.0f);
+        ImGui::SameLine(0, 16.0f);
 
         // Simulation control buttons (compact)
         {
@@ -206,7 +206,7 @@ private:
                 ImGui::PushStyleColor(ImGuiCol_ButtonActive, colors::kButtonActivePressed);
                 colored = true;
             }
-            if (ImGui::Button("Sim", ImVec2(34, buttonHeight)) && updateSimulation_) {
+            if (ImGui::Button("Sim", ImVec2(38, buttonHeight)) && updateSimulation_) {
                 *updateSimulation_ = !*updateSimulation_;
             }
             if (ImGui::IsItemHovered())
@@ -214,7 +214,7 @@ private:
             if (colored) ImGui::PopStyleColor(3);
         }
 
-        ImGui::SameLine(0, 2.0f);
+        ImGui::SameLine(0, 4.0f);
 
         {
             bool rendActive = renderSimulation_ && *renderSimulation_;
@@ -225,7 +225,7 @@ private:
                 ImGui::PushStyleColor(ImGuiCol_ButtonActive, colors::kButtonActivePressed);
                 colored = true;
             }
-            if (ImGui::Button("Rend", ImVec2(40, buttonHeight)) && renderSimulation_) {
+            if (ImGui::Button("Rend", ImVec2(44, buttonHeight)) && renderSimulation_) {
                 *renderSimulation_ = !*renderSimulation_;
             }
             if (ImGui::IsItemHovered())
@@ -233,9 +233,9 @@ private:
             if (colored) ImGui::PopStyleColor(3);
         }
 
-        ImGui::SameLine(0, 2.0f);
+        ImGui::SameLine(0, 4.0f);
 
-        if (ImGui::Button("Reset", ImVec2(42, buttonHeight))) {
+        if (ImGui::Button("Reset", ImVec2(48, buttonHeight))) {
             if (onResetGridMap_ && rasterData_) {
                 onResetGridMap_(rasterData_, false);
             }
@@ -435,12 +435,20 @@ private:
         ImGui::BeginChild("EnvControlsScroll", ImVec2(0, 0), false);
 
         if (ImGui::CollapsingHeader("Fire Controls", ImGuiTreeNodeFlags_DefaultOpen)) {
-            ConfigTable("##FireControlsTable")
-                .SliderFloat("Fire Percentage", &parameters_.fire_percentage_, -0.001f, 1.0f)
-                .SliderFloat("Fire Spread Probability", &parameters_.fire_spread_prob_, -0.001f, 1.0f)
-                .SliderFloat("Fire Noise", &parameters_.fire_noise_, -0.001f, 1.0f)
-                .SliderInt("Number of Fire Clusters", &parameters_.num_fire_clusters_, 0, 20)
-                .Button("Start New Fires", "StartFires", [this]() {
+            auto pattern = parameters_.GetFirePattern();
+            bool showClusterParams = (pattern == FirePattern::Cluster || pattern == FirePattern::Random);
+            bool showNumClusters = (pattern != FirePattern::Scattered);
+            ConfigTable table("##FireControlsTable");
+            table.Combo("Fire Pattern", &parameters_.fire_pattern_index_, kFirePatternNames, kFirePatternCount)
+                .SliderFloat("Fire Percentage", &parameters_.fire_percentage_, -0.001f, 1.0f);
+            if (showClusterParams) {
+                table.SliderFloat("Fire Spread Probability", &parameters_.fire_spread_prob_, -0.001f, 1.0f)
+                     .SliderFloat("Fire Noise", &parameters_.fire_noise_, -0.001f, 1.0f);
+            }
+            if (showNumClusters) {
+                table.SliderInt("Number of Fire Clusters", &parameters_.num_fire_clusters_, 0, 20);
+            }
+            table.Button("Start New Fires", "StartFires", [this]() {
                     if (onStartFires_) onStartFires_();
                 })
                 .Tooltip("Click to start some fires");
@@ -621,6 +629,7 @@ private:
             ImGui::BulletText("Right Drag - Pan camera");
             ImGui::BulletText("Left Click - Ignite/Extinguish cell");
             ImGui::BulletText("Middle Click - Cell info popup");
+            ImGui::BulletText("Pos1 - Home Position");
         }
 
         // ROSHAN-AI (folded into Settings)

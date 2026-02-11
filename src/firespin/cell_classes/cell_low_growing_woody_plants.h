@@ -18,9 +18,9 @@ public:
         default_noise_size_ = noise_size;
     }
 
-    CellLowGrowingWoodyPlants(SDL_PixelFormat* format) {
+    CellLowGrowingWoodyPlants() {
         color_ = {105, 76, 51, 255};
-        mapped_color_ = SDL_MapRGBA(format, color_.r, color_.g, color_.b, color_.a);
+        InitMappedColor();
         cell_burning_duration_ = 720;
         ignition_delay_time_ = 120;
         radiation_sf0_[0] = 0.1;

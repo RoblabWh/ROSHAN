@@ -28,19 +28,6 @@ FireModelRenderer::FireModelRenderer(SDL_Renderer* renderer, FireModelParameters
     }
 }
 
-std::vector<std::vector<int>> ScaleNoiseMap(const std::vector<std::vector<int>>& noise_map, int new_size) {
-    int original_size = static_cast<int>(noise_map.size());
-    std::vector<std::vector<int>> scaled_noise_map(new_size, std::vector<int>(new_size));
-
-    for (int y = 0; y < new_size; ++y) {
-        for (int x = 0; x < new_size; ++x) {
-            int orig_x = x * original_size / new_size;
-            int orig_y = y * original_size / new_size;
-            scaled_noise_map[y][x] = noise_map[orig_y][orig_x];
-        }
-    }
-    return scaled_noise_map;
-}
 
 void FireModelRenderer::LoadSimpleTextures() {
     // Load the arrow texture
@@ -240,7 +227,8 @@ std::pair<Uint32, int> ModifyColorWithGradient(Uint32 base_color, int x, int y, 
     b = std::min(255, b + ((x + y) % 32));
 
     // Use cached burn_time (set once per frame) and precomputed flicker LUT
-    int lut_index = static_cast<int>((s_cached_burn_time * 5.0 + x + y) * (FLICKER_LUT_SIZE / (2.0 * M_PI)));
+    static constexpr double FLICKER_LUT_SCALE = FLICKER_LUT_SIZE / (2.0 * M_PI);
+    int lut_index = static_cast<int>((s_cached_burn_time * 5.0 + x + y) * FLICKER_LUT_SCALE);
     lut_index = ((lut_index % FLICKER_LUT_SIZE) + FLICKER_LUT_SIZE) % FLICKER_LUT_SIZE;
     Uint8 offset = s_flicker_lut[lut_index];
 
@@ -264,27 +252,17 @@ SDL_Rect FireModelRenderer::DrawCell(int x, int y) {
     const SDL_Rect cell_rect = { screen_x, screen_y, cell_w, cell_h };
 
     auto color_for = [&](int gx, int gy) {
-        Uint32 color = gridmap_->At(gx, gy).GetMappedColor();
-        if (parameters_.lingering_ && gridmap_->At(gx, gy).WasFlooded())
+        auto& cell = gridmap_->At(gx, gy);
+        Uint32 color = cell.GetMappedColor();
+        if (parameters_.lingering_ && cell.WasFlooded())
             color = (255 << 24) | (77 << 16) | (187 << 8) | 230;
-        CellState st = gridmap_->At(gx, gy).GetCellState();
+        CellState st = cell.GetCellState();
         int phase_offset = 0;
         if (st == CellState::GENERIC_BURNING) {
             auto res = ModifyColorWithGradient(color, gx, gy, 0);
             color = res.first;
             phase_offset = res.second;
         }
-        //TODO - Make this a parameter AND unobscure explored cells logic in gridmap wtf is that
-        // Fog of War Type Effect for unexplored Cels
-//        if (!gridmap_->IsExplored(x, y)) {
-//            Uint8 r, g, b, a;
-//            SDL_GetRGBA(color, pixel_format_, &r, &g, &b, &a);
-//            r = static_cast<Uint8>(r * 0.5);
-//            g = static_cast<Uint8>(g * 0.5);
-//            b = static_cast<Uint8>(b * 0.5);
-//            a = static_cast<Uint8>(a * 0.5);
-//            color = SDL_MapRGBA(pixel_format_, r, g, b, a);
-//        }
         return std::pair<Uint32, int>(color, phase_offset);
     };
     auto base = color_for(x, y);
@@ -292,13 +270,13 @@ SDL_Rect FireModelRenderer::DrawCell(int x, int y) {
     auto phase_offset = base.second;
 
     int grid_offset = !parameters_.render_grid_ ? 0 : (camera_.GetCellSize() >= 3.0 ? -1 : 0);
-    bool has_noise = gridmap_->At(x, y).HasNoise() && gridmap_->HasNoiseGenerated() && parameters_.has_noise_ && !this->needs_init_cell_noise_;
+    auto& this_cell = gridmap_->At(x, y);
+    bool has_noise = this_cell.HasNoise() && gridmap_->HasNoiseGenerated() && parameters_.has_noise_ && !this->needs_init_cell_noise_;
 
     if (has_noise) {
-        std::vector<std::vector<int>>& noise_map = gridmap_->At(x, y).GetNoiseMap();
+        std::vector<std::vector<int>>& noise_map = this_cell.GetNoiseMap();
         if (!noise_map.empty()){
-            std::vector<std::vector<int>> scaled_noise_map = ScaleNoiseMap(noise_map, cell_w);
-            pixel_buffer_->Draw(cell_rect, base_color, scaled_noise_map, grid_offset, phase_offset);
+            pixel_buffer_->Draw(cell_rect, base_color, noise_map, grid_offset, phase_offset);
         } else {
             this->needs_full_redraw_ = true;
         }
@@ -308,7 +286,7 @@ SDL_Rect FireModelRenderer::DrawCell(int x, int y) {
     }
 
     if (parameters_.render_terrain_transition) {
-        auto this_cell_state = gridmap_->At(x, y).GetCellState();
+        auto this_cell_state = this_cell.GetCellState();
         if (gridmap_->IsPointInGrid(x, y - 1) && gridmap_->At(x, y - 1).GetCellState() < this_cell_state){
             auto left_color = color_for(x, y - 1).first;
             if (left_color != base_color)
@@ -375,14 +353,22 @@ void FireModelRenderer::DrawCircle(int x, int y, int min_radius, double intensit
     SDL_SetRenderDrawBlendMode(renderer_, SDL_BLENDMODE_BLEND);
     SDL_SetRenderDrawColor(renderer_, color.r, color.g, color.b, color.a);
 
+    const int r2 = radius * radius;
+    // Pre-allocate points buffer (pi*r^2 max points)
+    thread_local std::vector<SDL_Point> points;
+    points.clear();
     for(int w = 0; w < radius * 2; w++) {
+        int dx = radius - w;
+        int dx2 = dx * dx;
         for(int h = 0; h < radius * 2; h++) {
-            int dx = radius - w; // horizontal offset
-            int dy = radius - h; // vertical offset
-            if((dx*dx + dy*dy) <= (radius * radius)) {
-                SDL_RenderDrawPoint(renderer_, x + dx, y + dy);
+            int dy = radius - h;
+            if(dx2 + dy * dy <= r2) {
+                points.push_back({x + dx, y + dy});
             }
         }
+    }
+    if (!points.empty()) {
+        SDL_RenderDrawPoints(renderer_, points.data(), static_cast<int>(points.size()));
     }
 }
 

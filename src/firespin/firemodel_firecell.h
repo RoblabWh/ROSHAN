@@ -90,7 +90,6 @@ private:
     int num_radiation_particles;
     int convection_particle_emission_threshold_;
     int radiation_particle_emission_threshold_;
-    SDL_Surface* surface_;
     ICell* cell_;
     ICell* mother_cell_;
     CellState cell_state_;
@@ -99,10 +98,15 @@ private:
     //Texture Test
     std::vector<std::vector<int>> noise_map_;
 
+    // Cached blended color for BURNED/FLOODED states (deterministic after transition)
+    Uint32 cached_mapped_color_ = 0;
+    bool has_cached_color_ = false;
+
     // Random Generator for the particles
     std::uniform_real_distribution<> real_dis_;
 
     ICell *GetCell();
+    void ComputeAndCacheBlendedColor();
 
     bool was_flooded_ = false;
     void SetCellState(CellState cell_state);

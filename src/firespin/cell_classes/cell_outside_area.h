@@ -18,9 +18,9 @@ public:
         default_noise_size_ = noise_size;
     }
 
-    CellOutsideArea(SDL_PixelFormat* format) {
+    CellOutsideArea() {
         color_ = {25, 25, 25, 255};
-        mapped_color_ = SDL_MapRGBA(format, color_.r, color_.g, color_.b, color_.a);
+        InitMappedColor();
         cell_burning_duration_ = 0;
         ignition_delay_time_ = 0;
         radiation_sf0_[0] = 0;

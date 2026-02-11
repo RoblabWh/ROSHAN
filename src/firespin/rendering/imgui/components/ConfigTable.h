@@ -99,6 +99,20 @@ public:
         return *this;
     }
 
+    // Combo dropdown
+    ConfigTable& Combo(const char* label, int* currentItem, const char* const items[], int itemCount) {
+        if (!isOpen_) return *this;
+        EnsureHeaders();
+        ImGui::TableNextRow();
+        ImGui::TableNextColumn();
+        ImGui::Text("%s", label);
+        ImGui::TableNextColumn();
+        ImGui::SetNextItemWidth(-1);
+        std::string widgetId = std::string("##") + label;
+        ImGui::Combo(widgetId.c_str(), currentItem, items, itemCount);
+        return *this;
+    }
+
     // Checkbox
     ConfigTable& Checkbox(const char* label, bool* value, bool centered = true) {
         if (!isOpen_) return *this;

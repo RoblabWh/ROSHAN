@@ -87,10 +87,10 @@ public:
         ImGui::PushStyleColor(ImGuiCol_ButtonActive, bgColor);
         ImGui::PushStyleColor(ImGuiCol_Text, textColor);
 
-        ImGui::PushStyleVar(ImGuiStyleVar_FrameRounding, 10.0f);
-        ImGui::PushStyleVar(ImGuiStyleVar_FramePadding, ImVec2(8.0f, 2.0f));
+        ImGui::PushStyleVar(ImGuiStyleVar_FrameRounding, 12.0f);
+        ImGui::PushStyleVar(ImGuiStyleVar_FramePadding, ImVec2(12.0f, 4.0f));
 
-        ImGui::SmallButton(text);
+        ImGui::Button(text);
 
         ImGui::PopStyleVar(2);
         ImGui::PopStyleColor(4);

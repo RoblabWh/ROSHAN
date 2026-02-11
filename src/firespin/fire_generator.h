@@ -23,6 +23,8 @@ public:
 
 private:
     void IgniteFireCluster(int fires, std::pair<int, int> start_point, std::set<std::pair<int, int>>& used);
+    void IgniteScattered(int fires);
+    void IgniteRing(int fires);
 
     std::shared_ptr<GridMap> gridmap_;
     FireModelParameters& parameters_;
