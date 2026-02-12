@@ -35,6 +35,9 @@
 #include "firespin/cell_classes/cell_generic_flooded.h"
 
 
+// Invalidate shared ICell singletons (call after changing noise defaults via UI)
+void InvalidateCellSingletons();
+
 class FireCell {
 
 public:

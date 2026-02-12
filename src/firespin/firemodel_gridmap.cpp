@@ -16,10 +16,10 @@ GridMap::GridMap(std::shared_ptr<Wind> wind, FireModelParameters &parameters,
     // Cols and Rows are swapped in Renderer to match GEO representation
     wind_ = std::move(wind);
     cells_ = std::vector<std::vector<std::shared_ptr<FireCell>>>(rows, std::vector<std::shared_ptr<FireCell>>(cols));
-    explored_map_ = std::vector<std::vector<int>>(rows, std::vector<int>(cols, 0));
-    step_explored_map_ = std::vector<std::vector<int>>(rows, std::vector<int>(cols, 0));
-    fire_map_ = std::vector<std::vector<int>>(rows, std::vector<int>(cols, 0));
-    visited_cells_ = std::vector<std::vector<uint32_t>>(rows, std::vector<uint32_t>(cols, 0));
+    explored_map_.assign(rows * cols, 0);
+    step_explored_map_.assign(rows * cols, 0);
+    fire_map_.assign(rows * cols, 0);
+    visited_cells_.assign(rows * cols, 0);
 
 #pragma omp parallel for collapse(2)
     for (int x = 0; x < rows; ++x) {
@@ -57,10 +57,10 @@ void GridMap::Reset(std::vector<std::vector<int>>* rasterData) {
 
     if (cols != cols_ || rows != rows_ || cells_.empty()) {
         cells_.assign(rows, std::vector<std::shared_ptr<FireCell>>(cols));
-        explored_map_.assign(rows, std::vector<int>(cols, 0));
-        step_explored_map_.assign(rows, std::vector<int>(cols, 0));
-        fire_map_.assign(rows, std::vector<int>(cols, 0));
-        visited_cells_.assign(rows, std::vector<uint32_t>(cols, 0));
+        explored_map_.assign(rows * cols, 0);
+        step_explored_map_.assign(rows * cols, 0);
+        fire_map_.assign(rows * cols, 0);
+        visited_cells_.assign(rows * cols, 0);
         cols_ = cols;
         rows_ = rows;
     }
@@ -73,10 +73,11 @@ void GridMap::Reset(std::vector<std::vector<int>>* rasterData) {
             } else {
                 cells_[x][y] = std::make_shared<FireCell>(x, y, parameters_, (*rasterData)[y][x]);
             }
-            explored_map_[x][y] = 0;
-            step_explored_map_[x][y] = 0;
-            fire_map_[x][y] = 0;
-            visited_cells_[x][y] = 0;
+            const int fi = x * cols_ + y;
+            explored_map_[fi] = 0;
+            step_explored_map_[fi] = 0;
+            fire_map_[fi] = 0;
+            visited_cells_[fi] = 0;
         }
     }
 
@@ -95,11 +96,14 @@ void GridMap::Reset(std::vector<std::vector<int>>* rasterData) {
     changed_cells_.clear();
     reserved_positions_.clear();
     buffer_.fillBuffer();
+    fire_map_dirty_ = true;
+    cached_fire_map_.reset();
+    cached_drone_view_radius_ = -1;
 }
 
 
 template <typename ParticleType>
-void GridMap::UpdateVirtualParticles(std::vector<ParticleType> &particles, std::vector<std::vector<uint32_t>> &visited_cells) {
+void GridMap::UpdateVirtualParticles(std::vector<ParticleType> &particles, std::vector<uint32_t> &visited_cells) {
     size_t part = 0;
     while (part < particles.size()) {
         auto &particle = particles[part];
@@ -122,7 +126,7 @@ void GridMap::UpdateVirtualParticles(std::vector<ParticleType> &particles, std::
         }
 
         Point p = Point(i, j);
-        visited_cells[p.x_][p.y_] = visited_epoch_;
+        visited_cells[p.x_ * cols_ + p.y_] = visited_epoch_;
         if (CellCanIgnite(p.x_, p.y_)) {
             ticking_cells_.insert(p);
         }
@@ -136,9 +140,7 @@ void GridMap::UpdateParticles() {
     ++visited_epoch_;
     // Handle epoch wraparound (extremely unlikely: every ~4 billion frames)
     if (visited_epoch_ == 0) {
-        for (auto &row : visited_cells_) {
-            std::fill(row.begin(), row.end(), static_cast<uint32_t>(0));
-        }
+        std::fill(visited_cells_.begin(), visited_cells_.end(), static_cast<uint32_t>(0));
         visited_epoch_ = 1;
     }
 
@@ -147,7 +149,7 @@ void GridMap::UpdateParticles() {
 
     for (auto it = ticking_cells_.begin(); it != ticking_cells_.end(); ) {
         // If cell is not visited in this epoch, remove it from ticking cells
-        if (visited_cells_[it->x_][it->y_] != visited_epoch_) {
+        if (visited_cells_[it->x_ * cols_ + it->y_] != visited_epoch_) {
             it = ticking_cells_.erase(it);
         } else {
             ++it;
@@ -155,19 +157,7 @@ void GridMap::UpdateParticles() {
     }
 }
 
-GridMap::~GridMap(){
-    cells_.clear();
-    virtual_particles_.clear();
-    radiation_particles_.clear();
-    burning_cells_.clear();
-    ticking_cells_.clear();
-    flooded_cells_.clear();
-    changed_cells_.clear();
-    explored_map_.clear();
-    step_explored_map_.clear();
-    fire_map_.clear();
-    visited_cells_.clear();
-}
+GridMap::~GridMap() = default;
 
 void GridMap::pruneReservations() {
     // Keep only reservations that are still burning
@@ -364,8 +354,18 @@ void GridMap::ExtinguishCell(int x, int y) {
 std::shared_ptr<const std::vector<std::vector<std::vector<int>>>> GridMap::GetDroneView(std::pair<int, int> drone_position, int drone_view_radius) {
     int size = drone_view_radius + 1;
 
-    // Initialisiere eine 3D-Matrix: [status_type][x][y]
-    std::vector<std::vector<std::vector<int>>> view(2, std::vector<std::vector<int>>(size, std::vector<int>(size, 0)));
+    // Reuse cached buffer if radius matches, otherwise reallocate
+    if (cached_drone_view_radius_ != drone_view_radius) {
+        cached_drone_view_.assign(2, std::vector<std::vector<int>>(size, std::vector<int>(size, 0)));
+        cached_drone_view_radius_ = drone_view_radius;
+    } else {
+        // Zero out existing buffer
+        for (int layer = 0; layer < 2; ++layer) {
+            for (int r = 0; r < size; ++r) {
+                std::fill(cached_drone_view_[layer][r].begin(), cached_drone_view_[layer][r].end(), 0);
+            }
+        }
+    }
 
     int drone_view_radius_2 = drone_view_radius / 2;
     for (int x = drone_position.first - drone_view_radius_2; x <= drone_position.first + drone_view_radius_2; ++x) {
@@ -373,20 +373,13 @@ std::shared_ptr<const std::vector<std::vector<std::vector<int>>>> GridMap::GetDr
             int new_x = x - drone_position.first + drone_view_radius_2;
             int new_y = y - drone_position.second + drone_view_radius_2;
             if (IsPointInGrid(x, y)) {
-                // Setze Zellstatus (Status 0)
-                view[0][new_x][new_y] = cells_[x][y]->GetCellState();
-
-                // Setze Feuerstatus (Status 1)
-                if (cells_[x][y]->IsBurning()){
-                    view[1][new_x][new_y] = 1;
-                } else {
-                    view[1][new_x][new_y] = 0; // oder ein anderer Wert, der "kein Feuer" darstellt
-                }
+                cached_drone_view_[0][new_x][new_y] = cells_[x][y]->GetCellState();
+                cached_drone_view_[1][new_x][new_y] = cells_[x][y]->IsBurning() ? 1 : 0;
             }
         }
     }
 
-    return std::make_shared<const std::vector<std::vector<std::vector<int>>>>(view);
+    return std::make_shared<const std::vector<std::vector<std::vector<int>>>>(cached_drone_view_);
 }
 
 //int GridMap::UpdateExplorationMap(int x, int y) {
@@ -401,8 +394,9 @@ std::shared_ptr<const std::vector<std::vector<std::vector<int>>>> GridMap::GetDr
 [[maybe_unused]] void GridMap::UpdateCellDiminishing() {
     for (int x = 0; x < rows_; ++x) {
         for (int y = 0; y < cols_; ++y) {
-            if (explored_map_[x][y] > 0) {
-                explored_map_[x][y]--;
+            const int fi = x * cols_ + y;
+            if (explored_map_[fi] > 0) {
+                explored_map_[fi]--;
             }
         }
     }
@@ -419,10 +413,15 @@ int GridMap::UpdateExploredAreaFromDrone(std::pair<int, int> drone_position, int
 
     for (int x = start_x; x <= end_x; ++x) {
         for (int y = start_y; y <= end_y; ++y) {
-            fire_map_[x][y] = cells_[x][y]->IsBurning() ? 1 : 0;
-            if (step_explored_map_[x][y] == 0) {
+            const int fi = x * cols_ + y;
+            int new_val = cells_[x][y]->IsBurning() ? 1 : 0;
+            if (fire_map_[fi] != new_val) {
+                fire_map_[fi] = new_val;
+                fire_map_dirty_ = true;
+            }
+            if (step_explored_map_[fi] == 0) {
                 newly_visited_cells++;
-                step_explored_map_[x][y] = 1;
+                step_explored_map_[fi] = 1;
             }
         }
     }
@@ -538,6 +537,8 @@ void GridMap::SetCellNoise(CellState state, int noise_level, int noise_size) {
         default:
             throw std::runtime_error("FireCell::GetCell() called on a celltype that is not defined");
     }
+    // Noise defaults changed — singletons must be recreated on next access
+    InvalidateCellSingletons();
 }
 
 void GridMap::GenerateNoiseMap() {
@@ -611,40 +612,62 @@ std::shared_ptr<const std::vector<std::vector<double>>> GridMap::GetInterpolated
     return std::make_shared<const std::vector<std::vector<double>>>(BilinearInterpolation(total_drone_view, size, size));
 }
 
+// Helper to convert flat 1D int array back to 2D for API compatibility
+std::vector<std::vector<int>> GridMap::flat_to_2d(const std::vector<int>& flat) const {
+    std::vector<std::vector<int>> result(rows_, std::vector<int>(cols_));
+    for (int x = 0; x < rows_; ++x) {
+        std::copy_n(flat.data() + x * cols_, cols_, result[x].data());
+    }
+    return result;
+}
+
 std::shared_ptr<const std::vector<std::vector<int>>> GridMap::GetExploredMap(int size, bool interpolated) {
     if(size == 0) {
         size = parameters_.GetExplorationMapSize();
     }
+    auto map_2d = flat_to_2d(explored_map_);
     if (!interpolated) {
-        return std::make_shared<const std::vector<std::vector<int>>>(explored_map_);
+        return std::make_shared<const std::vector<std::vector<int>>>(std::move(map_2d));
     }
-    return std::make_shared<const std::vector<std::vector<int>>>(InterpolationResize(explored_map_, size, size));
+    return std::make_shared<const std::vector<std::vector<int>>>(InterpolationResize(map_2d, size, size));
 }
 
 std::shared_ptr<const std::vector<std::vector<int>>> GridMap::GetStepExploredMap(int size, bool interpolated) {
     if(size == 0) {
         size = parameters_.GetExplorationMapSize();
     }
+    auto map_2d = flat_to_2d(step_explored_map_);
     if (!interpolated) {
-        return std::make_shared<const std::vector<std::vector<int>>>(step_explored_map_);
+        return std::make_shared<const std::vector<std::vector<int>>>(std::move(map_2d));
     }
-    return std::make_shared<const std::vector<std::vector<int>>>(InterpolationResize(step_explored_map_, size, size));
+    return std::make_shared<const std::vector<std::vector<int>>>(InterpolationResize(map_2d, size, size));
 }
 
-std::shared_ptr<const std::vector<std::vector<double>>> GridMap::GetFireMap(int size, bool interpolated) {
+std::shared_ptr<const std::vector<std::vector<double>>> GridMap::GetFireMap(int size, bool interpolated) const {
     if(size == 0) {
         size = parameters_.GetFireMapSize();
     }
     if (!interpolated) {
-        std::vector<std::vector<double>> doubleMatrix(fire_map_.size(), std::vector<double>(fire_map_[0].size()));
-        for (size_t i = 0; i < fire_map_.size(); ++i) {
-            for (size_t j = 0; j < fire_map_[0].size(); ++j) {
-                doubleMatrix[i][j] = static_cast<double>(fire_map_[i][j]);
+        // Use cached non-interpolated fire map if available
+        if (!fire_map_dirty_ && cached_fire_map_) {
+            return cached_fire_map_;
+        }
+        auto doubleMatrix = std::make_shared<std::vector<std::vector<double>>>(rows_, std::vector<double>(cols_));
+        for (int x = 0; x < rows_; ++x) {
+            for (int y = 0; y < cols_; ++y) {
+                (*doubleMatrix)[x][y] = static_cast<double>(fire_map_[x * cols_ + y]);
             }
         }
-        return std::make_shared<const std::vector<std::vector<double>>>(doubleMatrix);
+        cached_fire_map_ = doubleMatrix;
+        fire_map_dirty_ = false;
+        return cached_fire_map_;
     }
-    return std::make_shared<const std::vector<std::vector<double>>>(BilinearInterpolation(fire_map_, size, size));
+    // For interpolation, need 2D format — build temporary
+    std::vector<std::vector<int>> fire_map_2d(rows_, std::vector<int>(cols_));
+    for (int x = 0; x < rows_; ++x) {
+        std::copy_n(fire_map_.data() + x * cols_, cols_, fire_map_2d[x].data());
+    }
+    return std::make_shared<const std::vector<std::vector<double>>>(BilinearInterpolation(fire_map_2d, size, size));
 }
 
 std::pair<int, int> GridMap::GetRandomCorner() {
@@ -662,41 +685,28 @@ void GridMap::SetGroundstation() {
 }
 
 [[maybe_unused]] int GridMap::GetNumExploredFires() const {
-    // Returns the number of fires that have been seen by the drone
-    int num_fires = 0;
-    for (auto& row : fire_map_) {
-        num_fires += static_cast<int>(std::count(row.begin(), row.end(), 1));
-    }
-    return num_fires;
+    return static_cast<int>(std::count(fire_map_.begin(), fire_map_.end(), 1));
 }
 
 [[maybe_unused]] bool GridMap::ExploredFiresEqualsActualFires() const {
-    // Returns true if the fires seen by the drone are the same as the actual fires. This is needed because the explored
-    // map may contain fires that are burned out
-
-    bool explored_fires_equal_actual_fires = true;
-    for (auto& fire : burning_cells_) {
-        if (fire_map_[fire.x_][fire.y_] == 0) {
-            explored_fires_equal_actual_fires = false;
-            break;
+    for (const auto& fire : burning_cells_) {
+        if (fire_map_[fire.x_ * cols_ + fire.y_] == 0) {
+            return false;
         }
     }
-
-    return explored_fires_equal_actual_fires;
+    return true;
 }
 
 int GridMap::GetRevisitedCells() {
     int revisited_cells = 0;
-    for (int x = 0; x < rows_; ++x) {
-        for (int y = 0; y < cols_; ++y) {
-            if (step_explored_map_[x][y] > 0) {
-                // TODO maybe change the logic here? seems kinda random
-                // If the cell was not visited in the last 300 steps, count as newly explored
-                if (explored_map_[x][y] <= parameters_.GetExplorationTime() - 300) {
-                    explored_map_[x][y] = parameters_.GetExplorationTime(); //1;
-                } else {
-                    revisited_cells++;
-                }
+    const int total = rows_ * cols_;
+    const int explore_time = parameters_.GetExplorationTime();
+    for (int i = 0; i < total; ++i) {
+        if (step_explored_map_[i] > 0) {
+            if (explored_map_[i] <= explore_time - 300) {
+                explored_map_[i] = explore_time;
+            } else {
+                revisited_cells++;
             }
         }
     }
@@ -708,7 +718,7 @@ std::shared_ptr<const std::vector<std::pair<int, int>>> GridMap::GetExploredFire
     std::vector<std::pair<int, int>> explored_fires;
     for (int x = 0; x < rows_; ++x) {
         for (int y = 0; y < cols_; ++y) {
-            if (fire_map_[x][y] == 1) {
+            if (fire_map_[x * cols_ + y] == 1) {
                 explored_fires.emplace_back(x, y);
             }
         }
@@ -730,10 +740,10 @@ std::shared_ptr<std::vector<std::pair<double, double>>> GridMap::GetFirePosition
     std::vector<std::pair<double, double>> fire_positions;
     // Append Wait Token for the Network at (-1, -1)
     fire_positions.emplace_back(-1.0, -1.0);
-    for (size_t i = 0; i < fire_map_.size(); ++i) {
-        for (size_t j = 0; j < fire_map_[i].size(); ++j) {
-            if (fire_map_[i][j] > 0) {
-                fire_positions.emplace_back(static_cast<double>(i) + 0.5, static_cast<double>(j) + 0.5);
+    for (int x = 0; x < rows_; ++x) {
+        for (int y = 0; y < cols_; ++y) {
+            if (fire_map_[x * cols_ + y] > 0) {
+                fire_positions.emplace_back(static_cast<double>(x) + 0.5, static_cast<double>(y) + 0.5);
             }
         }
     }
@@ -744,7 +754,7 @@ std::unordered_set<Point> GridMap::GetRawFirePositionsFromFireMap() const {
     std::unordered_set<Point> fire_positions;
     for (int x = 0; x < rows_; ++x) {
         for (int y = 0; y < cols_; ++y) {
-            if (fire_map_[x][y] == 1) {
+            if (fire_map_[x * cols_ + y] == 1) {
                 fire_positions.insert(Point(x, y));
             }
         }

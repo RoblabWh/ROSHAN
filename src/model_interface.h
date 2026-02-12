@@ -26,8 +26,10 @@ public:
 //    std::vector<bool>,
 //    std::unordered_map<std::string, bool>,
 //    double>
-    virtual StepResult Step(const std::string& agent_type, std::vector<std::shared_ptr<Action>> actions) = 0;
+    virtual StepResult Step(const std::string& agent_type, std::vector<std::shared_ptr<Action>> actions, bool skip_observations = false) = 0;
     virtual std::unordered_map<std::string, std::vector<std::deque<std::shared_ptr<State>>>> GetObservations() = 0;
+    virtual pybind11::tuple GetBatchedFlyObservations(const std::string& agent_type) = 0;
+    virtual pybind11::tuple GetBatchedPlannerObservations() = 0;
     virtual void Render() = 0;
     virtual bool GetEarlyClosing() = 0;
     virtual void HandleEvents(SDL_Event event, ImGuiIO* io) = 0;

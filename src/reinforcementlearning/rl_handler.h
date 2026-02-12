@@ -153,6 +153,10 @@ public:
     }
 
     std::unordered_map<std::string, std::vector<std::deque<std::shared_ptr<State>>>> GetObservations();
+    // Batch observation API: returns all fly-agent observations as pre-packed numpy arrays
+    // in a single C++ call, eliminating per-property Python→C++ boundary crossings.
+    py::tuple GetBatchedFlyObservations(const std::string& agent_type);
+    py::tuple GetBatchedPlannerObservations();
     void StepDroneManual(int drone_idx, double speed_x, double speed_y, int water_dispense);
     void ResetEnvironment(Mode mode);
 //    std::tuple<std::unordered_map<std::string, std::vector<std::deque<std::shared_ptr<State>>>>,
@@ -160,7 +164,7 @@ public:
 //            std::vector<bool>,
 //            std::unordered_map<std::string, bool>,
 //            double> Step(const std::string& agent_type, std::vector<std::shared_ptr<Action>> actions);
-    StepResult Step(const std::string& agent_type, std::vector<std::shared_ptr<Action>> actions);
+    StepResult Step(const std::string& agent_type, std::vector<std::shared_ptr<Action>> actions, bool skip_observations = false);
     void SetModelRenderer(std::shared_ptr<FireModelRenderer> model_renderer) { model_renderer_ = std::move(model_renderer); }
     void SetGridMap(std::shared_ptr<GridMap> gridmap) { gridmap_ = std::move(gridmap); }
     void SetRLStatus(py::dict status);

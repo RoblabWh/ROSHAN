@@ -1,11 +1,15 @@
 import os
 import torch
 import warnings
+from concurrent.futures import ThreadPoolExecutor
 from algorithms.rl_config import RLConfig
 from utils import RunningMeanStd
 from evaluation import TensorboardLogger
 import torch.nn as nn
 import logging
+
+# Shared background thread for non-blocking torch.save() calls
+_save_executor = ThreadPoolExecutor(max_workers=1, thread_name_prefix="model_saver")
 
 class RLAlgorithm:
     """
@@ -87,19 +91,25 @@ class RLAlgorithm:
         pass
 
     def save(self, logger: TensorboardLogger):
+        # Snapshot state_dict on the main thread (fast, in-memory copy),
+        # then write to disk on a background thread to avoid blocking training.
+        def _bg_save(state_dict, path, opt_path):
+            torch.save(state_dict, path)
+            self.save_optimizers(opt_path)
+
         if logger.is_better_reward():
             self.logger.info(f"Saving at Episode {logger.episode}/Train Step {logger.train_step}, best Reward: {logger.best_metrics['best_reward']:.2f}")
             path = f'{os.path.join(self.get_model_path(), self.get_model_name_reward())}'
-            torch.save(self.policy.state_dict(), path)
-            self.save_optimizers(path.split('.')[-2])
+            sd = {k: v.cpu().clone() for k, v in self.policy.state_dict().items()}
+            _save_executor.submit(_bg_save, sd, path, path.split('.')[-2])
         if logger.is_better_objective():
             self.logger.info(f"Saving at Episode {logger.episode}/Train Step {logger.train_step}, best Objective {logger.best_metrics['best_objective']:.2f}")
             path = f'{os.path.join(self.get_model_path(), self.get_model_name_obj())}'
-            torch.save(self.policy.state_dict(), path)
-            self.save_optimizers(path.split('.')[-2])
+            sd = {k: v.cpu().clone() for k, v in self.policy.state_dict().items()}
+            _save_executor.submit(_bg_save, sd, path, path.split('.')[-2])
         path = f'{os.path.join(self.get_model_path(), self.get_model_name_latest())}'
-        torch.save(self.policy.state_dict(), path)
-        self.save_optimizers(path.split('.')[-2])
+        sd = {k: v.cpu().clone() for k, v in self.policy.state_dict().items()}
+        _save_executor.submit(_bg_save, sd, path, path.split('.')[-2])
 
     def load(self):
         path: str = os.path.join(self.loading_path, self.loading_name).__str__()

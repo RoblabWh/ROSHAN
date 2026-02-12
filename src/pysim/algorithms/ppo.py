@@ -133,8 +133,8 @@ class PPO(RLAlgorithm):
             except Exception as e:
                 self.logger.warning(f"torch.compile failed, using eager mode: {e}")
 
-        self.actor_params = self.policy.actor.parameters()
-        self.critic_params = self.policy.critic.value.parameters() if self.share_encoder else self.policy.critic.parameters()
+        self.actor_params = list(self.policy.actor.parameters())
+        self.critic_params = list(self.policy.critic.value.parameters()) if self.share_encoder else list(self.policy.critic.parameters())
 
     def apply_manual_decay(self, train_step: int):
         if self.manual_decay:
@@ -266,18 +266,41 @@ class PPO(RLAlgorithm):
             agent_sizes = [actions[i].shape[0] for i in range(memory.num_agents)]
             values_per_agent = torch.split(all_values.squeeze(-1), agent_sizes)
 
+            def _state_to_tensor(s, device):
+                """Convert a state array to tensor with single np.asarray call."""
+                arr = np.asarray(s)
+                dtype = torch.bool if arr.dtype == bool else torch.float32
+                return torch.as_tensor(arr, dtype=dtype).to(device, non_blocking=True)
+
+            # Batch bootstrap: collect all agents that need bootstrapping, run one critic forward
+            needs_bootstrap = [i for i in range(memory.num_agents) if masks[i][-1] == 1]
+            bootstrap_values = {}
+            if needs_bootstrap:
+                # Collect last states for all agents needing bootstrap
+                batch_states_list = [
+                    tuple(_state_to_tensor(state, self.device) for state in memory.get_agent_state(next_obs, i))
+                    for i in needs_bootstrap
+                ]
+                # Batch: concatenate each field across agents
+                num_fields = len(batch_states_list[0])
+                batched_last_states = tuple(
+                    torch.cat([batch_states_list[j][f] for j in range(len(needs_bootstrap))], dim=0)
+                    for f in range(num_fields)
+                )
+                batched_bootstrap = self.policy.critic(batched_last_states).detach()
+                if batched_bootstrap.dim() != 1:
+                    batched_bootstrap = batched_bootstrap.mean(dim=1) if batched_bootstrap.dim() == 2 else batched_bootstrap.squeeze()
+                # Split back per-agent (each had batch_size=1)
+                split_bootstrap = torch.split(batched_bootstrap, [1] * len(needs_bootstrap))
+                for idx, agent_i in enumerate(needs_bootstrap):
+                    bootstrap_values[agent_i] = split_bootstrap[idx]
+
             advantages = []
             returns = []
             for i in range(memory.num_agents):
                 values_ = values_per_agent[i]
-                if masks[i][-1] == 1:
-                    last_state = tuple(torch.as_tensor(np.array(state), dtype=torch.float32).to(self.device, non_blocking=True) if np.array(state).dtype != bool else torch.as_tensor(np.array(state), dtype=torch.bool).to(self.device, non_blocking=True) for state in memory.get_agent_state(next_obs, i))
-                    bootstrapped_value = self.policy.critic(last_state).detach()
-                    if bootstrapped_value.dim() != 1:
-                        bootstrapped_value = bootstrapped_value.mean(dim=1)
-                    if bootstrapped_value.dim() > 1:
-                        bootstrapped_value = bootstrapped_value.squeeze(0)
-                    values_ = torch.cat((values_, bootstrapped_value), dim=0)
+                if i in bootstrap_values:
+                    values_ = torch.cat((values_, bootstrap_values[i]), dim=0)
                 adv, ret = self.get_advantages(values_.detach(), masks[i], rewards[i].detach())
 
                 advantages.append(adv)
@@ -399,17 +422,22 @@ class PPO(RLAlgorithm):
                     self.scheduler_a.step()
                     self.scheduler_c.step()
 
-            # Single CPU transfer per epoch for accumulated metrics
-            for akl in batch_approx_kls:
-                logger.add_metric("Training/Approx_KL", akl.item())
-            for cf in batch_clip_fractions:
-                logger.add_metric("Training/Clip_Fraction", cf.item())
-            for vl in batch_value_losses:
-                logger.add_metric("Training/value_loss", vl.item())
-            for al in batch_actor_losses:
-                logger.add_metric("Training/actor_loss", al.item())
-            for el in batch_entropy_losses:
-                logger.add_metric("Training/entropy_loss", el.item())
+            # Single GPU→CPU transfer per epoch for all per-batch metrics
+            if batch_approx_kls:
+                all_batch_metrics = torch.stack([
+                    torch.stack(batch_approx_kls),
+                    torch.stack(batch_clip_fractions),
+                    torch.stack(batch_value_losses),
+                    torch.stack(batch_actor_losses),
+                    torch.stack(batch_entropy_losses),
+                ]).cpu().tolist()  # [5, num_batches] — one transfer
+                metric_names = [
+                    "Training/Approx_KL", "Training/Clip_Fraction",
+                    "Training/value_loss", "Training/actor_loss", "Training/entropy_loss",
+                ]
+                for name, values in zip(metric_names, all_batch_metrics):
+                    for v in values:
+                        logger.add_metric(name, v)
             with torch.no_grad():
                 logger.add_metric("Training/log_std", torch.exp(self.policy.actor.log_std).detach().cpu().numpy())
             if not self.separate_optimizers:

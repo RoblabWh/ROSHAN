@@ -194,6 +194,12 @@ public:
     [[nodiscard]] std::vector<std::pair<double, double>> GetGoalPositions() const { return *goal_positions_; }
     [[nodiscard]] std::vector<std::vector<double>> GetDistancesToOtherAgents() const { return *distances_to_other_agents_; }
     [[nodiscard]] std::vector<bool> GetDistancesMask() const { return *distances_mask_; }
+    // Const ref getters to avoid copies in batch observation extraction
+    [[nodiscard]] const std::vector<std::vector<double>>& GetDistancesToOtherAgentsRef() const { return *distances_to_other_agents_; }
+    [[nodiscard]] const std::vector<bool>& GetDistancesMaskRef() const { return *distances_mask_; }
+    [[nodiscard]] const std::vector<std::pair<double, double>>& GetDronePositionsRef() const { return *drone_positions_; }
+    [[nodiscard]] const std::vector<std::pair<double, double>>& GetFirePositionsRef() const { return *fire_positions_; }
+    [[nodiscard]] const std::vector<std::pair<double, double>>& GetGoalPositionsRef() const { return *goal_positions_; }
 
     //** These functions are only for Python Debugger Visibility **//
     [[nodiscard]] std::pair<double, double> get_velocity() const { return velocity_; }

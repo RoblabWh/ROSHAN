@@ -39,7 +39,7 @@ public:
     std::shared_ptr<const std::vector<std::vector<double>>> GetInterpolatedDroneView(std::pair<int, int> drone_position, int view_radius, int size=0, bool interpolated=true);
     std::shared_ptr<const std::vector<std::vector<int>>> GetExploredMap(int size=0, bool interpolated=true);
     std::shared_ptr<const std::vector<std::vector<int>>> GetStepExploredMap(int size=0, bool interpolated=true);
-    std::shared_ptr<const std::vector<std::vector<double>>> GetFireMap(int size=0, bool interpolated=true);
+    std::shared_ptr<const std::vector<std::vector<double>>> GetFireMap(int size=0, bool interpolated=true) const;
     std::shared_ptr<const std::vector<std::pair<int, int>>> GetExploredFires();
     std::shared_ptr<std::vector<std::pair<double, double>>> GetFirePositionsFromBurningCells();
 
@@ -107,8 +107,11 @@ public:
         return *cells_[x][y];
     }
 
+    // Flat array index: row-major layout
+    inline int flat(int x, int y) const { return x * cols_ + y; }
+
     bool IsExplored(int x, int y) const {
-        return explored_map_[x][y] > 0;
+        return explored_map_[flat(x, y)] > 0;
     };
 
     std::vector<std::pair<int, int>> GetMooreNeighborhood(int x, int y) const;
@@ -129,18 +132,10 @@ public:
     int UpdateExploredAreaFromDrone(std::pair<int, int> drone_position, int drone_view_radius);
     int GetRevisitedCells();
     void ResetStepExploreMap() {
-        for (int r=0; r<rows_; r++) {
-            for (int c=0; c<cols_; c++) {
-                step_explored_map_[r][c] = 0;
-            }
-        }
+        std::fill(step_explored_map_.begin(), step_explored_map_.end(), 0);
     }
     void ResetExploredMap() {
-        for (int r=0; r<rows_; r++) {
-            for (int c=0; c<cols_; c++) {
-                explored_map_[r][c] = 0;
-            }
-        }
+        std::fill(explored_map_.begin(), explored_map_.end(), 0);
     }
     [[maybe_unused]] void UpdateCellDiminishing();
     std::pair<int, int> GetRandomCorner();
@@ -168,10 +163,11 @@ private:
     int cols_; // Number of columns in the grid (y)
     int rows_; // Number of rows in the grid (x)
     std::vector<std::vector<std::shared_ptr<FireCell>>> cells_;
-    std::vector<std::vector<int>> explored_map_;
-    std::vector<std::vector<int>> step_explored_map_;
-    std::vector<std::vector<int>> fire_map_;
-    std::vector<std::vector<uint32_t>> visited_cells_;
+    // Flat 1D arrays for cache-friendly access (row-major: index = x * cols_ + y)
+    std::vector<int> explored_map_;
+    std::vector<int> step_explored_map_;
+    std::vector<int> fire_map_;
+    std::vector<uint32_t> visited_cells_;
     uint32_t visited_epoch_ = 0;  // Epoch counter: increment instead of clearing visited_cells_
     std::unordered_set<Point> ticking_cells_;
     std::unordered_set<Point> burning_cells_;
@@ -182,7 +178,7 @@ private:
     std::vector<VirtualParticle> virtual_particles_;
     std::vector<RadiationParticle> radiation_particles_;
     template <typename ParticleType>
-    void UpdateVirtualParticles(std::vector<ParticleType> &particles, std::vector<std::vector<uint32_t>> &visited_cells);
+    void UpdateVirtualParticles(std::vector<ParticleType> &particles, std::vector<uint32_t> &visited_cells);
 
     void EraseParticles(int x, int y);
     void pruneReservations();
@@ -207,7 +203,17 @@ private:
     double x_off_;
     double y_off_;
 
+    // Cached GetFireMap result (non-interpolated) to avoid repeated int->double conversion
+    mutable std::shared_ptr<const std::vector<std::vector<double>>> cached_fire_map_;
+    mutable bool fire_map_dirty_ = true;
+
+    // Cached GetDroneView buffers per agent (keyed by drone_view_radius)
+    // Reused across frames to avoid per-frame heap allocation
+    int cached_drone_view_radius_ = -1;
+    std::vector<std::vector<std::vector<int>>> cached_drone_view_;
+
     int GetNumUnburnableCells() const;
+    std::vector<std::vector<int>> flat_to_2d(const std::vector<int>& flat) const;
 
 //    int UpdateExplorationMap(int i, int j);
 

@@ -56,7 +56,9 @@ public:
     bool AgentIsRunning();
     std::string GetUserInput();
     std::unordered_map<std::string, std::vector<std::deque<std::shared_ptr<State>>>> GetObservations();
-    StepResult Step(const std::string& agent_type, std::vector<std::shared_ptr<Action>> actions);
+    pybind11::tuple GetBatchedFlyObservations(const std::string& agent_type);
+    pybind11::tuple GetBatchedPlannerObservations();
+    StepResult Step(const std::string& agent_type, std::vector<std::shared_ptr<Action>> actions, bool skip_observations = false);
 
     [[nodiscard]] inline bool IsRunning() const { return is_running_; }
     bool InitialModeSelectionDone();

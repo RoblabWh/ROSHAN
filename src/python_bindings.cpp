@@ -123,6 +123,8 @@ PYBIND11_MODULE(firesim, m) {
             .def("HandleEvents", &EngineCore::HandleEvents)
             .def("IsRunning", &EngineCore::IsRunning)
             .def("GetObservations", &EngineCore::GetObservations)
+            .def("GetBatchedFlyObservations", &EngineCore::GetBatchedFlyObservations)
+            .def("GetBatchedPlannerObservations", &EngineCore::GetBatchedPlannerObservations)
             .def("GetUserInput", &EngineCore::GetUserInput)
             .def("SendDataToModel", &EngineCore::SendDataToModel)
             .def("SendRLStatusToModel", &EngineCore::SendRLStatusToModel)
@@ -131,5 +133,5 @@ PYBIND11_MODULE(firesim, m) {
             .def("AgentIsRunning", &EngineCore::AgentIsRunning)
             .def("InitialModeSelectionDone", &EngineCore::InitialModeSelectionDone)
             .def("InitializeMap", &EngineCore::InitializeMap)
-            .def("Step", &EngineCore::Step);
+            .def("Step", &EngineCore::Step, py::arg("agent_type"), py::arg("actions"), py::arg("skip_observations") = false);
 }

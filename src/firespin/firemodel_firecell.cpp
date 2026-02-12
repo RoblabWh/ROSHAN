@@ -3,8 +3,54 @@
 //
 
 #include <iostream>
+#include <array>
 #include "firemodel_firecell.h"
 
+// Singleton ICell instances — one per CellState, lazily initialized.
+// All ICell subclasses are effectively immutable after construction,
+// so sharing a single instance per type eliminates heap alloc/dealloc
+// on every SetCellState call during fire propagation.
+static constexpr int kNumCellStates = CELL_STATE_COUNT;  // 17
+static std::array<ICell*, kNumCellStates> cell_singletons_{};
+static bool singletons_valid_ = false;
+
+static ICell* CreateCellForState(CellState state) {
+    switch (state) {
+        case OUTSIDE_GRID:                    return nullptr;  // No cell class for grid boundary
+        case GENERIC_UNBURNED:                return new CellGenericUnburned();
+        case GENERIC_BURNING:                 return new CellGenericBurning();
+        case GENERIC_BURNED:                  return new CellGenericBurned();
+        case LICHENS_AND_MOSSES:              return new CellLichensAndMosses();
+        case LOW_GROWING_WOODY_PLANTS:        return new CellLowGrowingWoodyPlants();
+        case NON_AND_SPARSLEY_VEGETATED:      return new CellNonAndSparsleyVegetated();
+        case OUTSIDE_AREA:                    return new CellOutsideArea();
+        case PERIODICALLY_HERBACEOUS:         return new CellPeriodicallyHerbaceous();
+        case PERMANENT_HERBACEOUS:            return new CellPermanentHerbaceous();
+        case SEALED:                          return new CellSealed();
+        case SNOW_AND_ICE:                    return new CellSnowAndIce();
+        case WATER:                           return new CellWater();
+        case WOODY_BROADLEAVED_DECIDUOUS_TREES: return new CellWoodyBroadleavedDeciduousTrees();
+        case WOODY_BROADLEAVED_EVERGREEN_TREES: return new CellWoodyBroadleavedEvergreenTrees();
+        case WOODY_NEEDLE_LEAVED_TREES:       return new CellWoodyNeedleLeavedTrees();
+        case GENERIC_FLOODED:                 return new CellGenericFlooded();
+        default: throw std::runtime_error("Unknown CellState in CreateCellForState");
+    }
+}
+
+static void EnsureCellSingletons() {
+    if (singletons_valid_) return;
+    for (int i = 0; i < kNumCellStates; ++i) {
+        delete cell_singletons_[i];
+        cell_singletons_[i] = CreateCellForState(static_cast<CellState>(i));
+    }
+    singletons_valid_ = true;
+}
+
+void InvalidateCellSingletons() {
+    // Called when noise defaults change (SetCellNoise from UI).
+    // Next GetCell() call will recreate them with updated defaults.
+    singletons_valid_ = false;
+}
 
 FireCell::FireCell(int x, int y, FireModelParameters &parameters, int raster_value)
 : parameters_(parameters){
@@ -58,61 +104,8 @@ CellState FireCell::GetIgnitionState() {
 }
 
 ICell *FireCell::GetCell() {
-    // Create switch statement for each cell state in CellState enum
-    ICell *l_cell_;
-    switch (cell_state_) {
-        case GENERIC_UNBURNED:
-            l_cell_ = new CellGenericUnburned();
-            break;
-        case GENERIC_BURNING:
-            l_cell_ = new CellGenericBurning();
-            break;
-        case GENERIC_BURNED:
-            l_cell_ = new CellGenericBurned();
-            break;
-        case LICHENS_AND_MOSSES:
-            l_cell_ = new CellLichensAndMosses();
-            break;
-        case LOW_GROWING_WOODY_PLANTS:
-            l_cell_ = new CellLowGrowingWoodyPlants();
-            break;
-        case NON_AND_SPARSLEY_VEGETATED:
-            l_cell_ = new CellNonAndSparsleyVegetated();
-            break;
-        case OUTSIDE_AREA:
-            l_cell_ = new CellOutsideArea();
-            break;
-        case PERIODICALLY_HERBACEOUS:
-            l_cell_ = new CellPeriodicallyHerbaceous();
-            break;
-        case PERMANENT_HERBACEOUS:
-            l_cell_ = new CellPermanentHerbaceous();
-            break;
-        case SEALED:
-            l_cell_ = new CellSealed();
-            break;
-        case SNOW_AND_ICE:
-            l_cell_ = new CellSnowAndIce();
-            break;
-        case WATER:
-            l_cell_ = new CellWater();
-            break;
-        case WOODY_BROADLEAVED_DECIDUOUS_TREES:
-            l_cell_ = new CellWoodyBroadleavedDeciduousTrees();
-            break;
-        case WOODY_BROADLEAVED_EVERGREEN_TREES:
-            l_cell_ = new CellWoodyBroadleavedEvergreenTrees();
-            break;
-        case WOODY_NEEDLE_LEAVED_TREES:
-            l_cell_ = new CellWoodyNeedleLeavedTrees();
-            break;
-        case GENERIC_FLOODED:
-            l_cell_ = new CellGenericFlooded();
-            break;
-        default:
-            throw std::runtime_error("FireCell::GetCell() called on a celltype that is not defined");
-    }
-    return l_cell_;
+    EnsureCellSingletons();
+    return cell_singletons_[static_cast<int>(cell_state_)];
 }
 
 void FireCell::Ignite() {
@@ -250,7 +243,6 @@ bool FireCell::IsFlooded() {
 
 void FireCell::SetCellState(CellState cell_state) {
     cell_state_ = cell_state;
-    delete cell_;
     cell_ = GetCell();
     // Cache the blended color for deterministic states
     if (cell_state_ == GENERIC_BURNED || cell_state_ == GENERIC_FLOODED) {
@@ -355,15 +347,13 @@ std::vector<std::vector<int>>& FireCell::GetNoiseMap() {
 }
 
 FireCell::~FireCell() {
-    delete cell_;
+    // cell_ and mother_cell_ point to shared singletons — do not delete
 }
 
 void FireCell::Reset(int raster_value) {
     cell_initial_state_ = CellState(raster_value);
     cell_state_ = cell_initial_state_;
 
-    delete cell_;
-    delete mother_cell_;
     cell_ = GetCell();
     mother_cell_ = GetCell();
 

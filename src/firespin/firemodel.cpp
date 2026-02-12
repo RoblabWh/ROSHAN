@@ -171,7 +171,15 @@ std::unordered_map<std::string, std::vector<std::deque<std::shared_ptr<State>>>>
     return rl_handler_->GetObservations();
 }
 
-StepResult FireModel::Step(const std::string& agent_type, std::vector<std::shared_ptr<Action>> actions){
+py::tuple FireModel::GetBatchedFlyObservations(const std::string& agent_type) {
+    return rl_handler_->GetBatchedFlyObservations(agent_type);
+}
+
+py::tuple FireModel::GetBatchedPlannerObservations() {
+    return rl_handler_->GetBatchedPlannerObservations();
+}
+
+StepResult FireModel::Step(const std::string& agent_type, std::vector<std::shared_ptr<Action>> actions, bool skip_observations){
 #ifdef SPEEDTEST
     // Construct a new action for each drone with 0, 0
     std::vector<std::shared_ptr<Action>> actions2;
@@ -180,7 +188,7 @@ StepResult FireModel::Step(const std::string& agent_type, std::vector<std::share
     }
     actions = actions2;
 #endif
-    auto result = rl_handler_->Step(agent_type, std::move(actions));
+    auto result = rl_handler_->Step(agent_type, std::move(actions), skip_observations);
 #ifndef SPEEDTEST
     // Check if any element in terminals is true, if so some agent reached a terminal state
     if (result.summary.env_reset) {

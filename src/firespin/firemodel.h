@@ -43,8 +43,10 @@ public:
 //    std::vector<bool>,
 //    std::unordered_map<std::string, bool>,
 //    double>
-    StepResult Step(const std::string& agent_type, std::vector<std::shared_ptr<Action>> actions) override;
+    StepResult Step(const std::string& agent_type, std::vector<std::shared_ptr<Action>> actions, bool skip_observations = false) override;
     std::unordered_map<std::string, std::vector<std::deque<std::shared_ptr<State>>>> GetObservations() override;
+    pybind11::tuple GetBatchedFlyObservations(const std::string& agent_type) override;
+    pybind11::tuple GetBatchedPlannerObservations() override;
     void Render() override;
     void SetRenderer(SDL_Renderer* renderer) override;
     bool GetEarlyClosing() override;

@@ -57,6 +57,8 @@ class AgentHandler:
         drone_count = agent_dict["num_agents"]
         self.agent_type = self.get_agent_from_type(agent_type=agent_type if subtype is None else subtype, num_drones=drone_count)
         self.num_agents = self.agent_type.get_num_agents(agent_dict["num_agents"])
+        # Use C++ batch observation API for fly/planner agents (avoids per-property pybind11 calls)
+        self._has_batch_obs = isinstance(self.agent_type, (FlyAgent, PlannerAgent))
 
         # On which Level of the Hierarchy is the agent
         self.hierarchy_level = self.agent_type.get_hierarchy_level()
@@ -524,23 +526,25 @@ class AgentHandler:
         self.memory.add(obs, actions, action_logprobs, rewards, terminals, next_obs=next_obs, intrinsic_reward=intrinsic_rewards)
 
     def update_status(self):
-        model_path = self.sim_bridge.get("model_path")
-        model_name = self.sim_bridge.get("model_name")
-        self.algorithm.set_paths(model_path, model_name)
+        new_rl_mode = self.sim_bridge.get("rl_mode")
 
         self.sim_bridge.set("obs_collected", len(self.memory))
 
-        if self.sim_bridge.get("rl_mode") != self.rl_mode:
-            self.logger.warning(f"RL Mode changed from {self.rl_mode} to {self.sim_bridge.get('rl_mode')}")
+        if new_rl_mode != self.rl_mode:
+            # rl_mode changed — re-sync paths and mode
+            self.logger.warning(f"RL Mode changed from {self.rl_mode} to {new_rl_mode}")
+            model_path = self.sim_bridge.get("model_path")
+            model_name = self.sim_bridge.get("model_name")
+            self.algorithm.set_paths(model_path, model_name)
             self.ctrl_ctr = 0  # Reset control counter to avoid issues
             self.cached_actions = None
             self.cached_logprobs = None
-            self.rl_mode = self.sim_bridge.get("rl_mode")
+            self.rl_mode = new_rl_mode
             if self.algorithm_name != 'no_algo':
-                self.algorithm.set_train() if self.rl_mode == "train" else self.algorithm.set_eval()
-
-    def restruct_current_obs(self, observations):
-        self.current_obs = self.restructure_data(observations)
+                if self.rl_mode == "train":
+                    self.algorithm.set_train()
+                else:
+                    self.algorithm.set_eval()
 
     def intrinsic_reward(self, terminals_vector, engine):
         intrinsic_reward = None
@@ -564,7 +568,7 @@ class AgentHandler:
             start_of_control = self.ctrl_ctr % self.frame_skips == 0
             if start_of_control:
                 if self.current_obs is None:
-                    self.current_obs = self.restructure_data(engine.GetObservations())
+                    self.current_obs = self._get_obs(engine)
                 actions, action_logprobs = self.act(self.current_obs)
                 self.cached_actions = actions if not self.algorithm.use_noised_action else self.algorithm.raw_action
                 self.cached_logprobs = action_logprobs
@@ -578,7 +582,7 @@ class AgentHandler:
                 # No memory adding or training until the end of the control
                 return
 
-            next_obs = self.restructure_data(next_obs_)
+            next_obs = self._get_obs_after_step(next_obs_, engine)
 
             # Intrinsic Reward Calculation (optional)
             intrinsic_reward = self.intrinsic_reward(terminals_vector, engine)
@@ -618,7 +622,7 @@ class AgentHandler:
         start_of_control = self.ctrl_ctr % self.frame_skips == 0
         if start_of_control:
             if self.current_obs is None:
-                self.current_obs = self.restructure_data(engine.GetObservations())
+                self.current_obs = self._get_obs(engine)
             self.cached_actions = self.act_certain(self.current_obs)
 
         obs_, rewards, terminals_vector, terminal_result, percent_burned = self.step_agent(engine, self.cached_actions)
@@ -635,7 +639,7 @@ class AgentHandler:
                                   None,
                                   rewards,
                                   terminals_vector,
-                                  next_obs=self.restructure_data(obs_) if self.use_next_obs else None,
+                                  next_obs=self._get_obs_after_step(obs_, engine) if self.use_next_obs else None,
                                   intrinsic_rewards=intrinsic_reward)
             if len(self.memory) >= self.save_size:
                 mem_name = os.path.join(self.root_model_path, 'memory.pkl')
@@ -650,7 +654,7 @@ class AgentHandler:
             # No Evaluation until the end of the control
             return False, False
 
-        self.current_obs = self.restructure_data(obs_)
+        self.current_obs = self._get_obs_after_step(obs_, engine)
         if evaluate and not self.save_replay_buffer:
             flags = self.evaluator.evaluate(rewards, terminal_result, percent_burned)
             self.check_reset(flags)
@@ -713,7 +717,7 @@ class AgentHandler:
             return None
 
     def step_agent(self, engine, actions):
-        env_step = engine.Step(self.agent_type.name, self.get_action(actions))
+        env_step = engine.Step(self.agent_type.name, self.get_action(actions), self._has_batch_obs)
 
         rewards = env_step.rewards
         observations = env_step.observations
@@ -795,6 +799,22 @@ class AgentHandler:
 
     def restructure_data(self, observations_):
         return self.agent_type.restructure_data(observations_)
+
+    def _get_obs(self, engine):
+        """Get observations using batch C++ API for fly/planner agents, else standard path."""
+        if self._has_batch_obs:
+            if isinstance(self.agent_type, FlyAgent):
+                return engine.GetBatchedFlyObservations(self.agent_type.name)
+            return engine.GetBatchedPlannerObservations()
+        return self.restructure_data(engine.GetObservations())
+
+    def _get_obs_after_step(self, obs_from_step, engine):
+        """Get observations after Step(). For fly/planner agents, reads C++ state directly."""
+        if self._has_batch_obs:
+            if isinstance(self.agent_type, FlyAgent):
+                return engine.GetBatchedFlyObservations(self.agent_type.name)
+            return engine.GetBatchedPlannerObservations()
+        return self.restructure_data(obs_from_step)
 
 
 

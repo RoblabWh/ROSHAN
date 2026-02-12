@@ -10,24 +10,22 @@ class HierarchyManager:
         self.hierarchy = {}
         self.logger = logging.getLogger("HierarchyManager")
         self.max_low_level_steps = self.config["environment"]["agent"]["planner_agent"]["hierarchy_timesteps"]
+        self._env_reset_flag = False  # Cached to avoid per-step pybind11 crossing
         self.build_hierarchy()
 
     def _should_reset(self, agent) -> bool:
         return (
             agent.hierarchy_early_stop
             or agent.env_reset
-            or self.sim_bridge.get("env_reset")
+            or self._env_reset_flag
         )
 
     def _reset_agent(self, agent):
         agent.hierarchy_steps = 0
         agent.hierarchy_early_stop = False
         agent.env_reset = False
+        self._env_reset_flag = False
         self.sim_bridge.set("env_reset", False)
-
-    def restruct_current_obs(self, observations_):
-        for agent in self.hierarchy.values():
-            agent.restruct_current_obs(observations_)
 
     def _train_high(self, engine):
         high = self.hierarchy["high"]
@@ -39,6 +37,7 @@ class HierarchyManager:
         # Step through all low level agents (PlanFlyAgent)
         self.hierarchy["plan_low"].eval_loop(engine=engine, evaluate=False)
         high.hierarchy_steps += 1
+        self._env_reset_flag = False
         self.sim_bridge.set("env_reset", False)
 
     def _train_medium(self, engine):
@@ -79,6 +78,7 @@ class HierarchyManager:
 
         self.hierarchy["plan_low"].eval_loop(engine=engine, evaluate=False)
         high.hierarchy_steps += 1
+        self._env_reset_flag = False
         self.sim_bridge.set("env_reset", False)
 
     def _eval_medium(self, engine):
@@ -113,6 +113,8 @@ class HierarchyManager:
             return self.hierarchy["low"].get_final_metric(metric_name)
 
     def update_status(self):
+        # Sync cached env_reset flag from sim_bridge (only during IPC intervals)
+        self._env_reset_flag = self.sim_bridge.get("env_reset")
         if "high" in self.hierarchy:
             self.hierarchy["high"].update_status()
         elif "medium" in self.hierarchy:

@@ -1,6 +1,5 @@
 from networks.network_planner import AttentionActor, CriticPPO, OffPolicyCritic, Value
 from torch.utils.data.sampler import BatchSampler, SubsetRandomSampler
-import numpy as np
 import torch.nn as nn
 import torch
 import firesim
@@ -75,25 +74,3 @@ class PlannerAgent(Agent):
                 firesim.PlanAction(activation))
         return drone_actions
 
-    @staticmethod
-    def restructure_data(observations_):
-        obs = observations_["planner_agent"]
-
-        drone_state_groups = [
-            [state for state in deque if isinstance(state, firesim.AgentState)]
-            for deque in obs
-        ]
-        drone_state_groups = [group for group in drone_state_groups if group]
-
-        if not drone_state_groups:
-            raise ValueError("No AgentState data found in observations for planner_agent")
-
-        drone_positions = [[s.GetDronePositions() for s in group] for group in drone_state_groups]
-        goal_positions = [[s.GetGoalPositions() for s in group] for group in drone_state_groups]
-        fire_positions = [[s.GetFirePositions() for s in group] for group in drone_state_groups]
-
-        all_drone_states = np.stack(drone_positions)
-        all_goal_positions = np.stack(goal_positions)
-        all_fire_states = np.stack(fire_positions)
-
-        return all_drone_states, all_goal_positions, all_fire_states

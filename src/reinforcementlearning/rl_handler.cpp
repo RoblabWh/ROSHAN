@@ -3,6 +3,7 @@
 //
 
 #include "rl_handler.h"
+#include "externals/pybind11/include/pybind11/numpy.h"
 
 #include <utility>
 
@@ -44,6 +45,215 @@ ReinforcementLearningHandler::GetObservations() {
     }
 
     return observations;
+}
+
+py::tuple ReinforcementLearningHandler::GetBatchedFlyObservations(const std::string& agent_type) {
+    auto it = agents_by_type_.find(agent_type);
+    if (it == agents_by_type_.end() || it->second.empty()) {
+        return py::make_tuple(py::none(), py::none(), py::none(), py::none(),
+                              py::none(), py::none(), py::none(), py::none());
+    }
+
+    const auto& agents = it->second;
+    const int N = static_cast<int>(agents.size());
+
+    // Collect AgentState pointers per agent and determine dimensions
+    std::vector<std::vector<AgentState*>> agent_states(N);
+    int max_T = 0;
+    for (int i = 0; i < N; ++i) {
+        const auto& obs_ref = agents[i]->GetObservationsRef();
+        agent_states[i].reserve(obs_ref.size());
+        for (const auto& state_ptr : obs_ref) {
+            // GetObservationsRef returns deque<shared_ptr<AgentState>> directly
+            agent_states[i].push_back(state_ptr.get());
+        }
+        max_T = std::max(max_T, static_cast<int>(agent_states[i].size()));
+    }
+
+    if (max_T == 0) {
+        return py::make_tuple(py::none(), py::none(), py::none(), py::none(),
+                              py::none(), py::none(), py::none(), py::none());
+    }
+
+    // Determine distance slots from first available state
+    int dist_slots = 0;
+    int dist_features = 0;
+    for (int i = 0; i < N && dist_slots == 0; ++i) {
+        if (!agent_states[i].empty()) {
+            const auto& dists = agent_states[i][0]->GetDistancesToOtherAgentsRef();
+            dist_slots = static_cast<int>(dists.size());
+            if (!dists.empty()) dist_features = static_cast<int>(dists[0].size());
+        }
+    }
+
+    // Allocate numpy arrays — single contiguous allocation per field
+    py::array_t<double> ids({N, max_T});
+    py::array_t<double> velocities({N, max_T, 2});
+    py::array_t<double> delta_goals({N, max_T, 2});
+    py::array_t<double> cos_sin({N, max_T, 2});
+    py::array_t<double> speed({N, max_T});
+    py::array_t<double> dist_to_goal({N, max_T});
+    py::array_t<double> dists_others({N, max_T, dist_slots, dist_features});
+    // Use uint8 for mask (pybind11 doesn't support bool arrays directly with unchecked)
+    py::array_t<bool> dists_mask({N, max_T, dist_slots});
+
+    auto id_buf = ids.mutable_unchecked<2>();
+    auto vel_buf = velocities.mutable_unchecked<3>();
+    auto dg_buf = delta_goals.mutable_unchecked<3>();
+    auto cs_buf = cos_sin.mutable_unchecked<3>();
+    auto sp_buf = speed.mutable_unchecked<2>();
+    auto dtg_buf = dist_to_goal.mutable_unchecked<2>();
+    auto dto_buf = dists_others.mutable_unchecked<4>();
+    auto dm_buf = dists_mask.mutable_unchecked<3>();
+
+    // Fill arrays in one pass — all 8 fields extracted per state
+    for (int i = 0; i < N; ++i) {
+        const int T_i = static_cast<int>(agent_states[i].size());
+        for (int t = 0; t < max_T; ++t) {
+            if (t < T_i) {
+                auto* as = agent_states[i][t];
+                auto vel = as->GetVelocityNorm();
+                vel_buf(i, t, 0) = vel.first;
+                vel_buf(i, t, 1) = vel.second;
+
+                auto dg = as->GetDeltaGoal();
+                dg_buf(i, t, 0) = dg.first;
+                dg_buf(i, t, 1) = dg.second;
+
+                auto cs_ = as->GetCosSinToGoal();
+                cs_buf(i, t, 0) = cs_.first;
+                cs_buf(i, t, 1) = cs_.second;
+
+                sp_buf(i, t) = as->GetSpeed();
+                dtg_buf(i, t) = as->GetDistanceToGoal();
+                id_buf(i, t) = static_cast<double>(as->GetID());
+
+                const auto& dists = as->GetDistancesToOtherAgentsRef();
+                const auto& mask = as->GetDistancesMaskRef();
+                for (int s = 0; s < dist_slots; ++s) {
+                    dm_buf(i, t, s) = (s < static_cast<int>(mask.size())) && mask[s];
+                    if (s < static_cast<int>(dists.size())) {
+                        const auto& row = dists[s];
+                        for (int f = 0; f < dist_features; ++f) {
+                            dto_buf(i, t, s, f) = (f < static_cast<int>(row.size())) ? row[f] : 0.0;
+                        }
+                    } else {
+                        for (int f = 0; f < dist_features; ++f) {
+                            dto_buf(i, t, s, f) = 0.0;
+                        }
+                    }
+                }
+            } else {
+                // Pad with zeros for agents with fewer time steps
+                vel_buf(i, t, 0) = 0.0; vel_buf(i, t, 1) = 0.0;
+                dg_buf(i, t, 0) = 0.0; dg_buf(i, t, 1) = 0.0;
+                cs_buf(i, t, 0) = 0.0; cs_buf(i, t, 1) = 0.0;
+                sp_buf(i, t) = 0.0;
+                dtg_buf(i, t) = 0.0;
+                id_buf(i, t) = 0.0;
+                for (int s = 0; s < dist_slots; ++s) {
+                    dm_buf(i, t, s) = false;
+                    for (int f = 0; f < dist_features; ++f) {
+                        dto_buf(i, t, s, f) = 0.0;
+                    }
+                }
+            }
+        }
+    }
+
+    return py::make_tuple(ids, velocities, delta_goals, cos_sin, speed, dist_to_goal, dists_others, dists_mask);
+}
+
+py::tuple ReinforcementLearningHandler::GetBatchedPlannerObservations() {
+    auto it = agents_by_type_.find("planner_agent");
+    if (it == agents_by_type_.end() || it->second.empty()) {
+        return py::make_tuple(py::none(), py::none(), py::none());
+    }
+
+    const auto& agents = it->second;
+    const int N = static_cast<int>(agents.size());
+
+    // Collect AgentState pointers per agent and determine dimensions
+    std::vector<std::vector<AgentState*>> agent_states(N);
+    int max_T = 0;
+    for (int i = 0; i < N; ++i) {
+        const auto& obs_ref = agents[i]->GetObservationsRef();
+        agent_states[i].reserve(obs_ref.size());
+        for (const auto& state_ptr : obs_ref) {
+            agent_states[i].push_back(state_ptr.get());
+        }
+        max_T = std::max(max_T, static_cast<int>(agent_states[i].size()));
+    }
+
+    if (max_T == 0) {
+        return py::make_tuple(py::none(), py::none(), py::none());
+    }
+
+    // Determine num_drones from first available state and max_fires across all states
+    int num_drones = 0;
+    int max_fires = 0;
+    for (int i = 0; i < N; ++i) {
+        for (auto* as : agent_states[i]) {
+            if (num_drones == 0) {
+                num_drones = static_cast<int>(as->GetDronePositionsRef().size());
+            }
+            max_fires = std::max(max_fires, static_cast<int>(as->GetFirePositionsRef().size()));
+        }
+    }
+
+    // Allocate numpy arrays
+    py::array_t<double> drone_positions({N, max_T, num_drones, 2});
+    py::array_t<double> goal_positions({N, max_T, num_drones, 2});
+    py::array_t<double> fire_positions({N, max_T, max_fires, 2});
+
+    auto dp_buf = drone_positions.mutable_unchecked<4>();
+    auto gp_buf = goal_positions.mutable_unchecked<4>();
+    auto fp_buf = fire_positions.mutable_unchecked<4>();
+
+    // Fill arrays in one pass
+    for (int i = 0; i < N; ++i) {
+        const int T_i = static_cast<int>(agent_states[i].size());
+        for (int t = 0; t < max_T; ++t) {
+            if (t < T_i) {
+                auto* as = agent_states[i][t];
+
+                const auto& drones = as->GetDronePositionsRef();
+                for (int d = 0; d < num_drones; ++d) {
+                    dp_buf(i, t, d, 0) = drones[d].first;
+                    dp_buf(i, t, d, 1) = drones[d].second;
+                }
+
+                const auto& goals = as->GetGoalPositionsRef();
+                for (int d = 0; d < num_drones; ++d) {
+                    gp_buf(i, t, d, 0) = goals[d].first;
+                    gp_buf(i, t, d, 1) = goals[d].second;
+                }
+
+                const auto& fires = as->GetFirePositionsRef();
+                const int n_fires = static_cast<int>(fires.size());
+                for (int f = 0; f < max_fires; ++f) {
+                    if (f < n_fires) {
+                        fp_buf(i, t, f, 0) = fires[f].first;
+                        fp_buf(i, t, f, 1) = fires[f].second;
+                    } else {
+                        fp_buf(i, t, f, 0) = 0.0;
+                        fp_buf(i, t, f, 1) = 0.0;
+                    }
+                }
+            } else {
+                // Zero-pad shorter timesteps
+                for (int d = 0; d < num_drones; ++d) {
+                    dp_buf(i, t, d, 0) = 0.0; dp_buf(i, t, d, 1) = 0.0;
+                    gp_buf(i, t, d, 0) = 0.0; gp_buf(i, t, d, 1) = 0.0;
+                }
+                for (int f = 0; f < max_fires; ++f) {
+                    fp_buf(i, t, f, 0) = 0.0; fp_buf(i, t, f, 1) = 0.0;
+                }
+            }
+        }
+    }
+
+    return py::make_tuple(drone_positions, goal_positions, fire_positions);
 }
 
 void ReinforcementLearningHandler::ResetEnvironment(Mode mode) {
@@ -108,22 +318,22 @@ void ReinforcementLearningHandler::ResetEnvironment(Mode mode) {
                 const bool sizes_match = (static_cast<int>(bucket.size()) == count);
 
                 if (sizes_match) {
-                    // Reset path
-                    for (auto& base_ptr : bucket) {
-                        auto fly = std::dynamic_pointer_cast<FlyAgent>(base_ptr);
-                        if (!fly) continue;
+                    // Reset path — single cast pass for setup + reset
+                    auto fly_agents = CastAgents<FlyAgent>(bucket);
+                    for (auto& fly : fly_agents) {
                         fly->SetAgentSubType(agent_type_label);
                         assign_start_and_goal(*fly, fly->GetTotalId());
                     }
-                    auto fly_agents = CastAgents<FlyAgent>(bucket);
                     findCollisions(fly_agents, gridmap_, view_range, true);
                     for (auto& fly : fly_agents) {
                         fly->Reset(mode, gridmap_, model_renderer_);
                         out.push_back(fly);
                     }
                 } else {
-                    // Recreate path
+                    // Recreate path — push FlyAgent directly, no second CastAgents needed
                     bucket.clear();
+                    std::vector<std::shared_ptr<FlyAgent>> fly_agents;
+                    fly_agents.reserve(static_cast<size_t>(count));
                     for (int i = 0; i < count; ++i) {
                         const int total_id = id_offset + i;
                         const int agent_id = i;
@@ -135,8 +345,8 @@ void ReinforcementLearningHandler::ResetEnvironment(Mode mode) {
                         assign_start_and_goal(*fly, total_id);
 
                         bucket.push_back(fly);
+                        fly_agents.push_back(fly);
                     }
-                    auto fly_agents = CastAgents<FlyAgent>(bucket);
                     findCollisions(fly_agents, gridmap_, view_range, true);
                     for (auto& fly : fly_agents) {
                         fly->Initialize(mode, speed, view_range, gridmap_, model_renderer_);
@@ -363,7 +573,7 @@ void ReinforcementLearningHandler::StepDroneManual(int drone_idx, double speed_x
     }
 }
 
-StepResult ReinforcementLearningHandler::Step(const std::string& agent_type, std::vector<std::shared_ptr<Action>> actions) {
+StepResult ReinforcementLearningHandler::Step(const std::string& agent_type, std::vector<std::shared_ptr<Action>> actions, bool skip_observations) {
 
     if (gridmap_ == nullptr || agents_by_type_.find(agent_type) == agents_by_type_.end()) {
         std::cerr << "No agents of type " << agent_type << " or invalid GridMap.\n";
@@ -422,7 +632,9 @@ StepResult ReinforcementLearningHandler::Step(const std::string& agent_type, std
     }
 
     // Could now add other metrics here like Extinguished Fires or Explored Percentage
-    result.observations = this->GetObservations();
+    if (!skip_observations) {
+        result.observations = this->GetObservations();
+    }
     result.percent_burned = gridmap_->PercentageBurned();
     return result;
 }
@@ -448,6 +660,7 @@ void ReinforcementLearningHandler::UpdateReward() {
     auto intrinsic_reward = rl_status_["intrinsic_reward"].cast<std::vector<double>>();
     // TODO this very ugly decide on how to display rewards in the GUI
     for (const auto& drone: agents_by_type_["fly_agent"]) {
-        std::dynamic_pointer_cast<FlyAgent>(drone)->ModifyReward(intrinsic_reward[std::dynamic_pointer_cast<FlyAgent>(drone)->GetId()]);
+        auto fly = std::dynamic_pointer_cast<FlyAgent>(drone);
+        if (fly) fly->ModifyReward(intrinsic_reward[fly->GetId()]);
     }
 }

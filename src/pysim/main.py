@@ -189,6 +189,11 @@ def sim(config : dict, overrides: dict = None, trial=None):
     # for optuna pruning
     loop_step = 0
     REPORT_INTERVAL = 1000
+    # Batch status IPC: in NoGUI mode, skip expensive C++/Python boundary
+    # crossings most steps since no user interaction occurs.
+    _STATUS_INTERVAL = 100
+    _no_gui = config["settings"]["mode"] == 2
+    _ipc_counter = 0
 
     try:
         while engine.IsRunning() and sim_bridge.get("agent_online"):
@@ -196,9 +201,13 @@ def sim(config : dict, overrides: dict = None, trial=None):
             engine.Render()
             engine.HandleEvents()
 
+            _ipc_counter += 1
+            _needs_ipc = not _no_gui or (_ipc_counter % _STATUS_INTERVAL == 0)
+
             # C++ Python Interface & Controls
-            sim_bridge.set_status(engine.GetRLStatusFromModel())
-            hierarchy_manager.update_status()
+            if _needs_ipc:
+                sim_bridge.set_status(engine.GetRLStatusFromModel())
+                hierarchy_manager.update_status()
 
             if engine.AgentIsRunning() and sim_bridge.get("agent_online"):
 
@@ -216,8 +225,9 @@ def sim(config : dict, overrides: dict = None, trial=None):
                             raise optuna.TrialPruned()
                     loop_step += 1
 
-                hierarchy_manager.update_status()
-                engine.SendRLStatusToModel(sim_bridge.get_status())
+                if _needs_ipc:
+                    hierarchy_manager.update_status()
+                    engine.SendRLStatusToModel(sim_bridge.get_status())
 
             if config["settings"]["llm_support"]:
                 user_input = engine.GetUserInput()

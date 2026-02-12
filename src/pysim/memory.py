@@ -20,6 +20,7 @@ class SwarmMemory(object):
     def __init__(self, num_agents=2, action_dim=2, max_size=int(1e5), use_intrinsic_reward=False, use_next_obs=False):
         self.num_agents = num_agents
         self.memory = [Memory(action_dim=action_dim, max_size=max_size, use_intrinsic_reward=use_intrinsic_reward, use_next_obs=use_next_obs) for _ in range(num_agents)]
+        self._cached_cumsum = None  # Cached for sample_batch
 
     def save(self, path: str):
         pkg = {
@@ -55,19 +56,13 @@ class SwarmMemory(object):
         return sm
 
     @staticmethod
-    # TODO WATCH THIS!! DOES THIS EVEN WORK AS INTENDED??? I THINK IT DOES??
     def get_agent_state(state, agent_id):
         if isinstance(state, tuple):
-            tuple_state = tuple()
-            for state_ in state:
-                if isinstance(state_[agent_id], np.ndarray):
-                    tuple_state += (np.expand_dims(state_[agent_id], axis=0),)
-                elif isinstance(state_[agent_id], torch.Tensor):
-                    tuple_state += (state_[agent_id].unsqueeze(0),)
-                else:
-                    import warnings
-                    warnings.warn("State type not recognized")
-            return tuple_state
+            return tuple(
+                np.expand_dims(s[agent_id], axis=0) if isinstance(s[agent_id], np.ndarray)
+                else s[agent_id].unsqueeze(0)
+                for s in state
+            )
         else:
             return np.expand_dims(state[agent_id], axis=0)
 
@@ -124,6 +119,7 @@ class SwarmMemory(object):
             return out
 
     def add(self, state, action, action_logprobs, reward, done, next_obs=None, intrinsic_reward=None):
+        self._cached_cumsum = None  # Invalidate sample_batch cache
         for i in range(self.num_agents):
             int_reward = intrinsic_reward[i] if intrinsic_reward is not None else None
             n_obs_ = self.get_agent_state(next_obs, agent_id=i) if next_obs is not None else None
@@ -171,8 +167,11 @@ class SwarmMemory(object):
         Returns a dict like your to_tensor(), but only for the sampled rows.
         """
         # Build cumulative lengths to map global -> (agent, local)
-        lengths = np.array([len(m) for m in self.memory], dtype=np.int64)
-        cumsum = np.cumsum(lengths)
+        # Cache cumsum/starts to avoid recomputing when memory size hasn't changed
+        if self._cached_cumsum is None:
+            lengths = np.array([len(m) for m in self.memory], dtype=np.int64)
+            self._cached_cumsum = np.cumsum(lengths)
+        cumsum = self._cached_cumsum
         # sample global indices
         gidx = self._get_batch_idx(batch_size)
         # find which agent each global index belongs to
@@ -238,6 +237,7 @@ class SwarmMemory(object):
             self.memory[i].change_horizon(new_horizon)
 
     def clear_memory(self):
+        self._cached_cumsum = None
         for i in range(self.num_agents):
             self.memory[i].clear_memory()
 
