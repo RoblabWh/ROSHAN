@@ -456,7 +456,7 @@ class Memory(object):
             shapes = [t.shape for t in tensor_list]
 
             # Strip extra dimensions from big brain storage solution
-            if len(shapes[0]) > 0 and all(s[:1] == (1,) for s in shapes):
+            if len(shapes[0]) > 1 and all(s[:1] == (1,) for s in shapes):
                 tensor_list = [t.squeeze(0) for t in tensor_list]
                 shapes = [t.shape for t in tensor_list]
 

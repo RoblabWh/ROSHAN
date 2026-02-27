@@ -2,6 +2,7 @@ import os
 import torch.nn as nn
 import torch.nn.functional as F
 import torch
+from utils import get_device
 
 if os.getenv("PYTORCH_DETECT_ANOMALY", "").lower() in ("1", "true"):
     torch.autograd.set_detect_anomaly(True)
@@ -14,7 +15,7 @@ class Inputspace(nn.Module):
         """
         super(Inputspace, self).__init__()
 
-        self.device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
+        self.device = get_device()
         self.drone_dim = drone_dim
         hidden_dim = 64
         self.pos_emb = nn.Linear(2, hidden_dim)
@@ -22,6 +23,7 @@ class Inputspace(nn.Module):
         self.fire_emb = nn.Linear(2, hidden_dim)
         self.id_emb = nn.Embedding(drone_dim, hidden_dim)
         self.cross_attn = nn.MultiheadAttention(embed_dim=hidden_dim, num_heads=4, batch_first=True)
+        self.post_attn_norm = nn.LayerNorm(hidden_dim)
         self.out_features = hidden_dim
         # Cached constant tensors (zero-cost expand views at runtime)
         self.register_buffer('_agent_ids', torch.arange(drone_dim, device=self.device))
@@ -67,6 +69,7 @@ class Inputspace(nn.Module):
                                          key=fire_emb,
                                          value=fire_emb,
                                          key_padding_mask=mask)
+        attn_output = self.post_attn_norm(attn_output)
 
         return attn_output, attention_weights
 

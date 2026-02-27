@@ -167,7 +167,7 @@ void FireModel::Update() {
     //this->Test();
 }
 
-std::unordered_map<std::string, std::vector<std::deque<std::shared_ptr<State>>>> FireModel::GetObservations() {
+std::unordered_map<std::string, std::vector<std::vector<std::shared_ptr<State>>>> FireModel::GetObservations() {
     return rl_handler_->GetObservations();
 }
 

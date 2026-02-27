@@ -7,6 +7,7 @@ import numpy as np
 from algorithms.actor_critic import ActorCriticIQL
 from algorithms.rl_algorithm import RLAlgorithm
 from algorithms.rl_config import IQLConfig
+from utils import get_device
 from memory import SwarmMemory
 import copy
 
@@ -38,7 +39,7 @@ class IQL(RLAlgorithm):
         # Offline Flags (for logging and saving networks)
         self.offline_start = True
         self.offline_end = False
-        self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+        self.device = get_device()
         self.use_noised_action = True
         self.raw_action = None
 

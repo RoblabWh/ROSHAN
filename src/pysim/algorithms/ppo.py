@@ -7,6 +7,7 @@ from memory import SwarmMemory
 from evaluation import TensorboardLogger
 from algorithms.rl_algorithm import RLAlgorithm
 from algorithms.rl_config import PPOConfig
+from utils import get_device
 from torch.utils.data.sampler import BatchSampler, SubsetRandomSampler
 
 class PPO(RLAlgorithm):
@@ -22,7 +23,7 @@ class PPO(RLAlgorithm):
 
         self.actor_network = network[0]
         self.critic_network = network[1]
-        self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+        self.device = get_device()
 
         # Current Policy
         self.policy = None
@@ -270,7 +271,10 @@ class PPO(RLAlgorithm):
                 """Convert a state array to tensor with single np.asarray call."""
                 arr = np.asarray(s)
                 dtype = torch.bool if arr.dtype == bool else torch.float32
-                return torch.as_tensor(arr, dtype=dtype).to(device, non_blocking=True)
+                t = torch.as_tensor(arr, dtype=dtype)
+                if device.type == 'cuda':
+                    t = t.pin_memory()
+                return t.to(device, non_blocking=True)
 
             # Batch bootstrap: collect all agents that need bootstrapping, run one critic forward
             needs_bootstrap = [i for i in range(memory.num_agents) if masks[i][-1] == 1]

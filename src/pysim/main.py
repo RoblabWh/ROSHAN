@@ -25,7 +25,8 @@ import firesim
 
 def assert_config(config):
     """
-    Asserts that the config dictionary doesn't have some wild configurations.
+    Validates that the config dictionary has sane values.
+    Raises ValueError with descriptive messages on invalid configurations.
     """
     c_settings = config["settings"]
     hierarchy_type = c_settings["hierarchy_type"]
@@ -33,55 +34,102 @@ def assert_config(config):
     used_algo = c_agent["algorithm"]
     c_algo = config["algorithm"].get(used_algo, "no_algo")
     rl_mode = c_settings["rl_mode"]
+
+    # --- Basic type/range validation ---
+    if c_settings["mode"] not in [0, 2]:
+        raise ValueError("Invalid mode in config.yaml. Must be 0 (GUI_RL) or 2 (NoGUI_RL)")
+    if hierarchy_type not in ["fly_agent", "explore_agent", "planner_agent"]:
+        raise ValueError("Invalid hierarchy_type in config.yaml. Must be 'fly_agent', 'explore_agent', or 'planner_agent'.")
+    if rl_mode not in ["train", "eval"]:
+        raise ValueError("Invalid rl_mode in config.yaml. Must be 'train' or 'eval'.")
+    if c_agent["view_range"] <= 0:
+        raise ValueError("view_range must be positive.")
+    if c_agent["num_agents"] <= 0:
+        raise ValueError("num_agents must be positive.")
+
+    # --- Algorithm-specific numeric bounds ---
+    if c_algo != "no_algo" and isinstance(c_algo, dict):
+        if c_algo.get("lr", 1) <= 0:
+            raise ValueError(f"lr must be positive for {used_algo}.")
+        if c_algo.get("batch_size", 1) <= 0:
+            raise ValueError(f"batch_size must be positive for {used_algo}.")
+    if used_algo == "PPO" and isinstance(c_algo, dict):
+        if c_algo["horizon"] < c_algo["batch_size"]:
+            raise ValueError(f"PPO horizon ({c_algo['horizon']}) must be >= batch_size ({c_algo['batch_size']}).")
+        if not (0 < c_algo["gamma"] <= 1):
+            raise ValueError(f"PPO gamma must be in (0, 1], got {c_algo['gamma']}.")
+        if not (0 < c_algo["eps_clip"] < 1):
+            raise ValueError(f"PPO eps_clip must be in (0, 1), got {c_algo['eps_clip']}.")
+
+    # --- Eval fly policy constraints ---
     if c_settings["eval_fly_policy"]:
-        assert hierarchy_type in ["fly_agent", "planner_agent"], "eval_fly_policy can only be True when hierarchy_type is 'fly_agent' or 'planner_agent' in config.yaml."
-        assert rl_mode == "eval", "eval_fly_policy can only be True when rl_mode is 'eval' in config.yaml."
-        assert c_settings["log_eval"], "log_eval must be True when eval_fly_policy is True in config.yaml."
+        if hierarchy_type not in ["fly_agent", "planner_agent"]:
+            raise ValueError("eval_fly_policy can only be True when hierarchy_type is 'fly_agent' or 'planner_agent' in config.yaml.")
+        if rl_mode != "eval":
+            raise ValueError("eval_fly_policy can only be True when rl_mode is 'eval' in config.yaml.")
+        if not c_settings["log_eval"]:
+            raise ValueError("log_eval must be True when eval_fly_policy is True in config.yaml.")
     if config["environment"]["agent"]["use_water_limit"]:
-        assert c_settings["eval_fly_policy"], "Water limit use can only be True when eval_fly_policy is True in config.yaml."
-    assert c_settings["mode"] in [0, 2], "Invalid mode in config.yaml. Must be 0 (GUI_RL), 2 (NoGUI_RL)"
-    assert hierarchy_type in ["fly_agent", "explore_agent", "planner_agent"], \
-        "Invalid hierarchy_type in config.yaml. Must be 'fly_agent', 'explore_agent', or 'planner_agent'."
-    assert rl_mode in ["train", "eval"], "Invalid rl_mode in config.yaml. Must be 'train' or 'eval'."
+        if not c_settings["eval_fly_policy"]:
+            raise ValueError("Water limit use can only be True when eval_fly_policy is True in config.yaml.")
+
     if rl_mode == "train":
-        assert c_settings["log_eval"], ("log_eval should be True when rl_mode is 'train'. While this would"
-                                       " work, it is more likely than not that the user did not intend to do this.")
+        if not c_settings["log_eval"]:
+            raise ValueError("log_eval should be True when rl_mode is 'train'. While this would"
+                             " work, it is more likely than not that the user did not intend to do this.")
+
+    # --- Hierarchy-specific constraints ---
     if hierarchy_type == "planner_agent":
-        assert config["environment"]["agent"]["planner_agent"]["default_model_folder"] != "", \
-            "default_model_folder for planner_agent cannot be empty in config.yaml when planner_agent is selected."
-        assert config["environment"]["agent"]["planner_agent"]["default_model_name"] != "", \
-            "default_model_name cannot be empty in config.yaml when planner_agent is selected."
+        if config["environment"]["agent"]["planner_agent"]["default_model_folder"] == "":
+            raise ValueError("default_model_folder for planner_agent cannot be empty in config.yaml when planner_agent is selected.")
+        if config["environment"]["agent"]["planner_agent"]["default_model_name"] == "":
+            raise ValueError("default_model_name cannot be empty in config.yaml when planner_agent is selected.")
     if hierarchy_type == "fly_agent":
         if not c_agent["use_simple_policy"]:
-            assert config["environment"]["agent_behaviour"]["fire_goal_percentage"] == 1.0, \
-                "fire_goal_percentage should be 1.0 when using fly_agent with complex policy."
-    # Assert that resume is off when auto_train is on
-    if c_settings["auto_train"]["use_auto_train"]:
-        assert not c_settings["resume"], "resume cannot be True when auto_train is enabled in config.yaml."
-        assert not rl_mode == "eval", ("rl_mode cannot be 'eval' when auto_train is enabled in config.yaml.\n"
-                                                             "While this configuration WOULD work, it is not intended to be used in this way, since it would automatically "
-                                                             "resume training from the last checkpoint, which is not what you want when evaluating a model.")
+            if config["environment"]["agent_behaviour"]["fire_goal_percentage"] != 1.0:
+                raise ValueError("fire_goal_percentage should be 1.0 when using fly_agent with complex policy.")
 
+    # --- Auto-train constraints ---
+    if c_settings["auto_train"]["use_auto_train"]:
+        if c_settings["resume"]:
+            raise ValueError("resume cannot be True when auto_train is enabled in config.yaml.")
+        if rl_mode == "eval":
+            raise ValueError("rl_mode cannot be 'eval' when auto_train is enabled in config.yaml. "
+                             "While this configuration WOULD work, it is not intended to be used in this way, since it would automatically "
+                             "resume training from the last checkpoint, which is not what you want when evaluating a model.")
+
+    # --- Optuna constraints ---
     if c_settings["optuna"]["use_optuna"]:
-        assert c_settings["optuna"]["objective"] in ["objective", "reward", "time_to_end"], "Invalid objective in config.yaml for optuna. Must be 'objective' or 'reward'."
-        assert rl_mode == "train", "rl_mode must be 'train' when using optuna in config.yaml."
-        assert not (c_settings["optuna"]["use_pruning"] and c_settings["optuna"]["objective"] == "time_to_end"), \
-            "Pruning cannot be used when objective is 'time_to_end' in config.yaml. Minimizing time_to_end is not compatible with pruning currently."
+        if c_settings["optuna"]["objective"] not in ["objective", "reward", "time_to_end"]:
+            raise ValueError("Invalid objective in config.yaml for optuna. Must be 'objective', 'reward', or 'time_to_end'.")
+        if rl_mode != "train":
+            raise ValueError("rl_mode must be 'train' when using optuna in config.yaml.")
+        if c_settings["optuna"]["use_pruning"] and c_settings["optuna"]["objective"] == "time_to_end":
+            raise ValueError("Pruning cannot be used when objective is 'time_to_end' in config.yaml.")
+
+    # --- Replay buffer constraints ---
     if c_settings["save_replay_buffer"]:
-        assert used_algo != "IQL", "save_replay_buffer not supported for IQL."
-        assert rl_mode != "train", "save_replay_buffer cannot be True when rl_mode is 'train'."
-        assert c_settings["save_size"] <= c_algo["memory_size"], \
-            f"save_size cannot be larger than memory_size in algorithm config for {used_algo}."
-    if used_algo == "PPO":
-        if c_algo["separate_optimizers"]:
-            assert config["algorithm"]["share_encoder"] == False, "When using separate optimizers, their encoders can't be shared"
+        if used_algo == "IQL":
+            raise ValueError("save_replay_buffer not supported for IQL.")
+        if rl_mode == "train":
+            raise ValueError("save_replay_buffer cannot be True when rl_mode is 'train'.")
+        if c_settings["save_size"] > c_algo["memory_size"]:
+            raise ValueError(f"save_size cannot be larger than memory_size in algorithm config for {used_algo}.")
+
+    # --- Algorithm-specific constraints ---
+    if used_algo == "PPO" and isinstance(c_algo, dict):
+        if c_algo["separate_optimizers"] and config["algorithm"]["share_encoder"]:
+            raise ValueError("When using separate optimizers, their encoders can't be shared.")
     if used_algo == "TD3":
-        assert hierarchy_type != "planner_agent", "TD3 not supported for planner_agent."
-        assert not config["algorithm"]["use_tanh_dist"], ("TD3 does not support tanh action distribution. It doesn't use a distribution "
-                                        "at all and the Outputs of the Network need a tanh activation instead. "
-                                        "Disable use_tanh in config.yaml.")
+        if hierarchy_type == "planner_agent":
+            raise ValueError("TD3 not supported for planner_agent.")
+        if config["algorithm"]["use_tanh_dist"]:
+            raise ValueError("TD3 does not support tanh action distribution. It doesn't use a distribution "
+                             "at all and the Outputs of the Network need a tanh activation instead. "
+                             "Disable use_tanh in config.yaml.")
     if used_algo == "IQL":
-        assert hierarchy_type != "planner_agent", "IQL not supported for planner_agent."
+        if hierarchy_type == "planner_agent":
+            raise ValueError("IQL not supported for planner_agent.")
 def sim(config : dict, overrides: dict = None, trial=None):
 
     config = inject_overrides(config, overrides, trial)

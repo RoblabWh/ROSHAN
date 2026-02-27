@@ -46,7 +46,7 @@ public:
     void Update();
     void Render();
     void HandleEvents();
-    void SendDataToModel(std::string data);
+    void SendDataToModel(const std::string& data);
     void UpdateReward();
     void SendRLStatusToModel(pybind11::dict status);
     pybind11::dict GetRLStatusFromModel();
@@ -55,7 +55,7 @@ public:
     // Observe the current state of the environment
     bool AgentIsRunning();
     std::string GetUserInput();
-    std::unordered_map<std::string, std::vector<std::deque<std::shared_ptr<State>>>> GetObservations();
+    std::unordered_map<std::string, std::vector<std::vector<std::shared_ptr<State>>>> GetObservations();
     pybind11::tuple GetBatchedFlyObservations(const std::string& agent_type);
     pybind11::tuple GetBatchedPlannerObservations();
     StepResult Step(const std::string& agent_type, std::vector<std::shared_ptr<Action>> actions, bool skip_observations = false);

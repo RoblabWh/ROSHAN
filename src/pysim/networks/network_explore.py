@@ -1,6 +1,7 @@
 import os
 import torch.nn as nn
 import torch
+from utils import get_device
 
 if os.getenv("PYTORCH_DETECT_ANOMALY", "").lower() in ("1", "true"):
     torch.autograd.set_detect_anomaly(True)
@@ -48,7 +49,7 @@ class Inputspace(nn.Module):
         """
         super(Inputspace, self).__init__()
 
-        self.device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
+        self.device = get_device()
         self.drone_count = drone_count
         self.time_steps = time_steps
 

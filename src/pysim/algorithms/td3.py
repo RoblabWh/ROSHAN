@@ -7,6 +7,7 @@ import os
 from algorithms.actor_critic import DeterministicActorCritic
 from algorithms.rl_algorithm import RLAlgorithm
 from algorithms.rl_config import TD3Config
+from utils import get_device
 from memory import SwarmMemory
 
 
@@ -31,7 +32,7 @@ class TD3(RLAlgorithm):
         self.critic_scheduler = None
         self.initialize_optimizers()
 
-        self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+        self.device = get_device()
 
         self.total_it = 0
         self.set_train()

@@ -1,7 +1,7 @@
 import torch
 import torch.nn as nn
 import numpy as np
-from utils import init_fn
+from utils import init_fn, get_device
 from torch.distributions import MultivariateNormal, Bernoulli, Normal, Independent, TransformedDistribution
 from torch.distributions.transforms import TanhTransform
 
@@ -11,7 +11,7 @@ class CategoricalActorCritic(nn.Module):
     """
     def __init__(self, actor_network, critic_network, vision_range, drone_count, map_size, time_steps, manual_decay, share_encoder):
         super(CategoricalActorCritic, self).__init__()
-        self.device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
+        self.device = get_device()
         self.actor = actor_network(vision_range, drone_count, map_size, time_steps, manual_decay).to(self.device)
         self.actor.apply(init_fn)
         inputspace = None if not share_encoder else self.actor.Inputspace
@@ -110,7 +110,7 @@ class StochasticActor(nn.Module):
     """
     def __init__(self, actor_network, vision_range, drone_count, map_size, time_steps, manual_decay, use_tanh_dist, collision):
         super(StochasticActor, self).__init__()
-        self.device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
+        self.device = get_device()
         self.use_tanh_dist = use_tanh_dist
         self.actor = actor_network(vision_range=vision_range,
                                    drone_count=drone_count,
@@ -182,7 +182,7 @@ class DeterministicActorCritic(nn.Module):
     """
     def __init__(self, actor_network, critic_network, action_dim, exploration_noise, vision_range, drone_count, map_size, time_steps, collision, share_encoder):
         super(DeterministicActorCritic, self).__init__()
-        self.device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
+        self.device = get_device()
         self.actor = actor_network(vision_range=vision_range,
                                    drone_count=drone_count,
                                    map_size=map_size,

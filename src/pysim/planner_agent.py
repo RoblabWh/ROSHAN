@@ -4,6 +4,7 @@ import torch.nn as nn
 import torch
 import firesim
 from agent import Agent
+from utils import get_device
 
 class PlannerAgent(Agent):
     def __init__(self, num_drones):
@@ -45,7 +46,7 @@ class PlannerAgent(Agent):
             raise ValueError(f"Unknown algorithm: {algorithm_name}")
 
     def initialize_rnd_model(self, vision_range, drone_count, map_size, time_steps, lr=1e-4, betas=(0.9, 0.999)):
-        device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
+        device = get_device()
         self.rnd_model = RNDModel(vision_range, drone_count, map_size, time_steps).to(device)
         self.optimizer = torch.optim.Adam(self.rnd_model.parameters(), lr=lr, betas=betas, eps=1e-5)
 

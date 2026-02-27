@@ -2,6 +2,7 @@ import os
 import torch.nn as nn
 import torch.nn.functional as F
 import torch
+from utils import get_device
 
 if os.getenv("PYTORCH_DETECT_ANOMALY", "").lower() in ("1", "true"):
     torch.autograd.set_detect_anomaly(True)
@@ -74,7 +75,7 @@ class SimpleInput(nn.Module):
         """
         super(SimpleInput, self).__init__()
 
-        self.device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
+        self.device = get_device()
         self.vision_range = vision_range
         self.time_steps = time_steps
 
@@ -121,7 +122,7 @@ class Inputspace(nn.Module):
         """
         super(Inputspace, self).__init__()
 
-        self.device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
+        self.device = get_device()
         self.vision_range = vision_range
         self.time_steps = time_steps
 

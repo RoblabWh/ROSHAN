@@ -103,7 +103,7 @@ class RunningMeanStd(object):
     def __init__(self, epsilon=1e-4, shape=()):
         self.mean = np.zeros(shape, 'float64')
         self.var = np.ones(shape, 'float64')
-        self.epsilon = 1e-8
+        self.epsilon = epsilon
         self.count = epsilon
 
     def update(self, x):
@@ -229,6 +229,14 @@ def standardize(tensor):
     Standardize a tensor to mean zero and standard deviation one
     """
     return (tensor - tensor.mean()) / (tensor.std() + 1e-8)
+
+_device = None
+def get_device():
+    """Return cached torch device. Centralizes device selection to avoid scattered cuda:0 checks."""
+    global _device
+    if _device is None:
+        _device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    return _device
 
 def torch_to_numpy(tensor: torch.Tensor) -> np.ndarray:
     return tensor.detach().cpu().numpy()

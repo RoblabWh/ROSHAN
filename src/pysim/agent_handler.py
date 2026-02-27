@@ -156,8 +156,8 @@ class AgentHandler:
         # - The optimizer state
         # - The memory state (possibly, for OffPolicy algorithms)
         # - The logger state
-        share_encoder = config["algorithm"]["share_encoder"],
-        use_tanh_dist = config["algorithm"]["use_tanh_dist"],
+        share_encoder = config["algorithm"]["share_encoder"]
+        use_tanh_dist = config["algorithm"]["use_tanh_dist"]
         collision = config["environment"]["agent"]["fly_agent"]["collision"]
         if default_model_folder is not None:
             # We need to inject some network parameter from the saved config if possible
@@ -607,7 +607,7 @@ class AgentHandler:
         if self.should_train():
             self.algorithm.apply_manual_decay(self.sim_bridge.get("train_step"))
             self.update(mini_batch_size=self.algorithm.batch_size, next_obs=next_obs)
-            if self.use_intrinsic_reward and self.algorithm == 'PPO':
+            if self.use_intrinsic_reward and self.algorithm_name == 'PPO':
                 self.agent_type.update_rnd_model(self.memory, self.algorithm.horizon, self.algorithm.batch_size)
             if self.algorithm.clear_memory:
                 self.memory.clear_memory()

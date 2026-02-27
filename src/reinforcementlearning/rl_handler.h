@@ -152,7 +152,7 @@ public:
         }
     }
 
-    std::unordered_map<std::string, std::vector<std::deque<std::shared_ptr<State>>>> GetObservations();
+    std::unordered_map<std::string, std::vector<std::vector<std::shared_ptr<State>>>> GetObservations();
     // Batch observation API: returns all fly-agent observations as pre-packed numpy arrays
     // in a single C++ call, eliminating per-property Python→C++ boundary crossings.
     py::tuple GetBatchedFlyObservations(const std::string& agent_type);

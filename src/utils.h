@@ -119,7 +119,7 @@ struct EpisodeSummary {
 
 // --- Whole step result ---
 using Observations =
-        std::unordered_map<std::string, std::vector<std::deque<std::shared_ptr<State>>>>;
+        std::unordered_map<std::string, std::vector<std::vector<std::shared_ptr<State>>>>;
 
 struct StepResult {
     Observations observations;

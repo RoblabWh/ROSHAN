@@ -26,20 +26,19 @@ ReinforcementLearningHandler::ReinforcementLearningHandler(FireModelParameters &
     total_env_steps_ = 1;
 }
 
-std::unordered_map<std::string, std::vector<std::deque<std::shared_ptr<State>>>>
+std::unordered_map<std::string, std::vector<std::vector<std::shared_ptr<State>>>>
 ReinforcementLearningHandler::GetObservations() {
-    std::unordered_map<std::string, std::vector<std::deque<std::shared_ptr<State>>>> observations;
+    std::unordered_map<std::string, std::vector<std::vector<std::shared_ptr<State>>>> observations;
     observations.reserve(agents_by_type_.size());
 
     for (const auto& [key, agents] : agents_by_type_) {
-        std::vector<std::deque<std::shared_ptr<State>>> agent_states;
+        std::vector<std::vector<std::shared_ptr<State>>> agent_states;
         agent_states.reserve(agents.size());
 
         for (const auto& agent : agents) {
-            // Use ref to avoid copying shared_ptrs, then construct the State deque
             const auto& obs_ref = agent->GetObservationsRef();
-            std::deque<std::shared_ptr<State>> state_deque(obs_ref.begin(), obs_ref.end());
-            agent_states.push_back(std::move(state_deque));
+            std::vector<std::shared_ptr<State>> state_vec(obs_ref.begin(), obs_ref.end());
+            agent_states.push_back(std::move(state_vec));
         }
         observations.emplace(key, std::move(agent_states));
     }
@@ -86,14 +85,14 @@ py::tuple ReinforcementLearningHandler::GetBatchedFlyObservations(const std::str
         }
     }
 
-    // Allocate numpy arrays — single contiguous allocation per field
-    py::array_t<double> ids({N, max_T});
-    py::array_t<double> velocities({N, max_T, 2});
-    py::array_t<double> delta_goals({N, max_T, 2});
-    py::array_t<double> cos_sin({N, max_T, 2});
-    py::array_t<double> speed({N, max_T});
-    py::array_t<double> dist_to_goal({N, max_T});
-    py::array_t<double> dists_others({N, max_T, dist_slots, dist_features});
+    // Allocate numpy arrays — single contiguous allocation per field (float32 for PyTorch)
+    py::array_t<float> ids({N, max_T});
+    py::array_t<float> velocities({N, max_T, 2});
+    py::array_t<float> delta_goals({N, max_T, 2});
+    py::array_t<float> cos_sin({N, max_T, 2});
+    py::array_t<float> speed({N, max_T});
+    py::array_t<float> dist_to_goal({N, max_T});
+    py::array_t<float> dists_others({N, max_T, dist_slots, dist_features});
     // Use uint8 for mask (pybind11 doesn't support bool arrays directly with unchecked)
     py::array_t<bool> dists_mask({N, max_T, dist_slots});
 
@@ -113,20 +112,20 @@ py::tuple ReinforcementLearningHandler::GetBatchedFlyObservations(const std::str
             if (t < T_i) {
                 auto* as = agent_states[i][t];
                 auto vel = as->GetVelocityNorm();
-                vel_buf(i, t, 0) = vel.first;
-                vel_buf(i, t, 1) = vel.second;
+                vel_buf(i, t, 0) = static_cast<float>(vel.first);
+                vel_buf(i, t, 1) = static_cast<float>(vel.second);
 
                 auto dg = as->GetDeltaGoal();
-                dg_buf(i, t, 0) = dg.first;
-                dg_buf(i, t, 1) = dg.second;
+                dg_buf(i, t, 0) = static_cast<float>(dg.first);
+                dg_buf(i, t, 1) = static_cast<float>(dg.second);
 
                 auto cs_ = as->GetCosSinToGoal();
-                cs_buf(i, t, 0) = cs_.first;
-                cs_buf(i, t, 1) = cs_.second;
+                cs_buf(i, t, 0) = static_cast<float>(cs_.first);
+                cs_buf(i, t, 1) = static_cast<float>(cs_.second);
 
-                sp_buf(i, t) = as->GetSpeed();
-                dtg_buf(i, t) = as->GetDistanceToGoal();
-                id_buf(i, t) = static_cast<double>(as->GetID());
+                sp_buf(i, t) = static_cast<float>(as->GetSpeed());
+                dtg_buf(i, t) = static_cast<float>(as->GetDistanceToGoal());
+                id_buf(i, t) = static_cast<float>(as->GetID());
 
                 const auto& dists = as->GetDistancesToOtherAgentsRef();
                 const auto& mask = as->GetDistancesMaskRef();
@@ -135,26 +134,26 @@ py::tuple ReinforcementLearningHandler::GetBatchedFlyObservations(const std::str
                     if (s < static_cast<int>(dists.size())) {
                         const auto& row = dists[s];
                         for (int f = 0; f < dist_features; ++f) {
-                            dto_buf(i, t, s, f) = (f < static_cast<int>(row.size())) ? row[f] : 0.0;
+                            dto_buf(i, t, s, f) = (f < static_cast<int>(row.size())) ? static_cast<float>(row[f]) : 0.0f;
                         }
                     } else {
                         for (int f = 0; f < dist_features; ++f) {
-                            dto_buf(i, t, s, f) = 0.0;
+                            dto_buf(i, t, s, f) = 0.0f;
                         }
                     }
                 }
             } else {
                 // Pad with zeros for agents with fewer time steps
-                vel_buf(i, t, 0) = 0.0; vel_buf(i, t, 1) = 0.0;
-                dg_buf(i, t, 0) = 0.0; dg_buf(i, t, 1) = 0.0;
-                cs_buf(i, t, 0) = 0.0; cs_buf(i, t, 1) = 0.0;
-                sp_buf(i, t) = 0.0;
-                dtg_buf(i, t) = 0.0;
-                id_buf(i, t) = 0.0;
+                vel_buf(i, t, 0) = 0.0f; vel_buf(i, t, 1) = 0.0f;
+                dg_buf(i, t, 0) = 0.0f; dg_buf(i, t, 1) = 0.0f;
+                cs_buf(i, t, 0) = 0.0f; cs_buf(i, t, 1) = 0.0f;
+                sp_buf(i, t) = 0.0f;
+                dtg_buf(i, t) = 0.0f;
+                id_buf(i, t) = 0.0f;
                 for (int s = 0; s < dist_slots; ++s) {
                     dm_buf(i, t, s) = false;
                     for (int f = 0; f < dist_features; ++f) {
-                        dto_buf(i, t, s, f) = 0.0;
+                        dto_buf(i, t, s, f) = 0.0f;
                     }
                 }
             }
@@ -201,10 +200,10 @@ py::tuple ReinforcementLearningHandler::GetBatchedPlannerObservations() {
         }
     }
 
-    // Allocate numpy arrays
-    py::array_t<double> drone_positions({N, max_T, num_drones, 2});
-    py::array_t<double> goal_positions({N, max_T, num_drones, 2});
-    py::array_t<double> fire_positions({N, max_T, max_fires, 2});
+    // Allocate numpy arrays (float32 for PyTorch)
+    py::array_t<float> drone_positions({N, max_T, num_drones, 2});
+    py::array_t<float> goal_positions({N, max_T, num_drones, 2});
+    py::array_t<float> fire_positions({N, max_T, max_fires, 2});
 
     auto dp_buf = drone_positions.mutable_unchecked<4>();
     auto gp_buf = goal_positions.mutable_unchecked<4>();
@@ -219,35 +218,35 @@ py::tuple ReinforcementLearningHandler::GetBatchedPlannerObservations() {
 
                 const auto& drones = as->GetDronePositionsRef();
                 for (int d = 0; d < num_drones; ++d) {
-                    dp_buf(i, t, d, 0) = drones[d].first;
-                    dp_buf(i, t, d, 1) = drones[d].second;
+                    dp_buf(i, t, d, 0) = static_cast<float>(drones[d].first);
+                    dp_buf(i, t, d, 1) = static_cast<float>(drones[d].second);
                 }
 
                 const auto& goals = as->GetGoalPositionsRef();
                 for (int d = 0; d < num_drones; ++d) {
-                    gp_buf(i, t, d, 0) = goals[d].first;
-                    gp_buf(i, t, d, 1) = goals[d].second;
+                    gp_buf(i, t, d, 0) = static_cast<float>(goals[d].first);
+                    gp_buf(i, t, d, 1) = static_cast<float>(goals[d].second);
                 }
 
                 const auto& fires = as->GetFirePositionsRef();
                 const int n_fires = static_cast<int>(fires.size());
                 for (int f = 0; f < max_fires; ++f) {
                     if (f < n_fires) {
-                        fp_buf(i, t, f, 0) = fires[f].first;
-                        fp_buf(i, t, f, 1) = fires[f].second;
+                        fp_buf(i, t, f, 0) = static_cast<float>(fires[f].first);
+                        fp_buf(i, t, f, 1) = static_cast<float>(fires[f].second);
                     } else {
-                        fp_buf(i, t, f, 0) = 0.0;
-                        fp_buf(i, t, f, 1) = 0.0;
+                        fp_buf(i, t, f, 0) = 0.0f;
+                        fp_buf(i, t, f, 1) = 0.0f;
                     }
                 }
             } else {
                 // Zero-pad shorter timesteps
                 for (int d = 0; d < num_drones; ++d) {
-                    dp_buf(i, t, d, 0) = 0.0; dp_buf(i, t, d, 1) = 0.0;
-                    gp_buf(i, t, d, 0) = 0.0; gp_buf(i, t, d, 1) = 0.0;
+                    dp_buf(i, t, d, 0) = 0.0f; dp_buf(i, t, d, 1) = 0.0f;
+                    gp_buf(i, t, d, 0) = 0.0f; gp_buf(i, t, d, 1) = 0.0f;
                 }
                 for (int f = 0; f < max_fires; ++f) {
-                    fp_buf(i, t, f, 0) = 0.0; fp_buf(i, t, f, 1) = 0.0;
+                    fp_buf(i, t, f, 0) = 0.0f; fp_buf(i, t, f, 1) = 0.0f;
                 }
             }
         }

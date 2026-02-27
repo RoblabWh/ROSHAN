@@ -170,7 +170,7 @@ void EngineCore::StopServer() {
 }
 
 
-std::unordered_map<std::string, std::vector<std::deque<std::shared_ptr<State>>>> EngineCore::GetObservations() {
+std::unordered_map<std::string, std::vector<std::vector<std::shared_ptr<State>>>> EngineCore::GetObservations() {
     return model_->GetObservations();
 }
 
@@ -194,9 +194,9 @@ StepResult EngineCore::Step(const std::string& agent_type, std::vector<std::shar
     return model_->Step(agent_type, std::move(actions), skip_observations);
 }
 
-void EngineCore::SendDataToModel(std::string data) {
+void EngineCore::SendDataToModel(const std::string& data) {
     if(model_ != nullptr){
-        model_->GetData(std::move(data));
+        model_->GetData(data);
     }
 }
 
