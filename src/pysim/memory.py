@@ -4,12 +4,6 @@ from collections import defaultdict
 from torch.nn.utils.rnn import pad_sequence
 from typing import Any, Dict, List, Tuple, Optional
 
-# # Optional dependency used elsewhere in the project.
-# try:
-#     from transformers.models.deta.image_processing_deta import masks_to_boxes
-# except Exception:  # pragma: no cover - runtime availability only
-#     masks_to_boxes = None
-
 def _to_cpu_numpy(x):
     if isinstance(x, torch.Tensor):
         return x.detach().cpu()
@@ -57,7 +51,14 @@ class SwarmMemory(object):
 
     @staticmethod
     def get_agent_state(state, agent_id):
-        if isinstance(state, tuple):
+        if hasattr(state, 'keys') or isinstance(state, dict):
+            # Dict-based path (ObservationDict or plain dict)
+            return {
+                k: (np.expand_dims(v[agent_id], axis=0) if isinstance(v, np.ndarray)
+                    else v[agent_id].unsqueeze(0))
+                for k, v in state.items()
+            }
+        elif isinstance(state, tuple):
             return tuple(
                 np.expand_dims(s[agent_id], axis=0) if isinstance(s[agent_id], np.ndarray)
                 else s[agent_id].unsqueeze(0)
@@ -67,15 +68,12 @@ class SwarmMemory(object):
             return np.expand_dims(state[agent_id], axis=0)
 
     @staticmethod
-    def rearrange_states2(states):
-        states_ = tuple()
-        for i in range(len(states[0])):
-            states_ += (torch.cat([states[k][i] for k in range(len(states))]),)
-        return states_
-
-    @staticmethod
     def rearrange_states(states):
-        # Transpose list-of-tuples -> tuple-of-lists
+        if states and (hasattr(states[0], 'keys') or isinstance(states[0], dict)):
+            # Dict-based path: merge dicts along batch dim
+            keys = states[0].keys()
+            return {k: torch.cat([s[k] for s in states], dim=0) for k in keys}
+        # Legacy tuple path: transpose list-of-tuples -> tuple-of-lists
         fields = list(zip(*states))  # length K, each is a list of length T
         return tuple(torch.cat(field_tensors, dim=0) for field_tensors in fields)
 
@@ -145,16 +143,6 @@ class SwarmMemory(object):
                 aggregated[key].append(value)
         return dict(aggregated)
 
-    def _sample_batch(self, batch_size):
-        # TODO: Deprecated (needs rewrite, now dirty fix with to_tensor, which is inefficient)
-        batch = defaultdict(list)
-        for i in range(self.num_agents):
-            idxs = self._get_batch_idx(batch_size)
-            agent_batch = self.memory[i]._sample_batch(idxs)
-            for key, value in agent_batch.items():
-                batch[key].append(value)
-        return dict(batch)
-
     def _get_batch_idx(self, batch_size):
         N = self.__len__()
         assert N >= batch_size, f"Not enough samples: have {N}, need {batch_size}"
@@ -212,7 +200,10 @@ class SwarmMemory(object):
             if not vals:
                 merged[key] = None
                 continue
-            if isinstance(vals[0], tuple):
+            if isinstance(vals[0], dict):
+                dict_keys = vals[0].keys()
+                merged[key] = {k: torch.cat([v[k] for v in vals], dim=0) for k in dict_keys}
+            elif isinstance(vals[0], tuple):
                 merged[key] = concat_field(vals, is_tuple=True)
             else:
                 merged[key] = concat_field(vals, is_tuple=False)
@@ -295,15 +286,19 @@ class Memory(object):
 
     def state_dict(self) -> Dict[str, Any]:
         """Serialize *only* the filled part of the buffer ([:self.size])."""
-        # Convert nested tuples of states/next_obs to CPU tensors/ndarrays
-        def _convert_state_list(lst: Optional[List[Tuple]]):
+        # Convert nested tuples/dicts of states/next_obs to CPU tensors/ndarrays
+        def _convert_state_list(lst: Optional[List]):
             if lst is None:
                 return None
-            return [
-                tuple(_to_cpu_numpy(field) for field in sample_tuple)
-                if isinstance(sample_tuple, tuple) else sample_tuple
-                for sample_tuple in lst[:self.size]
-            ]
+            result = []
+            for sample in lst[:self.size]:
+                if isinstance(sample, dict):
+                    result.append({k: _to_cpu_numpy(v) for k, v in sample.items()})
+                elif isinstance(sample, tuple):
+                    result.append(tuple(_to_cpu_numpy(field) for field in sample))
+                else:
+                    result.append(sample)
+            return result
 
         data = {
             "version": 1,
@@ -364,7 +359,11 @@ class Memory(object):
 
         # States / next_obs are lists length n
         for i in range(n):
-            self.state[i] = tuple(_to_cpu_numpy(f) for f in state["state"][i])
+            s = state["state"][i]
+            if isinstance(s, dict):
+                self.state[i] = {k: _to_cpu_numpy(v) for k, v in s.items()}
+            else:
+                self.state[i] = tuple(_to_cpu_numpy(f) for f in s)
 
         self.action[:n] = state["action"]
         self.logprobs[:n] = state["logprobs"]
@@ -376,7 +375,11 @@ class Memory(object):
 
         if self.use_next_obs and state["next_obs"] is not None:
             for i in range(n):
-                self.next_obs[i] = tuple(_to_cpu_numpy(f) for f in state["next_obs"][i])
+                s = state["next_obs"][i]
+                if isinstance(s, dict):
+                    self.next_obs[i] = {k: _to_cpu_numpy(v) for k, v in s.items()}
+                else:
+                    self.next_obs[i] = tuple(_to_cpu_numpy(f) for f in s)
 
     def save(self, path: str):
         """Torch’s pickler handles tensors + numpy cleanly."""
@@ -407,7 +410,10 @@ class Memory(object):
         Add a new experience to the memory.
         :param intrinsic_reward: Optional intrinsic reward (float)
         """
-        self.state[self.ptr] = tuple(s for s in state)
+        if hasattr(state, 'keys') or isinstance(state, dict):
+            self.state[self.ptr] = dict(state)
+        else:
+            self.state[self.ptr] = tuple(s for s in state)
         self.action[self.ptr] = action
         self.logprobs[self.ptr] = action_logprobs
         self.reward[self.ptr] = reward
@@ -417,7 +423,10 @@ class Memory(object):
             self.intrinsic_reward[self.ptr] = intrinsic_reward
 
         if self.use_next_obs:
-            self.next_obs[self.ptr] = tuple(s for s in next_obs)
+            if hasattr(next_obs, 'keys') or isinstance(next_obs, dict):
+                self.next_obs[self.ptr] = dict(next_obs)
+            else:
+                self.next_obs[self.ptr] = tuple(s for s in next_obs)
 
         self.ptr = (self.ptr + 1) % self.max_size
         self.size = min(self.size + 1, self.max_size)
@@ -508,6 +517,64 @@ class Memory(object):
 
         return tuple(state_tuple), mask_tensor
 
+    def _is_dict_state(self):
+        """Check if stored states are dict-based (new schema pipeline)."""
+        for i in range(self.size):
+            s = self.state[i]
+            if s != 0:
+                return isinstance(s, dict)
+        return False
+
+    def _to_tensor_dict_states(self):
+        """Convert dict-based states to a dict of stacked tensors."""
+        states = self.state[:self.size]
+        keys = states[0].keys()
+        result = {}
+        mask = torch.empty(0, dtype=torch.bool, device=self.device)
+        for k in keys:
+            field_list = [s[k] for s in states]
+            tensor_list = [torch.as_tensor(f) if getattr(f, 'dtype', None) == bool
+                          else torch.as_tensor(f, dtype=torch.float32) for f in field_list]
+            shapes = [t.shape for t in tensor_list]
+
+            # Strip leading dim=1 from batch storage
+            if len(shapes[0]) > 1 and all(s[:1] == (1,) for s in shapes):
+                tensor_list = [t.squeeze(0) for t in tensor_list]
+                shapes = [t.shape for t in tensor_list]
+
+            # Check for variable-length axis
+            variable_axis = None
+            for ax in range(len(shapes[0])):
+                if len({s[ax] for s in shapes}) > 1:
+                    variable_axis = ax
+                    break
+
+            if variable_axis is None:
+                result[k] = torch.stack(tensor_list).to(self.device)
+            else:
+                axis = variable_axis
+                lengths = torch.tensor([t.shape[axis] for t in tensor_list], device=self.device)
+                permute_order = [axis] + [i for i in range(len(shapes[0])) if i != axis]
+                dims_rest = permute_order[1:]
+                rearranged = [t.permute(permute_order) for t in tensor_list]
+                padded = pad_sequence(rearranged, batch_first=True)
+                max_len = padded.size(1)
+                mask = (
+                    torch.arange(max_len, device=self.device).expand(len(lengths), max_len)
+                    >= lengths.unsqueeze(1)
+                )
+                order = [0]
+                for j in range(len(shapes[0])):
+                    if j == axis:
+                        order.append(1)
+                    else:
+                        ki = dims_rest.index(j)
+                        order.append(ki + 2)
+                padded = padded.permute(order)
+                result[k] = padded.to(self.device)
+
+        return result, mask
+
     def to_tensor(self):
         """
         Return a dict with keys: 'state', 'action', 'logprobs', 'reward', 'not_done'
@@ -519,12 +586,17 @@ class Memory(object):
 
         data = {}
 
-        # Transpose the state buffer: now tuples are grouped per state index
-        state_fields = list(zip(*self.state[:self.size]))
-        state_tuple, mask = self.create_state_tuple(state_fields)
+        if self._is_dict_state():
+            state_dict, mask = self._to_tensor_dict_states()
+            data['state'] = state_dict
+            data['mask'] = mask
+        else:
+            # Legacy tuple path: transpose the state buffer
+            state_fields = list(zip(*self.state[:self.size]))
+            state_tuple, mask = self.create_state_tuple(state_fields)
+            data['state'] = state_tuple
+            data['mask'] = mask
 
-        data['state'] = state_tuple
-        data['mask'] = mask  # Store mask for variable-length states
         data['action'] = torch.as_tensor(self.action[:self.size], dtype=torch.float32).to(self.device, non_blocking=True)
         data['logprobs'] = torch.as_tensor(self.logprobs[:self.size], dtype=torch.float32).to(self.device, non_blocking=True)
         data['reward'] = torch.as_tensor(self.reward[:self.size], dtype=torch.float32).to(self.device, non_blocking=True)
@@ -536,8 +608,20 @@ class Memory(object):
 
         # Only add next_obs if it is available
         if self.use_next_obs:
-            next_obs_tuple = tuple(torch.as_tensor(np.array(state), dtype=torch.float32).squeeze(1).to(self.device, non_blocking=True) for state in zip(*self.next_obs[:self.size]))
-            data['next_obs'] = next_obs_tuple
+            if self._is_dict_state():
+                next_states = self.next_obs[:self.size]
+                if next_states and isinstance(next_states[0], dict):
+                    keys = next_states[0].keys()
+                    data['next_obs'] = {
+                        k: torch.as_tensor(np.array([s[k] for s in next_states]), dtype=torch.float32).squeeze(1).to(self.device, non_blocking=True)
+                        for k in keys
+                    }
+                else:
+                    next_obs_tuple = tuple(torch.as_tensor(np.array(state), dtype=torch.float32).squeeze(1).to(self.device, non_blocking=True) for state in zip(*next_states))
+                    data['next_obs'] = next_obs_tuple
+            else:
+                next_obs_tuple = tuple(torch.as_tensor(np.array(state), dtype=torch.float32).squeeze(1).to(self.device, non_blocking=True) for state in zip(*self.next_obs[:self.size]))
+                data['next_obs'] = next_obs_tuple
 
         self._tensor_cache = data
         self._tensor_cache_valid = True
@@ -546,12 +630,26 @@ class Memory(object):
     # return ONLY the selected indices as tensors on device
     def gather(self, idx, *, as_tensors=True):
         # idx: 1D LongTensor or numpy array of indices into this buffer
-        # --- states ---
-        # state is a list of tuples; we want tuples of tensors for the chosen indices
-        # shape: each field becomes tensor [B, ...]
         selected_states = [self.state[i] for i in idx]
-        state_fields = list(zip(*selected_states))  # tuple-of-lists grouped per field
-        state_tuple, mask = self.create_state_tuple(state_fields)
+
+        if selected_states and isinstance(selected_states[0], dict):
+            # Dict-based path
+            keys = selected_states[0].keys()
+            state_dict = {}
+            mask = torch.empty(0, dtype=torch.bool, device=self.device)
+            for k in keys:
+                field_list = [s[k] for s in selected_states]
+                tensor_list = [torch.as_tensor(f) if getattr(f, 'dtype', None) == bool
+                              else torch.as_tensor(f, dtype=torch.float32) for f in field_list]
+                shapes = [t.shape for t in tensor_list]
+                if len(shapes[0]) > 1 and all(s[:1] == (1,) for s in shapes):
+                    tensor_list = [t.squeeze(0) for t in tensor_list]
+                state_dict[k] = torch.stack(tensor_list).to(self.device)
+            state_result = state_dict
+        else:
+            # Legacy tuple path
+            state_fields = list(zip(*selected_states))
+            state_result, mask = self.create_state_tuple(state_fields)
 
         idx_arr = np.asarray(idx)
         actions   = torch.as_tensor(self.action[idx_arr], dtype=torch.float32, device=self.device)
@@ -560,8 +658,8 @@ class Memory(object):
         not_dones = torch.as_tensor(self.not_done[idx_arr], dtype=torch.float32, device=self.device)
 
         out = {
-            "state": state_tuple,
-            "mask": mask,
+            "state": state_result,
+            "mask": mask if not isinstance(state_result, dict) else torch.empty(0, dtype=torch.bool, device=self.device),
             "action": actions,
             "logprobs": logprobs,
             "reward": rewards,
@@ -575,9 +673,16 @@ class Memory(object):
 
         if self.use_next_obs and len(self.next_obs) > 0:
             selected_next = [self.next_obs[i] for i in idx]
-            next_fields = list(zip(*selected_next))
-            next_state_tuple, next_mask = self.create_state_tuple(next_fields)
-            out["next_obs"] = next_state_tuple
+            if selected_next and isinstance(selected_next[0], dict):
+                keys = selected_next[0].keys()
+                out["next_obs"] = {
+                    k: torch.stack([torch.as_tensor(s[k], dtype=torch.float32) for s in selected_next]).to(self.device)
+                    for k in keys
+                }
+            else:
+                next_fields = list(zip(*selected_next))
+                next_state_tuple, next_mask = self.create_state_tuple(next_fields)
+                out["next_obs"] = next_state_tuple
 
         return out
 

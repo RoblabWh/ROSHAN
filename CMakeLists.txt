@@ -160,7 +160,9 @@ set(AGENT_SOURCES
         src/reinforcementlearning/texturerenderer.cpp src/reinforcementlearning/texturerenderer.h
         src/reinforcementlearning/groundstation.h src/reinforcementlearning/groundstation.cpp
         src/reinforcementlearning/rl_handler.cpp
-        src/reinforcementlearning/rl_handler.h)
+        src/reinforcementlearning/rl_handler.h
+        src/reinforcementlearning/feature_schema.h
+        src/reinforcementlearning/feature_definitions.h)
 
 # Fire model sources
 set(FIREMODEL_SOURCES

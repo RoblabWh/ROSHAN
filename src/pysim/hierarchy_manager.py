@@ -1,4 +1,4 @@
-from agent_handler import AgentHandler
+from agent_builder import AgentBuilder
 from utils import SimulationBridge
 import logging
 
@@ -11,6 +11,7 @@ class HierarchyManager:
         self.logger = logging.getLogger("HierarchyManager")
         self.max_low_level_steps = self.config["environment"]["agent"]["planner_agent"]["hierarchy_timesteps"]
         self._env_reset_flag = False  # Cached to avoid per-step pybind11 crossing
+        self.builder = AgentBuilder(config, sim_bridge)
         self.build_hierarchy()
 
     def _should_reset(self, agent) -> bool:
@@ -124,11 +125,9 @@ class HierarchyManager:
 
     def build_hierarchy(self):
         # Create the top level Agent Object
-        agent_handler = AgentHandler(
-             config=self.config,
+        agent_handler = self.builder.build(
              agent_type=self.config["settings"]["hierarchy_type"],
              mode=self.config["settings"]["rl_mode"],
-             sim_bridge=self.sim_bridge,
              is_sub_agent=False
         )
         agent_handler.load_model(change_status=True)
@@ -138,9 +137,7 @@ class HierarchyManager:
 
         # Construct a low level agent if the current agent is a high level agent
         if agent_handler.hierarchy_level == "high":
-            planner_fly_agent = AgentHandler(
-                config=self.config,
-                sim_bridge=self.sim_bridge,
+            planner_fly_agent = self.builder.build(
                 agent_type="fly_agent",
                 subtype="PlannerFlyAgent",
                 mode="eval"
@@ -152,16 +149,12 @@ class HierarchyManager:
         if construct_medium:
             # Construct a medium level agent if the current agent is a high level agent
             if agent_handler.hierarchy_level == "high" or self.config["settings"]["eval_fly_policy"]:
-                medium_level_agent = AgentHandler(
-                      config=self.config,
-                      sim_bridge=self.sim_bridge,
+                medium_level_agent = self.builder.build(
                       agent_type="explore_agent",
                       mode="eval"
                 )
                 self.hierarchy["medium"] = medium_level_agent
-            explore_fly_agent = AgentHandler(
-                   config=self.config,
-                   sim_bridge=self.sim_bridge,
+            explore_fly_agent = self.builder.build(
                    agent_type="fly_agent",
                    subtype="ExploreFlyAgent",
                    mode="eval"

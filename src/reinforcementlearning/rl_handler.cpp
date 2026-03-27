@@ -24,6 +24,12 @@ ReinforcementLearningHandler::ReinforcementLearningHandler(FireModelParameters &
                                               });
 
     total_env_steps_ = 1;
+
+    // Initialize feature schemas for schema-driven observation extraction
+    schemas_["fly_agent"] = CreateFlyAgentSchema();
+    schemas_["PlannerFlyAgent"] = CreateFlyAgentSchema();
+    schemas_["ExploreFlyAgent"] = CreateFlyAgentSchema();
+    schemas_["planner_agent"] = CreatePlannerAgentSchema();
 }
 
 std::unordered_map<std::string, std::vector<std::vector<std::shared_ptr<State>>>>
@@ -46,133 +52,24 @@ ReinforcementLearningHandler::GetObservations() {
     return observations;
 }
 
-py::tuple ReinforcementLearningHandler::GetBatchedFlyObservations(const std::string& agent_type) {
+py::dict ReinforcementLearningHandler::GetBatchedObservations(const std::string& agent_type) {
+    // Look up schema
+    auto schema_it = schemas_.find(agent_type);
+    if (schema_it == schemas_.end()) {
+        return py::dict();  // unknown agent type
+    }
+    const auto& schema = schema_it->second;
+
+    // Find agents
     auto it = agents_by_type_.find(agent_type);
     if (it == agents_by_type_.end() || it->second.empty()) {
-        return py::make_tuple(py::none(), py::none(), py::none(), py::none(),
-                              py::none(), py::none(), py::none(), py::none());
+        return py::dict();
     }
 
     const auto& agents = it->second;
     const int N = static_cast<int>(agents.size());
 
-    // Collect AgentState pointers per agent and determine dimensions
-    std::vector<std::vector<AgentState*>> agent_states(N);
-    int max_T = 0;
-    for (int i = 0; i < N; ++i) {
-        const auto& obs_ref = agents[i]->GetObservationsRef();
-        agent_states[i].reserve(obs_ref.size());
-        for (const auto& state_ptr : obs_ref) {
-            // GetObservationsRef returns deque<shared_ptr<AgentState>> directly
-            agent_states[i].push_back(state_ptr.get());
-        }
-        max_T = std::max(max_T, static_cast<int>(agent_states[i].size()));
-    }
-
-    if (max_T == 0) {
-        return py::make_tuple(py::none(), py::none(), py::none(), py::none(),
-                              py::none(), py::none(), py::none(), py::none());
-    }
-
-    // Determine distance slots from first available state
-    int dist_slots = 0;
-    int dist_features = 0;
-    for (int i = 0; i < N && dist_slots == 0; ++i) {
-        if (!agent_states[i].empty()) {
-            const auto& dists = agent_states[i][0]->GetDistancesToOtherAgentsRef();
-            dist_slots = static_cast<int>(dists.size());
-            if (!dists.empty()) dist_features = static_cast<int>(dists[0].size());
-        }
-    }
-
-    // Allocate numpy arrays — single contiguous allocation per field (float32 for PyTorch)
-    py::array_t<float> ids({N, max_T});
-    py::array_t<float> velocities({N, max_T, 2});
-    py::array_t<float> delta_goals({N, max_T, 2});
-    py::array_t<float> cos_sin({N, max_T, 2});
-    py::array_t<float> speed({N, max_T});
-    py::array_t<float> dist_to_goal({N, max_T});
-    py::array_t<float> dists_others({N, max_T, dist_slots, dist_features});
-    // Use uint8 for mask (pybind11 doesn't support bool arrays directly with unchecked)
-    py::array_t<bool> dists_mask({N, max_T, dist_slots});
-
-    auto id_buf = ids.mutable_unchecked<2>();
-    auto vel_buf = velocities.mutable_unchecked<3>();
-    auto dg_buf = delta_goals.mutable_unchecked<3>();
-    auto cs_buf = cos_sin.mutable_unchecked<3>();
-    auto sp_buf = speed.mutable_unchecked<2>();
-    auto dtg_buf = dist_to_goal.mutable_unchecked<2>();
-    auto dto_buf = dists_others.mutable_unchecked<4>();
-    auto dm_buf = dists_mask.mutable_unchecked<3>();
-
-    // Fill arrays in one pass — all 8 fields extracted per state
-    for (int i = 0; i < N; ++i) {
-        const int T_i = static_cast<int>(agent_states[i].size());
-        for (int t = 0; t < max_T; ++t) {
-            if (t < T_i) {
-                auto* as = agent_states[i][t];
-                auto vel = as->GetVelocityNorm();
-                vel_buf(i, t, 0) = static_cast<float>(vel.first);
-                vel_buf(i, t, 1) = static_cast<float>(vel.second);
-
-                auto dg = as->GetDeltaGoal();
-                dg_buf(i, t, 0) = static_cast<float>(dg.first);
-                dg_buf(i, t, 1) = static_cast<float>(dg.second);
-
-                auto cs_ = as->GetCosSinToGoal();
-                cs_buf(i, t, 0) = static_cast<float>(cs_.first);
-                cs_buf(i, t, 1) = static_cast<float>(cs_.second);
-
-                sp_buf(i, t) = static_cast<float>(as->GetSpeed());
-                dtg_buf(i, t) = static_cast<float>(as->GetDistanceToGoal());
-                id_buf(i, t) = static_cast<float>(as->GetID());
-
-                const auto& dists = as->GetDistancesToOtherAgentsRef();
-                const auto& mask = as->GetDistancesMaskRef();
-                for (int s = 0; s < dist_slots; ++s) {
-                    dm_buf(i, t, s) = (s < static_cast<int>(mask.size())) && mask[s];
-                    if (s < static_cast<int>(dists.size())) {
-                        const auto& row = dists[s];
-                        for (int f = 0; f < dist_features; ++f) {
-                            dto_buf(i, t, s, f) = (f < static_cast<int>(row.size())) ? static_cast<float>(row[f]) : 0.0f;
-                        }
-                    } else {
-                        for (int f = 0; f < dist_features; ++f) {
-                            dto_buf(i, t, s, f) = 0.0f;
-                        }
-                    }
-                }
-            } else {
-                // Pad with zeros for agents with fewer time steps
-                vel_buf(i, t, 0) = 0.0f; vel_buf(i, t, 1) = 0.0f;
-                dg_buf(i, t, 0) = 0.0f; dg_buf(i, t, 1) = 0.0f;
-                cs_buf(i, t, 0) = 0.0f; cs_buf(i, t, 1) = 0.0f;
-                sp_buf(i, t) = 0.0f;
-                dtg_buf(i, t) = 0.0f;
-                id_buf(i, t) = 0.0f;
-                for (int s = 0; s < dist_slots; ++s) {
-                    dm_buf(i, t, s) = false;
-                    for (int f = 0; f < dist_features; ++f) {
-                        dto_buf(i, t, s, f) = 0.0f;
-                    }
-                }
-            }
-        }
-    }
-
-    return py::make_tuple(ids, velocities, delta_goals, cos_sin, speed, dist_to_goal, dists_others, dists_mask);
-}
-
-py::tuple ReinforcementLearningHandler::GetBatchedPlannerObservations() {
-    auto it = agents_by_type_.find("planner_agent");
-    if (it == agents_by_type_.end() || it->second.empty()) {
-        return py::make_tuple(py::none(), py::none(), py::none());
-    }
-
-    const auto& agents = it->second;
-    const int N = static_cast<int>(agents.size());
-
-    // Collect AgentState pointers per agent and determine dimensions
+    // Collect AgentState pointers and determine max timesteps
     std::vector<std::vector<AgentState*>> agent_states(N);
     int max_T = 0;
     for (int i = 0; i < N; ++i) {
@@ -185,74 +82,127 @@ py::tuple ReinforcementLearningHandler::GetBatchedPlannerObservations() {
     }
 
     if (max_T == 0) {
-        return py::make_tuple(py::none(), py::none(), py::none());
+        return py::dict();
     }
 
-    // Determine num_drones from first available state and max_fires across all states
-    int num_drones = 0;
-    int max_fires = 0;
-    for (int i = 0; i < N; ++i) {
-        for (auto* as : agent_states[i]) {
-            if (num_drones == 0) {
-                num_drones = static_cast<int>(as->GetDronePositionsRef().size());
-            }
-            max_fires = std::max(max_fires, static_cast<int>(as->GetFirePositionsRef().size()));
+    py::dict result;
+
+    // Build schema metadata dict for Python
+    py::dict schema_meta;
+    for (const auto& group : schema.groups) {
+        py::list col_info;
+        for (const auto& [col_name, col_dim] : group.GetColumnInfo()) {
+            col_info.append(py::make_tuple(col_name, col_dim));
         }
+        schema_meta[py::str(group.name)] = col_info;
     }
+    result["_schema"] = schema_meta;
 
-    // Allocate numpy arrays (float32 for PyTorch)
-    py::array_t<float> drone_positions({N, max_T, num_drones, 2});
-    py::array_t<float> goal_positions({N, max_T, num_drones, 2});
-    py::array_t<float> fire_positions({N, max_T, max_fires, 2});
+    // Process each group
+    for (const auto& group : schema.groups) {
+        if (group.type == FeatureGroupType::FIXED) {
+            const int D = group.TotalDims();
+            py::array_t<float> arr({N, max_T, D});
+            auto buf = arr.mutable_unchecked<3>();
 
-    auto dp_buf = drone_positions.mutable_unchecked<4>();
-    auto gp_buf = goal_positions.mutable_unchecked<4>();
-    auto fp_buf = fire_positions.mutable_unchecked<4>();
+            // Zero-initialize
+            std::memset(arr.mutable_data(), 0, N * max_T * D * sizeof(float));
 
-    // Fill arrays in one pass
-    for (int i = 0; i < N; ++i) {
-        const int T_i = static_cast<int>(agent_states[i].size());
-        for (int t = 0; t < max_T; ++t) {
-            if (t < T_i) {
-                auto* as = agent_states[i][t];
-
-                const auto& drones = as->GetDronePositionsRef();
-                for (int d = 0; d < num_drones; ++d) {
-                    dp_buf(i, t, d, 0) = static_cast<float>(drones[d].first);
-                    dp_buf(i, t, d, 1) = static_cast<float>(drones[d].second);
-                }
-
-                const auto& goals = as->GetGoalPositionsRef();
-                for (int d = 0; d < num_drones; ++d) {
-                    gp_buf(i, t, d, 0) = static_cast<float>(goals[d].first);
-                    gp_buf(i, t, d, 1) = static_cast<float>(goals[d].second);
-                }
-
-                const auto& fires = as->GetFirePositionsRef();
-                const int n_fires = static_cast<int>(fires.size());
-                for (int f = 0; f < max_fires; ++f) {
-                    if (f < n_fires) {
-                        fp_buf(i, t, f, 0) = static_cast<float>(fires[f].first);
-                        fp_buf(i, t, f, 1) = static_cast<float>(fires[f].second);
-                    } else {
-                        fp_buf(i, t, f, 0) = 0.0f;
-                        fp_buf(i, t, f, 1) = 0.0f;
+            for (int i = 0; i < N; ++i) {
+                const int T_i = static_cast<int>(agent_states[i].size());
+                for (int t = 0; t < T_i; ++t) {
+                    auto* as = agent_states[i][t];
+                    int offset = 0;
+                    for (const auto& col : group.columns) {
+                        col.extract(*as, &buf(i, t, offset));
+                        offset += col.dims;
                     }
                 }
-            } else {
-                // Zero-pad shorter timesteps
-                for (int d = 0; d < num_drones; ++d) {
-                    dp_buf(i, t, d, 0) = 0.0f; dp_buf(i, t, d, 1) = 0.0f;
-                    gp_buf(i, t, d, 0) = 0.0f; gp_buf(i, t, d, 1) = 0.0f;
-                }
-                for (int f = 0; f < max_fires; ++f) {
-                    fp_buf(i, t, f, 0) = 0.0f; fp_buf(i, t, f, 1) = 0.0f;
+                // t >= T_i: already zeroed by memset
+            }
+
+            result[py::str(group.name)] = arr;
+
+        }
+        else if (group.type == FeatureGroupType::RELATIONAL) {
+            // Determine max entities (neighbor slots) dynamically
+            int K = group.max_entities;
+            if (K == 0) {
+                for (int i = 0; i < N && K == 0; ++i) {
+                    if (!agent_states[i].empty()) {
+                        K = static_cast<int>(agent_states[i][0]->GetDistancesToOtherAgentsRef().size());
+                    }
                 }
             }
+            const int D = group.bulk_dims;
+
+            py::array_t<float> data_arr({N, max_T, K, D});
+            py::array_t<bool> mask_arr({N, max_T, K});
+
+            std::memset(data_arr.mutable_data(), 0, N * max_T * K * D * sizeof(float));
+            std::memset(mask_arr.mutable_data(), 0, N * max_T * K * sizeof(bool));
+
+            auto data_buf = data_arr.mutable_data();
+            auto mask_buf = mask_arr.mutable_data();
+
+            for (int i = 0; i < N; ++i) {
+                const int T_i = static_cast<int>(agent_states[i].size());
+                for (int t = 0; t < T_i; ++t) {
+                    float* d_ptr = data_buf + (i * max_T * K * D) + (t * K * D);
+                    bool* m_ptr = mask_buf + (i * max_T * K) + (t * K);
+                    group.extract_bulk(*agent_states[i][t], d_ptr, m_ptr, K, D);
+                }
+            }
+
+            result[py::str(group.name)] = data_arr;
+            result[py::str(group.name + "_mask")] = mask_arr;
+
+        }
+        else if (group.type == FeatureGroupType::SET) {
+            // Determine max entities dynamically from agent states
+            int M = group.max_entities;
+            if (M == 0) {
+                for (int i = 0; i < N; ++i) {
+                    for (auto* as : agent_states[i]) {
+                        // Use the bulk extractor with a probe: count entities by checking the state
+                        // For drone/goal positions, size is consistent; for fires, it varies
+                        int count = 0;
+                        if (group.name == "drone_positions") {
+                            count = static_cast<int>(as->GetDronePositionsRef().size());
+                        } else if (group.name == "goal_positions") {
+                            count = static_cast<int>(as->GetGoalPositionsRef().size());
+                        } else if (group.name == "fire_positions") {
+                            count = static_cast<int>(as->GetFirePositionsRef().size());
+                        }
+                        M = std::max(M, count);
+                    }
+                }
+            }
+            const int D = group.bulk_dims;
+
+            py::array_t<float> data_arr({N, max_T, M, D});
+
+            std::memset(data_arr.mutable_data(), 0, N * max_T * M * D * sizeof(float));
+
+            auto data_buf = data_arr.mutable_data();
+            // SET groups use bool mask just for the bulk extractor but we don't expose it
+            // (fires don't need an explicit mask since zero-padding is sufficient)
+            // Use unique_ptr<bool[]> since vector<bool> is bitpacked and has no .data()
+            auto tmp_mask = std::make_unique<bool[]>(M);
+
+            for (int i = 0; i < N; ++i) {
+                const int T_i = static_cast<int>(agent_states[i].size());
+                for (int t = 0; t < T_i; ++t) {
+                    float* d_ptr = data_buf + (i * max_T * M * D) + (t * M * D);
+                    group.extract_bulk(*agent_states[i][t], d_ptr, tmp_mask.get(), M, D);
+                }
+            }
+
+            result[py::str(group.name)] = data_arr;
         }
     }
 
-    return py::make_tuple(drone_positions, goal_positions, fire_positions);
+    return result;
 }
 
 void ReinforcementLearningHandler::ResetEnvironment(Mode mode) {

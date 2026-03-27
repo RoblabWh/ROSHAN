@@ -40,6 +40,10 @@ class RLConfig:
     use_tanh_dist: bool = True
     collision: bool = True
 
+    # Schema-derived dimensions (auto-set from C++ FeatureSchema)
+    agent_dim: int = 9      # FIXED group total dims for fly agent
+    neighbor_dim: int = 4   # RELATIONAL group bulk_dims for fly agent
+
     # torch.compile options
     use_torch_compile: bool = False
     compile_mode: str = "reduce-overhead"

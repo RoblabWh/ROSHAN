@@ -84,9 +84,6 @@ void PlannerAgent::Reset(Mode mode,
 AgentTerminal
 PlannerAgent::GetTerminalStates(bool eval_mode, const std::shared_ptr<GridMap> &grid_map, int env_steps_remaining) {
     AgentTerminal t;
-    //    int num_burning_cells = grid_map->GetNumBurningCells();
-    //    int num_explored_fires = grid_map->GetNumExploredFires();
-    explored_fires_equals_actual_fires_ = false; //grid_map->ExploredFiresEqualsActualFires();
 
     // If the agent has finished his objective(calculated in the PlanAction) it has reached a terminal state and succeeded
     if (objective_reached_) {

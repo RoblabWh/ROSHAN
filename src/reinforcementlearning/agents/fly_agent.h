@@ -19,9 +19,7 @@
 #include "firespin/firemodel_gridmap.h"
 #include "firespin/rendering/firemodel_renderer.h"
 #include "src/utils.h"
-#include "agent.h"
 #include "agent_state.h"
-#include "reinforcementlearning/actions/fly_action.h"
 #include "reinforcementlearning/actions/explore_action.h"
 
 class GridMap;
@@ -140,9 +138,6 @@ private:
     std::pair<double, double> max_speed_{}; //* Value for the maximum velocity of an Agent in x and y direction
     std::pair<double, double> max_acceleration_{};
 
-    // Possibly Deprecated
-    double FindNearestFireDistance();
-    int DroneSeesFire();
     bool dispensed_water_{};
 
     std::pair<double, double> position_; // x, y in (m)
@@ -167,11 +162,7 @@ private:
     int trail_length_ = 50;
     double norm_scale_{};
 
-    // Possibly Deprecated
     double max_distance_from_map_{};
-    int last_near_fires_{}; // Needs to be populated with this->DroneSeesFire() possible future use
-    double last_distance_to_fire_{}; // Needs to be populated with this->FindNearestFireDistance() possible future use
-    bool explored_fires_equals_actual_fires_ = false;
 
     // Fly Agent Specific
     //* Computes the new velocity based on the netout of the neural network

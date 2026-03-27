@@ -22,12 +22,6 @@ std::vector<std::shared_ptr<State>> Agent::GetObservations() const {
 }
 
 void Agent::LogRewards(const std::unordered_map<std::string, double>& rewards) {
-#ifdef DEBUG_REWARD_YES
-    for (const auto& [key, value] : rewards) {
-            std::cout << key << " Reward: " << value << "\n";
-        }
-        std::cout << "\n";
-#endif
 }
 
 void Agent::UpdateStates(const std::shared_ptr<GridMap> &grid_map) {

@@ -143,24 +143,6 @@ void ExploreAgent::PerformExplore(ExploreAction *action, const std::string& hier
 std::shared_ptr<AgentState> ExploreAgent::BuildAgentState(const std::shared_ptr<GridMap>& grid_map) {
     auto state = std::make_shared<AgentState>();
 
-    //TODO: This was used earlier in experimentation with RL ExploreAgents
-//    std::vector<std::shared_ptr<const std::vector<std::vector<double>>>> views;
-//    for (const auto& agent : fly_agents_) {
-//        const auto& latest_state = agent->GetLastState();
-//        auto orig_ptr = latest_state.GetTotalDroneViewPtr();
-//        auto copy_ptr = std::make_shared<const std::vector<std::vector<double>>>(*orig_ptr);
-//        views.push_back(copy_ptr);
-//        // TODO Rewrite this; this is a hack to get other states from the drone
-//        state->SetPosition(latest_state.GetPosition());
-//        state->SetCellSize(latest_state.GetCellSize());
-//    }
-//    state->SetMultipleTotalDroneView(views);
-//    state->SetMapDimensions({grid_map->GetRows(), grid_map->GetCols()});
-//    state->SetExplorationMap(grid_map->GetExploredMap());
-//    state->SetPerfectGoals(perfect_goals_);
-//    state->SetExploredFires(grid_map->GetExploredFires());
-//    state->SetFireMap(grid_map->GetFireMap(0, false));
-
     return state;
 }
 
@@ -199,9 +181,6 @@ double ExploreAgent::CalculateReward(const std::shared_ptr<GridMap>& grid_map) {
 AgentTerminal ExploreAgent::GetTerminalStates(bool eval_mode, const std::shared_ptr<GridMap>& grid_map, int total_env_steps) {
     std::vector<bool> terminal_states;
     AgentTerminal t;
-//    int num_burning_cells = grid_map->GetNumBurningCells();
-//    int num_explored_fires = grid_map->GetNumExploredFires();
-    explored_fires_equals_actual_fires_ = false; //grid_map->ExploredFiresEqualsActualFires();
 
     // If the agent has taken too long it has reached a terminal state and died
     // TODO currently hard-coded to false, this is because the agent is currently not network controlled

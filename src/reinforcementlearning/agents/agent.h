@@ -5,8 +5,6 @@
 #ifndef ROSHAN_AGENT_H
 #define ROSHAN_AGENT_H
 
-#define DEBUG_REWARD_NO
-
 #include <string>
 #include <memory>
 #include <vector>
@@ -65,7 +63,6 @@ public:
     std::unordered_map<std::string, double> GetRewardComponents() { return reward_components_; }
 
     AgentState GetLastState() const { return *agent_states_[0]; }
-//    std::deque<AgentState> GetStates() { return agent_states_; }
 protected:
     AgentType agent_type_{};
     FireModelParameters& parameters_;

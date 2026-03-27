@@ -86,11 +86,6 @@ std::shared_ptr<AgentState> FlyAgent::BuildAgentState(const std::shared_ptr<Grid
     state->SetCellSize(parameters_.GetCellSize());
     state->SetDistancesToOtherAgents(std::make_shared<std::vector<std::vector<double>>>(distance_to_other_agents_));
     state->SetDistancesMask(std::make_shared<std::vector<bool>>(distance_mask_));
-//    state->SetDroneView(grid_map->GetDroneView(GetGridPosition(), GetViewRange()));
-//    state->SetTotalDroneView(grid_map->GetInterpolatedDroneView(GetGridPosition(), GetViewRange()));
-//    state->SetExplorationMap(grid_map->GetExploredMap());
-//    state->SetFireMap(grid_map->GetFireMap());
-//    state->SetMapDimensions({grid_map->GetRows(), grid_map->GetCols()});
     return state;
 }
 
@@ -103,15 +98,6 @@ void FlyAgent::InitializeFlyAgentStates(const std::shared_ptr<GridMap>& grid_map
 void FlyAgent::PerformFly(FlyAction* action, const std::string& hierarchy_type, const std::shared_ptr<GridMap>& gridMap) {
 
     this->Step(action->GetSpeedX(), action->GetSpeedY(), gridMap);
-    // Four different modes for low level agents
-    // (1) fly_agent with complex policy: extinguish fires until none are left (no_explorers should be used here)
-    // (2) fly_agent with simple policy: just reach the goal (no_explorers should be used here)
-    // (3) fly_agent EvaluationPolicy: Behaviour described by the FlyPolicy function (no_explorers should be used here)
-    // (4) explore_agents and planner_agents fly_agents: just reach the goal (the explore agents don't set hierarchy steps and don't care about selected policies)
-    // (hierarchy_type == "fly_agent" && !parameters_.use_simple_policy_ && !is_explorer_);
-    // (hierarchy_type == "fly_agent" && parameters_.use_simple_policy_ && !is_explorer_);
-    // (hierarchy_type == "fly_agent" && parameters_.eval_fly_policy_ && !is_explorer_);
-
     if (hierarchy_type == "fly_agent" && !parameters_.use_simple_policy_ && !is_explorer_ && !parameters_.eval_fly_policy_) {
         if (almostEqual(this->GetGoalPosition(), this->GetGridPositionDouble())) {
             this->DispenseWaterCertain(gridMap);
@@ -521,47 +507,6 @@ void FlyAgent::CalcMaxDistanceFromMap() {
         }
         max_distance_from_map_ = std::max(max_distance1, max_distance2);
     }
-}
-
-double FlyAgent::FindNearestFireDistance() {
-    std::pair<int, int> drone_grid_position = GetGridPosition();
-    double min_distance = std::numeric_limits<double>::max();
-    std::vector<std::vector<int>> fire_status = this->GetLastState().GetFireView();
-
-    for (int y = 0; y <= view_range_; ++y) {
-        for (int x = 0; x <= view_range_; ++x) {
-            if (fire_status[x][y] == 1) { // Assuming 1 indicates fire
-                std::pair<int, int> fire_grid_position = std::make_pair(
-                    drone_grid_position.first + y - (view_range_ / 2),
-                    drone_grid_position.second + x - (view_range_ / 2)
-                );
-
-                double real_x, real_y;
-                parameters_.ConvertGridToRealCoordinates(fire_grid_position.first, fire_grid_position.second, real_x, real_y);
-                double distance = sqrt(
-                    pow(real_x - position_.first, 2) +
-                    pow(real_y - position_.second, 2)
-                );
-
-                if (distance < min_distance) {
-                    min_distance = distance;
-                }
-            }
-        }
-    }
-
-    return min_distance;
-}
-
-// Checks whether the drone sees fire in the current fire status and return how much
-int FlyAgent::DroneSeesFire() {
-    std::vector<std::vector<int>> fire_status = this->GetLastState().GetFireView();
-    int count = std::accumulate(fire_status.begin(), fire_status.end(), 0,
-                                [](int acc, const std::vector<int>& vec) {
-                                    return acc + std::count(vec.begin(), vec.end(), 1);
-                                }
-    );
-    return count;
 }
 
 double DiscretizeOutput(double netout, double bin_size) {

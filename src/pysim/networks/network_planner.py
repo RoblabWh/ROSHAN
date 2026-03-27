@@ -10,24 +10,39 @@ if os.getenv("PYTORCH_DETECT_ANOMALY", "").lower() in ("1", "true"):
 class Inputspace(nn.Module):
 
     def __init__(self, drone_dim, time_steps):
-        """
-        A PyTorch Module that represents the input space of a neural network.
-        """
-        super(Inputspace, self).__init__()
+        super().__init__()
 
         self.device = get_device()
         self.drone_dim = drone_dim
         hidden_dim = 64
-        self.pos_emb = nn.Linear(2, hidden_dim)
-        self.goal_emb = nn.Linear(2, hidden_dim)
-        self.fire_emb = nn.Linear(2, hidden_dim)
+
+        # Embeddings with activation
+        self.pos_emb = nn.Sequential(nn.Linear(2, hidden_dim), nn.ReLU())
+        self.goal_emb = nn.Sequential(nn.Linear(2, hidden_dim), nn.ReLU())
+        self.fire_emb = nn.Sequential(nn.Linear(2, hidden_dim), nn.ReLU())
+        self.vel_emb = nn.Sequential(nn.Linear(2, hidden_dim), nn.ReLU())
         self.id_emb = nn.Embedding(drone_dim, hidden_dim)
-        self.cross_attn = nn.MultiheadAttention(embed_dim=hidden_dim, num_heads=4, batch_first=True)
-        self.post_attn_norm = nn.LayerNorm(hidden_dim)
+
+        # Fusion MLP: cat(pos, goal, id, vel) -> hidden
+        self.fusion = nn.Sequential(
+            nn.Linear(hidden_dim * 4, hidden_dim),
+            nn.ReLU()
+        )
+
+        # Drone self-attention
+        self.self_attn = nn.MultiheadAttention(
+            embed_dim=hidden_dim, num_heads=4, batch_first=True
+        )
+        self.self_attn_norm = nn.LayerNorm(hidden_dim)
+
+        # Drone->Fire cross-attention
+        self.cross_attn = nn.MultiheadAttention(
+            embed_dim=hidden_dim, num_heads=4, batch_first=True
+        )
+        self.cross_attn_norm = nn.LayerNorm(hidden_dim)
+
         self.out_features = hidden_dim
-        # Cached constant tensors (zero-cost expand views at runtime)
-        self.register_buffer('_agent_ids', torch.arange(drone_dim, device=self.device))
-        self.register_buffer('_default_mask', torch.tensor([[True, False]], device=self.device))
+        self.register_buffer('_agent_ids', torch.arange(drone_dim))
 
     def _ensure_tensor(self, x, dtype=torch.float32):
         if not torch.is_tensor(x):
@@ -46,91 +61,128 @@ class Inputspace(nn.Module):
         return x
 
     def prepare_tensor(self, states):
-        drone_states, goal_positions, fire_states = states
-        drone_states = self._select_last_timestep(self._ensure_tensor(drone_states))
-        goal_positions = self._select_last_timestep(self._ensure_tensor(goal_positions))
-        fire_states = self._select_last_timestep(self._ensure_tensor(fire_states))
-        batch_size, n_drones, _ = drone_states.shape
+        if hasattr(states, 'keys') or isinstance(states, dict):
+            # Dict-based path (new schema pipeline)
+            drone_states = self._ensure_tensor(states["drone_positions"])
+            goal_positions = self._ensure_tensor(states["goal_positions"])
+            fire_states = self._select_last_timestep(self._ensure_tensor(states["fire_positions"]))
+        else:
+            # Legacy tuple path
+            drone_states, goal_positions, fire_states = states
+            drone_states = self._ensure_tensor(drone_states)
+            goal_positions = self._ensure_tensor(goal_positions)
+            fire_states = self._select_last_timestep(self._ensure_tensor(fire_states))
+
+        # Extract velocity before collapsing timesteps
+        if drone_states.dim() == 4 and drone_states.shape[1] >= 2:
+            velocity = drone_states[:, -1] - drone_states[:, -2]  # (B, N, 2)
+            drone_pos = drone_states[:, -1]  # (B, N, 2)
+        else:
+            drone_states = self._select_last_timestep(drone_states)
+            velocity = torch.zeros_like(drone_states)
+            drone_pos = drone_states
+
+        goal_positions = self._select_last_timestep(goal_positions)
+
+        batch_size, n_drones, _ = drone_pos.shape
         agent_ids = self._agent_ids.unsqueeze(0).expand(batch_size, -1)
-        return drone_states, goal_positions, fire_states, agent_ids
+        return drone_pos, goal_positions, fire_states, agent_ids, velocity
 
     def forward(self, states, mask=None):
-        # drone_states (B,N,F), fire_states (B,2,F), mask (B,2)
-        drone_pos, goal_positions, fire_states, agent_ids = self.prepare_tensor(states)
-        if mask is None:
-            mask = self._default_mask.expand(fire_states.shape[0], -1)
-        pos_emb = self.pos_emb(drone_pos) # (B,N,F)
-        goal_emb = self.goal_emb(goal_positions) # (B,N,F)
-        fire_emb = self.fire_emb(fire_states) # (B,2,F)
-        id_emb = self.id_emb(agent_ids) # (B,N,F)
-        drone_emb = pos_emb + goal_emb + id_emb # (B,N,F)
-        # Cross-attention between drone and fire states
-        attn_output, attention_weights = self.cross_attn(query=drone_emb,
-                                         key=fire_emb,
-                                         value=fire_emb,
-                                         key_padding_mask=mask)
-        attn_output = self.post_attn_norm(attn_output)
+        drone_pos, goal_pos, fire_states, agent_ids, velocity = self.prepare_tensor(states)
 
-        return attn_output, attention_weights
+        # Dynamic mask (fixes hardcoded size-2 default)
+        if mask is None:
+            mask = torch.zeros(fire_states.shape[0], fire_states.shape[1],
+                               dtype=torch.bool, device=self.device)
+
+        # Embed
+        pos_e = self.pos_emb(drone_pos)
+        goal_e = self.goal_emb(goal_pos)
+        fire_e = self.fire_emb(fire_states)
+        vel_e = self.vel_emb(velocity)
+        id_e = self.id_emb(agent_ids)
+
+        # Fusion MLP (replaces additive collapse)
+        drone_emb = self.fusion(torch.cat([pos_e, goal_e, id_e, vel_e], dim=-1))
+
+        # Self-attention among drones + residual + LayerNorm
+        self_out, _ = self.self_attn(drone_emb, drone_emb, drone_emb)
+        drone_emb = self.self_attn_norm(drone_emb + self_out)
+
+        # Cross-attention: drones attend to fires + residual + LayerNorm
+        cross_out, attn_weights = self.cross_attn(
+            query=drone_emb, key=fire_e, value=fire_e,
+            key_padding_mask=mask
+        )
+        drone_repr = self.cross_attn_norm(drone_emb + cross_out)
+
+        return drone_repr, fire_e, attn_weights
 
 class AttentionActor(nn.Module):
-    """
-    A PyTorch Module that represents the actor network of a PPO agent.
-    """
     def __init__(self, vision_range, drone_count, map_size, time_steps, manual_decay):
-        super(AttentionActor, self).__init__()
+        super().__init__()
         self.Inputspace = Inputspace(drone_dim=drone_count, time_steps=time_steps)
-        self.in_features = self.Inputspace.out_features
-        # Mu
-        self.mu_move = nn.Linear(in_features=self.in_features, out_features=2)
-        self.mu_move._init_gain = 0.1
+        hidden_dim = self.Inputspace.out_features
 
-        # Logstd
-        self.log_std = nn.Parameter(torch.zeros(2, ), requires_grad=not manual_decay)
+        # Learnable temperature for exploration control
+        self.log_temperature = nn.Parameter(torch.zeros(1))
+
+        # Pointer-network projection heads
+        self.query_proj = nn.Linear(hidden_dim, hidden_dim)
+        self.key_proj = nn.Linear(hidden_dim, hidden_dim)
 
     def forward(self, states, masks=None):
-        attn_out, attention_weight = self.Inputspace(states, masks)
-        # The attention output is run through another network to get the logits
-        # x = self.mu_move(x)
+        drone_repr, fire_repr, _ = self.Inputspace(states, masks)
 
-        # TODO We can use the attention weights directly as logits if the attention matrix is the correct assignment
-        return attention_weight
+        # Pointer-network style scoring
+        q = self.query_proj(drone_repr)   # (B, N, D)
+        k = self.key_proj(fire_repr)       # (B, F, D)
+        d = q.shape[-1] ** 0.5
+        temperature = self.log_temperature.exp().clamp(min=0.01)
+        logits = torch.bmm(q, k.transpose(1, 2)) / (d * temperature)  # (B, N, F)
+
+        # Build effective mask: always mask groundstation at index 0
+        if masks is None:
+            masks = torch.zeros(fire_repr.shape[0], fire_repr.shape[1],
+                               dtype=torch.bool, device=fire_repr.device)
+        else:
+            masks = masks.clone()
+        masks[:, 0] = True  # groundstation/wait token
+        logits = logits.masked_fill(masks.unsqueeze(1), float('-inf'))
+
+        return logits  # raw logits — Categorical(logits=...) applies softmax
 
 class Critic(nn.Module):
-    """
-    A PyTorch Module that represents the critic network of a PPO agent.
-    """
     def __init__(self, vision_range, drone_count, map_size, time_steps, inputspace=None):
-        super(Critic, self).__init__()
-        self.Inputspace_1 = Inputspace(vision_range, time_steps=time_steps) if not inputspace else inputspace
-        self.Inputspace_2 = Inputspace(vision_range, time_steps=time_steps) if not inputspace else inputspace
+        super().__init__()
+        self.Inputspace_1 = Inputspace(drone_count, time_steps=time_steps) if not inputspace else inputspace
         self.in_features = self.Inputspace_1.out_features
 
     def forward(self, *args, **kwargs):
         raise NotImplementedError("Subclasses must implement forward.")
 
-class CriticPPO(Critic):
-    """
-    A PyTorch Module that represents the critic network of a PPO agent.
-    """
+class CriticPPO(nn.Module):
     def __init__(self, vision_range, drone_count, map_size, time_steps, inputspace=None):
-        super(CriticPPO, self).__init__(vision_range, drone_count, map_size, time_steps, inputspace)
-        self.Inputspace_2 = None
-        # Value
-        self.value = nn.Linear(in_features=self.in_features, out_features=1)
-        self.value._init_gain = 1.0
+        super().__init__()
+        self.Inputspace_1 = Inputspace(drone_count, time_steps=time_steps) if not inputspace else inputspace
+        hidden_dim = self.Inputspace_1.out_features
+        self.value_head = nn.Sequential(
+            nn.Linear(hidden_dim, 128),
+            nn.ReLU(),
+            nn.Linear(128, 1)
+        )
+        self.value_head[-1]._init_gain = 1.0
 
     def forward(self, states, masks=None):
-        x, _ = self.Inputspace_1(states, masks)
-        value = self.value(x)
-        return value
+        drone_repr, _, _ = self.Inputspace_1(states, masks)  # (B, N, 64)
+        pooled = drone_repr.mean(dim=1)  # (B, 64) — pool drones before value head
+        return self.value_head(pooled)    # (B, 1)
 
 class OffPolicyCritic(Critic):
-    """
-    A PyTorch Module that represents the critic network of an IQL agent.
-    """
     def __init__(self, vision_range, drone_count, map_size, time_steps, action_dim, inputspace=None):
-        super(OffPolicyCritic, self).__init__(vision_range, drone_count, map_size, time_steps, inputspace)
+        super().__init__(vision_range, drone_count, map_size, time_steps, inputspace)
+        self.Inputspace_2 = Inputspace(drone_count, time_steps=time_steps) if not inputspace else inputspace
 
         # Q1 architecture
         self.l1 = nn.Linear(self.in_features + action_dim, 256)
@@ -151,7 +203,8 @@ class OffPolicyCritic(Critic):
         return q1, q2
 
     def Q1(self, state, action):
-        x = self.Inputspace_1(state)
+        x, _, _ = self.Inputspace_1(state)
+        x = x.mean(dim=1)  # pool drones: (B, N, D) -> (B, D)
         x = torch.cat([x, action], dim=1)
 
         q1 = F.relu(self.l1(x))
@@ -160,7 +213,8 @@ class OffPolicyCritic(Critic):
         return q1
 
     def Q2(self, state, action):
-        x = self.Inputspace_2(state)
+        x, _, _ = self.Inputspace_2(state)
+        x = x.mean(dim=1)
         x = torch.cat([x, action], dim=1)
 
         q2 = F.relu(self.l4(x))
@@ -169,13 +223,9 @@ class OffPolicyCritic(Critic):
         return q2
 
 class Value(nn.Module):
-    """
-    A PyTorch Module that represents the value network of an IQL agent.
-    It estimates V(s), the state value.
-    """
     def __init__(self, vision_range, drone_count, map_size, time_steps, inputspace):
-        super(Value, self).__init__()
-        self.Inputspace = Inputspace(vision_range, time_steps=time_steps) if not inputspace else inputspace
+        super().__init__()
+        self.Inputspace = Inputspace(drone_count, time_steps=time_steps) if not inputspace else inputspace
         self.in_features = self.Inputspace.out_features
 
         # Simple MLP head for value estimation
@@ -185,7 +235,8 @@ class Value(nn.Module):
         self.v_value._init_gain = 1.0
 
     def forward(self, state):
-        x = self.Inputspace(state)
+        x, _, _ = self.Inputspace(state)
+        x = x.mean(dim=1)  # pool drones
         x = torch.relu(self.fc1(x))
         x = torch.relu(self.fc2(x))
         v = self.v_value(x)

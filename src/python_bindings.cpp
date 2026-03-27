@@ -1,4 +1,6 @@
 #include "engine_core.h"
+#include "reinforcementlearning/feature_schema.h"
+#include "reinforcementlearning/feature_definitions.h"
 #include "externals/pybind11/include/pybind11/pybind11.h"
 #include "externals/pybind11/include/pybind11/stl.h"
 #include "externals/pybind11/include/pybind11/complex.h"
@@ -10,74 +12,31 @@ PYBIND11_MODULE(firesim, m) {
 
     py::class_<FlyAction, Action, std::shared_ptr<FlyAction>>(m, "DroneAction")
             .def(py::init<>())
-            .def(py::init<double, double>())
-            .def("GetSpeedX", &FlyAction::GetSpeedX)
-            .def("GetSpeedY", &FlyAction::GetSpeedY)
-            .def("GetWaterDispense", &FlyAction::GetWaterDispense);
+            .def(py::init<double, double>());
 
     py::class_<ExploreAction, Action, std::shared_ptr<ExploreAction>>(m, "ExploreAction")
             .def(py::init<>())
-            .def(py::init<double, double>())
-            .def("GetGoalX", &ExploreAction::GetGoalX)
-            .def("GetGoalY", &ExploreAction::GetGoalY);
+            .def(py::init<double, double>());
 
     py::class_<PlanAction, Action, std::shared_ptr<PlanAction>>(m, "PlanAction")
             .def(py::init<>())
-            .def(py::init<std::vector<std::pair<double, double>>>())
-            .def("GetGoalFromAction", &PlanAction::GetGoalFromAction);
+            .def(py::init<std::vector<std::pair<double, double>>>());
 
     py::class_<State, std::shared_ptr<State>> BaseState(m, "State");
 
     py::class_<AgentState, State, std::shared_ptr<AgentState>>(m, "AgentState")
             .def(py::init<>())
-            .def("GetVelocity", &AgentState::GetVelocity)
-            .def("GetDroneViewNorm", &AgentState::GetDroneViewNorm)
-            .def("GetVelocityNorm", &AgentState::GetVelocityNorm)
-            .def("GetExplorationMap", &AgentState::GetExplorationMap)
-            .def("GetExploredFires", &AgentState::GetExploredFires)
-            .def("GetFireMap", &AgentState::GetFireMap)
-            .def("GetMultipleTotalDroneView", &AgentState::GetMultipleTotalDroneView)
             .def("GetExplorationMapNorm", &AgentState::GetExplorationMapNorm)
-            .def("GetExplorationMapScalar", &AgentState::GetExplorationMapScalar)
-            .def("GetPositionNormAroundCenter", &AgentState::GetPositionNormAroundCenter)
             .def("GetGridPositionDoubleNorm", &AgentState::GetGridPositionDoubleNorm)
-            .def("GetDeltaGoal", &AgentState::GetDeltaGoal)
-            .def("GetOutsideAreaCounter", &AgentState::CountOutsideArea)
-            .def("GetOrientationToGoal", &AgentState::GetOrientationToGoal)
-            .def("GetGoalPosition", &AgentState::GetGoalPosition)
-            .def("GetGoalPositionNorm", &AgentState::GetGoalPositionNorm)
-            .def("GetFireView", &AgentState::GetFireView)
-            .def("GetWaterDispense", &AgentState::GetWaterDispense)
-            .def("GetTotalDroneView", &AgentState::GetTotalDroneView)
-            .def("GetDronePositions", &AgentState::GetDronePositions)
-            .def("GetFirePositions", &AgentState::GetFirePositions)
-            .def("GetGoalPositions", &AgentState::GetGoalPositions)
-            .def("GetDistancesToOtherAgents", &AgentState::GetDistancesToOtherAgents)
-            .def("GetDistancesMask", &AgentState::GetDistancesMask)
-            .def("GetCosSinToGoal", &AgentState::GetCosSinToGoal)
-            .def("GetSpeed", &AgentState::GetSpeed)
-            .def("GetDistanceToGoal", &AgentState::GetDistanceToGoal)
-            .def("GetID", &AgentState::GetID)
             .def_property_readonly("velocity", &AgentState::get_velocity)
             .def_property_readonly("drone_view", &AgentState::get_drone_view)
-            .def_property_readonly("total_drone_view", &AgentState::get_total_drone_view)
             .def_property_readonly("exploration_map", &AgentState::get_map)
-            .def_property_readonly("explored_fires", &AgentState::get_explored_fires)
             .def_property_readonly("fire_map", &AgentState::get_fire_map)
             .def_property_readonly("position", &AgentState::get_position)
-            .def_property_readonly("orientation_vector", &AgentState::get_orientation_vector)
-            .def_property_readonly("goal_position", &AgentState::get_goal_position)
-            .def_property_readonly("map_dimensions", &AgentState::get_map_dimensions)
-            .def_property_readonly("cell_size", &AgentState::get_cell_size)
-            .def_property_readonly("perfect_goals", &AgentState::get_perfect_goals)
             .def_property_readonly("water_dispense", &AgentState::get_water_dispense)
-            .def_property_readonly("multiple_total_drone_views", &AgentState::get_multiple_total_drone_view)
             .def_property_readonly("drone_positions", &AgentState::get_drone_positions)
             .def_property_readonly("fire_positions", &AgentState::get_fire_positions)
-            .def_property_readonly("goal_positions", &AgentState::get_goal_positions)
-            .def_property_readonly("distances_to_other_agents", &AgentState::get_distances_to_other_agents)
-            .def_property_readonly("distances_to_other_agents_mask", &AgentState::get_distances_to_other_agents_mask)
-            .def_property_readonly("get_id", &AgentState::get_id);
+            .def_property_readonly("goal_positions", &AgentState::get_goal_positions);
 
 
     py::enum_<TerminationKind>(m, "TerminationKind")
@@ -123,8 +82,7 @@ PYBIND11_MODULE(firesim, m) {
             .def("HandleEvents", &EngineCore::HandleEvents)
             .def("IsRunning", &EngineCore::IsRunning)
             .def("GetObservations", &EngineCore::GetObservations)
-            .def("GetBatchedFlyObservations", &EngineCore::GetBatchedFlyObservations)
-            .def("GetBatchedPlannerObservations", &EngineCore::GetBatchedPlannerObservations)
+            .def("GetBatchedObservations", &EngineCore::GetBatchedObservations)
             .def("GetUserInput", &EngineCore::GetUserInput)
             .def("SendDataToModel", &EngineCore::SendDataToModel)
             .def("SendRLStatusToModel", &EngineCore::SendRLStatusToModel)
@@ -134,4 +92,31 @@ PYBIND11_MODULE(firesim, m) {
             .def("InitialModeSelectionDone", &EngineCore::InitialModeSelectionDone)
             .def("InitializeMap", &EngineCore::InitializeMap)
             .def("Step", &EngineCore::Step, py::arg("agent_type"), py::arg("actions"), py::arg("skip_observations") = false);
+
+    // Module-level function: returns schema metadata without needing an engine instance
+    m.def("GetFeatureSchemaInfo", [](const std::string& agent_type) -> py::dict {
+        FeatureSchema schema;
+        if (agent_type == "fly_agent" || agent_type == "PlannerFlyAgent" || agent_type == "ExploreFlyAgent")
+            schema = CreateFlyAgentSchema();
+        else if (agent_type == "planner_agent")
+            schema = CreatePlannerAgentSchema();
+        else
+            throw std::runtime_error("Unknown agent type for schema: " + agent_type);
+
+        py::dict result;
+        for (const auto& group : schema.groups) {
+            py::dict group_info;
+            group_info["dims"] = (group.type == FeatureGroupType::FIXED) ? group.TotalDims() : group.bulk_dims;
+            group_info["type"] = (group.type == FeatureGroupType::FIXED) ? "fixed"
+                               : (group.type == FeatureGroupType::RELATIONAL) ? "relational" : "set";
+            if (group.type == FeatureGroupType::FIXED) {
+                py::list columns;
+                for (const auto& info : group.GetColumnInfo())
+                    columns.append(py::make_tuple(info.first, info.second));
+                group_info["columns"] = columns;
+            }
+            result[py::str(group.name)] = group_info;
+        }
+        return result;
+    }, py::arg("agent_type"), "Return feature schema metadata for the given agent type.");
 }

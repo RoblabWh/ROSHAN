@@ -60,7 +60,9 @@ class IQL(RLAlgorithm):
                                      time_steps=self.time_steps,
                                      share_encoder=self.share_encoder,
                                      use_tanh_dist=self.use_tanh_dist,
-                                     collision=self.collision)
+                                     collision=self.collision,
+                                     agent_dim=self.agent_dim,
+                                     neighbor_dim=self.neighbor_dim)
         if self.use_torch_compile:
             try:
                 self.policy.actor = torch.compile(self.policy.actor, mode=self.compile_mode)
@@ -217,10 +219,16 @@ class IQL(RLAlgorithm):
             perm = torch.randperm(N)
             for i in range(batches_per_epoch):
                 batch_idx = perm[i*batch_size : (i+1)*batch_size]
-                b_states = tuple(state[batch_idx] for state in states)
+                if isinstance(states, dict):
+                    b_states = {k: v[batch_idx] for k, v in states.items()}
+                else:
+                    b_states = tuple(state[batch_idx] for state in states)
                 b_actions = actions[batch_idx]
                 b_rewards = rewards[batch_idx]
-                b_next_states = tuple(state[batch_idx] for state in next_states)
+                if isinstance(next_states, dict):
+                    b_next_states = {k: v[batch_idx] for k, v in next_states.items()}
+                else:
+                    b_next_states = tuple(state[batch_idx] for state in next_states)
                 b_not_dones = not_dones[batch_idx]
 
                 # Update

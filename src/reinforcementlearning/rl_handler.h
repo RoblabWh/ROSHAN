@@ -10,6 +10,7 @@
 #include <deque>
 #include <utility>
 #include <vector>
+#include <unordered_map>
 #include "externals/pybind11/include/pybind11/embed.h"
 #include "externals/pybind11/include/pybind11/stl.h"
 #include "externals/pybind11/include/pybind11/complex.h"
@@ -20,6 +21,8 @@
 #include "reinforcementlearning/actions/fly_action.h"
 #include "src/utils.h"
 #include "src/reinforcementlearning/start_goal_strategy.h"
+#include "src/reinforcementlearning/feature_schema.h"
+#include "src/reinforcementlearning/feature_definitions.h"
 
 namespace py = pybind11;
 
@@ -31,42 +34,10 @@ inline double dist2(const std::pair<double,double>& a,
     return dx*dx + dy*dy;
 }
 
-// X,Y distance
-inline std::pair<double,double> dist_vec(const std::pair<double,double>& a,
-                   const std::pair<double,double>& b) {
-    return {(b.first - a.first),
-            (b.second - a.second)};
-}
-
 // True collision (discs touching/overlapping)
 inline bool circlesCollide(const double d1, double r1, double r2) {
     const double R = r1 + r2;
     return d1 <= R*R;
-}
-
-// “Almost” collision (early warning / safety buffer)
-inline bool almostCollide(const std::pair<double,double>& p1, double r1,
-                          const std::pair<double,double>& p2, double r2,
-                          double safety_margin = 0.25) {
-    const double R = r1 + r2 + safety_margin;
-    return dist2(p1, p2) <= R*R;
-}
-
-
-// Same, but for early warnings
-inline std::vector<std::pair<int,int>> findAlmostCollisions(const std::vector<std::shared_ptr<FlyAgent>>& agents, double safety_margin = 0.25) {
-    std::vector<std::pair<int,int>> hits;
-    const int n = static_cast<int>(agents.size());
-    for (int i = 0; i < n; ++i) {
-        for (int j = i+1; j < n; ++j) {
-            if (almostCollide(agents[i]->GetGridPositionDouble(), agents[i]->GetDroneSize(),
-                               agents[j]->GetGridPositionDouble(), agents[j]->GetDroneSize(),
-                               safety_margin))  {
-                hits.emplace_back(i, j);
-                              }
-        }
-    }
-    return hits;
 }
 
 // Returns pairs of indices that are actually colliding
@@ -129,13 +100,6 @@ inline void findCollisions(const std::vector<std::shared_ptr<FlyAgent>>& agents,
     }
 }
 
-inline void handleCollisions(const std::vector<std::pair<int,int>>& collisions, const std::vector<std::shared_ptr<FlyAgent>>& agents) {
-    for (auto collision : collisions) {
-        agents[collision.first]->SetCollision(true);
-        agents[collision.second]->SetCollision(true);
-    }
-}
-
 class __attribute__((visibility("default"))) ReinforcementLearningHandler {
 
 public:
@@ -153,17 +117,10 @@ public:
     }
 
     std::unordered_map<std::string, std::vector<std::vector<std::shared_ptr<State>>>> GetObservations();
-    // Batch observation API: returns all fly-agent observations as pre-packed numpy arrays
-    // in a single C++ call, eliminating per-property Python→C++ boundary crossings.
-    py::tuple GetBatchedFlyObservations(const std::string& agent_type);
-    py::tuple GetBatchedPlannerObservations();
+    // Schema-driven generic batch observation API: returns py::dict keyed by group name
+    py::dict GetBatchedObservations(const std::string& agent_type);
     void StepDroneManual(int drone_idx, double speed_x, double speed_y, int water_dispense);
     void ResetEnvironment(Mode mode);
-//    std::tuple<std::unordered_map<std::string, std::vector<std::deque<std::shared_ptr<State>>>>,
-//            std::vector<double>,
-//            std::vector<bool>,
-//            std::unordered_map<std::string, bool>,
-//            double> Step(const std::string& agent_type, std::vector<std::shared_ptr<Action>> actions);
     StepResult Step(const std::string& agent_type, std::vector<std::shared_ptr<Action>> actions, bool skip_observations = false);
     void SetModelRenderer(std::shared_ptr<FireModelRenderer> model_renderer) { model_renderer_ = std::move(model_renderer); }
     void SetGridMap(std::shared_ptr<GridMap> gridmap) { gridmap_ = std::move(gridmap); }
@@ -194,6 +151,8 @@ private:
     std::shared_ptr<FireModelRenderer> model_renderer_;
     FireModelParameters& parameters_;
     std::unordered_map<std::string, std::vector<std::shared_ptr<Agent>>> agents_by_type_;
+    // Feature schemas for schema-driven observation extraction
+    std::unordered_map<std::string, FeatureSchema> schemas_;
 
     //Flags
     bool eval_mode_ = false;

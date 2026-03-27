@@ -43,9 +43,6 @@ private:
     bool forward_ = true;
     int revisited_cells_{};
 
-    // Rewards Collection for Debugging!
-    bool explored_fires_equals_actual_fires_ = false;
-
     static std::pair<double, double> GetGoalFromAction(const ExploreAction* action, const std::shared_ptr<GridMap> &grid_map);
     std::pair<double, double> GetGoalFromCertain(std::deque<std::pair<double, double>> &goals, const std::shared_ptr<GridMap>& gridMap);
     void InitializeExploreAgentStates(const std::shared_ptr<GridMap> &grid_map);

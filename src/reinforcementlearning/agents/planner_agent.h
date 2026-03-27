@@ -54,8 +54,6 @@ private:
     int revisited_cells_{};
     int extinguished_fires_ = 0;
 
-    // Rewards Collection for Debugging!
-    bool explored_fires_equals_actual_fires_ = false;
     bool extinguished_last_fire_ = false;
     bool eval_mode_ = false;
 

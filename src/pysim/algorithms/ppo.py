@@ -117,7 +117,9 @@ class PPO(RLAlgorithm):
                                          share_encoder=self.share_encoder,
                                          manual_decay=self.manual_decay,
                                          use_tanh_dist=self.use_tanh_dist,
-                                         collision=self.collision)
+                                         collision=self.collision,
+                                         agent_dim=self.agent_dim,
+                                         neighbor_dim=self.neighbor_dim)
 
         if self.use_torch_compile:
             try:
@@ -135,10 +137,15 @@ class PPO(RLAlgorithm):
                 self.logger.warning(f"torch.compile failed, using eager mode: {e}")
 
         self.actor_params = list(self.policy.actor.parameters())
-        self.critic_params = list(self.policy.critic.value.parameters()) if self.share_encoder else list(self.policy.critic.parameters())
+        if self.share_encoder:
+            # Only include the critic head params (not the shared encoder)
+            critic_head = self.policy.critic.value_head if self.use_categorical else self.policy.critic.value
+            self.critic_params = list(critic_head.parameters())
+        else:
+            self.critic_params = list(self.policy.critic.parameters())
 
     def apply_manual_decay(self, train_step: int):
-        if self.manual_decay:
+        if self.manual_decay and not self.use_categorical:
             if not self.use_logstep_decay:
                 ## Trainstep Decay
                 decay = -20 * (1 - (self.decay_rate ** train_step) ** 5)
@@ -281,16 +288,26 @@ class PPO(RLAlgorithm):
             bootstrap_values = {}
             if needs_bootstrap:
                 # Collect last states for all agents needing bootstrap
-                batch_states_list = [
-                    tuple(_state_to_tensor(state, self.device) for state in memory.get_agent_state(next_obs, i))
-                    for i in needs_bootstrap
-                ]
-                # Batch: concatenate each field across agents
-                num_fields = len(batch_states_list[0])
-                batched_last_states = tuple(
-                    torch.cat([batch_states_list[j][f] for j in range(len(needs_bootstrap))], dim=0)
-                    for f in range(num_fields)
-                )
+                agent_states_list = [memory.get_agent_state(next_obs, i) for i in needs_bootstrap]
+
+                if isinstance(agent_states_list[0], dict):
+                    # Dict-based path
+                    keys = agent_states_list[0].keys()
+                    batched_last_states = {
+                        k: torch.cat([_state_to_tensor(s[k], self.device) for s in agent_states_list], dim=0)
+                        for k in keys
+                    }
+                else:
+                    # Legacy tuple path
+                    batch_states_list = [
+                        tuple(_state_to_tensor(state, self.device) for state in s)
+                        for s in agent_states_list
+                    ]
+                    num_fields = len(batch_states_list[0])
+                    batched_last_states = tuple(
+                        torch.cat([batch_states_list[j][f] for j in range(len(needs_bootstrap))], dim=0)
+                        for f in range(num_fields)
+                    )
                 batched_bootstrap = self.policy.critic(batched_last_states).detach()
                 if batched_bootstrap.dim() != 1:
                     batched_bootstrap = batched_bootstrap.mean(dim=1) if batched_bootstrap.dim() == 2 else batched_bootstrap.squeeze()
@@ -338,7 +355,10 @@ class PPO(RLAlgorithm):
             for index in BatchSampler(SubsetRandomSampler(range(self.horizon)), mini_batch_size, False):
                 batch_update += 1
                 # Evaluate old actions and values using current policy
-                batch_states = tuple(state[index] for state in states)
+                if isinstance(states, dict):
+                    batch_states = {k: v[index] for k, v in states.items()}
+                else:
+                    batch_states = tuple(state[index] for state in states)
                 batch_actions = actions[index]
                 batch_adv = advantages[index]
                 batch_adv = (batch_adv - batch_adv.mean()) / (batch_adv.std() + 1e-8)
@@ -443,7 +463,10 @@ class PPO(RLAlgorithm):
                     for v in values:
                         logger.add_metric(name, v)
             with torch.no_grad():
-                logger.add_metric("Training/log_std", torch.exp(self.policy.actor.log_std).detach().cpu().numpy())
+                if not self.use_categorical:
+                    logger.add_metric("Training/log_std", torch.exp(self.policy.actor.log_std).detach().cpu().numpy())
+                else:
+                    logger.add_metric("Training/temperature", self.policy.actor.log_temperature.exp().detach().cpu().item())
             if not self.separate_optimizers:
                 logger.add_metric("Training/LR", self.scheduler_a.get_last_lr())
             else:

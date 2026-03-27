@@ -54,6 +54,8 @@ class TD3(RLAlgorithm):
             share_encoder=self.share_encoder,
             exploration_noise=self.exploration_noise,
             collision=self.collision,
+            agent_dim=self.agent_dim,
+            neighbor_dim=self.neighbor_dim,
         )
         if self.use_torch_compile:
             try:

@@ -18,7 +18,6 @@
 #include <cstdio>
 #include <memory>
 #include <SDL.h>
-#include <iostream>
 #include <thread>
 #include "model_interface.h"
 #include "firespin/firemodel.h"
@@ -56,8 +55,7 @@ public:
     bool AgentIsRunning();
     std::string GetUserInput();
     std::unordered_map<std::string, std::vector<std::vector<std::shared_ptr<State>>>> GetObservations();
-    pybind11::tuple GetBatchedFlyObservations(const std::string& agent_type);
-    pybind11::tuple GetBatchedPlannerObservations();
+    pybind11::dict GetBatchedObservations(const std::string& agent_type);
     StepResult Step(const std::string& agent_type, std::vector<std::shared_ptr<Action>> actions, bool skip_observations = false);
 
     [[nodiscard]] inline bool IsRunning() const { return is_running_; }

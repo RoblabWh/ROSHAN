@@ -174,12 +174,8 @@ std::unordered_map<std::string, std::vector<std::vector<std::shared_ptr<State>>>
     return model_->GetObservations();
 }
 
-pybind11::tuple EngineCore::GetBatchedFlyObservations(const std::string& agent_type) {
-    return model_->GetBatchedFlyObservations(agent_type);
-}
-
-pybind11::tuple EngineCore::GetBatchedPlannerObservations() {
-    return model_->GetBatchedPlannerObservations();
+pybind11::dict EngineCore::GetBatchedObservations(const std::string& agent_type) {
+    return model_->GetBatchedObservations(agent_type);
 }
 
 bool EngineCore::AgentIsRunning() {

@@ -171,12 +171,8 @@ std::unordered_map<std::string, std::vector<std::vector<std::shared_ptr<State>>>
     return rl_handler_->GetObservations();
 }
 
-py::tuple FireModel::GetBatchedFlyObservations(const std::string& agent_type) {
-    return rl_handler_->GetBatchedFlyObservations(agent_type);
-}
-
-py::tuple FireModel::GetBatchedPlannerObservations() {
-    return rl_handler_->GetBatchedPlannerObservations();
+py::dict FireModel::GetBatchedObservations(const std::string& agent_type) {
+    return rl_handler_->GetBatchedObservations(agent_type);
 }
 
 StepResult FireModel::Step(const std::string& agent_type, std::vector<std::shared_ptr<Action>> actions, bool skip_observations){
