@@ -69,6 +69,11 @@ def assert_config(config):
             raise ValueError("eval_fly_policy can only be True when rl_mode is 'eval' in config.yaml.")
         if not c_settings["log_eval"]:
             raise ValueError("log_eval must be True when eval_fly_policy is True in config.yaml.")
+        if hierarchy_type == "planner_agent" and not config["environment"]["agent"]["use_water_limit"]:
+            raise ValueError(
+                "use_water_limit must be True when eval_fly_policy is True with hierarchy_type 'planner_agent'. "
+                "Without water limits, eval_fly_policy has no effect on planner_agent."
+            )
     if config["environment"]["agent"]["use_water_limit"]:
         if not c_settings["eval_fly_policy"]:
             raise ValueError("Water limit use can only be True when eval_fly_policy is True in config.yaml.")

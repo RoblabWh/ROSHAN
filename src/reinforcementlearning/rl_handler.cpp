@@ -29,27 +29,8 @@ ReinforcementLearningHandler::ReinforcementLearningHandler(FireModelParameters &
     schemas_["fly_agent"] = CreateFlyAgentSchema();
     schemas_["PlannerFlyAgent"] = CreateFlyAgentSchema();
     schemas_["ExploreFlyAgent"] = CreateFlyAgentSchema();
+    schemas_["explore_agent"] = CreateExploreAgentSchema();
     schemas_["planner_agent"] = CreatePlannerAgentSchema();
-}
-
-std::unordered_map<std::string, std::vector<std::vector<std::shared_ptr<State>>>>
-ReinforcementLearningHandler::GetObservations() {
-    std::unordered_map<std::string, std::vector<std::vector<std::shared_ptr<State>>>> observations;
-    observations.reserve(agents_by_type_.size());
-
-    for (const auto& [key, agents] : agents_by_type_) {
-        std::vector<std::vector<std::shared_ptr<State>>> agent_states;
-        agent_states.reserve(agents.size());
-
-        for (const auto& agent : agents) {
-            const auto& obs_ref = agent->GetObservationsRef();
-            std::vector<std::shared_ptr<State>> state_vec(obs_ref.begin(), obs_ref.end());
-            agent_states.push_back(std::move(state_vec));
-        }
-        observations.emplace(key, std::move(agent_states));
-    }
-
-    return observations;
 }
 
 py::dict ReinforcementLearningHandler::GetBatchedObservations(const std::string& agent_type) {
@@ -522,7 +503,7 @@ void ReinforcementLearningHandler::StepDroneManual(int drone_idx, double speed_x
     }
 }
 
-StepResult ReinforcementLearningHandler::Step(const std::string& agent_type, std::vector<std::shared_ptr<Action>> actions, bool skip_observations) {
+StepResult ReinforcementLearningHandler::Step(const std::string& agent_type, std::vector<std::shared_ptr<Action>> actions) {
 
     if (gridmap_ == nullptr || agents_by_type_.find(agent_type) == agents_by_type_.end()) {
         std::cerr << "No agents of type " << agent_type << " or invalid GridMap.\n";
@@ -580,10 +561,6 @@ StepResult ReinforcementLearningHandler::Step(const std::string& agent_type, std
         if (result.summary.env_reset || (agent->GetFrameCtrl() % agent->GetFrameSkips() == 0)) agent->UpdateStates(gridmap_);
     }
 
-    // Could now add other metrics here like Extinguished Fires or Explored Percentage
-    if (!skip_observations) {
-        result.observations = this->GetObservations();
-    }
     result.percent_burned = gridmap_->PercentageBurned();
     return result;
 }

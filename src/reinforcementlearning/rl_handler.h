@@ -116,12 +116,11 @@ public:
         }
     }
 
-    std::unordered_map<std::string, std::vector<std::vector<std::shared_ptr<State>>>> GetObservations();
     // Schema-driven generic batch observation API: returns py::dict keyed by group name
     py::dict GetBatchedObservations(const std::string& agent_type);
     void StepDroneManual(int drone_idx, double speed_x, double speed_y, int water_dispense);
     void ResetEnvironment(Mode mode);
-    StepResult Step(const std::string& agent_type, std::vector<std::shared_ptr<Action>> actions, bool skip_observations = false);
+    StepResult Step(const std::string& agent_type, std::vector<std::shared_ptr<Action>> actions);
     void SetModelRenderer(std::shared_ptr<FireModelRenderer> model_renderer) { model_renderer_ = std::move(model_renderer); }
     void SetGridMap(std::shared_ptr<GridMap> gridmap) { gridmap_ = std::move(gridmap); }
     void SetRLStatus(py::dict status);

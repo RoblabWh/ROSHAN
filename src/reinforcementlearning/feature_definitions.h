@@ -66,6 +66,19 @@ inline FeatureSchema CreateFlyAgentSchema() {
     return schema;
 }
 
+inline FeatureSchema CreateExploreAgentSchema() {
+    FeatureSchema schema;
+
+    // Minimal placeholder schema — ExploreAgent is heuristic (no_algo)
+    // and does not consume observations for training.
+    auto& agent = schema.AddGroup("agent", FeatureGroupType::FIXED);
+    agent.Add("id", 1, [](const AgentState& s, float* o) {
+        o[0] = static_cast<float>(s.GetID());
+    });
+
+    return schema;
+}
+
 inline FeatureSchema CreatePlannerAgentSchema() {
     FeatureSchema schema;
 

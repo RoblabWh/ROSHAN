@@ -67,7 +67,6 @@ PYBIND11_MODULE(firesim, m) {
             .def_readonly("reason",          &EpisodeSummary::reason);
 
     py::class_<StepResult>(m, "StepResult")
-            .def_readonly("observations",   &StepResult::observations)
             .def_readonly("rewards",        &StepResult::rewards)
             .def_readonly("terminals",      &StepResult::terminals)
             .def_readonly("summary",        &StepResult::summary)
@@ -81,7 +80,6 @@ PYBIND11_MODULE(firesim, m) {
             .def("Update", &EngineCore::Update)
             .def("HandleEvents", &EngineCore::HandleEvents)
             .def("IsRunning", &EngineCore::IsRunning)
-            .def("GetObservations", &EngineCore::GetObservations)
             .def("GetBatchedObservations", &EngineCore::GetBatchedObservations)
             .def("GetUserInput", &EngineCore::GetUserInput)
             .def("SendDataToModel", &EngineCore::SendDataToModel)
@@ -91,13 +89,15 @@ PYBIND11_MODULE(firesim, m) {
             .def("AgentIsRunning", &EngineCore::AgentIsRunning)
             .def("InitialModeSelectionDone", &EngineCore::InitialModeSelectionDone)
             .def("InitializeMap", &EngineCore::InitializeMap)
-            .def("Step", &EngineCore::Step, py::arg("agent_type"), py::arg("actions"), py::arg("skip_observations") = false);
+            .def("Step", &EngineCore::Step, py::arg("agent_type"), py::arg("actions"));
 
     // Module-level function: returns schema metadata without needing an engine instance
     m.def("GetFeatureSchemaInfo", [](const std::string& agent_type) -> py::dict {
         FeatureSchema schema;
         if (agent_type == "fly_agent" || agent_type == "PlannerFlyAgent" || agent_type == "ExploreFlyAgent")
             schema = CreateFlyAgentSchema();
+        else if (agent_type == "explore_agent")
+            schema = CreateExploreAgentSchema();
         else if (agent_type == "planner_agent")
             schema = CreatePlannerAgentSchema();
         else

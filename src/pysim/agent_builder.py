@@ -114,7 +114,6 @@ class AgentBuilder:
             num_drones=drone_count
         )
         num_agents = agent_type_obj.get_num_agents(agent_dict["num_agents"])
-        has_batch_obs = isinstance(agent_type_obj, (FlyAgent, PlannerAgent))
         hierarchy_level = agent_type_obj.get_hierarchy_level()
         use_intrinsic_reward = agent_type_obj.use_intrinsic_reward
 
@@ -311,7 +310,6 @@ class AgentBuilder:
             fsc=fsc,
             hierarchy_level=hierarchy_level,
             use_intrinsic_reward=use_intrinsic_reward,
-            has_batch_obs=has_batch_obs,
             is_sub_agent=is_sub_agent,
             use_next_obs=use_next_obs,
             save_replay_buffer=save_replay_buffer,

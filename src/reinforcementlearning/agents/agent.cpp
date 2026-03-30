@@ -12,15 +12,6 @@ double Agent::ComputeTotalReward(const std::unordered_map<std::string, double>& 
     return total;
 }
 
-std::vector<std::shared_ptr<State>> Agent::GetObservations() const {
-    std::vector<std::shared_ptr<State>> states;
-    states.reserve(agent_states_.size());
-    for (const auto& state : agent_states_) {
-        states.push_back(state);
-    }
-    return states;
-}
-
 void Agent::LogRewards(const std::unordered_map<std::string, double>& rewards) {
 }
 

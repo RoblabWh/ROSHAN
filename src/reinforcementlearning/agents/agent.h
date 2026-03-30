@@ -49,7 +49,6 @@ public:
     void SetFrameControl(int frame_ctrl) { frame_ctrl_ = frame_ctrl; }
     AgentType GetAgentType() const { return agent_type_; }
     const std::deque<std::shared_ptr<AgentState>>& GetObservationsRef() const { return agent_states_; }
-    std::vector<std::shared_ptr<State>> GetObservations() const;
     void UpdateStates(const std::shared_ptr<GridMap>& grid_map);
 
     int GetTotalId() const { return total_id_; }

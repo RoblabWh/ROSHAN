@@ -21,8 +21,7 @@ public:
     virtual ~IModel() = default;
 
     virtual void Update() = 0;
-    virtual StepResult Step(const std::string& agent_type, std::vector<std::shared_ptr<Action>> actions, bool skip_observations = false) = 0;
-    virtual std::unordered_map<std::string, std::vector<std::vector<std::shared_ptr<State>>>> GetObservations() = 0;
+    virtual StepResult Step(const std::string& agent_type, std::vector<std::shared_ptr<Action>> actions) = 0;
     virtual pybind11::dict GetBatchedObservations(const std::string& agent_type) = 0;
     virtual void Render() = 0;
     virtual bool GetEarlyClosing() = 0;

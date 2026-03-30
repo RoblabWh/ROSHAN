@@ -54,9 +54,8 @@ public:
     // Observe the current state of the environment
     bool AgentIsRunning();
     std::string GetUserInput();
-    std::unordered_map<std::string, std::vector<std::vector<std::shared_ptr<State>>>> GetObservations();
     pybind11::dict GetBatchedObservations(const std::string& agent_type);
-    StepResult Step(const std::string& agent_type, std::vector<std::shared_ptr<Action>> actions, bool skip_observations = false);
+    StepResult Step(const std::string& agent_type, std::vector<std::shared_ptr<Action>> actions);
 
     [[nodiscard]] inline bool IsRunning() const { return is_running_; }
     bool InitialModeSelectionDone();

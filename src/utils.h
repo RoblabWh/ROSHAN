@@ -11,7 +11,6 @@
 #include <memory>
 #include <deque>
 #include <utility>
-#include "state.h"
 
 class Timer {
 public:
@@ -118,11 +117,7 @@ struct EpisodeSummary {
 };
 
 // --- Whole step result ---
-using Observations =
-        std::unordered_map<std::string, std::vector<std::vector<std::shared_ptr<State>>>>;
-
 struct StepResult {
-    Observations observations;
     std::vector<double> rewards;        // aligned with agents vector
     std::vector<AgentTerminal> terminals; // aligned with agents vector
     EpisodeSummary summary;

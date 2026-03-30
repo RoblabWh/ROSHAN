@@ -1,6 +1,5 @@
 import os
 import logging
-from flying_agent import FlyAgent
 from observation_dict import ObservationDict
 
 
@@ -36,7 +35,7 @@ class AgentHandler:
 
     def __init__(self, *, agent_type, agent_type_str, algorithm, algorithm_name,
                  memory, monitor, sim_bridge, fsc, hierarchy_level,
-                 use_intrinsic_reward, has_batch_obs, is_sub_agent,
+                 use_intrinsic_reward, is_sub_agent,
                  use_next_obs, save_replay_buffer, save_size,
                  root_model_path, rl_mode, resume, no_gui, num_agents, logger):
         # Injected dependencies
@@ -50,7 +49,6 @@ class AgentHandler:
         self.fsc = fsc
         self.hierarchy_level = hierarchy_level
         self.use_intrinsic_reward = use_intrinsic_reward
-        self._has_batch_obs = has_batch_obs
         self.is_sub_agent = is_sub_agent
         self.use_next_obs = use_next_obs
         self.save_replay_buffer = save_replay_buffer
@@ -159,12 +157,12 @@ class AgentHandler:
                     action_logprobs
                 )
 
-            next_obs_, rewards, terminals_vector, terminal_result, percent_burned = self.step_agent(engine, self.fsc.cached_actions)
+            rewards, terminals_vector, terminal_result, percent_burned = self.step_agent(engine, self.fsc.cached_actions)
 
             if not self.fsc.advance(terminal_result.env_reset):
                 return
 
-            next_obs = self._get_obs(engine, step_obs=next_obs_)
+            next_obs = self._get_obs(engine)
 
             # Intrinsic Reward Calculation (optional)
             intrinsic_reward = self.intrinsic_reward(terminals_vector, engine)
@@ -206,7 +204,7 @@ class AgentHandler:
                 self.current_obs = self._get_obs(engine)
             self.fsc.cache(self.act_certain(self.current_obs))
 
-        obs_, rewards, terminals_vector, terminal_result, percent_burned = self.step_agent(engine, self.fsc.cached_actions)
+        rewards, terminals_vector, terminal_result, percent_burned = self.step_agent(engine, self.fsc.cached_actions)
 
         # Only do these extra steps when you SHOULD populate memory
         if self.save_replay_buffer:
@@ -220,7 +218,7 @@ class AgentHandler:
                             None,
                             rewards,
                             terminals_vector,
-                            next_obs=self._get_obs(engine, step_obs=obs_) if self.use_next_obs else None,
+                            next_obs=self._get_obs(engine) if self.use_next_obs else None,
                             intrinsic_reward=intrinsic_reward)
             if len(self.memory) >= self.save_size:
                 mem_name = os.path.join(self.root_model_path, 'memory.pkl')
@@ -231,7 +229,7 @@ class AgentHandler:
         if not self.fsc.advance(terminal_result.env_reset):
             return False, False
 
-        self.current_obs = self._get_obs(engine, step_obs=obs_)
+        self.current_obs = self._get_obs(engine)
         if evaluate and not self.save_replay_buffer:
             flags = self.monitor.evaluate(rewards, terminal_result, percent_burned)
             self.check_reset(flags)
@@ -268,20 +266,18 @@ class AgentHandler:
         return None
 
     def step_agent(self, engine, actions):
-        env_step = engine.Step(self.agent_type.name, self.get_action(actions), self._has_batch_obs)
+        env_step = engine.Step(self.agent_type.name, self.get_action(actions))
 
         rewards = env_step.rewards
-        observations = env_step.observations
         percent_burned = env_step.percent_burned
         terminals = env_step.terminals
         terminal_result = env_step.summary
         all_terminals = [t.is_terminal for t in terminals if t is not None]
 
-        return observations, rewards, all_terminals, terminal_result, percent_burned
+        return rewards, all_terminals, terminal_result, percent_burned
 
     def step_without_network(self, engine):
-        agent_actions = self.get_action([[0,0] for _ in range(self.num_agents)])
-        env_step = engine.Step(self.agent_type.name, agent_actions)
+        env_step = engine.Step(self.agent_type.name, self.get_action([[0,0] for _ in range(self.num_agents)]))
         self.env_reset = env_step.summary.env_reset
         self.handle_env_reset()
 
@@ -328,12 +324,8 @@ class AgentHandler:
     def act_certain(self, observations):
         return self.algorithm.select_action_certain(observations)
 
-    def _get_obs(self, engine, step_obs=None):
-        """Get observations. Batch agents read C++ state directly; others use step_obs or fetch fresh."""
-        if self._has_batch_obs:
-            raw = engine.GetBatchedObservations(self.agent_type.name)
-            return ObservationDict(raw)
-        if step_obs is not None:
-            return self.agent_type.restructure_data(step_obs)
-        return self.agent_type.restructure_data(engine.GetObservations())
+    def _get_obs(self, engine):
+        """Get observations via schema-driven batch API."""
+        raw = engine.GetBatchedObservations(self.agent_type.name)
+        return ObservationDict(raw)
 

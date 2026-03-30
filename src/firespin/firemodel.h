@@ -38,8 +38,7 @@ public:
     ~FireModel() override;
 
     void Update() override;
-    StepResult Step(const std::string& agent_type, std::vector<std::shared_ptr<Action>> actions, bool skip_observations = false) override;
-    std::unordered_map<std::string, std::vector<std::vector<std::shared_ptr<State>>>> GetObservations() override;
+    StepResult Step(const std::string& agent_type, std::vector<std::shared_ptr<Action>> actions) override;
     pybind11::dict GetBatchedObservations(const std::string& agent_type) override;
     void Render() override;
     void SetRenderer(SDL_Renderer* renderer) override;

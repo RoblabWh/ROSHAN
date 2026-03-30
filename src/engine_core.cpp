@@ -170,10 +170,6 @@ void EngineCore::StopServer() {
 }
 
 
-std::unordered_map<std::string, std::vector<std::vector<std::shared_ptr<State>>>> EngineCore::GetObservations() {
-    return model_->GetObservations();
-}
-
 pybind11::dict EngineCore::GetBatchedObservations(const std::string& agent_type) {
     return model_->GetBatchedObservations(agent_type);
 }
@@ -186,8 +182,8 @@ bool EngineCore::AgentIsRunning() {
     }
 }
 
-StepResult EngineCore::Step(const std::string& agent_type, std::vector<std::shared_ptr<Action>> actions, bool skip_observations) {
-    return model_->Step(agent_type, std::move(actions), skip_observations);
+StepResult EngineCore::Step(const std::string& agent_type, std::vector<std::shared_ptr<Action>> actions) {
+    return model_->Step(agent_type, std::move(actions));
 }
 
 void EngineCore::SendDataToModel(const std::string& data) {

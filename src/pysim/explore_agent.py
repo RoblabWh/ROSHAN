@@ -1,6 +1,5 @@
 from networks.network_explore import Actor, CriticPPO, OffPolicyCritic, DeterministicActor, RNDModel, Value
 from torch.utils.data.sampler import BatchSampler, SubsetRandomSampler
-import numpy as np
 import torch.nn as nn
 import torch
 import firesim
@@ -63,29 +62,3 @@ class ExploreAgent(Agent):
                 firesim.ExploreAction(activation[0], activation[1]))
         return drone_actions
 
-    @staticmethod
-    def restructure_data(observations_):
-        obs = observations_["explore_agent"]
-
-        drone_state_groups = [
-            [state for state in deque if isinstance(state, firesim.AgentState)]
-            for deque in obs
-        ]
-        drone_state_groups = [group for group in drone_state_groups if group]
-
-        if not drone_state_groups:
-            raise ValueError("No AgentState data found in observations for explore_agent")
-
-        exploration_maps = [
-            [state.GetExplorationMapNorm() for state in group]
-            for group in drone_state_groups
-        ]
-        positions = [
-            [state.GetGridPositionDoubleNorm() for state in group]
-            for group in drone_state_groups
-        ]
-
-        all_explore_maps = np.stack(exploration_maps)
-        all_positions = np.stack(positions)
-
-        return all_positions, all_explore_maps

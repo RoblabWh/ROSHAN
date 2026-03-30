@@ -5,7 +5,10 @@ settings:
   seed: -1
   # RL_MODE: Either "train" or "eval"
   rl_mode: eval
-  # This parameter determines whether to evaluate the fly_agent policy with the extinguishing heuristic
+  # Evaluate with the extinguishing heuristic.
+  # - With hierarchy_type 'fly_agent': replaces the learned policy with a greedy fire-extinguishing state machine (FlyPolicy)
+  # - With hierarchy_type 'planner_agent': enables water management (use_water_limit must be true);
+  #   the planner assigns goals, and drones auto-return to base when water is depleted
   eval_fly_policy: false
   # Resume training from a checkpoint
   # If set to true, the training will continue from the specified checkpoint
