@@ -244,7 +244,7 @@ class AgentHandler:
         :param flags: Dictionary containing evaluation flags.
         """
         if flags.get("reset", False):
-            if flags.get("auto_train", False) and flags.get("auto_train_not_finished", True):
+            if flags.get("auto_train", False) and flags.get("auto_train_continue", True):
                 self.sim_bridge.set("rl_mode", "train")
                 self.sim_bridge.set("agent_is_running", True)
                 self.algorithm.reset()

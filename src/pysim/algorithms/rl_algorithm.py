@@ -4,7 +4,7 @@ import warnings
 from concurrent.futures import ThreadPoolExecutor
 from algorithms.rl_config import RLConfig
 from utils import RunningMeanStd
-from evaluation import TensorboardLogger
+from tensorboard_logger import TensorboardLogger
 import torch.nn as nn
 import logging
 
@@ -93,8 +93,8 @@ class RLAlgorithm:
     def save(self, logger: TensorboardLogger):
         # Snapshot state_dict on the main thread (fast, in-memory copy),
         # then write to disk on a background thread to avoid blocking training.
-        def _bg_save(state_dict, path, opt_path):
-            torch.save(state_dict, path)
+        def _bg_save(state_dict, weight_path, opt_path):
+            torch.save(state_dict, weight_path)
             self.save_optimizers(opt_path)
 
         if logger.is_better_reward():

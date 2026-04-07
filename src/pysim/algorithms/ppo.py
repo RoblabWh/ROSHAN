@@ -1,10 +1,9 @@
 import torch
 import torch.nn as nn
-import os
 import numpy as np
 from algorithms.actor_critic import ActorCriticPPO, CategoricalActorCritic
 from memory import SwarmMemory
-from evaluation import TensorboardLogger
+from tensorboard_logger import TensorboardLogger
 from algorithms.rl_algorithm import RLAlgorithm
 from algorithms.rl_config import PPOConfig
 from utils import get_device
@@ -45,11 +44,6 @@ class PPO(RLAlgorithm):
         Initializes the optimizers for the actor and critic networks.
         This method is called after the policy is reset or loaded.
         """
-        # --- Scheduler initialization ---
-        def linear_lr_schedule(current_step: int):
-            """Linear decay from initial lr to 0 over total_steps."""
-            progress = min(current_step / total_steps, 1.0)
-            return 1.0 - progress
 
         if self.separate_optimizers:
             self.optimizer_a = torch.optim.Adam(self.actor_params, lr=self.lr, betas=(self.beta1, self.beta2), eps=1e-5)
@@ -155,6 +149,8 @@ class PPO(RLAlgorithm):
             self.policy.actor.log_std.data.fill_(decay)
 
     def reset_algorithm(self):
+        from utils import RunningMeanStd
+
         self.initialize_policy()
         self.initialize_optimizers()
         self.MSE_loss = nn.MSELoss()
@@ -225,7 +221,7 @@ class PPO(RLAlgorithm):
         var_returns = returns.var()
         return 0 if var_returns == 0 else 1 - (returns - values).var() / var_returns
 
-    def update(self, memory: SwarmMemory, mini_batch_size, next_obs, logger):
+    def update(self, memory: SwarmMemory, mini_batch_size, next_obs, logger : TensorboardLogger):
         """
         This function implements the update step of the Proximal Policy Optimization (PPO) algorithm for a swarm of
         robots. It takes in the memory buffer containing the experiences of the swarm, as well as the number of batches
@@ -238,6 +234,9 @@ class PPO(RLAlgorithm):
         Finally, the function copies the updated weights to the old policy for future use in the next update step.
 
         :param memory: The memory to update the network with.
+        :param mini_batch_size: The minibatch size to use.
+        :param next_obs: The next observation from the swarm.
+        :param logger: The logger object for logging purposes.
         """
 
         t_dict = memory.to_tensor()
@@ -249,7 +248,6 @@ class PPO(RLAlgorithm):
         ext_rewards = t_dict['reward']
         masks = t_dict['not_done']
 
-        logging_values = []
         # Prepare rewards
         rewards, log_rewards_raw, log_rewards_scaled = self.prepare_rewards(ext_rewards, t_dict)
 
@@ -350,7 +348,6 @@ class PPO(RLAlgorithm):
             batch_value_losses = []
             batch_actor_losses = []
             batch_entropy_losses = []
-            kl_early_stopped = False
             # Random sampling and no repetition. 'False' indicates that training will continue even if the number of samples in the last time is less than mini_batch_size
             for index in BatchSampler(SubsetRandomSampler(range(self.horizon)), mini_batch_size, False):
                 batch_update += 1
@@ -399,7 +396,6 @@ class PPO(RLAlgorithm):
                     if self.kl_early_stop and approx_kl.item() >= self.kl_target:
                         self.logger.warning(
                             f"approx_kl({approx_kl.item():.3f}) exceeded target kl({self.kl_target}) at update {logger.train_step} and K_Epoch {_ + 1}.")
-                        kl_early_stopped = True
                         break
                     batch_approx_kls.append(approx_kl)
                     batch_clip_fractions.append(clip_fraction)
