@@ -83,20 +83,20 @@ public:
             TableRow("GetGridPosition", "(%d, %d)", gridPos.first, gridPos.second);
 
             // Grid Position Double
-            auto gridPosDouble = drone->GetLastState().GetGridPositionDouble();
-            TableRow("GetGridPositionDouble", "(%.6f, %.6f)", gridPosDouble.first, gridPosDouble.second);
+            auto gridPosDouble = state_features::GridPositionDouble(drone->GetLastState());
+            TableRow("GridPositionDouble", "(%.6f, %.6f)", gridPosDouble.first, gridPosDouble.second);
 
             // Grid Position Double Normalized
-            auto gridPosDoubleNorm = drone->GetLastState().GetGridPositionDoubleNorm();
-            TableRow("GetGridPositionDoubleNorm", "(%.6f, %.6f)", gridPosDoubleNorm.first, gridPosDoubleNorm.second);
+            auto gridPosDoubleNorm = state_features::GridPositionDoubleNorm(drone->GetLastState());
+            TableRow("GridPositionDoubleNorm", "(%.6f, %.6f)", gridPosDoubleNorm.first, gridPosDoubleNorm.second);
 
             // Position Normalized Around Center
-            auto posNormCenter = drone->GetLastState().GetPositionNormAroundCenter();
-            TableRow("GetPositionNormAroundCenter", "(%.6f, %.6f)", posNormCenter.first, posNormCenter.second);
+            auto posNormCenter = state_features::PositionNormAroundCenter(drone->GetLastState());
+            TableRow("PositionNormAroundCenter", "(%.6f, %.6f)", posNormCenter.first, posNormCenter.second);
 
             // Distance to Nearest Boundary
-            TableRow("GetDistanceToNearestBoundaryNorm", "%.6f",
-                     drone->GetLastState().GetDistanceToNearestBoundaryNorm());
+            TableRow("DistanceToNearestBoundaryNorm", "%.6f",
+                     state_features::DistanceToNearestBoundaryNorm(drone->GetLastState()));
 
             // Drone In Grid
             TableRow("GetDroneInGrid", "%s", drone->GetDroneInGrid() ? "true" : "false");
@@ -128,26 +128,26 @@ public:
             ImGui::TableHeadersRow();
 
             // Velocity Normalized
-            auto velocityNorm = drone->GetLastState().GetVelocityNorm();
+            auto velocityNorm = state_features::VelocityNorm(drone->GetLastState());
             TableRow("VelocityNorm", "%.6f, %.6f", velocityNorm.first, velocityNorm.second);
 
             // Delta Goal
-            auto deltaGoal = drone->GetLastState().GetDeltaGoal();
+            auto deltaGoal = state_features::DeltaGoal(drone->GetLastState());
             TableRow("DeltaGoal", "(%.6f, %.6f)", deltaGoal.first, deltaGoal.second);
 
             // Cos/Sin to Goal
-            auto cosSinGoal = drone->GetLastState().GetCosSinToGoal();
+            auto cosSinGoal = state_features::CosSinToGoal(drone->GetLastState());
             TableRow("CosSinToGoal", "%.6f, %.6f", cosSinGoal.first, cosSinGoal.second);
 
             // Speed
-            TableRow("Speed", "%.6f", drone->GetLastState().GetSpeed());
+            TableRow("Speed", "%.6f", state_features::Speed(drone->GetLastState()));
 
             // Distance to Goal
-            TableRow("DistanceToGoal", "%.6f", drone->GetLastState().GetDistanceToGoal());
+            TableRow("DistanceToGoal", "%.6f", state_features::DistanceToGoal(drone->GetLastState()));
 
             // Distances to Other Agents
-            auto distances = drone->GetLastState().GetDistancesToOtherAgents();
-            auto masks = drone->GetLastState().GetDistancesMask();
+            auto distances = *drone->GetLastState().distances_to_other_agents;
+            auto masks = *drone->GetLastState().distances_mask;
             for (size_t i = 0; i < distances.size(); ++i) {
                 ImGui::TableNextRow();
                 ImGui::TableNextColumn();
@@ -219,7 +219,7 @@ public:
 
         auto gridPos = drone->GetGridPosition();
         auto goalPos = drone->GetGoalPosition();
-        float distToGoal = drone->GetLastState().GetDistanceToGoal();
+        float distToGoal = state_features::DistanceToGoal(drone->GetLastState());
 
         // Single line summary
         StatusState state = drone->GetDroneInGrid() ? StatusState::Active : StatusState::Error;

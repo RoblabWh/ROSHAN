@@ -61,17 +61,9 @@ class Inputspace(nn.Module):
         return x
 
     def prepare_tensor(self, states):
-        if hasattr(states, 'keys') or isinstance(states, dict):
-            # Dict-based path (new schema pipeline)
-            drone_states = self._ensure_tensor(states["drone_positions"])
-            goal_positions = self._ensure_tensor(states["goal_positions"])
-            fire_states = self._select_last_timestep(self._ensure_tensor(states["fire_positions"]))
-        else:
-            # Legacy tuple path
-            drone_states, goal_positions, fire_states = states
-            drone_states = self._ensure_tensor(drone_states)
-            goal_positions = self._ensure_tensor(goal_positions)
-            fire_states = self._select_last_timestep(self._ensure_tensor(fire_states))
+        drone_states = self._ensure_tensor(states["drone_positions"])
+        goal_positions = self._ensure_tensor(states["goal_positions"])
+        fire_states = self._select_last_timestep(self._ensure_tensor(states["fire_positions"]))
 
         # Extract velocity before collapsing timesteps
         if drone_states.dim() == 4 and drone_states.shape[1] >= 2:

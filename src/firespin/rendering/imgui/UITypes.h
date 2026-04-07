@@ -7,6 +7,7 @@
 
 #include "imgui.h"
 #include <cstdint>
+#include <string>
 
 namespace ui {
 

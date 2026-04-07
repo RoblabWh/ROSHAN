@@ -41,7 +41,7 @@ public:
     std::shared_ptr<const std::vector<std::vector<int>>> GetStepExploredMap(int size=0, bool interpolated=true);
     std::shared_ptr<const std::vector<std::vector<double>>> GetFireMap(int size=0, bool interpolated=true) const;
     std::shared_ptr<const std::vector<std::pair<int, int>>> GetExploredFires();
-    std::shared_ptr<std::vector<std::pair<double, double>>> GetFirePositionsFromBurningCells();
+    std::shared_ptr<std::vector<std::pair<double, double>>> GetFirePositionsFromBurningCells() const;
 
     [[maybe_unused]] int GetNumExploredFires() const;
 

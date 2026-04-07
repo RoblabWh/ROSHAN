@@ -172,20 +172,18 @@ std::shared_ptr<AgentState> PlannerAgent::BuildAgentState(const std::shared_ptr<
     std::vector<std::pair<double, double>> drone_positions;
     std::vector<std::pair<double, double>> drone_goals;
     for (const auto &fly_agent : fly_agents_) {
-        drone_positions.push_back(fly_agent->GetLastState().GetGridPositionDoubleNorm());
-        drone_goals.push_back(fly_agent->GetLastState().GetGoalPositionNorm());
+        drone_positions.push_back(state_features::GridPositionDoubleNorm(fly_agent->GetLastState()));
+        drone_goals.push_back(state_features::GoalPositionNorm(fly_agent->GetLastState()));
     }
 
     //if eval get fire positions from explore agent else from gridmap(centralized training)
     if (eval_mode_) {
-        auto explore_fire_positions = grid_map->GetFirePositionsFromFireMap();
-        state->SetFirePositions(explore_fire_positions);
+        state->fire_positions = grid_map->GetFirePositionsFromFireMap();
     } else {
-        auto fire_positions = grid_map->GetFirePositionsFromBurningCells();
-        state->SetFirePositions(fire_positions);
+        state->fire_positions = grid_map->GetFirePositionsFromBurningCells();
     }
-    state->SetDronePositions(std::make_shared<std::vector<std::pair<double, double>>>(drone_positions));
-    state->SetGoalPositions(std::make_shared<std::vector<std::pair<double, double>>>(drone_goals));
+    state->drone_positions = std::make_shared<std::vector<std::pair<double, double>>>(drone_positions);
+    state->goal_positions = std::make_shared<std::vector<std::pair<double, double>>>(drone_goals);
 
     return state;
 }

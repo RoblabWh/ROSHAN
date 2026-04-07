@@ -726,7 +726,7 @@ std::shared_ptr<const std::vector<std::pair<int, int>>> GridMap::GetExploredFire
     return std::make_shared<const std::vector<std::pair<int, int>>>(explored_fires);
 }
 
-std::shared_ptr<std::vector<std::pair<double, double>>> GridMap::GetFirePositionsFromBurningCells() {
+std::shared_ptr<std::vector<std::pair<double, double>>> GridMap::GetFirePositionsFromBurningCells() const {
     std::shared_ptr<std::vector<std::pair<double, double>>> fire_positions = std::make_shared<std::vector<std::pair<double, double>>>();
     auto groundstation_position = std::make_pair(-1.0, -1.0);//groundstation_->GetGridPositionDouble();
     fire_positions->emplace_back(groundstation_position); // Add a dummy value to indicate no fire

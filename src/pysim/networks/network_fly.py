@@ -96,17 +96,10 @@ class SimpleInput(nn.Module):
         return x
 
     def forward(self, states):
-        if hasattr(states, 'keys') or isinstance(states, dict):
-            # Dict-based path (new schema pipeline)
-            agent_features = self._ensure_tensor(states["agent"])
-            # agent features: (B, T, D) where D includes id, velocity, delta_goal, cos_sin, speed, dist_to_goal
-            # Extract velocity (dims 1-2) and delta_goal (dims 3-4) from the flat agent tensor
-            velocity = agent_features[..., 1:3]
-            delta_goal = agent_features[..., 3:5]
-        else:
-            # Legacy tuple path
-            velocity = self._ensure_tensor(states[1])
-            delta_goal = self._ensure_tensor(states[2])
+        agent_features = self._ensure_tensor(states["agent"])
+        # agent features: (B, T, D) where D includes id, velocity, delta_goal, cos_sin, speed, dist_to_goal
+        velocity = agent_features[..., 1:3]
+        delta_goal = agent_features[..., 3:5]
 
         delta_position = delta_goal - velocity
         x = torch.cat((velocity, delta_position), dim=-1)
@@ -156,25 +149,9 @@ class Inputspace(nn.Module):
         return x
 
     def forward(self, states):
-        if hasattr(states, 'keys') or isinstance(states, dict):
-            # Dict-based path (new schema pipeline)
-            agent_features = self._ensure_tensor(states["agent"])      # (B, T, D_agent)
-            neigh_features = self._ensure_tensor(states["neighbors"])   # (B, T, K, D_neigh)
-            neigh_mask = self._ensure_tensor(states["neighbors_mask"], dtype=torch.bool)  # (B, T, K)
-        else:
-            # Legacy tuple path
-            self_id = self._ensure_tensor(states[0], dtype=torch.int64)
-            velocity = self._ensure_tensor(states[1])
-            delta_goal = self._ensure_tensor(states[2])
-            cos_sin_goal = self._ensure_tensor(states[3])
-            speed = self._ensure_tensor(states[4])
-            distance_to_goal = self._ensure_tensor(states[5])
-            neigh_features = self._ensure_tensor(states[6])
-            neigh_mask = self._ensure_tensor(states[7], dtype=torch.bool)
-
-            tensors = [self_id.unsqueeze(2), velocity, delta_goal, cos_sin_goal,
-                       speed.unsqueeze(2), distance_to_goal.unsqueeze(2)]
-            agent_features = torch.cat(tensors, dim=-1)
+        agent_features = self._ensure_tensor(states["agent"])      # (B, T, D_agent)
+        neigh_features = self._ensure_tensor(states["neighbors"])   # (B, T, K, D_neigh)
+        neigh_mask = self._ensure_tensor(states["neighbors_mask"], dtype=torch.bool)  # (B, T, K)
 
         x = self.self_mlp(agent_features)  # (B, T, H)
         y = self.neigh_encoder(neigh_features, neigh_mask)

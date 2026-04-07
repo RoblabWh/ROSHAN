@@ -549,14 +549,14 @@ void ImguiHandler::PyConfig(std::string &user_input,
                         ImGui::TableNextRow();
                         ImGui::TableNextColumn(); ImGui::Text("GetGridPositionDouble");
                         ImGui::TableNextColumn(); ImGui::Text("(%.6f, %.6f)",
-                                                              selected_drone->GetLastState().GetGridPositionDouble().first,
-                                                              selected_drone->GetLastState().GetGridPositionDouble().second);
+                                                              state_features::GridPositionDouble(selected_drone->GetLastState()).first,
+                                                              state_features::GridPositionDouble(selected_drone->GetLastState()).second);
 
                         ImGui::TableNextRow();
                         ImGui::TableNextColumn(); ImGui::Text("GetGridPositionDoubleNorm");
                         ImGui::TableNextColumn(); ImGui::Text("(%.6f, %.6f)",
-                                                              selected_drone->GetLastState().GetGridPositionDoubleNorm().first,
-                                                              selected_drone->GetLastState().GetGridPositionDoubleNorm().second);
+                                                              state_features::GridPositionDoubleNorm(selected_drone->GetLastState()).first,
+                                                              state_features::GridPositionDoubleNorm(selected_drone->GetLastState()).second);
 
 //                        ImGui::TableNextRow();
 //                        ImGui::TableNextColumn(); ImGui::Text("GetPositionInExplorationMap");
@@ -567,12 +567,12 @@ void ImguiHandler::PyConfig(std::string &user_input,
                         ImGui::TableNextRow();
                         ImGui::TableNextColumn(); ImGui::Text("GetPositionNormAroundCenter");
                         ImGui::TableNextColumn(); ImGui::Text("(%.6f, %.6f)",
-                                                              selected_drone->GetLastState().GetPositionNormAroundCenter().first,
-                                                              selected_drone->GetLastState().GetPositionNormAroundCenter().second);
+                                                              state_features::PositionNormAroundCenter(selected_drone->GetLastState()).first,
+                                                              state_features::PositionNormAroundCenter(selected_drone->GetLastState()).second);
 
                         ImGui::TableNextRow();
                         ImGui::TableNextColumn(); ImGui::Text("GetDistanceToNearestBoundaryNorm");
-                        ImGui::TableNextColumn(); ImGui::Text("%.6f", selected_drone->GetLastState().GetDistanceToNearestBoundaryNorm());
+                        ImGui::TableNextColumn(); ImGui::Text("%.6f", state_features::DistanceToNearestBoundaryNorm(selected_drone->GetLastState()));
 
                         ImGui::TableNextRow();
                         ImGui::TableNextColumn(); ImGui::Text("GetDroneInGrid");
@@ -601,33 +601,33 @@ void ImguiHandler::PyConfig(std::string &user_input,
                         ImGui::TableNextRow();
                         ImGui::TableNextColumn(); ImGui::Text("VelocityNorm");
                         ImGui::TableNextColumn(); ImGui::Text("%.6f, %.6f",
-                                                              selected_drone->GetLastState().GetVelocityNorm().first,
-                                                              selected_drone->GetLastState().GetVelocityNorm().second);
+                                                              state_features::VelocityNorm(selected_drone->GetLastState()).first,
+                                                              state_features::VelocityNorm(selected_drone->GetLastState()).second);
 
                         ImGui::TableNextRow();
                         ImGui::TableNextColumn(); ImGui::Text("DeltaGoal");
                         ImGui::TableNextColumn(); ImGui::Text("(%.6f, %.6f)",
-                                                              selected_drone->GetLastState().GetDeltaGoal().first,
-                                                              selected_drone->GetLastState().GetDeltaGoal().second);
+                                                              state_features::DeltaGoal(selected_drone->GetLastState()).first,
+                                                              state_features::DeltaGoal(selected_drone->GetLastState()).second);
 
                         ImGui::TableNextRow();
                         ImGui::TableNextColumn(); ImGui::Text("CosSinToGoal");
                         ImGui::TableNextColumn(); ImGui::Text("%.6f, %.6f",
-                                                              selected_drone->GetLastState().GetCosSinToGoal().first,
-                                                              selected_drone->GetLastState().GetCosSinToGoal().second);
+                                                              state_features::CosSinToGoal(selected_drone->GetLastState()).first,
+                                                              state_features::CosSinToGoal(selected_drone->GetLastState()).second);
 
                         ImGui::TableNextRow();
                         ImGui::TableNextColumn(); ImGui::Text("Speed");
                         ImGui::TableNextColumn(); ImGui::Text("%.6f",
-                                                              selected_drone->GetLastState().GetSpeed());
+                                                              state_features::Speed(selected_drone->GetLastState()));
 
                         ImGui::TableNextRow();
                         ImGui::TableNextColumn(); ImGui::Text("DistanceToGoal");
                         ImGui::TableNextColumn(); ImGui::Text("%.6f",
-                                                              selected_drone->GetLastState().GetDistanceToGoal());
+                                                              state_features::DistanceToGoal(selected_drone->GetLastState()));
 
-                        auto distances_to_other_agents = selected_drone->GetLastState().GetDistancesToOtherAgents();
-                        auto masks = selected_drone->GetLastState().GetDistancesMask();
+                        auto distances_to_other_agents = *selected_drone->GetLastState().distances_to_other_agents;
+                        auto masks = *selected_drone->GetLastState().distances_mask;
                         for (size_t i = 0; i < distances_to_other_agents.size(); ++i) {
                             ImGui::TableNextRow();
                             ImGui::TableNextColumn(); ImGui::Text("Distance_%d", static_cast<int>(i));

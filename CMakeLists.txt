@@ -156,7 +156,7 @@ set(AGENT_SOURCES
         src/reinforcementlearning/actions/fly_action.h src/reinforcementlearning/actions/fly_action.cpp
         src/reinforcementlearning/actions/explore_action.h src/reinforcementlearning/actions/explore_action.cpp
         src/reinforcementlearning/actions/plan_action.h src/reinforcementlearning/actions/plan_action.cpp
-        src/reinforcementlearning/agents/agent_state.cpp src/reinforcementlearning/agents/agent_state.h
+        src/reinforcementlearning/agents/agent_state.h
         src/reinforcementlearning/texturerenderer.cpp src/reinforcementlearning/texturerenderer.h
         src/reinforcementlearning/groundstation.h src/reinforcementlearning/groundstation.cpp
         src/reinforcementlearning/rl_handler.cpp

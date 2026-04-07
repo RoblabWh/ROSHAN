@@ -26,17 +26,14 @@ PYBIND11_MODULE(firesim, m) {
 
     py::class_<AgentState, State, std::shared_ptr<AgentState>>(m, "AgentState")
             .def(py::init<>())
-            .def("GetExplorationMapNorm", &AgentState::GetExplorationMapNorm)
-            .def("GetGridPositionDoubleNorm", &AgentState::GetGridPositionDoubleNorm)
-            .def_property_readonly("velocity", &AgentState::get_velocity)
-            .def_property_readonly("drone_view", &AgentState::get_drone_view)
-            .def_property_readonly("exploration_map", &AgentState::get_map)
-            .def_property_readonly("fire_map", &AgentState::get_fire_map)
-            .def_property_readonly("position", &AgentState::get_position)
-            .def_property_readonly("water_dispense", &AgentState::get_water_dispense)
-            .def_property_readonly("drone_positions", &AgentState::get_drone_positions)
-            .def_property_readonly("fire_positions", &AgentState::get_fire_positions)
-            .def_property_readonly("goal_positions", &AgentState::get_goal_positions);
+            .def("GetGridPositionDoubleNorm", [](const AgentState& s) { return state_features::GridPositionDoubleNorm(s); })
+            .def_readwrite("velocity", &AgentState::velocity)
+            .def_readwrite("position", &AgentState::position)
+            .def_readwrite("goal_position", &AgentState::goal_position)
+            .def_readonly("id", &AgentState::id)
+            .def_property_readonly("drone_positions", [](const AgentState& s) { return *s.drone_positions; })
+            .def_property_readonly("fire_positions", [](const AgentState& s) { return *s.fire_positions; })
+            .def_property_readonly("goal_positions", [](const AgentState& s) { return s.goal_positions ? *s.goal_positions : std::vector<std::pair<double,double>>{}; });
 
 
     py::enum_<TerminationKind>(m, "TerminationKind")

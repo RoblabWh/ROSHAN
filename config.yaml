@@ -1,10 +1,10 @@
 settings:
   # 0: GUI_RL, 2: NoGUI_RL, # Mode 1 is GUI and Mode 2 is NoGUI (ONLY Simulation)
-  mode: 0
+  mode: 2
   # Random seed for reproducibility (-1 for random seed)
   seed: -1
   # RL_MODE: Either "train" or "eval"
-  rl_mode: eval
+  rl_mode: train
   # Evaluate with the extinguishing heuristic.
   # - With hierarchy_type 'fly_agent': replaces the learned policy with a greedy fire-extinguishing state machine (FlyPolicy)
   # - With hierarchy_type 'planner_agent': enables water management (use_water_limit must be true);
@@ -16,7 +16,7 @@ settings:
   # Whether to log evaluation results in tensorboard, plot their metrics and create the CSV files
   # Should generally be true during training or evaluation. 
   # If you only want to SEE what the agent does, set to false so your evaluation is not overridden
-  log_eval: false
+  log_eval: true
   # LLM support for the environment (currently not supported; was tested in very early prototypes)
   # Will probably break everything if set to true
   llm_support: false
@@ -59,7 +59,7 @@ paths:
   # This is the root_path where your NEW trained models data is stored
   # Loading for your ROOT Model(chosen hierarchy) is ALSO done from here (Eval and Resuming Training)
   # Absolute or relative to the project root
-  model_directory: models/PlannerAgentBaseline #PPO_4A_NoManualDecay_P9Like
+  model_directory: models/test_plan #PPO_4A_NoManualDecay_P9Like
   # Leave this empty to get a default name from this config (best practice for training)
   # You can fast load models with suffixes ["latest", "best_reward", "best_obj"]
   # If you want to load a specific model, set the model_name to the name of the model file
@@ -327,7 +327,7 @@ environment:
       # View range of the explore_agent in cells
       view_range: 20 
       # Default model path for the fly_agent (either absolute or relative to the project root)
-      default_model_folder: "models/SimpleFlyAgent/" 
+      default_model_folder: "models/test/"
       # You can fast load models with suffixes ["latest", "best_reward", "best_objective"]
       # If you want to load a specific model, set the model_name to the name of the model file
       default_model_name: best_reward
@@ -347,7 +347,7 @@ environment:
       # View range of the ExtinguishAgent in cells
       view_range: 10 
       # Default model path for the fly_agent (either absolute or relative to the project root)
-      default_model_folder: "models/CollisionFlyAgent/"
+      default_model_folder: "models/test/"
       # You can fast load models with suffixes ["latest", "best_reward", "best_objective"]
       # If you want to load a specific model, set the model_name to the name of the model file
       default_model_name: best_obj

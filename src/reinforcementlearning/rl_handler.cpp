@@ -33,6 +33,18 @@ ReinforcementLearningHandler::ReinforcementLearningHandler(FireModelParameters &
     schemas_["planner_agent"] = CreatePlannerAgentSchema();
 }
 
+// Extracts observations for all agents of the given type into a Python dict.
+//
+// Output dict layout (keyed by group name):
+//   FIXED group "g"       → "g":       float array (N, max_T, D)
+//   RELATIONAL group "g"  → "g":       float array (N, max_T, K, D)
+//                            "g_mask":  bool  array (N, max_T, K)
+//   SET group "g"          → "g":       float array (N, max_T, M, D)
+//   "_schema"              → metadata dict {group: [(col_name, dim), ...]}
+//
+// N = number of agents, max_T = longest observation history,
+// K/M = max entity count (determined dynamically if max_entities == 0).
+// Slots beyond an agent's actual timestep count are zero-filled.
 py::dict ReinforcementLearningHandler::GetBatchedObservations(const std::string& agent_type) {
     // Look up schema
     auto schema_it = schemas_.find(agent_type);
@@ -106,12 +118,18 @@ py::dict ReinforcementLearningHandler::GetBatchedObservations(const std::string&
 
         }
         else if (group.type == FeatureGroupType::RELATIONAL) {
+            // RELATIONAL and SET share the same bulk extraction logic below.
+            // The only difference: RELATIONAL exposes the mask to Python (the
+            // network needs it for masked attention), SET keeps it internal
+            // (zero-padding is sufficient). This is intentional — see
+            // feature_schema.h for the design rationale.
+
             // Determine max entities (neighbor slots) dynamically
             int K = group.max_entities;
-            if (K == 0) {
+            if (K == 0 && group.entity_count) {
                 for (int i = 0; i < N && K == 0; ++i) {
                     if (!agent_states[i].empty()) {
-                        K = static_cast<int>(agent_states[i][0]->GetDistancesToOtherAgentsRef().size());
+                        K = group.entity_count(*agent_states[i][0]);
                     }
                 }
             }
@@ -142,20 +160,10 @@ py::dict ReinforcementLearningHandler::GetBatchedObservations(const std::string&
         else if (group.type == FeatureGroupType::SET) {
             // Determine max entities dynamically from agent states
             int M = group.max_entities;
-            if (M == 0) {
+            if (M == 0 && group.entity_count) {
                 for (int i = 0; i < N; ++i) {
                     for (auto* as : agent_states[i]) {
-                        // Use the bulk extractor with a probe: count entities by checking the state
-                        // For drone/goal positions, size is consistent; for fires, it varies
-                        int count = 0;
-                        if (group.name == "drone_positions") {
-                            count = static_cast<int>(as->GetDronePositionsRef().size());
-                        } else if (group.name == "goal_positions") {
-                            count = static_cast<int>(as->GetGoalPositionsRef().size());
-                        } else if (group.name == "fire_positions") {
-                            count = static_cast<int>(as->GetFirePositionsRef().size());
-                        }
-                        M = std::max(M, count);
+                        M = std::max(M, group.entity_count(*as));
                     }
                 }
             }

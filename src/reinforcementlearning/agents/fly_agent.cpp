@@ -77,15 +77,15 @@ void FlyAgent::Reset(Mode mode,
 
 std::shared_ptr<AgentState> FlyAgent::BuildAgentState(const std::shared_ptr<GridMap>& grid_map) {
     auto state = std::make_shared<AgentState>();
-    state->SetID(this->GetId());
-    state->SetNormScale(norm_scale_);
-    state->SetMaxSpeed(max_speed_);
-    state->SetVelocity(this->vel_vector_);
-    state->SetPosition(position_);
-    state->SetGoalPosition(goal_position_);
-    state->SetCellSize(parameters_.GetCellSize());
-    state->SetDistancesToOtherAgents(std::make_shared<std::vector<std::vector<double>>>(distance_to_other_agents_));
-    state->SetDistancesMask(std::make_shared<std::vector<bool>>(distance_mask_));
+    state->id = this->GetId();
+    state->norm_scale = norm_scale_;
+    state->max_speed = max_speed_;
+    state->velocity = this->vel_vector_;
+    state->position = position_;
+    state->goal_position = goal_position_;
+    state->cell_size = parameters_.GetCellSize();
+    state->distances_to_other_agents = std::make_shared<std::vector<std::vector<double>>>(distance_to_other_agents_);
+    state->distances_mask = std::make_shared<std::vector<bool>>(distance_mask_);
     return state;
 }
 
@@ -172,7 +172,7 @@ double FlyAgent::CalculateReward(const std::shared_ptr<GridMap>& grid_map) {
     }
 
     if (parameters_.fly_agent_collision_){
-        auto distances_to_objects = this->GetLastState().GetDistancesToOtherAgents();
+        auto distances_to_objects = *this->GetLastState().distances_to_other_agents;
         for (auto & dist : distances_to_objects) {
             double dx = std::abs(dist[0]);
             double dy = std::abs(dist[1]);
@@ -494,9 +494,8 @@ void FlyAgent::CalcMaxDistanceFromMap() {
         auto cell_size = parameters_.GetCellSize();
         auto norm_x = position_.first / cell_size;
         auto norm_y = position_.second / cell_size;
-        auto map_dims = this->GetLastState().get_map_dimensions();
-        norm_x = (2 * norm_x / map_dims.first) - 1;
-        norm_y = (2 * norm_y / map_dims.second) - 1;
+        norm_x = (2 * norm_x / norm_scale_) - 1;
+        norm_y = (2 * norm_y / norm_scale_) - 1;
         std::pair<double, double> pos = std::make_pair(norm_x, norm_y);
         double max_distance1 = 0;
         double max_distance2 = 0;
