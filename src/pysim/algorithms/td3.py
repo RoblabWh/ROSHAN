@@ -89,6 +89,9 @@ class TD3(RLAlgorithm):
     def copy_networks(self):
         self.critic_target = copy.deepcopy(self.policy.critic)
         self.actor_target = copy.deepcopy(self.policy.actor)
+        # Target networks should always be in inference mode
+        self.critic_target.eval()
+        self.actor_target.eval()
 
     def initialize_optimizers(self):
         self.actor_optimizer = torch.optim.Adam(self.policy.actor.parameters(), lr=self.lr, betas=(self.beta1, self.beta2), eps=1e-5)
@@ -98,13 +101,9 @@ class TD3(RLAlgorithm):
 
     def set_train(self):
         self.policy.train()
-        self.actor_target.train()
-        self.critic_target.train()
 
     def set_eval(self):
         self.policy.eval()
-        self.actor_target.eval()
-        self.critic_target.eval()
 
     def update(self, memory: SwarmMemory, batch_size, next_obs, logger):
         # TODO test faster batch sampling

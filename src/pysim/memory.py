@@ -720,7 +720,14 @@ class Memory(object):
         self.not_done = self._alloc_buffer((self.max_size,))
 
         # Reset optional fields
-        self.intrinsic_reward = None
+        if self.use_intrinsic_reward:
+            self.intrinsic_reward = self._alloc_buffer((self.max_size,))
+        else:
+            self.intrinsic_reward = None
+        if self.use_next_obs:
+            self.next_obs = [0 for _ in range(self.max_size)]
+        else:
+            self.next_obs = None
         self._tensor_cache = None
         self._tensor_cache_valid = False
 

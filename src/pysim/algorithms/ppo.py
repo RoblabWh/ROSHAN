@@ -116,9 +116,16 @@ class PPO(RLAlgorithm):
                                          neighbor_dim=self.neighbor_dim)
 
         if self.use_torch_compile:
+            compile_mode = self.compile_mode
+            if self.use_variable_state_masks and compile_mode != "default":
+                self.logger.warning(
+                    f"torch.compile mode '{compile_mode}' is unsafe with variable-length state masks "
+                    f"(CUDA graphs leak memory on shape changes). Falling back to 'default' mode."
+                )
+                compile_mode = "default"
             try:
-                self.policy.actor = torch.compile(self.policy.actor, mode=self.compile_mode)
-                self.policy.critic = torch.compile(self.policy.critic, mode=self.compile_mode)
+                self.policy.actor = torch.compile(self.policy.actor, mode=compile_mode)
+                self.policy.critic = torch.compile(self.policy.critic, mode=compile_mode)
                 # Warmup: run a dummy forward pass to trigger compilation upfront
                 # instead of paying the cost during first training episodes
                 try:
@@ -257,8 +264,23 @@ class PPO(RLAlgorithm):
         # (Save BEFORE training, so if the policy worsens we can still go back)
         self.save(logger)
 
-        # Advantages — single batched evaluate across all agents
+        # ── Advantage estimation ──────────────────────────────────────────
+        # Overview:
+        #   1. Merge per-agent states into one batch and run the critic to
+        #      get V(s) for every collected transition.
+        #   2. For agents whose episode didn't end (not_done[-1] == 1),
+        #      bootstrap V(s') from the next observation so GAE has a
+        #      proper tail value.
+        #   3. Compute per-agent GAE advantages and returns, then
+        #      concatenate them back into a single flat tensor.
+        #
+        # The critic forward is chunked to keep peak VRAM bounded (the
+        # full horizon × max_fires embedding would otherwise spike memory).
         with (torch.no_grad()):
+
+            # ── Step 1: V(s) for all transitions ─────────────────────
+            # Flatten the per-agent state lists into a single batch so we
+            # only run one (chunked) critic pass instead of N separate ones.
             all_states = memory.rearrange_states(states)
             all_actions = torch.cat(actions)
             all_mask_arg = (
@@ -266,11 +288,25 @@ class PPO(RLAlgorithm):
                 if self.use_variable_state_masks and len(variable_state_masks[0]) > 0
                 else None
             )
-            _, all_values, _ = self.policy.evaluate(all_states, all_actions, all_mask_arg)
 
-            # Split values back per-agent for bootstrap + GAE
+            # Chunk the critic forward to cap GPU memory at ~mini_batch_size
+            # instead of processing the entire horizon at once.
+            total_samples = all_actions.shape[0]
+            chunk_size = max(mini_batch_size, 1)
+            value_chunks = []
+            for ci in range(0, total_samples, chunk_size):
+                cj = min(ci + chunk_size, total_samples)
+                chunk_states = {k: v[ci:cj] for k, v in all_states.items()} if isinstance(all_states, dict) else tuple(s[ci:cj] for s in all_states)
+                if all_mask_arg is not None:
+                    value_chunks.append(self.policy.critic(chunk_states, all_mask_arg[ci:cj]))
+                else:
+                    value_chunks.append(self.policy.critic(chunk_states))
+            all_values = torch.cat(value_chunks).squeeze(-1)
+
+            # Split the flat values back to per-agent segments so each
+            # agent gets its own GAE computation with correct episode masks.
             agent_sizes = [actions[i].shape[0] for i in range(memory.num_agents)]
-            values_per_agent = torch.split(all_values.squeeze(-1), agent_sizes)
+            values_per_agent = torch.split(all_values, agent_sizes)
 
             def _state_to_tensor(s, device):
                 """Convert a state array to tensor with single np.asarray call."""
@@ -281,39 +317,31 @@ class PPO(RLAlgorithm):
                     t = t.pin_memory()
                 return t.to(device, non_blocking=True)
 
-            # Batch bootstrap: collect all agents that need bootstrapping, run one critic forward
+            # ── Step 2: Bootstrap V(s') for non-terminal agents ──────
+            # If an agent's last transition wasn't terminal (not_done == 1),
+            # GAE needs V(s_{T+1}) to compute the final advantage. We batch
+            # all such agents into a single critic call.
             needs_bootstrap = [i for i in range(memory.num_agents) if masks[i][-1] == 1]
             bootstrap_values = {}
             if needs_bootstrap:
-                # Collect last states for all agents needing bootstrap
                 agent_states_list = [memory.get_agent_state(next_obs, i) for i in needs_bootstrap]
 
-                if isinstance(agent_states_list[0], dict):
-                    # Dict-based path
-                    keys = agent_states_list[0].keys()
-                    batched_last_states = {
-                        k: torch.cat([_state_to_tensor(s[k], self.device) for s in agent_states_list], dim=0)
-                        for k in keys
-                    }
-                else:
-                    # Legacy tuple path
-                    batch_states_list = [
-                        tuple(_state_to_tensor(state, self.device) for state in s)
-                        for s in agent_states_list
-                    ]
-                    num_fields = len(batch_states_list[0])
-                    batched_last_states = tuple(
-                        torch.cat([batch_states_list[j][f] for j in range(len(needs_bootstrap))], dim=0)
-                        for f in range(num_fields)
-                    )
+                keys = agent_states_list[0].keys()
+                batched_last_states = {
+                    k: torch.cat([_state_to_tensor(s[k], self.device) for s in agent_states_list], dim=0)
+                    for k in keys
+                }
                 batched_bootstrap = self.policy.critic(batched_last_states).detach()
                 if batched_bootstrap.dim() != 1:
                     batched_bootstrap = batched_bootstrap.mean(dim=1) if batched_bootstrap.dim() == 2 else batched_bootstrap.squeeze()
-                # Split back per-agent (each had batch_size=1)
                 split_bootstrap = torch.split(batched_bootstrap, [1] * len(needs_bootstrap))
                 for idx, agent_i in enumerate(needs_bootstrap):
                     bootstrap_values[agent_i] = split_bootstrap[idx]
 
+            # ── Step 3: Per-agent GAE → flat advantages/returns ──────
+            # Each agent's values are optionally extended with its
+            # bootstrap value, then fed to GAE. Results are concatenated
+            # to match the merged state/action tensors used for training.
             advantages = []
             returns = []
             for i in range(memory.num_agents):
@@ -331,7 +359,6 @@ class PPO(RLAlgorithm):
         old_logprobs = torch.cat(old_logprobs).detach()
         states = all_states
         actions = all_actions
-        #v_masks = memory.rearrange_masks(variable_state_masks) if self.use_variable_state_masks else None
         logger.add_metric("Rewards/Returns", returns.detach().cpu().numpy())
         logger.add_metric("Rewards/Advantages", advantages.detach().cpu().numpy())
 
@@ -349,7 +376,7 @@ class PPO(RLAlgorithm):
             batch_actor_losses = []
             batch_entropy_losses = []
             # Random sampling and no repetition. 'False' indicates that training will continue even if the number of samples in the last time is less than mini_batch_size
-            for index in BatchSampler(SubsetRandomSampler(range(self.horizon)), mini_batch_size, False):
+            for index in BatchSampler(SubsetRandomSampler(range(total_samples)), mini_batch_size, False):
                 batch_update += 1
                 # Evaluate old actions and values using current policy
                 if isinstance(states, dict):
@@ -359,7 +386,7 @@ class PPO(RLAlgorithm):
                 batch_actions = actions[index]
                 batch_adv = advantages[index]
                 batch_adv = (batch_adv - batch_adv.mean()) / (batch_adv.std() + 1e-8)
-                batch_variable_masks = variable_state_masks[0][index] if self.use_variable_state_masks and len(variable_state_masks[0]) > 0 else None
+                batch_variable_masks = all_mask_arg[index] if all_mask_arg is not None else None
                 batch_old_logprobs = old_logprobs[index]
                 # Joint log_probs for multi-discrete actions
                 if batch_old_logprobs.dim() == 2:

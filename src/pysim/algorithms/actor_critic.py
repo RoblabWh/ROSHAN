@@ -365,7 +365,7 @@ class ActorCriticIQL(StochasticActor):
                 eps = torch.randn_like(raw_action) * action_sigma
                 noised_action = (raw_action + eps).clamp(-1 + 1e-6, 1 - 1e-6)
             else:
-                noised_action = a_clean.clamp(-1 + 1e-6, 1 - 1e-6)
+                noised_action = raw_action.clamp(-1 + 1e-6, 1 - 1e-6)
 
             return noised_action.detach().numpy(), raw_action.detach().numpy()
 

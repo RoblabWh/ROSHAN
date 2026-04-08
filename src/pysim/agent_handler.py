@@ -227,7 +227,7 @@ class AgentHandler:
                 self.sim_bridge.set("agent_online", False)
 
         if not self.fsc.advance(terminal_result.env_reset):
-            return False, False
+            return [False] * self.num_agents
 
         self.current_obs = self._get_obs(engine)
         if evaluate and not self.save_replay_buffer:

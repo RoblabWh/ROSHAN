@@ -2,20 +2,20 @@ import os
 import torch.nn as nn
 import torch.nn.functional as F
 import torch
+from utils import get_device
 
 if os.getenv("PYTORCH_DETECT_ANOMALY", "").lower() in ("1", "true"):
     torch.autograd.set_detect_anomaly(True)
 
 class NeighborEncoder(nn.Module):
     """Permutation-invariant neighbor set encoder with masking."""
-    def __init__(self, use_attention=False):
+    def __init__(self, use_attention=False, neighbor_dim=4):
         super().__init__()
         self.use_attention = use_attention
-        # in_features = [dx, dy] if this doesn't work try: [dx, dy, dvx, dvy, dist]
         hidden = 256
         self.out_dim = 64
         self.mlp = nn.Sequential(
-            nn.Linear(4, hidden), nn.ReLU(inplace=True),
+            nn.Linear(neighbor_dim, hidden), nn.ReLU(inplace=True),
             nn.Linear(hidden, hidden), nn.ReLU(inplace=True),
             nn.Linear(hidden, self.out_dim)
         )
@@ -74,7 +74,7 @@ class SimpleInput(nn.Module):
         """
         super(SimpleInput, self).__init__()
 
-        self.device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
+        self.device = get_device()
         self.vision_range = vision_range
         self.time_steps = time_steps
 
@@ -88,24 +88,19 @@ class SimpleInput(nn.Module):
 
         self.flatten = nn.Flatten()
 
-    def prepare_tensor(self, states):
-        velocity, position = states
-
-        if not torch.is_tensor(velocity):
-            velocity = torch.as_tensor(velocity, dtype=torch.float32)
-        if not torch.is_tensor(position):
-            position = torch.as_tensor(position, dtype=torch.float32)
-
-        # Only move if needed
-        if velocity.device != self.device:
-            velocity = velocity.to(self.device)
-        if position.device != self.device:
-            position = position.to(self.device)
-
-        return velocity, position
+    def _ensure_tensor(self, x, dtype=torch.float32):
+        if not torch.is_tensor(x):
+            x = torch.as_tensor(x, dtype=dtype)
+        if x.device != self.device:
+            x = x.to(self.device, non_blocking=True)
+        return x
 
     def forward(self, states):
-        velocity, delta_goal = self.prepare_tensor((states[1], states[2]))
+        agent_features = self._ensure_tensor(states["agent"])
+        # agent features: (B, T, D) where D includes id, velocity, delta_goal, cos_sin, speed, dist_to_goal
+        velocity = agent_features[..., 1:3]
+        delta_goal = agent_features[..., 3:5]
+
         delta_position = delta_goal - velocity
         x = torch.cat((velocity, delta_position), dim=-1)
         x = self.self_mlp(x)
@@ -115,23 +110,25 @@ class SimpleInput(nn.Module):
 
 class Inputspace(nn.Module):
 
-    def __init__(self, vision_range, time_steps):
+    def __init__(self, vision_range, time_steps, agent_dim=9, neighbor_dim=4):
         """
         A PyTorch Module that represents the input space of a neural network.
+        agent_dim: total dimensions of the FIXED "agent" group (default 9 = id+vel+delta+cossin+speed+dist)
+        neighbor_dim: features per neighbor in the RELATIONAL group (default 4 = dx,dy,dvx,dvy)
         """
         super(Inputspace, self).__init__()
 
-        self.device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
+        self.device = get_device()
         self.vision_range = vision_range
         self.time_steps = time_steps
 
         hidden = 256
         out = 64
 
-        self.neigh_encoder = NeighborEncoder(use_attention=True)
+        self.neigh_encoder = NeighborEncoder(use_attention=True, neighbor_dim=neighbor_dim)
 
         self.self_mlp = nn.Sequential(
-            nn.Linear(9, hidden), nn.ReLU(inplace=True),
+            nn.Linear(agent_dim, hidden), nn.ReLU(inplace=True),
             nn.Linear(hidden, hidden), nn.ReLU(inplace=True),
         )
 
@@ -144,60 +141,20 @@ class Inputspace(nn.Module):
 
         self.flatten = nn.Flatten()
 
-    def prepare_tensor(self, states):
-        self_id, velocity, delta_goal, cos_sin_goal, speed, distance_to_goal, distances_to_others, distances_mask = states
-
-        if not torch.is_tensor(velocity):
-            velocity = torch.as_tensor(velocity, dtype=torch.float32)
-
-        if not torch.is_tensor(delta_goal):
-            delta_goal = torch.as_tensor(delta_goal, dtype=torch.float32)
-
-        if not torch.is_tensor(cos_sin_goal):
-            cos_sin_goal = torch.as_tensor(cos_sin_goal, dtype=torch.float32)
-
-        if not torch.is_tensor(speed):
-            speed = torch.as_tensor(speed, dtype=torch.float32)
-
-        if not torch.is_tensor(distance_to_goal):
-            distance_to_goal = torch.as_tensor(distance_to_goal, dtype=torch.float32)
-
-        if not torch.is_tensor(distances_to_others):
-            distances_to_others = torch.as_tensor(distances_to_others, dtype=torch.float32)
-
-        distances_mask = torch.as_tensor(distances_mask, dtype=torch.bool)
-
-        if not torch.is_tensor(self_id):
-            self_id = torch.as_tensor(self_id, dtype=torch.int64)
-
-        # Only move if needed
-        if velocity.device != self.device:
-            velocity = velocity.to(self.device)
-        if delta_goal.device != self.device:
-            delta_goal = delta_goal.to(self.device)
-        if cos_sin_goal.device != self.device:
-            cos_sin_goal = cos_sin_goal.to(self.device)
-        if speed.device != self.device:
-            speed = speed.to(self.device)
-        if distance_to_goal.device != self.device:
-            distance_to_goal = distance_to_goal.to(self.device)
-        if distances_to_others.device != self.device:
-            distances_to_others = distances_to_others.to(self.device)
-        if distances_mask.device != self.device:
-            distances_mask = distances_mask.to(self.device)
-        if self_id.device != self.device:
-            self_id = self_id.to(self.device)
-
-        return self_id, velocity, delta_goal, cos_sin_goal, speed, distance_to_goal, distances_to_others, distances_mask
+    def _ensure_tensor(self, x, dtype=torch.float32):
+        if not torch.is_tensor(x):
+            x = torch.as_tensor(x, dtype=dtype)
+        if x.device != self.device:
+            x = x.to(self.device, non_blocking=True)
+        return x
 
     def forward(self, states):
-        self_id, velocity, delta_goal, cos_sin_goal, speed, distance_to_goal, distances_to_others, distances_mask = self.prepare_tensor(states)
+        agent_features = self._ensure_tensor(states["agent"])      # (B, T, D_agent)
+        neigh_features = self._ensure_tensor(states["neighbors"])   # (B, T, K, D_neigh)
+        neigh_mask = self._ensure_tensor(states["neighbors_mask"], dtype=torch.bool)  # (B, T, K)
 
-        tensors = [self_id.unsqueeze(2), velocity, delta_goal, cos_sin_goal, speed.unsqueeze(2), distance_to_goal.unsqueeze(2)]
-        feats = torch.cat(tensors, dim=-1)
-
-        x = self.self_mlp(feats)  # (B, T, H)
-        y = self.neigh_encoder(distances_to_others, distances_mask)
+        x = self.self_mlp(agent_features)  # (B, T, H)
+        y = self.neigh_encoder(neigh_features, neigh_mask)
         fuse = torch.cat((x, y), dim=-1)
         z = self.fuse(fuse)
 
@@ -209,9 +166,9 @@ class StochasticActor(nn.Module):
     """
     A PyTorch Module that represents the actor network of a PPO agent.
     """
-    def __init__(self, vision_range, drone_count, map_size, time_steps, manual_decay, use_tanh_dist, collision):
+    def __init__(self, vision_range, drone_count, map_size, time_steps, manual_decay, use_tanh_dist, collision, agent_dim=9, neighbor_dim=4):
         super(StochasticActor, self).__init__()
-        self.Inputspace = Inputspace(vision_range, time_steps=time_steps) if collision else SimpleInput(vision_range, time_steps=time_steps)
+        self.Inputspace = Inputspace(vision_range, time_steps=time_steps, agent_dim=agent_dim, neighbor_dim=neighbor_dim) if collision else SimpleInput(vision_range, time_steps=time_steps)
         self.in_features = self.Inputspace.out_features
         self.use_tanh_dist = use_tanh_dist
         # Mu
@@ -236,11 +193,11 @@ class Critic(nn.Module):
     """
     A PyTorch Module that represents the critic network of a PPO agent.
     """
-    def __init__(self, vision_range, drone_count, map_size, time_steps, inputspace, collision):
+    def __init__(self, vision_range, drone_count, map_size, time_steps, inputspace, collision, agent_dim=9, neighbor_dim=4):
         super(Critic, self).__init__()
         if not inputspace:
-            self.Inputspace_1 = Inputspace(vision_range, time_steps=time_steps) if collision else SimpleInput(vision_range, time_steps=time_steps)
-            self.Inputspace_2 = Inputspace(vision_range, time_steps=time_steps) if collision else SimpleInput(vision_range, time_steps=time_steps)
+            self.Inputspace_1 = Inputspace(vision_range, time_steps=time_steps, agent_dim=agent_dim, neighbor_dim=neighbor_dim) if collision else SimpleInput(vision_range, time_steps=time_steps)
+            self.Inputspace_2 = Inputspace(vision_range, time_steps=time_steps, agent_dim=agent_dim, neighbor_dim=neighbor_dim) if collision else SimpleInput(vision_range, time_steps=time_steps)
         else:
             self.Inputspace_1 = inputspace
             self.Inputspace_2 = inputspace
@@ -253,13 +210,15 @@ class CriticPPO(Critic):
     """
     A PyTorch Module that represents the critic network of a PPO agent.
     """
-    def __init__(self, vision_range, drone_count, map_size, time_steps, inputspace, collision):
+    def __init__(self, vision_range, drone_count, map_size, time_steps, inputspace, collision, agent_dim=9, neighbor_dim=4):
         super(CriticPPO, self).__init__(vision_range=vision_range,
                                         drone_count=drone_count,
                                         map_size=map_size,
                                         time_steps=time_steps,
                                         inputspace=inputspace,
-                                        collision=collision)
+                                        collision=collision,
+                                        agent_dim=agent_dim,
+                                        neighbor_dim=neighbor_dim)
 
         self.Inputspace_2 = None
         # Value
@@ -281,9 +240,9 @@ class DeterministicActor(nn.Module):
     """
     A PyTorch Module that represents the actor network of a deterministic agent.
     """
-    def __init__(self, vision_range, drone_count, map_size, time_steps, collision):
+    def __init__(self, vision_range, drone_count, map_size, time_steps, collision, agent_dim=9, neighbor_dim=4):
         super(DeterministicActor, self).__init__()
-        self.Inputspace = Inputspace(vision_range, time_steps=time_steps) if collision else SimpleInput(vision_range, time_steps=time_steps)
+        self.Inputspace = Inputspace(vision_range, time_steps=time_steps, agent_dim=agent_dim, neighbor_dim=neighbor_dim) if collision else SimpleInput(vision_range, time_steps=time_steps)
         self.in_features = self.Inputspace.out_features
 
         # Mu
@@ -303,13 +262,15 @@ class OffPolicyCritic(Critic):
     """
     A PyTorch Module that represents the critic network of an IQL agent.
     """
-    def __init__(self, vision_range, drone_count, map_size, time_steps, action_dim, inputspace, collision):
+    def __init__(self, vision_range, drone_count, map_size, time_steps, action_dim, inputspace, collision, agent_dim=9, neighbor_dim=4):
         super(OffPolicyCritic, self).__init__(vision_range=vision_range,
                                               drone_count=drone_count,
                                               map_size=map_size,
                                               time_steps=time_steps,
                                               inputspace=inputspace,
-                                              collision=collision)
+                                              collision=collision,
+                                              agent_dim=agent_dim,
+                                              neighbor_dim=neighbor_dim)
 
         # Q1 architecture
         self.l1 = nn.Linear(self.in_features + action_dim, 256)
@@ -352,10 +313,10 @@ class Value(nn.Module):
     A PyTorch Module that represents the value network of an IQL agent.
     It estimates V(s), the state value.
     """
-    def __init__(self, vision_range, drone_count, map_size, time_steps, inputspace, collision):
+    def __init__(self, vision_range, drone_count, map_size, time_steps, inputspace, collision, agent_dim=9, neighbor_dim=4):
         super(Value, self).__init__()
         if not inputspace:
-            self.Inputspace = Inputspace(vision_range, time_steps=time_steps) if collision else SimpleInput(vision_range, time_steps=time_steps)
+            self.Inputspace = Inputspace(vision_range, time_steps=time_steps, agent_dim=agent_dim, neighbor_dim=neighbor_dim) if collision else SimpleInput(vision_range, time_steps=time_steps)
         else:
             self.Inputspace = inputspace
         self.in_features = self.Inputspace.out_features

@@ -1,4 +1,0 @@
-corine
-firespin
-pysim
-reinforcementlearning

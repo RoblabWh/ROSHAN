@@ -70,8 +70,9 @@ class IQL(RLAlgorithm):
                 self.policy.value = torch.compile(self.policy.value, mode=self.compile_mode)
             except Exception as e:
                 self.logger.warning(f"torch.compile failed, using eager mode: {e}")
-        # Target Q network
+        # Target Q network (always in inference mode)
         self.critic_target = copy.deepcopy(self.policy.critic)
+        self.critic_target.eval()
 
     def initialize_optimizers(self):
         """
