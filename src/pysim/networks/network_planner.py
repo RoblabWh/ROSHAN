@@ -25,7 +25,9 @@ class Inputspace(nn.Module):
 
         # Fusion MLP: cat(pos, goal, id, vel) -> hidden
         self.fusion = nn.Sequential(
-            nn.Linear(hidden_dim * 4, hidden_dim),
+            nn.Linear(hidden_dim * 4, hidden_dim * 2),
+            nn.ReLU(),
+            nn.Linear(hidden_dim * 2, hidden_dim),
             nn.ReLU()
         )
 
@@ -124,26 +126,82 @@ class AttentionActor(nn.Module):
         self.query_proj = nn.Linear(hidden_dim, hidden_dim)
         self.key_proj = nn.Linear(hidden_dim, hidden_dim)
 
-    def forward(self, states, masks=None):
+        # Learnable soft penalty for duplicate assignments in autoregressive decoding
+        self.log_assignment_penalty = nn.Parameter(torch.tensor(1.6))  # exp(1.6) ~ 5.0
+
+    def _compute_base_logits(self, states, masks=None):
+        """Compute base pointer-network logits and effective mask."""
         drone_repr, fire_repr, _ = self.Inputspace(states, masks)
 
-        # Pointer-network style scoring
         q = self.query_proj(drone_repr)   # (B, N, D)
         k = self.key_proj(fire_repr)       # (B, F, D)
         d = q.shape[-1] ** 0.5
         temperature = self.log_temperature.exp().clamp(min=0.01)
-        logits = torch.bmm(q, k.transpose(1, 2)) / (d * temperature)  # (B, N, F)
+        base_logits = torch.bmm(q, k.transpose(1, 2)) / (d * temperature)  # (B, N, F)
 
-        # Build effective mask: always mask groundstation at index 0
+        # Build effective mask: optionally mask groundstation at index 0
         if masks is None:
             masks = torch.zeros(fire_repr.shape[0], fire_repr.shape[1],
                                dtype=torch.bool, device=fire_repr.device)
         else:
             masks = masks.clone()
-        masks[:, 0] = True  # groundstation/wait token
-        logits = logits.masked_fill(masks.unsqueeze(1), float('-inf'))
+        if not getattr(self, 'allow_groundstation', True):
+            masks[:, 0] = True
 
-        return logits  # raw logits — Categorical(logits=...) applies softmax
+        return base_logits, masks
+
+    def forward(self, states, masks=None, actions_idx=None, deterministic=False):
+        """Autoregressive decoding over drones.
+
+        Args:
+            states: observation dict
+            masks: (B, F) bool mask for invalid fires
+            actions_idx: (B, N) pre-determined action indices (evaluate mode).
+                         If None, actions are sampled (or argmaxed if deterministic).
+            deterministic: if True and actions_idx is None, use argmax instead of sampling.
+
+        Returns:
+            actions_idx: (B, N) fire index per drone
+            log_probs: (B, N) per-drone log probabilities
+            entropy: (B, N) per-drone entropy
+        """
+        base_logits, masks = self._compute_base_logits(states, masks)
+        B, N, F = base_logits.shape
+        device = base_logits.device
+
+        assignment_penalty = self.log_assignment_penalty.exp().clamp(min=0.1)
+        assignment_counts = torch.zeros(B, F, device=device)
+
+        all_actions = torch.zeros(B, N, dtype=torch.long, device=device)
+        all_log_probs = torch.zeros(B, N, device=device)
+        all_entropy = torch.zeros(B, N, device=device)
+
+        for i in range(N):
+            logits_i = base_logits[:, i, :]  # (B, F)
+            # Soft-penalize already-assigned fires
+            logits_i = logits_i - assignment_penalty * assignment_counts
+            # Hard-mask invalid fires
+            logits_i = logits_i.masked_fill(masks, float('-inf'))
+
+            dist_i = torch.distributions.Categorical(logits=logits_i)
+
+            if actions_idx is not None:
+                a_i = actions_idx[:, i]
+            elif deterministic:
+                a_i = logits_i.argmax(dim=-1)
+            else:
+                a_i = dist_i.sample()
+
+            all_actions[:, i] = a_i
+            all_log_probs[:, i] = dist_i.log_prob(a_i)
+            all_entropy[:, i] = dist_i.entropy()
+
+            # Update assignment counts for subsequent drones
+            assignment_counts = assignment_counts.scatter_add(
+                1, a_i.unsqueeze(1), torch.ones(B, 1, device=device)
+            )
+
+        return all_actions, all_log_probs, all_entropy
 
 class Critic(nn.Module):
     def __init__(self, vision_range, drone_count, map_size, time_steps, inputspace=None):
@@ -159,6 +217,9 @@ class CriticPPO(nn.Module):
         super().__init__()
         self.Inputspace_1 = Inputspace(drone_count, time_steps=time_steps) if not inputspace else inputspace
         hidden_dim = self.Inputspace_1.out_features
+        # Attention pooling: learnable query attends over drone representations
+        self.pool_query = nn.Parameter(torch.randn(1, 1, hidden_dim))
+        self.pool_attn = nn.MultiheadAttention(hidden_dim, num_heads=4, batch_first=True)
         self.value_head = nn.Sequential(
             nn.Linear(hidden_dim, 128),
             nn.ReLU(),
@@ -168,13 +229,24 @@ class CriticPPO(nn.Module):
 
     def forward(self, states, masks=None):
         drone_repr, _, _ = self.Inputspace_1(states, masks)  # (B, N, 64)
-        pooled = drone_repr.mean(dim=1)  # (B, 64) — pool drones before value head
+        pooled, _ = self.pool_attn(
+            self.pool_query.expand(drone_repr.shape[0], -1, -1),
+            drone_repr, drone_repr
+        )
+        pooled = pooled.squeeze(1)  # (B, 64)
         return self.value_head(pooled)    # (B, 1)
 
 class OffPolicyCritic(Critic):
     def __init__(self, vision_range, drone_count, map_size, time_steps, action_dim, inputspace=None):
         super().__init__(vision_range, drone_count, map_size, time_steps, inputspace)
         self.Inputspace_2 = Inputspace(drone_count, time_steps=time_steps) if not inputspace else inputspace
+        hidden_dim = self.in_features
+
+        # Attention pooling for Q1 and Q2
+        self.pool_query_1 = nn.Parameter(torch.randn(1, 1, hidden_dim))
+        self.pool_attn_1 = nn.MultiheadAttention(hidden_dim, num_heads=4, batch_first=True)
+        self.pool_query_2 = nn.Parameter(torch.randn(1, 1, hidden_dim))
+        self.pool_attn_2 = nn.MultiheadAttention(hidden_dim, num_heads=4, batch_first=True)
 
         # Q1 architecture
         self.l1 = nn.Linear(self.in_features + action_dim, 256)
@@ -196,7 +268,10 @@ class OffPolicyCritic(Critic):
 
     def Q1(self, state, action):
         x, _, _ = self.Inputspace_1(state)
-        x = x.mean(dim=1)  # pool drones: (B, N, D) -> (B, D)
+        pooled, _ = self.pool_attn_1(
+            self.pool_query_1.expand(x.shape[0], -1, -1), x, x
+        )
+        x = pooled.squeeze(1)  # (B, D)
         x = torch.cat([x, action], dim=1)
 
         q1 = F.relu(self.l1(x))
@@ -206,7 +281,10 @@ class OffPolicyCritic(Critic):
 
     def Q2(self, state, action):
         x, _, _ = self.Inputspace_2(state)
-        x = x.mean(dim=1)
+        pooled, _ = self.pool_attn_2(
+            self.pool_query_2.expand(x.shape[0], -1, -1), x, x
+        )
+        x = pooled.squeeze(1)  # (B, D)
         x = torch.cat([x, action], dim=1)
 
         q2 = F.relu(self.l4(x))
@@ -219,6 +297,11 @@ class Value(nn.Module):
         super().__init__()
         self.Inputspace = Inputspace(drone_count, time_steps=time_steps) if not inputspace else inputspace
         self.in_features = self.Inputspace.out_features
+        hidden_dim = self.in_features
+
+        # Attention pooling
+        self.pool_query = nn.Parameter(torch.randn(1, 1, hidden_dim))
+        self.pool_attn = nn.MultiheadAttention(hidden_dim, num_heads=4, batch_first=True)
 
         # Simple MLP head for value estimation
         self.fc1 = nn.Linear(self.in_features, 256)
@@ -228,7 +311,10 @@ class Value(nn.Module):
 
     def forward(self, state):
         x, _, _ = self.Inputspace(state)
-        x = x.mean(dim=1)  # pool drones
+        pooled, _ = self.pool_attn(
+            self.pool_query.expand(x.shape[0], -1, -1), x, x
+        )
+        x = pooled.squeeze(1)  # (B, D)
         x = torch.relu(self.fc1(x))
         x = torch.relu(self.fc2(x))
         v = self.v_value(x)

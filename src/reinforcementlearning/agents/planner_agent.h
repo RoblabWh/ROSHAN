@@ -56,6 +56,7 @@ private:
 
     bool extinguished_last_fire_ = false;
     bool eval_mode_ = false;
+    double prev_mean_distance_ = 0.0;
 
     std::shared_ptr<AgentState> BuildAgentState(const std::shared_ptr<GridMap> &grid_map) override;
 };

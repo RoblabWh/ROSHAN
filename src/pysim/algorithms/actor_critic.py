@@ -25,82 +25,60 @@ class CategoricalActorCritic(nn.Module):
             return state["fire_positions"]
         return state[2]
 
-    def act(self, state):
-        """
-        Returns an action sampled from the actor's distribution and the log probability of that action.
+    def _idx_to_coords(self, state, actions_idx):
+        """Map fire indices to (x,y) goal coordinates."""
+        possible_goals = self._get_possible_goals(state)
+        possible_goals = possible_goals.squeeze(1)
+        B, N_D = actions_idx.shape
+        batch_idx = torch.arange(B).unsqueeze(1).expand(-1, N_D)
+        actions = possible_goals[batch_idx, actions_idx.cpu()]
+        return actions.reshape(B, N_D, 2)
 
-        :param states: States of the Agents
-        :return: A tuple of the sampled action and the log probability of that action.
-        """
-        with torch.no_grad():
-            logits = self.actor(state)  # [batch_size, num_drones, num_fires]
-            cat_dist = torch.distributions.Categorical(logits=logits)
-
-            actions_idx = cat_dist.sample()  # [batch_size, num_drones]
-            action_logprob = cat_dist.log_prob(actions_idx)  # [batch_size, num_drones]
-
-            possible_goals = self._get_possible_goals(state)
-            possible_goals = possible_goals.squeeze(1)
-
-            B, N_D = actions_idx.shape
-            batch_idx = torch.arange(B).unsqueeze(1).expand(-1, N_D)
-            actions = possible_goals[batch_idx, actions_idx.cpu()]
-
-            actions = actions.reshape(B, N_D, 2)
-
-            return actions, action_logprob.detach().cpu().numpy()
-
-    def act_certain(self, state):
-        """
-        Returns an action from the actor's distribution without sampling.
-
-        :param states: States of the Agents
-        :return: The action from the actor's distribution.
-        """
-        with torch.no_grad():
-            logits = self.actor(state)
-            actions_idx = torch.argmax(logits, dim=-1)  # [batch_size, num_drones]
-            possible_goals = self._get_possible_goals(state)
-            possible_goals = possible_goals.squeeze(1)
-
-            B, N_D = actions_idx.shape
-            batch_idx = torch.arange(B).unsqueeze(1).expand(-1, N_D)
-            actions = possible_goals[batch_idx, actions_idx.cpu()]
-
-            actions = actions.reshape(B, N_D, 2)
-            return actions
-
-    def evaluate(self, state, actions, masks=None):
-        """
-        Returns the log probability of the given action, the value of the given state, and the entropy of the actor's
-        distribution.
-
-        :param state: A tuple of the current lidar scan, orientation to goal, distance to goal, and velocity.
-        :param actions: The action to evaluate.
-        :return: A tuple of the log probability of the given action, the value of the given state, and the entropy of the
-        actor's distribution.
-        """
-
-        state_value = self.critic(state, masks)  # (B, 1) — already pooled
-        logits = self.actor(state, masks)  # (B, num_drones, num_fires)
-        cat_dist = torch.distributions.Categorical(logits=logits)
-
-        # Rebuild indices from coordinates in the SAME state
-        possible_goals = self._get_possible_goals(state)  # expect [B, N_G, 2]
+    def _coords_to_idx(self, state, actions):
+        """Rebuild fire indices from (x,y) coordinates via nearest-neighbor matching."""
+        possible_goals = self._get_possible_goals(state)
         possible_goals = possible_goals.squeeze(1)
         dists = torch.cdist(actions, possible_goals)  # [B, N_D, N_G]
         actions_idx = dists.argmin(dim=-1)
         min_d = dists.gather(-1, actions_idx.unsqueeze(-1)).squeeze(-1)
         if torch.any(min_d > 1.0e-8):
             raise RuntimeError("Action doesn't match any possible goal within tolerance.")
+        return actions_idx
 
-        # Log probability for each action (per drone)
-        action_logprob = cat_dist.log_prob(actions_idx)  # [batch_size, num_drones]
-        dist_entropy = cat_dist.entropy()  # [B, D]
+    def act(self, state):
+        """
+        Returns an action sampled from the actor's autoregressive distribution and the log probability of that action.
+        """
+        with torch.no_grad():
+            actions_idx, log_probs, _ = self.actor(state)  # autoregressive sampling
+            actions = self._idx_to_coords(state, actions_idx)
+            return actions, log_probs.detach().cpu().numpy()
 
-        action_logprob = action_logprob.sum(dim=1)  # [B]
-        dist_entropy = dist_entropy.sum(dim=1)  # [B]
-        state_value = torch.squeeze(state_value)  # [B] — critic already pools drones
+    def act_certain(self, state):
+        """
+        Returns a deterministic action from the actor's autoregressive distribution (argmax).
+        """
+        with torch.no_grad():
+            actions_idx, _, _ = self.actor(state, deterministic=True)
+            actions = self._idx_to_coords(state, actions_idx)
+            return actions
+
+    def evaluate(self, state, actions, masks=None):
+        """
+        Returns the log probability of the given action, the value of the given state, and the entropy of the actor's
+        distribution. Uses autoregressive decoding conditioned on the given action indices.
+        """
+        state_value = self.critic(state, masks)  # (B, 1)
+
+        # Rebuild indices from coordinates
+        actions_idx = self._coords_to_idx(state, actions)
+
+        # Autoregressive evaluate: condition each drone's log-prob on prior assignments
+        _, action_logprob, dist_entropy = self.actor(state, masks, actions_idx=actions_idx)
+
+        action_logprob = action_logprob.sum(dim=1)  # (B,) — joint log-prob
+        dist_entropy = dist_entropy.sum(dim=1)       # (B,)
+        state_value = torch.squeeze(state_value)      # (B,)
 
         return action_logprob, state_value, dist_entropy
 

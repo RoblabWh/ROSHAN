@@ -76,6 +76,7 @@ void PlannerAgent::Reset(Mode mode,
     extinguished_fires_ = 0;
     frame_ctrl_ = 0;
     extinguished_last_fire_ = false;
+    prev_mean_distance_ = 0.0;
     perfect_goals_.clear();
     agent_states_.clear();
     Initialize(explore_agent_, fly_agents_, grid_map);
@@ -152,6 +153,22 @@ double PlannerAgent::CalculateReward(const std::shared_ptr<GridMap>& grid_map) {
 
     reward_components["ExtinguishedFires"] = extinguished_fires_ * parameters_.PlannerExtinguishFires_;
 
+    // Distance-based progress reward: reward drones for getting closer to their goals
+    double total_distance = 0.0;
+    for (const auto& agent : fly_agents_) {
+        auto pos = agent->GetGridPositionDouble();
+        auto goal = agent->GetGoalPosition();
+        double dx = goal.first - pos.first;
+        double dy = goal.second - pos.second;
+        total_distance += std::sqrt(dx * dx + dy * dy);
+    }
+    double mean_distance = total_distance / static_cast<double>(fly_agents_.size());
+    if (prev_mean_distance_ > 0.0) {
+        double distance_improvement = prev_mean_distance_ - mean_distance;
+        reward_components["DistanceProgress"] = distance_improvement * parameters_.PlannerDistanceProgress_;
+    }
+    prev_mean_distance_ = mean_distance;
+
     total_reward = ComputeTotalReward(reward_components);
     LogRewards(reward_components);
     reward_components_ = reward_components;
@@ -176,7 +193,10 @@ std::shared_ptr<AgentState> PlannerAgent::BuildAgentState(const std::shared_ptr<
         drone_goals.push_back(state_features::GoalPositionNorm(fly_agent->GetLastState()));
     }
 
-    //if eval get fire positions from explore agent else from gridmap(centralized training)
+    // Centralized Training, Decentralized Execution (CTDE):
+    // During training the planner has access to ground-truth fire positions
+    // (centralized information), while at eval time it relies only on
+    // explored/discovered fires via the fire map (decentralized observation).
     if (eval_mode_) {
         state->fire_positions = grid_map->GetFirePositionsFromFireMap();
     } else {
