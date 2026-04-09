@@ -30,8 +30,12 @@ void PlannerAgent::PerformPlan(PlanAction *action, const std::string &hierarchy_
             goal = std::make_pair(-1.0, -1.0);
             fly_agent->CommandRecharge(true);
         } else {
-            // Get the goal from the action
+            // Get the goal from the action (in normalized observation space)
             goal = action->GetGoalFromAction(i);
+            // Denormalize from observation space back to grid space:
+            // inverse of (2 * grid_pos / norm_map) - 1, where norm_map = max(rows, cols)
+            double norm_map = static_cast<double>(std::max(gridMap->GetRows(), gridMap->GetCols()));
+            goal = {(goal.first + 1.0) * norm_map / 2.0, (goal.second + 1.0) * norm_map / 2.0};
         }
 
         if (goal == std::make_pair(-1.0, -1.0)) {
@@ -186,22 +190,74 @@ void PlannerAgent::InitializePlannerAgentStates(const std::shared_ptr<GridMap> &
 std::shared_ptr<AgentState> PlannerAgent::BuildAgentState(const std::shared_ptr<GridMap> &grid_map) {
     auto state = std::make_shared<AgentState>();
 
+    // Map-based normalization: (2*grid_pos/norm_map)-1 maps [0, max_dim] → [-1, 1].
+    // Using max(rows, cols) as a single factor preserves spatial aspect ratio.
+    // This is the planner's GLOBAL reference frame (unlike the FlyAgent's local view_range).
+    double norm_map = static_cast<double>(std::max(grid_map->GetRows(), grid_map->GetCols()));
+
     std::vector<std::pair<double, double>> drone_positions;
     std::vector<std::pair<double, double>> drone_goals;
     for (const auto &fly_agent : fly_agents_) {
-        drone_positions.push_back(state_features::GridPositionDoubleNorm(fly_agent->GetLastState()));
-        drone_goals.push_back(state_features::GoalPositionNorm(fly_agent->GetLastState()));
+        auto gp = state_features::GridPositionDouble(fly_agent->GetLastState());
+        drone_positions.push_back({(2.0 * gp.first / norm_map) - 1.0,
+                                   (2.0 * gp.second / norm_map) - 1.0});
+        const auto& last = fly_agent->GetLastState();
+        drone_goals.push_back({(2.0 * last.goal_position.first / norm_map) - 1.0,
+                               (2.0 * last.goal_position.second / norm_map) - 1.0});
     }
 
     // Centralized Training, Decentralized Execution (CTDE):
     // During training the planner has access to ground-truth fire positions
     // (centralized information), while at eval time it relies only on
     // explored/discovered fires via the fire map (decentralized observation).
+    std::shared_ptr<std::vector<std::pair<double, double>>> raw_fires;
     if (eval_mode_) {
-        state->fire_positions = grid_map->GetFirePositionsFromFireMap();
+        raw_fires = grid_map->GetFirePositionsFromFireMap();
     } else {
-        state->fire_positions = grid_map->GetFirePositionsFromBurningCells();
+        raw_fires = grid_map->GetFirePositionsFromBurningCells();
     }
+
+    // Normalize fire positions to the same map-based scale as drone positions.
+    auto normalized_fires = std::make_shared<std::vector<std::pair<double, double>>>();
+    normalized_fires->reserve(raw_fires->size());
+
+    // Index 0 is the groundstation — use its real normalized position
+    auto gs_pos = grid_map->GetGroundstation()->GetGridPositionDouble();
+    normalized_fires->emplace_back(
+        (2.0 * gs_pos.first / norm_map) - 1.0,
+        (2.0 * gs_pos.second / norm_map) - 1.0
+    );
+
+    // Normalize all fire cell positions (skip index 0 which was the dummy)
+    for (size_t i = 1; i < raw_fires->size(); ++i) {
+        const auto& fp = (*raw_fires)[i];
+        normalized_fires->emplace_back(
+            (2.0 * fp.first / norm_map) - 1.0,
+            (2.0 * fp.second / norm_map) - 1.0
+        );
+    }
+
+    // Fire count: normalized by map area (exclude dummy at index 0)
+    int num_fires = static_cast<int>(raw_fires->size()) - 1;
+    state->fire_count = static_cast<double>(std::max(num_fires, 0))
+                      / static_cast<double>(grid_map->GetRows() * grid_map->GetCols());
+
+    // Fire centroid: mean of raw fire positions, normalized to match fire_positions space
+    if (num_fires > 0) {
+        double cx = 0.0, cy = 0.0;
+        for (size_t i = 1; i < raw_fires->size(); ++i) {
+            cx += (*raw_fires)[i].first;
+            cy += (*raw_fires)[i].second;
+        }
+        cx /= num_fires;
+        cy /= num_fires;
+        state->fire_centroid = {(2.0 * cx / norm_map) - 1.0,
+                                (2.0 * cy / norm_map) - 1.0};
+    } else {
+        state->fire_centroid = {0.0, 0.0};
+    }
+
+    state->fire_positions = normalized_fires;
     state->drone_positions = std::make_shared<std::vector<std::pair<double, double>>>(drone_positions);
     state->goal_positions = std::make_shared<std::vector<std::pair<double, double>>>(drone_goals);
 

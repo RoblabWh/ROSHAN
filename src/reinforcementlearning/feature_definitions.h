@@ -117,6 +117,16 @@ inline FeatureSchema CreateExploreAgentSchema() {
 inline FeatureSchema CreatePlannerAgentSchema() {
     FeatureSchema schema;
 
+    // FIXED: global fire summary (fire density + centroid)
+    auto& fire_globals = schema.AddGroup("fire_globals", FeatureGroupType::FIXED);
+    fire_globals.Add("fire_count", 1, [](const AgentState& s, float* o) {
+        o[0] = static_cast<float>(s.fire_count);
+    });
+    fire_globals.Add("fire_centroid", 2, [](const AgentState& s, float* o) {
+        o[0] = static_cast<float>(s.fire_centroid.first);
+        o[1] = static_cast<float>(s.fire_centroid.second);
+    });
+
     // SET groups: drone/goal/fire positions are global scene collections shared
     // across all agents. Zero-padding is sufficient for absent slots — no mask
     // is exposed to Python (unlike RELATIONAL neighbors).

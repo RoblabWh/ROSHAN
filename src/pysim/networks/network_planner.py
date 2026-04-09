@@ -21,6 +21,8 @@ class Inputspace(nn.Module):
         self.goal_emb = nn.Sequential(nn.Linear(2, hidden_dim), nn.ReLU())
         self.fire_emb = nn.Sequential(nn.Linear(2, hidden_dim), nn.ReLU())
         self.vel_emb = nn.Sequential(nn.Linear(2, hidden_dim), nn.ReLU())
+        self.fire_count_emb = nn.Sequential(nn.Linear(1, hidden_dim), nn.ReLU())
+        self.fire_centroid_emb = nn.Sequential(nn.Linear(2, hidden_dim), nn.ReLU())
         self.id_emb = nn.Embedding(drone_dim, hidden_dim)
 
         # Fusion MLP: cat(pos, goal, id, vel) -> hidden
@@ -67,6 +69,13 @@ class Inputspace(nn.Module):
         goal_positions = self._ensure_tensor(states["goal_positions"])
         fire_states = self._select_last_timestep(self._ensure_tensor(states["fire_positions"]))
 
+        # Fire globals: FIXED group → (B, T, 3), select last timestep → (B, 3)
+        fire_globals = self._ensure_tensor(states["fire_globals"])
+        if fire_globals.dim() == 3:
+            fire_globals = fire_globals[:, -1, :]
+        fire_count = fire_globals[:, :1]      # (B, 1)
+        fire_centroid = fire_globals[:, 1:]   # (B, 2)
+
         # Extract velocity before collapsing timesteps
         if drone_states.dim() == 4 and drone_states.shape[1] >= 2:
             velocity = drone_states[:, -1] - drone_states[:, -2]  # (B, N, 2)
@@ -80,10 +89,10 @@ class Inputspace(nn.Module):
 
         batch_size, n_drones, _ = drone_pos.shape
         agent_ids = self._agent_ids.unsqueeze(0).expand(batch_size, -1)
-        return drone_pos, goal_positions, fire_states, agent_ids, velocity
+        return drone_pos, goal_positions, fire_states, agent_ids, velocity, fire_count, fire_centroid
 
     def forward(self, states, mask=None):
-        drone_pos, goal_pos, fire_states, agent_ids, velocity = self.prepare_tensor(states)
+        drone_pos, goal_pos, fire_states, agent_ids, velocity, fire_count, fire_centroid = self.prepare_tensor(states)
 
         # Dynamic mask (fixes hardcoded size-2 default)
         if mask is None:
@@ -99,6 +108,12 @@ class Inputspace(nn.Module):
 
         # Fusion MLP (replaces additive collapse)
         drone_emb = self.fusion(torch.cat([pos_e, goal_e, id_e, vel_e], dim=-1))
+
+        # Inject global fire context (broadcast-add over all drones)
+        fire_count_e = self.fire_count_emb(fire_count)        # (B, 64)
+        fire_centroid_e = self.fire_centroid_emb(fire_centroid) # (B, 64)
+        global_ctx = (fire_count_e + fire_centroid_e).unsqueeze(1)  # (B, 1, 64)
+        drone_emb = drone_emb + global_ctx
 
         # Self-attention among drones + residual + LayerNorm
         self_out, _ = self.self_attn(drone_emb, drone_emb, drone_emb)

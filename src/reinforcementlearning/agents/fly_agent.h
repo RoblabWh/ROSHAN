@@ -120,6 +120,7 @@ public:
     void CommandRecharge(bool recharge) { planner_commanded_recharge_ = recharge; still_charging_ = true; }
     bool StillCharging() const { return still_charging_; }
     double GetWaterCapacity() const { return water_capacity_; }
+    double GetNormScale() const { return norm_scale_; }
     std::vector<std::vector<double>> GetDistancesToOtherAgents() const { return distance_to_other_agents_; }
     std::vector<bool> GetDistanceMask() const { return distance_mask_; }
 private:

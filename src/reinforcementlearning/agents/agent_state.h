@@ -28,6 +28,8 @@ struct AgentState : public State {
     std::shared_ptr<std::vector<std::pair<double, double>>> fire_positions =
         std::make_shared<std::vector<std::pair<double, double>>>();
     std::shared_ptr<std::vector<std::pair<double, double>>> goal_positions;
+    double fire_count{0.0};                             // num_fires / (rows*cols)
+    std::pair<double, double> fire_centroid{0.0, 0.0};  // normalized to same space as fire_positions
 };
 
 // Computed feature helpers operating on AgentState
@@ -48,7 +50,8 @@ inline std::pair<double, double> PositionNormAroundCenter(const AgentState& s) {
 }
 
 inline std::pair<double, double> GoalPositionNorm(const AgentState& s) {
-    return {s.goal_position.first / s.norm_scale, s.goal_position.second / s.norm_scale};
+    return {(2.0 * s.goal_position.first / s.norm_scale) - 1.0,
+            (2.0 * s.goal_position.second / s.norm_scale) - 1.0};
 }
 
 inline std::pair<double, double> VelocityNorm(const AgentState& s) {
