@@ -21,7 +21,7 @@ settings:
   # Will probably break everything if set to true
   llm_support: false
   # Type of hierarchy to use for the agents (fly_agent, explore_agent, planner_agent)
-  hierarchy_type: planner_agent
+  hierarchy_type: fly_agent
   # Uses this config as default and skips the GUI setup
   skip_gui_init: true
   # Enable PyTorch autograd anomaly detection (useful for debugging; slows down training)
@@ -31,16 +31,16 @@ settings:
   # Settings for automatic training of multiple runs under the same config
   auto_train:
     # Use or don't use automatic training
-    use_auto_train: false
+    use_auto_train: true
     # Number of total trainings, each containing max_train train_steps
     # automatically set to 1 when use_auto_train is false
-    train_episodes: 3
+    train_episodes: 10
     # Maximum number of train_steps(NOT policy steps) to perform
     # this setting is also used in case of NoGUI mode to determine when to stop training and switch to evaluation
     # This setting gets overridden in IQL settings and is calculated as the total number of offline_updates + online_updates
     max_train: 100 #12000 for TD3 ~ 8.5h
     # Maximum number of evaluations(one evaluation = one environment completed) to perform
-    max_eval: 2
+    max_eval: 100
   optuna:
     use_optuna: false # Whether to use Optuna for hyperparameter optimization
     study_name: "fly_model_study_LR" # Name of the Optuna study
@@ -59,7 +59,7 @@ paths:
   # This is the root_path where your NEW trained models data is stored
   # Loading for your ROOT Model(chosen hierarchy) is ALSO done from here (Eval and Resuming Training)
   # Absolute or relative to the project root
-  model_directory: models/test_plan #PPO_4A_NoManualDecay_P9Like
+  model_directory: models/FlyTest_AdamWs #PPO_4A_NoManualDecay_P9Like
   # Leave this empty to get a default name from this config (best practice for training)
   # You can fast load models with suffixes ["latest", "best_reward", "best_obj"]
   # If you want to load a specific model, set the model_name to the name of the model file
@@ -80,43 +80,51 @@ algorithm:
   use_tanh_dist: true
   # JIT-compile actor/critic networks with torch.compile() for faster forward/backward passes
   # First episode will be slower due to compilation; subsequent episodes 10-30% faster
-  use_torch_compile: true
+  use_torch_compile: false
   # Compilation mode: "reduce-overhead" (best for small models), "default", or "max-autotune"
   compile_mode: "reduce-overhead"
   PPO:
-    # Size of the Replay Buffer 
+    # Size of the Replay Buffer
     # Gets cleaned up after each training episode
     # Needs to be bigger when trying to safe the buffer
     memory_size: 1.0e+6
     # Learning rate for the optimizer #1.575e-4 for FlyAgent #1.0e-4 for PlannerAgent
-    lr: 1.0e-4 #Top10: 2.965e-4 # Learning rate for the optimizer
+    lr: 1.575e-4 #Top10: 2.965e-4 # Learning rate for the optimizer
     # Batch size for the optimizer
-    batch_size: 1200 #2000 #300 #2048
+    batch_size: 500 #2000 #300 #2048
     # Number of steps to collect before updating the model
-    horizon: 4800 #66000 #3600 #65536
+    horizon: 10000 #66000 #3600 #65536
     # Number of epochs to update the model
     k_epochs: 3
     # Coefficient for the entropy loss
     entropy_coeff: 0.0005
     # Coefficient for the value loss (no effect if separate_optimizers is true)
-    value_loss_coef: 0.001
+    value_loss_coef: 0.5
     # Use separate optimizers for the policy and value networks
-    # If this is set to false, a single optimizer will be used for 
+    # If this is set to false, a single optimizer will be used for
     # both networks (only works if share_encoder is false)
     separate_optimizers: false
-    # Beta1 for the Adam optimizer
-    beta1: 0.9 
-    # Beta2 for the Adam optimizer
-    beta2: 0.999 
+    # Optimizer config — type + any kwargs accepted by that optimizer
+    # Available: Adam, AdamW, SGD, RMSprop, RAdam, Muon
+    optimizer:
+      type: AdamW
+      betas: [0.9, 0.999]
+      eps: 1.0e-5
+      weight_decay: 0
+    # Scheduler config — type + any kwargs accepted by that scheduler
+    # Available: CosineAnnealingLR, CosineAnnealingWarmRestarts, StepLR, ExponentialLR, ConstantLR, None
+    scheduler:
+      type: CosineAnnealingLR
+      T_max: 1000000
     # Discount factor for the rewards
-    gamma: 0.999
+    gamma: 0.9635
     # Lambda for the Generalized Advantage Estimation (GAE)
-    _lambda: 0.98
+    _lambda: 0.9
     # Clipping value for the PPO loss #0.2783
     eps_clip: 0.2
     # Manual decay of the log_std parameter in stochastic policies
     # If set to false, the log_std is learned by the network(state independent)
-    manual_decay: false
+    manual_decay: true
     # Two types of manual decay implemented: train_step decay and logarithmic decay
     # train_step decay: reduces log_std based on the training step count using an exponential, causing a smooth nonlinear decay over time
     # logarithmic decay: applies the decay to the current log_std, producing a multiplicative, logarithmic reduction per update step
@@ -155,7 +163,7 @@ algorithm:
     # Target network soft update rate
     tau: 0.005
     # Temperature for the IQL loss
-    temperature: 3.0 
+    temperature: 3.0
     # Frequency of policy updates in online finetuning
     # i.e. how many environment steps between the next policy update
     policy_freq: 50
@@ -166,10 +174,14 @@ algorithm:
     online_updates: 0
     # Number of epochs in online-finetuning, has no effect on offline training
     k_epochs: 1
-    # Beta1 for the Adam optimizer
-    beta1: 0.9 
-    # Beta2 for the Adam optimizer
-    beta2: 0.999 
+    optimizer:
+      type: Adam
+      betas: [0.9, 0.999]
+      eps: 1.0e-5
+      weight_decay: 0
+    scheduler:
+      type: CosineAnnealingLR
+      T_max: 1000000
   TD3:
     # Learning rate for the optimizer
     lr: 1.0e-4
@@ -184,8 +196,14 @@ algorithm:
     policy_noise: 0.2 # Noise added to the policy network
     noise_clip: 0.5 # Clipping value for the noise
     policy_freq: 2 # Frequency of policy updates
-    beta1: 0.9 # Beta1 for the Adam optimizer
-    beta2: 0.999 # Beta2 for the Adam optimizer
+    optimizer:
+      type: Adam
+      betas: [0.9, 0.999]
+      eps: 1.0e-5
+      weight_decay: 0
+    scheduler:
+      type: CosineAnnealingLR
+      T_max: 1000000
 
 fire_model:
   # Rendering Parameters
@@ -243,7 +261,7 @@ environment:
     fire_pattern: cluster
     # Percentage of cells that should be ignited at the start of the simulation [0.0 - 1.0]
     # Setting this to < 0.0 will lead to randomly generated fire_percentage between (0, 1]
-    fire_percentage: 0.35
+    fire_percentage: 0.05
     # How many clusters of fire should be started at the beginning of the simulation
     # Setting this to <= 0 will lead to single cells being ignited randomly according to fire_percentage
     num_fire_clusters: 2
@@ -274,7 +292,7 @@ environment:
     fly_agent:
       # Whether the agent should avoid collisions with other agents
       # This changes the network input space and terminal conditions
-      collision: true
+      collision: false
       # Two types of policies can be learned:
       # Simple Policy: The episode ends when one agent reaches its goal_position
       # Complex Policy: The episode ends when all fires are extinguished (this influences the reward structure slightly)
@@ -327,10 +345,10 @@ environment:
       # View range of the explore_agent in cells
       view_range: 20 
       # Default model path for the fly_agent (either absolute or relative to the project root)
-      default_model_folder: "models/test/"
+      default_model_folder: "models/SimpleFlyAgent/"
       # You can fast load models with suffixes ["latest", "best_reward", "best_objective"]
       # If you want to load a specific model, set the model_name to the name of the model file
-      default_model_name: best_reward
+      default_model_name: best_obj
     planner_agent:
       # Hierarchy Timesteps (number of low-level steps per high-level step)
       hierarchy_timesteps: 5
@@ -347,7 +365,7 @@ environment:
       # View range of the ExtinguishAgent in cells
       view_range: 10 
       # Default model path for the fly_agent (either absolute or relative to the project root)
-      default_model_folder: "models/test/"
+      default_model_folder: "models/SimpleFlyAgent/"
       # You can fast load models with suffixes ["latest", "best_reward", "best_objective"]
       # If you want to load a specific model, set the model_name to the name of the model file
       default_model_name: best_obj
@@ -366,3 +384,5 @@ environment:
         ExtinguishFires: 0.6054212968617818
         # Reward FACTOR for fast extinguishing
         FastExtinguish: 0.21654104693212245
+        # Reward FACTOR for drones getting closer to their assigned goals
+        DistanceProgress: 0.1

@@ -79,25 +79,30 @@ class IQL(RLAlgorithm):
         Initializes the optimizers for the policy networks.
         This method is called when the algorithm is reset or loaded.
         """
-        self.actor_optimizer = torch.optim.Adam(self.policy.actor.parameters(), lr=self.lr, betas=(self.beta1, self.beta2), eps=1e-5)
-        self.critic_optimizer = torch.optim.Adam(self.policy.critic.parameters(), lr=self.lr, betas=(self.beta1, self.beta2), eps=1e-5)
-        self.value_optimizer = torch.optim.Adam(self.policy.value.parameters(), lr=self.lr, betas=(self.beta1, self.beta2), eps=1e-5)
-        self.actor_scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(self.actor_optimizer, T_max=int(1e6))
-        self.critic_scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(self.critic_optimizer, T_max=int(1e6))
-        self.value_scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(self.value_optimizer, T_max=int(1e6))
+        from algorithms.optimizer_factory import create_optimizer, create_scheduler
+        self.actor_optimizer = create_optimizer(self.optimizer, self.policy.actor.parameters(), lr=self.lr)
+        self.critic_optimizer = create_optimizer(self.optimizer, self.policy.critic.parameters(), lr=self.lr)
+        self.value_optimizer = create_optimizer(self.optimizer, self.policy.value.parameters(), lr=self.lr)
+        self.actor_scheduler = create_scheduler(self.scheduler, self.actor_optimizer)
+        self.critic_scheduler = create_scheduler(self.scheduler, self.critic_optimizer)
+        self.value_scheduler = create_scheduler(self.scheduler, self.value_optimizer)
         self.offline_start = True
         self.offline_end = False
 
     def save_optimizers(self, path: str):
         path += "_iql_optimizers.pth"
-        torch.save({
+        state = {
             'actor_optimizer_state_dict': self.actor_optimizer.state_dict(),
             'critic_optimizer_state_dict': self.critic_optimizer.state_dict(),
             'value_optimizer_state_dict': self.value_optimizer.state_dict(),
-            'actor_scheduler_state_dict': self.actor_scheduler.state_dict(),
-            'critic_scheduler_state_dict': self.critic_scheduler.state_dict(),
-            'value_scheduler_state_dict': self.value_scheduler.state_dict(),
-        }, path)
+        }
+        if self.actor_scheduler is not None:
+            state['actor_scheduler_state_dict'] = self.actor_scheduler.state_dict()
+        if self.critic_scheduler is not None:
+            state['critic_scheduler_state_dict'] = self.critic_scheduler.state_dict()
+        if self.value_scheduler is not None:
+            state['value_scheduler_state_dict'] = self.value_scheduler.state_dict()
+        torch.save(state, path)
 
     def load_optimizers(self, path: str):
         path += "_iql_optimizers.pth"
@@ -106,9 +111,12 @@ class IQL(RLAlgorithm):
             self.actor_optimizer.load_state_dict(checkpoint['actor_optimizer_state_dict'])
             self.critic_optimizer.load_state_dict(checkpoint['critic_optimizer_state_dict'])
             self.value_optimizer.load_state_dict(checkpoint['value_optimizer_state_dict'])
-            self.actor_scheduler.load_state_dict(checkpoint['actor_scheduler_state_dict'])
-            self.critic_scheduler.load_state_dict(checkpoint['critic_scheduler_state_dict'])
-            self.value_scheduler.load_state_dict(checkpoint['value_scheduler_state_dict'])
+            if self.actor_scheduler is not None and 'actor_scheduler_state_dict' in checkpoint:
+                self.actor_scheduler.load_state_dict(checkpoint['actor_scheduler_state_dict'])
+            if self.critic_scheduler is not None and 'critic_scheduler_state_dict' in checkpoint:
+                self.critic_scheduler.load_state_dict(checkpoint['critic_scheduler_state_dict'])
+            if self.value_scheduler is not None and 'value_scheduler_state_dict' in checkpoint:
+                self.value_scheduler.load_state_dict(checkpoint['value_scheduler_state_dict'])
         except Exception as e:
             warnings.warn(f"Could not load IQL optimizers from {path}: {e}")
 
@@ -133,9 +141,9 @@ class IQL(RLAlgorithm):
         self.value_optimizer.zero_grad()
         value_loss.backward()
         self.value_optimizer.step()
-        self.value_scheduler.step()
-
-        logger.add_metric("train/value_LR", self.value_scheduler.get_last_lr())
+        if self.value_scheduler is not None:
+            self.value_scheduler.step()
+            logger.add_metric("train/value_LR", self.value_scheduler.get_last_lr())
         return value_loss.detach(), v.mean().detach()
 
     def update_q(self, states, actions, rewards, next_states, not_dones, logger=None):
@@ -149,9 +157,9 @@ class IQL(RLAlgorithm):
         self.critic_optimizer.zero_grad()
         critic_loss.backward()
         self.critic_optimizer.step()
-        self.critic_scheduler.step()
-
-        logger.add_metric("train/critic_LR", self.critic_scheduler.get_last_lr())
+        if self.critic_scheduler is not None:
+            self.critic_scheduler.step()
+            logger.add_metric("train/critic_LR", self.critic_scheduler.get_last_lr())
         return critic_loss.detach(), q1.mean().detach(), q2.mean().detach()
 
     @torch.no_grad()
@@ -178,9 +186,9 @@ class IQL(RLAlgorithm):
         self.actor_optimizer.zero_grad()
         actor_loss.backward()
         self.actor_optimizer.step()
-        self.actor_scheduler.step()
-
-        logger.add_metric("train/actor_LR", self.actor_scheduler.get_last_lr())
+        if self.actor_scheduler is not None:
+            self.actor_scheduler.step()
+            logger.add_metric("train/actor_LR", self.actor_scheduler.get_last_lr())
         return actor_loss.detach(), adv.mean().detach()
 
     def get_batches_and_epochs(self, N, batch_size):

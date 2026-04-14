@@ -72,19 +72,24 @@ class TD3(RLAlgorithm):
             checkpoint = torch.load(path, map_location=self.device)
             self.actor_optimizer.load_state_dict(checkpoint['actor_optimizer_state_dict'])
             self.critic_optimizer.load_state_dict(checkpoint['critic_optimizer_state_dict'])
-            self.actor_scheduler.load_state_dict(checkpoint['actor_scheduler_state_dict'])
-            self.critic_scheduler.load_state_dict(checkpoint['critic_scheduler_state_dict'])
+            if self.actor_scheduler is not None and 'actor_scheduler_state_dict' in checkpoint:
+                self.actor_scheduler.load_state_dict(checkpoint['actor_scheduler_state_dict'])
+            if self.critic_scheduler is not None and 'critic_scheduler_state_dict' in checkpoint:
+                self.critic_scheduler.load_state_dict(checkpoint['critic_scheduler_state_dict'])
         except Exception as e:
             warnings.warn(f"Could not load TD3 optimizers from {path}: {e}")
 
     def save_optimizers(self, path: str):
         path += "_td3_optimizers.pth"
-        torch.save({
+        state = {
             'actor_optimizer_state_dict': self.actor_optimizer.state_dict(),
             'critic_optimizer_state_dict': self.critic_optimizer.state_dict(),
-            'actor_scheduler_state_dict': self.actor_scheduler.state_dict(),
-            'critic_scheduler_state_dict': self.critic_scheduler.state_dict(),
-        }, path)
+        }
+        if self.actor_scheduler is not None:
+            state['actor_scheduler_state_dict'] = self.actor_scheduler.state_dict()
+        if self.critic_scheduler is not None:
+            state['critic_scheduler_state_dict'] = self.critic_scheduler.state_dict()
+        torch.save(state, path)
 
     def copy_networks(self):
         self.critic_target = copy.deepcopy(self.policy.critic)
@@ -94,10 +99,11 @@ class TD3(RLAlgorithm):
         self.actor_target.eval()
 
     def initialize_optimizers(self):
-        self.actor_optimizer = torch.optim.Adam(self.policy.actor.parameters(), lr=self.lr, betas=(self.beta1, self.beta2), eps=1e-5)
-        self.actor_scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(self.actor_optimizer, T_max=int(1e6))
-        self.critic_optimizer = torch.optim.Adam(self.policy.critic.parameters(), lr=self.lr, betas=(self.beta1, self.beta2), eps=1e-5)
-        self.critic_scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(self.critic_optimizer, T_max=int(1e6))
+        from algorithms.optimizer_factory import create_optimizer, create_scheduler
+        self.actor_optimizer = create_optimizer(self.optimizer, self.policy.actor.parameters(), lr=self.lr)
+        self.actor_scheduler = create_scheduler(self.scheduler, self.actor_optimizer)
+        self.critic_optimizer = create_optimizer(self.optimizer, self.policy.critic.parameters(), lr=self.lr)
+        self.critic_scheduler = create_scheduler(self.scheduler, self.critic_optimizer)
 
     def set_train(self):
         self.policy.train()
@@ -161,8 +167,9 @@ class TD3(RLAlgorithm):
             self.critic_optimizer.zero_grad()
             critic_loss.backward()
             self.critic_optimizer.step()
-            self.critic_scheduler.step()
-            logger.add_metric("Training/LR_Critic", self.critic_scheduler.get_last_lr())
+            if self.critic_scheduler is not None:
+                self.critic_scheduler.step()
+                logger.add_metric("Training/LR_Critic", self.critic_scheduler.get_last_lr())
 
             # Delayed policy updates
             if self.total_it % self.policy_freq == 0:
@@ -175,8 +182,9 @@ class TD3(RLAlgorithm):
                 self.actor_optimizer.zero_grad()
                 actor_loss.backward()
                 self.actor_optimizer.step()
-                self.actor_scheduler.step()
-                logger.add_metric("Training/LR_Actor", self.actor_scheduler.get_last_lr())
+                if self.actor_scheduler is not None:
+                    self.actor_scheduler.step()
+                    logger.add_metric("Training/LR_Actor", self.actor_scheduler.get_last_lr())
 
                 # Update the frozen target models
                 with torch.no_grad():

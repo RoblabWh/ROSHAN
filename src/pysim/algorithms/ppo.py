@@ -44,33 +44,37 @@ class PPO(RLAlgorithm):
         Initializes the optimizers for the actor and critic networks.
         This method is called after the policy is reset or loaded.
         """
+        from algorithms.optimizer_factory import create_optimizer, create_scheduler
 
         if self.separate_optimizers:
-            self.optimizer_a = torch.optim.Adam(self.actor_params, lr=self.lr, betas=(self.beta1, self.beta2), eps=1e-5)
-            self.optimizer_c = torch.optim.Adam(self.critic_params, lr=self.lr, betas=(self.beta1, self.beta2), eps=1e-5)
-            self.scheduler_a = torch.optim.lr_scheduler.CosineAnnealingLR(self.optimizer_a, T_max=int(1e6))
-            self.scheduler_c = torch.optim.lr_scheduler.CosineAnnealingLR(self.optimizer_c, T_max=int(1e6))
+            self.optimizer_a = create_optimizer(self.optimizer, self.actor_params, lr=self.lr)
+            self.optimizer_c = create_optimizer(self.optimizer, self.critic_params, lr=self.lr)
+            self.scheduler_a = create_scheduler(self.scheduler, self.optimizer_a)
+            self.scheduler_c = create_scheduler(self.scheduler, self.optimizer_c)
         else:
             params = list(self.actor_params) + list(self.critic_params)
-            self.optimizer_a = torch.optim.Adam(params, lr=self.lr, betas=(self.beta1, self.beta2), eps=1e-5)
+            self.optimizer_a = create_optimizer(self.optimizer, params, lr=self.lr)
             self.optimizer_c = None
-            self.scheduler_a = torch.optim.lr_scheduler.CosineAnnealingLR(self.optimizer_a, T_max=int(1e6))
+            self.scheduler_a = create_scheduler(self.scheduler, self.optimizer_a)
             self.scheduler_c = None
 
     def save_optimizers(self, path: str):
         path += "_ppo_optimizers.pth"
         if self.separate_optimizers:
-            torch.save({
+            state = {
                 'actor_optimizer_state_dict': self.optimizer_a.state_dict(),
                 'critic_optimizer_state_dict': self.optimizer_c.state_dict(),
-                'actor_scheduler_state_dict': self.scheduler_a.state_dict(),
-                'critic_scheduler_state_dict': self.scheduler_c.state_dict(),
-            }, path)
+            }
+            if self.scheduler_a is not None:
+                state['actor_scheduler_state_dict'] = self.scheduler_a.state_dict()
+            if self.scheduler_c is not None:
+                state['critic_scheduler_state_dict'] = self.scheduler_c.state_dict()
+            torch.save(state, path)
         else:
-            torch.save({
-                'optimizer_state_dict': self.optimizer_a.state_dict(),
-                'scheduler_state_dict': self.scheduler_a.state_dict(),
-            }, path)
+            state = {'optimizer_state_dict': self.optimizer_a.state_dict()}
+            if self.scheduler_a is not None:
+                state['scheduler_state_dict'] = self.scheduler_a.state_dict()
+            torch.save(state, path)
 
     def load_optimizers(self, path: str):
         path += "_ppo_optimizers.pth"
@@ -79,11 +83,14 @@ class PPO(RLAlgorithm):
             if self.separate_optimizers:
                 self.optimizer_a.load_state_dict(checkpoint['actor_optimizer_state_dict'])
                 self.optimizer_c.load_state_dict(checkpoint['critic_optimizer_state_dict'])
-                self.scheduler_a.load_state_dict(checkpoint['actor_scheduler_state_dict'])
-                self.scheduler_c.load_state_dict(checkpoint['critic_scheduler_state_dict'])
+                if self.scheduler_a is not None and 'actor_scheduler_state_dict' in checkpoint:
+                    self.scheduler_a.load_state_dict(checkpoint['actor_scheduler_state_dict'])
+                if self.scheduler_c is not None and 'critic_scheduler_state_dict' in checkpoint:
+                    self.scheduler_c.load_state_dict(checkpoint['critic_scheduler_state_dict'])
             else:
                 self.optimizer_a.load_state_dict(checkpoint['optimizer_state_dict'])
-                self.scheduler_a.load_state_dict(checkpoint['scheduler_state_dict'])
+                if self.scheduler_a is not None and 'scheduler_state_dict' in checkpoint:
+                    self.scheduler_a.load_state_dict(checkpoint['scheduler_state_dict'])
         except Exception as e:
             self.logger.warning(f"Error loading optimizers from {path}: {e}.")
 
@@ -452,7 +459,8 @@ class PPO(RLAlgorithm):
                     torch.nn.utils.clip_grad_norm_(self.actor_params, max_norm=0.5)
                     torch.nn.utils.clip_grad_norm_(self.critic_params, max_norm=0.5)
                     self.optimizer_a.step()
-                    self.scheduler_a.step()
+                    if self.scheduler_a is not None:
+                        self.scheduler_a.step()
                 else:
                     # Combine losses and backward once to avoid retain_graph=True,
                     # which would keep the entire computation graph in memory.
@@ -466,8 +474,10 @@ class PPO(RLAlgorithm):
                     torch.nn.utils.clip_grad_norm_(self.critic_params, max_norm=0.5)
                     self.optimizer_a.step()
                     self.optimizer_c.step()
-                    self.scheduler_a.step()
-                    self.scheduler_c.step()
+                    if self.scheduler_a is not None:
+                        self.scheduler_a.step()
+                    if self.scheduler_c is not None:
+                        self.scheduler_c.step()
 
             # Single GPU→CPU transfer per epoch for all per-batch metrics
             if batch_approx_kls:
@@ -490,10 +500,11 @@ class PPO(RLAlgorithm):
                     logger.add_metric("Training/log_std", torch.exp(self.policy.actor.log_std).detach().cpu().numpy())
                 else:
                     logger.add_metric("Training/temperature", self.policy.actor.log_temperature.exp().detach().cpu().item())
-            if not self.separate_optimizers:
-                logger.add_metric("Training/LR", self.scheduler_a.get_last_lr())
-            else:
-                logger.add_metric("Training/LR", self.scheduler_a.get_last_lr() + self.scheduler_c.get_last_lr())
+            if self.scheduler_a is not None:
+                if not self.separate_optimizers:
+                    logger.add_metric("Training/LR", self.scheduler_a.get_last_lr())
+                else:
+                    logger.add_metric("Training/LR", self.scheduler_a.get_last_lr() + self.scheduler_c.get_last_lr())
 
             # Compute explained variance over the epoch — single CPU transfer
             epoch_values_cat = torch.cat(gpu_epoch_values).cpu().numpy()

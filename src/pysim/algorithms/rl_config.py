@@ -1,4 +1,4 @@
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 import logging
 from typing import Union
 
@@ -48,6 +48,14 @@ class RLConfig:
     use_torch_compile: bool = False
     compile_mode: str = "reduce-overhead"
 
+    # Optimizer / Scheduler (populated from config.yaml algorithm.<algo>.optimizer / .scheduler)
+    optimizer: dict = field(default_factory=lambda: {
+        "type": "Adam", "betas": [0.9, 0.999], "eps": 1e-5, "weight_decay": 0,
+    })
+    scheduler: dict = field(default_factory=lambda: {
+        "type": "CosineAnnealingLR", "T_max": 1000000,
+    })
+
 @dataclass
 class NoAlgorithmConfig(RLConfig):
     """
@@ -68,8 +76,6 @@ class PPOConfig(RLConfig):
     entropy_coeff: float = 0.0006 #0.001
     value_loss_coef: int = 0.5
     separate_optimizers: bool = False
-    beta1: float = 0.9
-    beta2: float = 0.999
     gamma: float = 0.9635 #0.99
     _lambda: float = 0.96
     eps_clip: float = 0.2783 #0.15 #0.2
@@ -96,8 +102,6 @@ class IQLConfig(RLConfig):
     offline_updates: int = 100000
     online_updates: int = 100000
     k_epochs: int = 20
-    beta1: float = 0.9
-    beta2: float = 0.999
     buffer_path: str = ""
 
 @dataclass
@@ -114,8 +118,6 @@ class TD3Config(RLConfig):
     policy_noise: float = 0.2
     noise_clip: float = 0.5
     policy_freq: int = 2
-    beta1: float = 0.9
-    beta2: float = 0.999
 
 def override_from_dict(config: Union[RLConfig, IQLConfig, PPOConfig, TD3Config], params: dict) -> Union[RLConfig, IQLConfig, PPOConfig, TD3Config]:
     """Override dataclass fields with values from a parameter dictionary.
