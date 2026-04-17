@@ -56,7 +56,11 @@ private:
 
     bool extinguished_last_fire_ = false;
     bool eval_mode_ = false;
-    double prev_mean_distance_ = 0.0;
+    // Sentinel -1.0 skips the first-step reward without biasing later comparisons
+    // (old 0.0 gated with '> 0.0' silently dropped any first step where the
+    // drone spawned on its goal).
+    double prev_mean_distance_ = -1.0;
+    double prev_num_burning_ = -1.0;
 
     std::shared_ptr<AgentState> BuildAgentState(const std::shared_ptr<GridMap> &grid_map) override;
 };

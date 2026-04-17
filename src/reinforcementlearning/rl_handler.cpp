@@ -124,12 +124,15 @@ py::dict ReinforcementLearningHandler::GetBatchedObservations(const std::string&
             // (zero-padding is sufficient). This is intentional — see
             // feature_schema.h for the design rationale.
 
-            // Determine max entities (neighbor slots) dynamically
+            // Determine max entities dynamically. Scan ALL agents and ALL
+            // timesteps so that groups whose entity count varies per timestep
+            // (e.g., planner fires) size correctly instead of being clipped
+            // or over-allocated based on a single state.
             int K = group.max_entities;
             if (K == 0 && group.entity_count) {
-                for (int i = 0; i < N && K == 0; ++i) {
-                    if (!agent_states[i].empty()) {
-                        K = group.entity_count(*agent_states[i][0]);
+                for (int i = 0; i < N; ++i) {
+                    for (auto* as : agent_states[i]) {
+                        K = std::max(K, group.entity_count(*as));
                     }
                 }
             }

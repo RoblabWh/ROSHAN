@@ -80,7 +80,8 @@ void PlannerAgent::Reset(Mode mode,
     extinguished_fires_ = 0;
     frame_ctrl_ = 0;
     extinguished_last_fire_ = false;
-    prev_mean_distance_ = 0.0;
+    prev_mean_distance_ = -1.0;
+    prev_num_burning_ = -1.0;
     perfect_goals_.clear();
     agent_states_.clear();
     Initialize(explore_agent_, fly_agents_, grid_map);
@@ -157,7 +158,21 @@ double PlannerAgent::CalculateReward(const std::shared_ptr<GridMap>& grid_map) {
 
     reward_components["ExtinguishedFires"] = extinguished_fires_ * parameters_.PlannerExtinguishFires_;
 
-    // Distance-based progress reward: reward drones for getting closer to their goals
+    // Spread-prevention: reward per-step reductions in total burning cells. Gives credit
+    // for containing fire fronts (what the nearest-neighbor heuristic only rewards at terminal).
+    double num_burning = static_cast<double>(grid_map->GetNumBurningCells());
+    if (prev_num_burning_ >= 0.0) {
+        double delta = prev_num_burning_ - num_burning;  // positive = spread contained
+        reward_components["SpreadPrevention"] = delta * parameters_.PlannerSpreadPrevention_;
+    }
+    prev_num_burning_ = num_burning;
+
+    // Distance-based progress reward: reward drones for getting closer to their goals.
+    // Normalize by map scale so the reward weight stays meaningful across map sizes —
+    // without this, a raw per-step improvement of ~10 cells on a small map gave the
+    // same numeric reward as 10 cells on a large map, even though semantically the
+    // large-map improvement is much smaller progress.
+    const double norm_map = static_cast<double>(std::max(grid_map->GetRows(), grid_map->GetCols()));
     double total_distance = 0.0;
     for (const auto& agent : fly_agents_) {
         auto pos = agent->GetGridPositionDouble();
@@ -166,8 +181,8 @@ double PlannerAgent::CalculateReward(const std::shared_ptr<GridMap>& grid_map) {
         double dy = goal.second - pos.second;
         total_distance += std::sqrt(dx * dx + dy * dy);
     }
-    double mean_distance = total_distance / static_cast<double>(fly_agents_.size());
-    if (prev_mean_distance_ > 0.0) {
+    double mean_distance = total_distance / static_cast<double>(fly_agents_.size()) / norm_map;
+    if (prev_mean_distance_ >= 0.0) {
         double distance_improvement = prev_mean_distance_ - mean_distance;
         reward_components["DistanceProgress"] = distance_improvement * parameters_.PlannerDistanceProgress_;
     }
@@ -237,12 +252,22 @@ std::shared_ptr<AgentState> PlannerAgent::BuildAgentState(const std::shared_ptr<
         );
     }
 
-    // Fire count: normalized by map area (exclude dummy at index 0)
+    // Fire count: log1p-normalized so the signal has useful magnitude across map
+    // sizes. Raw num_fires/(rows*cols) gave values like 0.008 for a 35×36 map
+    // with 10 burning cells — a near-zero input the network can barely read.
+    // log1p saturates gracefully as fires multiply and stays in [0, ~1] for any
+    // realistic burn up to the map area.
     int num_fires = static_cast<int>(raw_fires->size()) - 1;
-    state->fire_count = static_cast<double>(std::max(num_fires, 0))
-                      / static_cast<double>(grid_map->GetRows() * grid_map->GetCols());
+    const double log_area = std::log1p(
+        static_cast<double>(grid_map->GetRows() * grid_map->GetCols()));
+    state->fire_count = std::clamp(
+        std::log1p(static_cast<double>(std::max(num_fires, 0))) / log_area,
+        0.0, 1.0);
 
-    // Fire centroid: mean of raw fire positions, normalized to match fire_positions space
+    // Fire centroid: mean of raw fire positions, normalized to match fire_positions
+    // space. Use an out-of-range sentinel when no fires are burning so the network
+    // can distinguish "empty" from "fires at the map centre" — {0, 0} post-norm is
+    // exactly the map centre and ambiguous.
     if (num_fires > 0) {
         double cx = 0.0, cy = 0.0;
         for (size_t i = 1; i < raw_fires->size(); ++i) {
@@ -254,12 +279,21 @@ std::shared_ptr<AgentState> PlannerAgent::BuildAgentState(const std::shared_ptr<
         state->fire_centroid = {(2.0 * cx / norm_map) - 1.0,
                                 (2.0 * cy / norm_map) - 1.0};
     } else {
-        state->fire_centroid = {0.0, 0.0};
+        state->fire_centroid = {-2.0, -2.0};
     }
 
     state->fire_positions = normalized_fires;
     state->drone_positions = std::make_shared<std::vector<std::pair<double, double>>>(drone_positions);
     state->goal_positions = std::make_shared<std::vector<std::pair<double, double>>>(drone_goals);
+
+    // Global wind vector: components normalized to [-1, 1] by a fixed reference speed.
+    // kMaxWind = 2x the default config.yaml wind_uw (10.0 m/s); anything beyond is clamped.
+    constexpr double kMaxWind = 20.0;
+    auto wind = grid_map->GetWind();
+    state->wind_vector = {
+        std::clamp(wind->getWindSpeedComponent1() / kMaxWind, -1.0, 1.0),
+        std::clamp(wind->getWindSpeedComponent2() / kMaxWind, -1.0, 1.0)
+    };
 
     return state;
 }

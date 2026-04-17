@@ -30,6 +30,7 @@ struct AgentState : public State {
     std::shared_ptr<std::vector<std::pair<double, double>>> goal_positions;
     double fire_count{0.0};                             // num_fires / (rows*cols)
     std::pair<double, double> fire_centroid{0.0, 0.0};  // normalized to same space as fire_positions
+    std::pair<double, double> wind_vector{0.0, 0.0};    // (ux/Uw_max, uy/Uw_max), clamped [-1,1]
 };
 
 // Computed feature helpers operating on AgentState

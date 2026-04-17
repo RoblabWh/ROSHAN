@@ -76,6 +76,7 @@ public:
     std::vector<std::vector<int>> GetTotalDroneView(std::pair<int, int> drone_position, int view_radius) const;
     void SetGroundstation();
     std::shared_ptr<Groundstation> GetGroundstation() { return groundstation_; }
+    std::shared_ptr<Wind> GetWind() const { return wind_; }
     void SetGroundstationRenderer(SDL_Renderer* renderer) {groundstation_->SetRenderer(renderer);};
 
     void SetTerminals(bool terminal) {any_terminal_occured_ = terminal;}

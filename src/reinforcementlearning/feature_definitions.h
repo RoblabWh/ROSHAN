@@ -117,7 +117,7 @@ inline FeatureSchema CreateExploreAgentSchema() {
 inline FeatureSchema CreatePlannerAgentSchema() {
     FeatureSchema schema;
 
-    // FIXED: global fire summary (fire density + centroid)
+    // FIXED: global fire summary (fire density + centroid + wind vector)
     auto& fire_globals = schema.AddGroup("fire_globals", FeatureGroupType::FIXED);
     fire_globals.Add("fire_count", 1, [](const AgentState& s, float* o) {
         o[0] = static_cast<float>(s.fire_count);
@@ -125,6 +125,10 @@ inline FeatureSchema CreatePlannerAgentSchema() {
     fire_globals.Add("fire_centroid", 2, [](const AgentState& s, float* o) {
         o[0] = static_cast<float>(s.fire_centroid.first);
         o[1] = static_cast<float>(s.fire_centroid.second);
+    });
+    fire_globals.Add("wind", 2, [](const AgentState& s, float* o) {
+        o[0] = static_cast<float>(s.wind_vector.first);
+        o[1] = static_cast<float>(s.wind_vector.second);
     });
 
     // SET groups: drone/goal/fire positions are global scene collections shared
@@ -146,7 +150,11 @@ inline FeatureSchema CreatePlannerAgentSchema() {
     goals.extract_bulk = MakePairBulkExtractor(
         [](const AgentState& s) -> const PairVec& { return *s.goal_positions; });
 
-    auto& fires = schema.AddGroup("fire_positions", FeatureGroupType::SET);
+    // Fires are RELATIONAL so the validity mask reaches Python — the planner's
+    // pointer-network and cross-attention must distinguish real fires from
+    // zero-padded slots, otherwise phantom fires at the map centre attract
+    // attention mass and can be sampled as goals.
+    auto& fires = schema.AddGroup("fire_positions", FeatureGroupType::RELATIONAL);
     fires.bulk_dims = 2;
     fires.entity_count = [](const AgentState& s) {
         return static_cast<int>(s.fire_positions->size());

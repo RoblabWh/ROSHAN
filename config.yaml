@@ -21,7 +21,7 @@ settings:
   # Will probably break everything if set to true
   llm_support: false
   # Type of hierarchy to use for the agents (fly_agent, explore_agent, planner_agent)
-  hierarchy_type: fly_agent
+  hierarchy_type: planner_agent
   # Uses this config as default and skips the GUI setup
   skip_gui_init: true
   # Enable PyTorch autograd anomaly detection (useful for debugging; slows down training)
@@ -31,16 +31,16 @@ settings:
   # Settings for automatic training of multiple runs under the same config
   auto_train:
     # Use or don't use automatic training
-    use_auto_train: true
+    use_auto_train: false
     # Number of total trainings, each containing max_train train_steps
     # automatically set to 1 when use_auto_train is false
     train_episodes: 10
     # Maximum number of train_steps(NOT policy steps) to perform
     # this setting is also used in case of NoGUI mode to determine when to stop training and switch to evaluation
     # This setting gets overridden in IQL settings and is calculated as the total number of offline_updates + online_updates
-    max_train: 100 #12000 for TD3 ~ 8.5h
+    max_train: 10 #12000 for TD3 ~ 8.5h
     # Maximum number of evaluations(one evaluation = one environment completed) to perform
-    max_eval: 100
+    max_eval: 10
   optuna:
     use_optuna: false # Whether to use Optuna for hyperparameter optimization
     study_name: "fly_model_study_LR" # Name of the Optuna study
@@ -59,7 +59,7 @@ paths:
   # This is the root_path where your NEW trained models data is stored
   # Loading for your ROOT Model(chosen hierarchy) is ALSO done from here (Eval and Resuming Training)
   # Absolute or relative to the project root
-  model_directory: models/FlyTest_AdamWs #PPO_4A_NoManualDecay_P9Like
+  model_directory: models/PlannerAgentWithWind #PPO_4A_NoManualDecay_P9Like
   # Leave this empty to get a default name from this config (best practice for training)
   # You can fast load models with suffixes ["latest", "best_reward", "best_obj"]
   # If you want to load a specific model, set the model_name to the name of the model file
@@ -67,7 +67,7 @@ paths:
   # Name of the CORINE dataset-file, Path to the Corine dataset file must be set in project_paths.json (generated default paths at compile time)
   corine_dataset_name: CLMS_CLCplus_RASTER_2021_010m_eu_03035_V1_1.tif
   # This map is used in NoGUI & skip_gui_init setup, if left empty("") the default map (uniform map) will be used.
-  init_map: 35x36_Woods.tif #81x129_Campsite.tif
+  init_map: 81x129_Campsite.tif #35x36_Woods.tif #81x129_Campsite.tif
 #{'entropy_coeff': 1.230811218699769e-06, 'gamma': 0.9773972579784836, '_lambda': 0.9096741778233516, 'eps_clip': 0.22816431818213967}
 algorithm:
   # Share the encoder(Inputspace in the network files) between the policy and value networks
@@ -89,11 +89,11 @@ algorithm:
     # Needs to be bigger when trying to safe the buffer
     memory_size: 1.0e+6
     # Learning rate for the optimizer #1.575e-4 for FlyAgent #1.0e-4 for PlannerAgent
-    lr: 1.575e-4 #Top10: 2.965e-4 # Learning rate for the optimizer
+    lr: 1.0e-4 #Top10: 2.965e-4 # Learning rate for the optimizer
     # Batch size for the optimizer
     batch_size: 500 #2000 #300 #2048
     # Number of steps to collect before updating the model
-    horizon: 10000 #66000 #3600 #65536
+    horizon: 5000 #66000 #3600 #65536
     # Number of epochs to update the model
     k_epochs: 3
     # Coefficient for the entropy loss
@@ -117,14 +117,14 @@ algorithm:
       type: CosineAnnealingLR
       T_max: 1000000
     # Discount factor for the rewards
-    gamma: 0.9635
+    gamma: 0.995
     # Lambda for the Generalized Advantage Estimation (GAE)
-    _lambda: 0.9
+    _lambda: 0.95
     # Clipping value for the PPO loss #0.2783
     eps_clip: 0.2
     # Manual decay of the log_std parameter in stochastic policies
     # If set to false, the log_std is learned by the network(state independent)
-    manual_decay: true
+    manual_decay: false
     # Two types of manual decay implemented: train_step decay and logarithmic decay
     # train_step decay: reduces log_std based on the training step count using an exponential, causing a smooth nonlinear decay over time
     # logarithmic decay: applies the decay to the current log_std, producing a multiplicative, logarithmic reduction per update step
@@ -386,3 +386,6 @@ environment:
         FastExtinguish: 0.21654104693212245
         # Reward FACTOR for drones getting closer to their assigned goals
         DistanceProgress: 0.1
+        # Reward FACTOR per unit decrease in total burning cells per planner step
+        # (positive delta = fire contained). Small — must augment ExtinguishFires, not dominate.
+        SpreadPrevention: 0.05

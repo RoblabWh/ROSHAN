@@ -179,6 +179,7 @@ public:
         PlannerExtinguishFires_ = planner_reward["ExtinguishFires"].as<double>();
         PlannerFastExtinguish_ = planner_reward["FastExtinguish"].as<double>();
         PlannerDistanceProgress_ = planner_reward["DistanceProgress"].as<double>();
+        PlannerSpreadPrevention_ = planner_reward["SpreadPrevention"].as<double>();
 
         //Hierarchy steps
         auto hierarchy_type_ = config["settings"]["hierarchy_type"].as<std::string>();
@@ -507,6 +508,7 @@ public:
     double PlannerExtinguishFires_{};
     double PlannerFastExtinguish_{};
     double PlannerDistanceProgress_{};
+    double PlannerSpreadPrevention_{};
     int water_capacity_{};
     [[nodiscard]] int GetNumberOfFlyAgents() const {return number_of_flyagents_;}
     [[nodiscard]] int GetNumberOfExplorers() const {return number_of_explorers_;}
