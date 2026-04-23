@@ -11,9 +11,11 @@
 
 #include "imgui.h"
 #include "ConfigTable.h"
+#include "SchemaTable.h"
 #include "StatusIndicator.h"
 #include "ProgressBar.h"
 #include "../UITypes.h"
+#include "src/reinforcementlearning/feature_schema.h"
 #include "reinforcementlearning/agents/fly_agent.h"
 #include <memory>
 #include <string>
@@ -67,100 +69,62 @@ public:
             ImGui::SameLine();
             ImGui::Text("%s", drone->GetAgentSubType().c_str());
 
-            // Out of Area Counter
-            TableRow("GetOutOfAreaCounter", "%d", drone->GetOutOfAreaCounter());
+            const auto& last = drone->GetLastState();
 
-            // Goal Position
+            TableRow("Out of Area Counter", "%d", drone->GetOutOfAreaCounter());
+
             auto goalPos = drone->GetGoalPosition();
-            TableRow("GetGoalPosition", "(%.6f, %.6f)", goalPos.first, goalPos.second);
+            TableRow("Goal Position", "(%.6f, %.6f)", goalPos.first, goalPos.second);
 
-            // Real Position
             auto realPos = drone->GetRealPosition();
-            TableRow("GetRealPosition", "(%.6f, %.6f)", realPos.first, realPos.second);
+            TableRow("Real Position", "(%.6f, %.6f)", realPos.first, realPos.second);
 
-            // Grid Position
             auto gridPos = drone->GetGridPosition();
-            TableRow("GetGridPosition", "(%d, %d)", gridPos.first, gridPos.second);
+            TableRow("Grid Position", "(%d, %d)", gridPos.first, gridPos.second);
 
-            // Grid Position Double
-            auto gridPosDouble = state_features::GridPositionDouble(drone->GetLastState());
-            TableRow("GridPositionDouble", "(%.6f, %.6f)", gridPosDouble.first, gridPosDouble.second);
+            auto gridPosDouble = state_features::GridPositionDouble(last);
+            TableRow("Grid Position (double)", "(%.6f, %.6f)", gridPosDouble.first, gridPosDouble.second);
 
-            // Grid Position Double Normalized
-            auto gridPosDoubleNorm = state_features::GridPositionDoubleNorm(drone->GetLastState());
-            TableRow("GridPositionDoubleNorm", "(%.6f, %.6f)", gridPosDoubleNorm.first, gridPosDoubleNorm.second);
+            auto gridPosDoubleNorm = state_features::GridPositionDoubleNorm(last);
+            TableRow("Grid Position Norm", "(%.6f, %.6f)", gridPosDoubleNorm.first, gridPosDoubleNorm.second);
 
-            // Position Normalized Around Center
-            auto posNormCenter = state_features::PositionNormAroundCenter(drone->GetLastState());
-            TableRow("PositionNormAroundCenter", "(%.6f, %.6f)", posNormCenter.first, posNormCenter.second);
+            auto posNormCenter = state_features::PositionNormAroundCenter(last);
+            TableRow("Position Norm (around center)", "(%.6f, %.6f)", posNormCenter.first, posNormCenter.second);
 
-            // Distance to Nearest Boundary
-            TableRow("DistanceToNearestBoundaryNorm", "%.6f",
-                     state_features::DistanceToNearestBoundaryNorm(drone->GetLastState()));
+            auto goalNorm = state_features::GoalPositionNorm(last);
+            TableRow("Goal Position Norm", "(%.6f, %.6f)", goalNorm.first, goalNorm.second);
 
-            // Drone In Grid
-            TableRow("GetDroneInGrid", "%s", drone->GetDroneInGrid() ? "true" : "false");
+            auto orient = state_features::OrientationToGoal(last);
+            TableRow("Orientation To Goal", "(%.6f, %.6f)", orient.first, orient.second);
 
-            // Newly Explored Cells
-            TableRow("GetNewlyExploredCells", "%d", drone->GetNewlyExploredCells());
+            TableRow("Distance To Nearest Boundary Norm", "%.6f",
+                     state_features::DistanceToNearestBoundaryNorm(last));
 
-            // Revisited Cells
-            TableRow("GetLastTimeStepRevisitedCellsOfAllAgents", "%d", drone->GetRevisitedCells());
+            TableRow("Drone In Grid", "%s", drone->GetDroneInGrid() ? "true" : "false");
+
+            TableRow("Newly Explored Cells", "%d", drone->GetNewlyExploredCells());
+
+            TableRow("Revisited Cells (last step)", "%d", drone->GetRevisitedCells());
 
             ImGui::EndTable();
         }
     }
 
-    // Draw network input information table
-    static void DrawNetworkInputInfo(const std::shared_ptr<FlyAgent>& drone) {
+    // Draw network input information table.
+    // Schema-driven: iterates the supplied FeatureSchema and renders each group
+    // by invoking the same extract lambdas the observation batcher uses.
+    // Pass nullptr for `schema` to show a placeholder.
+    static void DrawNetworkInputInfo(const std::shared_ptr<FlyAgent>& drone,
+                                     const FeatureSchema* schema) {
         if (!drone) return;
 
         ImGui::Spacing();
 
-        // Collapsible section
         if (!ImGui::CollapsingHeader("Network Input", ImGuiTreeNodeFlags_DefaultOpen)) {
             return;
         }
 
-        if (ImGui::BeginTable("NetworkInputTable", 2, ImGuiTableFlags_Borders | ImGuiTableFlags_RowBg)) {
-            ImGui::TableSetupColumn("Label", ImGuiTableColumnFlags_WidthFixed, 200.0f);
-            ImGui::TableSetupColumn("Value", ImGuiTableColumnFlags_WidthStretch);
-            ImGui::TableHeadersRow();
-
-            // Velocity Normalized
-            auto velocityNorm = state_features::VelocityNorm(drone->GetLastState());
-            TableRow("VelocityNorm", "%.6f, %.6f", velocityNorm.first, velocityNorm.second);
-
-            // Delta Goal
-            auto deltaGoal = state_features::DeltaGoal(drone->GetLastState());
-            TableRow("DeltaGoal", "(%.6f, %.6f)", deltaGoal.first, deltaGoal.second);
-
-            // Cos/Sin to Goal
-            auto cosSinGoal = state_features::CosSinToGoal(drone->GetLastState());
-            TableRow("CosSinToGoal", "%.6f, %.6f", cosSinGoal.first, cosSinGoal.second);
-
-            // Speed
-            TableRow("Speed", "%.6f", state_features::Speed(drone->GetLastState()));
-
-            // Distance to Goal
-            TableRow("DistanceToGoal", "%.6f", state_features::DistanceToGoal(drone->GetLastState()));
-
-            // Distances to Other Agents
-            auto distances = *drone->GetLastState().distances_to_other_agents;
-            auto masks = *drone->GetLastState().distances_mask;
-            for (size_t i = 0; i < distances.size(); ++i) {
-                ImGui::TableNextRow();
-                ImGui::TableNextColumn();
-                ImGui::Text("Distance_%d", static_cast<int>(i));
-                ImGui::TableNextColumn();
-                ImGui::Text("[dx,dy]: (%.6f, %.6f)\n[dvx, dvy]: (%.6f, %.6f)\n(Mask: %d)",
-                            distances[i][0], distances[i][1],
-                            distances[i][2], distances[i][3],
-                            static_cast<bool>(masks[i]));
-            }
-
-            ImGui::EndTable();
-        }
+        SchemaTable::Draw(schema, drone->GetLastState());
     }
 
     // Draw reward components table with visual bars

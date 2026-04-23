@@ -144,6 +144,23 @@ public:
         }
         return fly_agents;
     }
+
+    // Read-only access to the schema for a given agent_type. Used by the GUI
+    // to render the same feature pipeline the network consumes — keeps the
+    // displayed "Network Input" identical to what GetBatchedObservations() emits.
+    const FeatureSchema* GetSchema(const std::string& agent_type) const {
+        auto it = schemas_.find(agent_type);
+        return it == schemas_.end() ? nullptr : &it->second;
+    }
+
+    // Returns the planner instance (or nullptr when the active hierarchy has none).
+    // Multiple planners aren't currently a thing, so we expose just the first.
+    std::shared_ptr<PlannerAgent> GetPlannerAgent() const {
+        auto it = agents_by_type_.find("planner_agent");
+        if (it == agents_by_type_.end() || it->second.empty()) return nullptr;
+        return std::dynamic_pointer_cast<PlannerAgent>(it->second.front());
+    }
+
     std::function<void()> onUpdateRLStatus;
 private:
     std::shared_ptr<GridMap> gridmap_;

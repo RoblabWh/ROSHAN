@@ -178,7 +178,7 @@ void GridMap::RemoveReservation(std::pair<int, int> cell) {
 
 std::pair<double, double> GridMap::GetNextFire(std::pair<int, int> drone_position) {
     pruneReservations();
-    auto possible_fires = parameters_.eval_fly_policy_ ? this->GetRawFirePositionsFromFireMap() : burning_cells_;
+    auto possible_fires = parameters_.use_heuristic_ ? this->GetRawFirePositionsFromFireMap() : burning_cells_;
 
     if (possible_fires.empty()) {
         auto st = this->GetGroundstation()->GetGridPositionDouble();

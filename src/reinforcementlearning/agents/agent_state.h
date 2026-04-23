@@ -28,6 +28,8 @@ struct AgentState : public State {
     std::shared_ptr<std::vector<std::pair<double, double>>> fire_positions =
         std::make_shared<std::vector<std::pair<double, double>>>();
     std::shared_ptr<std::vector<std::pair<double, double>>> goal_positions;
+    // Per-drone water level normalized to [0, 1] (current / max). Populated by PlannerAgent::BuildAgentState.
+    std::shared_ptr<std::vector<double>> drone_water_levels;
     double fire_count{0.0};                             // num_fires / (rows*cols)
     std::pair<double, double> fire_centroid{0.0, 0.0};  // normalized to same space as fire_positions
     std::pair<double, double> wind_vector{0.0, 0.0};    // (ux/Uw_max, uy/Uw_max), clamped [-1,1]

@@ -205,7 +205,8 @@ void UIManager::FileHandling(const std::shared_ptr<DatasetHandler>& datasetHandl
 void UIManager::PyConfig(std::string& userInput, std::string& modelOutput,
                          const std::shared_ptr<GridMap>& gridmap,
                          const std::shared_ptr<std::vector<std::shared_ptr<FlyAgent>>>& drones,
-                         const std::shared_ptr<FireModelRenderer>& modelRenderer) {
+                         const std::shared_ptr<FireModelRenderer>& modelRenderer,
+                         ReinforcementLearningHandler* rlHandler) {
     userInput_ = &userInput;
     modelOutput_ = &modelOutput;
     gridmap_ = gridmap;
@@ -217,6 +218,7 @@ void UIManager::PyConfig(std::string& userInput, std::string& modelOutput,
         controlPanel_->SetGridMap(gridmap);
         controlPanel_->SetRenderer(modelRenderer);
         controlPanel_->SetDrones(drones);
+        controlPanel_->SetRLHandler(rlHandler);
         controlPanel_->SetUserInput(&userInput);
         controlPanel_->SetModelOutput(&modelOutput);
         controlPanel_->SetVisible(state_.visibility.controlPanel && state_.startup.modelStartupComplete);
@@ -233,6 +235,7 @@ void UIManager::PyConfig(std::string& userInput, std::string& modelOutput,
     rlStatus_->SetGridMap(gridmap);
     rlStatus_->SetRenderer(modelRenderer);
     rlStatus_->SetDrones(drones);
+    rlStatus_->SetRLHandler(rlHandler);
     rlStatus_->SetUserInput(&userInput);
     rlStatus_->SetModelOutput(&modelOutput);
     rlStatus_->SetVisible(state_.visibility.rlStatus && state_.startup.modelStartupComplete);

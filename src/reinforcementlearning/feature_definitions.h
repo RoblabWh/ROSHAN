@@ -142,6 +142,23 @@ inline FeatureSchema CreatePlannerAgentSchema() {
     drones.extract_bulk = MakePairBulkExtractor(
         [](const AgentState& s) -> const PairVec& { return *s.drone_positions; });
 
+    // Per-drone scalar: water level as fraction of tank (normalized in BuildAgentState).
+    // Separate SET group rather than extending drone_positions' pair-extractor keeps the
+    // spatial/scalar features cleanly decoupled and reuses the generic extractor untouched.
+    auto& drone_water = schema.AddGroup("drone_water", FeatureGroupType::SET);
+    drone_water.bulk_dims = 1;
+    drone_water.entity_count = [](const AgentState& s) {
+        return s.drone_water_levels ? static_cast<int>(s.drone_water_levels->size()) : 0;
+    };
+    drone_water.extract_bulk = [](const AgentState& s, float* data, bool* mask, int M, int D) {
+        (void)D;  // D is always 1 for this group
+        const int n = s.drone_water_levels ? static_cast<int>(s.drone_water_levels->size()) : 0;
+        for (int i = 0; i < M; i++) {
+            mask[i] = i < n;
+            data[i] = mask[i] ? static_cast<float>((*s.drone_water_levels)[i]) : 0.0f;
+        }
+    };
+
     auto& goals = schema.AddGroup("goal_positions", FeatureGroupType::SET);
     goals.bulk_dims = 2;
     goals.entity_count = [](const AgentState& s) {

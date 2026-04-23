@@ -5,8 +5,10 @@ settings:
   seed: -1
   # RL_MODE: Either "train" or "eval"
   rl_mode: train
-  # This parameter determines whether to evaluate the fly_agent policy with the extinguishing heuristic
-  eval_fly_policy: false
+  # Use the hardcoded greedy FlyPolicy state machine instead of a learned low-level policy.
+  # Only meaningful with hierarchy_type='fly_agent' in rl_mode='eval'. Ignored (with a warning) otherwise.
+  # Independent of use_water_limit — refueling now works for trained planners too.
+  use_heuristic: false
   # Resume training from a checkpoint
   # If set to true, the training will continue from the specified checkpoint
   resume: false
@@ -96,10 +98,14 @@ algorithm:
     # If this is set to false, a single optimizer will be used for 
     # both networks (only works if share_encoder is false)
     separate_optimizers: false
-    # Beta1 for the Adam optimizer
-    beta1: 0.9 
-    # Beta2 for the Adam optimizer
-    beta2: 0.999 
+    optimizer:
+      type: Adam
+      betas: [0.9, 0.999]
+      eps: 1.0e-5
+      weight_decay: 0
+    scheduler:
+      type: CosineAnnealingLR
+      T_max: 1000000
     # Discount factor for the rewards
     gamma: 0.9635
     # Lambda for the Generalized Advantage Estimation (GAE)
@@ -158,10 +164,14 @@ algorithm:
     online_updates: 0
     # Number of epochs in online-finetuning, has no effect on offline training
     k_epochs: 1
-    # Beta1 for the Adam optimizer
-    beta1: 0.9 
-    # Beta2 for the Adam optimizer
-    beta2: 0.999 
+    optimizer:
+      type: Adam
+      betas: [0.9, 0.999]
+      eps: 1.0e-5
+      weight_decay: 0
+    scheduler:
+      type: CosineAnnealingLR
+      T_max: 1000000
   TD3:
     # Learning rate for the optimizer
     lr: 1.0e-4
@@ -176,8 +186,14 @@ algorithm:
     policy_noise: 0.2 # Noise added to the policy network
     noise_clip: 0.5 # Clipping value for the noise
     policy_freq: 2 # Frequency of policy updates
-    beta1: 0.9 # Beta1 for the Adam optimizer
-    beta2: 0.999 # Beta2 for the Adam optimizer
+    optimizer:
+      type: Adam
+      betas: [0.9, 0.999]
+      eps: 1.0e-5
+      weight_decay: 0
+    scheduler:
+      type: CosineAnnealingLR
+      T_max: 1000000
 
 fire_model:
   # Rendering Parameters
@@ -251,13 +267,14 @@ environment:
     groundstation_start_percentage: 1
     # Other parameters that are currently hard-coded or only accessible via GUI will be added here later
   agent:
-    # If true, drones have a water limit and need to recharge at the groundstation
-    # Should only be used in evaluation mode for fly_policy eval for now
-    use_water_limit: false
+    # If true, drones have a finite water tank and must recharge at the groundstation.
+    # Works independently of use_heuristic: applies to trained PlannerAgents and to the heuristic FlyPolicy alike.
+    # Refuel is passive (fires whenever the drone is co-located with the groundstation and water < max).
+    use_water_limit: true
     # Number of water units a drone can carry (one unit extinguishes one cell)
-    water_capacity: 5
-    # Time in seconds to recharge water at the groundstation (set this to 0 for instant recharge)
-    recharge_time: 0.0
+    water_capacity: 4
+    # Time in seconds to recharge water at the groundstation (set this to 0 for instant recharge).
+    recharge_time: 2.0
     # Size of the drone in m (used for rendering and collision detection);
     # for convenience, all drones have the same size
     drone_size: 2
@@ -346,8 +363,10 @@ environment:
         GoalReached: 3.9105863581302542
         # Penalty for the Map being burned too much
         MapBurnedTooMuch: -2.1999479401238373
-        # Penalty for selecting the default goal (needed for the attention network when there are no valid fires)
+        # Penalty for selecting the groundstation goal while fires remain. Scaled by water fraction
+        # and only applied when water > FlyingTowardsGroundStation_water_threshold.
         FlyingTowardsGroundStation: -0.29328248592328265
+        FlyingTowardsGroundStation_water_threshold: 0.5
         # Penalty for each time step to encourage faster completion
         TimeOut: -2.3843039593546047
         # Penalty FACTOR for selecting the same goal for multiple agents

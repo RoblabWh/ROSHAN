@@ -58,8 +58,6 @@ void FlyAgent::Reset(Mode mode,
     did_hierarchy_step = false;
     collision_occurred_ = false;
     extinguished_fire_ = false;
-    planner_commanded_recharge_ = false;
-    still_charging_ = false;
     reward_components_.clear();
     num_extinguished_fires_ = 0;
     vel_vector_ = {0.0, 0.0};
@@ -98,36 +96,39 @@ void FlyAgent::InitializeFlyAgentStates(const std::shared_ptr<GridMap>& grid_map
 void FlyAgent::PerformFly(FlyAction* action, const std::string& hierarchy_type, const std::shared_ptr<GridMap>& gridMap) {
 
     this->Step(action->GetSpeedX(), action->GetSpeedY(), gridMap);
-    if (hierarchy_type == "fly_agent" && !parameters_.use_simple_policy_ && !is_explorer_ && !parameters_.eval_fly_policy_) {
+    if (hierarchy_type == "fly_agent" && !parameters_.use_simple_policy_ && !is_explorer_ && !parameters_.use_heuristic_) {
         if (almostEqual(this->GetGoalPosition(), this->GetGridPositionDouble())) {
             this->DispenseWaterCertain(gridMap);
             gridMap->RemoveReservation(this->GetGoalPositionInt());
             this->SetGoalPosition(gridMap->GetNextFire(this->GetGridPositionDouble()));
         }
         did_hierarchy_step = true;
-    } else if (hierarchy_type == "fly_agent" && parameters_.use_simple_policy_ && !is_explorer_ && !parameters_.eval_fly_policy_) {
+    }
+    else if (hierarchy_type == "fly_agent" && parameters_.use_simple_policy_ && !is_explorer_ && !parameters_.use_heuristic_) {
         if (almostEqual(this->GetGoalPosition(), this->GetGridPositionDouble())) {
             objective_reached_ = true;
         }
         did_hierarchy_step = true;
-    } else if (hierarchy_type == "fly_agent" && parameters_.eval_fly_policy_ && !is_explorer_) {
+    }
+    else if (hierarchy_type == "fly_agent" && parameters_.use_heuristic_ && !is_explorer_) {
         FlyPolicy(gridMap);
         did_hierarchy_step = true;
-    } else {
+    }
+    else {
         if (almostEqual(this->GetGoalPosition(), this->GetGridPositionDouble())) {
             objective_reached_ = true;
         }
         if (is_planner_agent_) {
             this->DispenseWaterCertain(gridMap);
-            if (planner_commanded_recharge_){
-                if(this->GetGoalPositionInt() == this->GetGridPosition()){
-                    if (this->water_capacity_ < parameters_.GetWaterCapacity()) {
-                        this->water_capacity_ += parameters_.GetWaterRefillDt();
-                    } else {
-                        planner_commanded_recharge_ = false;
-                        still_charging_ = false;
-                    }
-                }
+            // Passive refuel: fires whenever the drone is co-located with the groundstation
+            // and has tank headroom. Independent of the heuristic flag, so trained planners
+            // manage water through goal assignments to the groundstation action.
+            if (parameters_.use_water_limit_
+                && this->GetGridPosition() == gridMap->GetGroundstation()->GetGridPosition()
+                && this->water_capacity_ < parameters_.GetWaterCapacity()) {
+                this->water_capacity_ = std::min(
+                    this->water_capacity_ + parameters_.GetWaterRefillDt(),
+                    static_cast<double>(parameters_.GetWaterCapacity()));
             }
         }
     }
@@ -201,12 +202,12 @@ AgentTerminal FlyAgent::GetTerminalStates(bool eval_mode, const std::shared_ptr<
 
     if(!is_explorer_){
         // If the agent has flown out of the grid it has reached a terminal state and died
-        if (GetOutOfAreaCounter() > 1 && !parameters_.eval_fly_policy_) {
+        if (GetOutOfAreaCounter() > 1 && !parameters_.use_heuristic_) {
             t.is_terminal = true;
             t.reason = FailureReason::BoundaryExit;
         }
 
-        if (collision_occurred_ && parameters_.fly_agent_collision_ && !parameters_.eval_fly_policy_) {
+        if (collision_occurred_ && parameters_.fly_agent_collision_ && !parameters_.use_heuristic_) {
             t.is_terminal = true;
             t.reason = FailureReason::Collision;
         }
@@ -234,7 +235,7 @@ AgentTerminal FlyAgent::GetTerminalStates(bool eval_mode, const std::shared_ptr<
         if (objective_reached_) {
             t.is_terminal = true;
         }
-        if (parameters_.eval_fly_policy_ && !grid_map->HasBurningFires()){
+        if (parameters_.use_heuristic_ && !grid_map->HasBurningFires()){
             t.is_terminal = true;
         }
     }
@@ -351,9 +352,20 @@ bool FlyAgent::DispenseWaterCertain(const std::shared_ptr<GridMap>& grid_map) {
     if (grid_map->IsPointInGrid(grid_position.first, grid_position.second)){
         cell_is_burning = grid_map->At(grid_position.first, grid_position.second).IsBurning();
     }
+    // When use_water_limit is active, an empty tank cannot extinguish — this is the hard
+    // constraint that turns water into a real resource the planner must manage.
+    // Without this gate, water is cosmetic: drones keep extinguishing at water=0 and the
+    // observation signal has no causal effect on episode outcome.
+    if (parameters_.use_water_limit_ && water_capacity_ <= 0.0) {
+        dispensed_water_ = false;
+        extinguished_fire_ = false;
+        return false;
+    }
     if (cell_is_burning) {
         dispensed_water_ = true;
-        water_capacity_ -= parameters_.use_water_limit_ ? 1 : 0;
+        if (parameters_.use_water_limit_) {
+            water_capacity_ = std::max(0.0, water_capacity_ - 1.0);
+        }
         extinguished_fire_ = grid_map->WaterDispension(grid_position.first, grid_position.second);
         if (extinguished_fire_) {
             if (grid_map->GetNumBurningCells() == 0) {
@@ -431,7 +443,9 @@ void FlyAgent::FlyPolicy(const std::shared_ptr<GridMap>& gridmap){
     else if (this->policy_type_ == RECHARGE) {
         if (parameters_.use_water_limit_) {
             if (this->water_capacity_ < parameters_.GetWaterCapacity()) {
-                this->water_capacity_ += parameters_.GetWaterRefillDt();
+                this->water_capacity_ = std::min(
+                    this->water_capacity_ + parameters_.GetWaterRefillDt(),
+                    static_cast<double>(parameters_.GetWaterCapacity()));
             } else {
                 this->policy_type_ = EXTINGUISH_FIRE;
                 this->SetGoalPosition(gridmap->GetNextFire(this->GetGridPosition()));

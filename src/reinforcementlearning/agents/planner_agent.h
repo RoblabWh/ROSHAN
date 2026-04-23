@@ -61,6 +61,9 @@ private:
     // drone spawned on its goal).
     double prev_mean_distance_ = -1.0;
     double prev_num_burning_ = -1.0;
+    // Per-drone water levels from the previous planner step, used to compute the
+    // WaterRefill dense reward. Empty vector is the "first call" sentinel.
+    std::vector<double> prev_water_levels_;
 
     std::shared_ptr<AgentState> BuildAgentState(const std::shared_ptr<GridMap> &grid_map) override;
 };

@@ -3,6 +3,13 @@ from utils import SimulationBridge
 import logging
 
 
+def _use_heuristic(config):
+    settings = config["settings"]
+    if "use_heuristic" in settings:
+        return bool(settings["use_heuristic"])
+    return bool(settings.get("eval_fly_policy", False))
+
+
 class HierarchyManager:
     def __init__(self, config, sim_bridge : SimulationBridge):
         self.config = config
@@ -89,7 +96,7 @@ class HierarchyManager:
             self._reset_agent(medium)
 
         medium.hierarchy_early_stop = all(self.hierarchy["explore_low"].eval_loop(engine=engine, evaluate=False))
-        if self.config["settings"]["eval_fly_policy"]:
+        if _use_heuristic(self.config):
             self._eval_low(engine)
         medium.hierarchy_steps += 1
 
@@ -133,7 +140,7 @@ class HierarchyManager:
         agent_handler.load_model(change_status=True)
 
         self.hierarchy[agent_handler.hierarchy_level] = agent_handler
-        construct_medium = agent_handler.hierarchy_level in {"medium", "high"} or self.config["settings"]["eval_fly_policy"]
+        construct_medium = agent_handler.hierarchy_level in {"medium", "high"} or _use_heuristic(self.config)
 
         # Construct a low level agent if the current agent is a high level agent
         if agent_handler.hierarchy_level == "high":
@@ -148,7 +155,7 @@ class HierarchyManager:
 
         if construct_medium:
             # Construct a medium level agent if the current agent is a high level agent
-            if agent_handler.hierarchy_level == "high" or self.config["settings"]["eval_fly_policy"]:
+            if agent_handler.hierarchy_level == "high" or _use_heuristic(self.config):
                 medium_level_agent = self.builder.build(
                       agent_type="explore_agent",
                       mode="eval"

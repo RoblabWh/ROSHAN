@@ -226,7 +226,7 @@ void ImguiHandler::RLStatusParser(const py::dict& rl_status) {
     ImGui::Separator();
     ImGui::SetWindowFontScale(1.5f);
     ImGui::PushStyleColor(ImGuiCol_Text, color);
-    if (ImGui::Selectable("Mode of operation:") && !parameters_.eval_fly_policy_) {
+    if (ImGui::Selectable("Mode of operation:") && !parameters_.use_heuristic_) {
         ImGui::OpenPopup("Warning RL Mode");
     }
     ImGui::SetWindowFontScale(1.0f);
@@ -512,135 +512,9 @@ void ImguiHandler::PyConfig(std::string &user_input,
                         }
                     }
 
-                    // Display Drone Information
-                    ImGui::TextColored(color, "Drone State Information");
-                    if (ImGui::BeginTable("DroneInfoTable", 2, ImGuiTableFlags_Borders | ImGuiTableFlags_RowBg))
-                    {
-                        ImGui::TableSetupColumn("Label", ImGuiTableColumnFlags_WidthFixed, 200.0f);
-                        ImGui::TableSetupColumn("Value", ImGuiTableColumnFlags_WidthStretch);
-                        ImGui::TableHeadersRow();
-
-                        ImGui::TableNextRow();
-                        ImGui::TableNextColumn(); ImGui::Text("Agent Type");
-                        ImGui::TableNextColumn(); ImGui::Text("%s", selected_drone->GetAgentSubType().c_str());
-
-                        ImGui::TableNextRow();
-                        ImGui::TableNextColumn(); ImGui::Text("GetOutOfAreaCounter");
-                        ImGui::TableNextColumn(); ImGui::Text("%d", selected_drone->GetOutOfAreaCounter());
-
-                        ImGui::TableNextRow();
-                        ImGui::TableNextColumn(); ImGui::Text("GetGoalPosition");
-                        ImGui::TableNextColumn(); ImGui::Text("(%.6f, %.6f)",
-                                                              selected_drone->GetGoalPosition().first,
-                                                              selected_drone->GetGoalPosition().second);
-
-                        ImGui::TableNextRow();
-                        ImGui::TableNextColumn(); ImGui::Text("GetRealPosition");
-                        ImGui::TableNextColumn(); ImGui::Text("(%.6f, %.6f)",
-                                                              selected_drone->GetRealPosition().first,
-                                                              selected_drone->GetRealPosition().second);
-
-                        ImGui::TableNextRow();
-                        ImGui::TableNextColumn(); ImGui::Text("GetGridPosition");
-                        ImGui::TableNextColumn(); ImGui::Text("(%d, %d)",
-                                                              selected_drone->GetGridPosition().first,
-                                                              selected_drone->GetGridPosition().second);
-
-                        ImGui::TableNextRow();
-                        ImGui::TableNextColumn(); ImGui::Text("GetGridPositionDouble");
-                        ImGui::TableNextColumn(); ImGui::Text("(%.6f, %.6f)",
-                                                              state_features::GridPositionDouble(selected_drone->GetLastState()).first,
-                                                              state_features::GridPositionDouble(selected_drone->GetLastState()).second);
-
-                        ImGui::TableNextRow();
-                        ImGui::TableNextColumn(); ImGui::Text("GetGridPositionDoubleNorm");
-                        ImGui::TableNextColumn(); ImGui::Text("(%.6f, %.6f)",
-                                                              state_features::GridPositionDoubleNorm(selected_drone->GetLastState()).first,
-                                                              state_features::GridPositionDoubleNorm(selected_drone->GetLastState()).second);
-
-//                        ImGui::TableNextRow();
-//                        ImGui::TableNextColumn(); ImGui::Text("GetPositionInExplorationMap");
-//                        ImGui::TableNextColumn(); ImGui::Text("(%.6f, %.6f)",
-//                                                              selected_drone->GetLastState().GetPositionInExplorationMap().first,
-//                                                              selected_drone->GetLastState().GetPositionInExplorationMap().second);
-
-                        ImGui::TableNextRow();
-                        ImGui::TableNextColumn(); ImGui::Text("GetPositionNormAroundCenter");
-                        ImGui::TableNextColumn(); ImGui::Text("(%.6f, %.6f)",
-                                                              state_features::PositionNormAroundCenter(selected_drone->GetLastState()).first,
-                                                              state_features::PositionNormAroundCenter(selected_drone->GetLastState()).second);
-
-                        ImGui::TableNextRow();
-                        ImGui::TableNextColumn(); ImGui::Text("GetDistanceToNearestBoundaryNorm");
-                        ImGui::TableNextColumn(); ImGui::Text("%.6f", state_features::DistanceToNearestBoundaryNorm(selected_drone->GetLastState()));
-
-                        ImGui::TableNextRow();
-                        ImGui::TableNextColumn(); ImGui::Text("GetDroneInGrid");
-                        ImGui::TableNextColumn(); ImGui::Text("%s", selected_drone->GetDroneInGrid() ? "true" : "false");
-
-                        ImGui::TableNextRow();
-                        ImGui::TableNextColumn(); ImGui::Text("GetNewlyExploredCells");
-                        ImGui::TableNextColumn(); ImGui::Text("%d", selected_drone->GetNewlyExploredCells());
-
-                        ImGui::TableNextRow();
-                        ImGui::TableNextColumn(); ImGui::Text("GetLastTimeStepRevisitedCellsOfAllAgents");
-                        ImGui::TableNextColumn(); ImGui::Text("%d", selected_drone->GetRevisitedCells());
-
-                        ImGui::EndTable();
-                    }
-
-                    ImGui::Spacing();
-                    ImGui::Separator();
-                    ImGui::Spacing();
-                    ImGui::TextColored(color, "Drone Network Input");
-                    if (ImGui::BeginTable("NetworkInputTable", 2, ImGuiTableFlags_Borders | ImGuiTableFlags_RowBg)) {
-                        ImGui::TableSetupColumn("Label", ImGuiTableColumnFlags_WidthFixed, 200.0f);
-                        ImGui::TableSetupColumn("Value", ImGuiTableColumnFlags_WidthStretch);
-                        ImGui::TableHeadersRow();
-
-                        ImGui::TableNextRow();
-                        ImGui::TableNextColumn(); ImGui::Text("VelocityNorm");
-                        ImGui::TableNextColumn(); ImGui::Text("%.6f, %.6f",
-                                                              state_features::VelocityNorm(selected_drone->GetLastState()).first,
-                                                              state_features::VelocityNorm(selected_drone->GetLastState()).second);
-
-                        ImGui::TableNextRow();
-                        ImGui::TableNextColumn(); ImGui::Text("DeltaGoal");
-                        ImGui::TableNextColumn(); ImGui::Text("(%.6f, %.6f)",
-                                                              state_features::DeltaGoal(selected_drone->GetLastState()).first,
-                                                              state_features::DeltaGoal(selected_drone->GetLastState()).second);
-
-                        ImGui::TableNextRow();
-                        ImGui::TableNextColumn(); ImGui::Text("CosSinToGoal");
-                        ImGui::TableNextColumn(); ImGui::Text("%.6f, %.6f",
-                                                              state_features::CosSinToGoal(selected_drone->GetLastState()).first,
-                                                              state_features::CosSinToGoal(selected_drone->GetLastState()).second);
-
-                        ImGui::TableNextRow();
-                        ImGui::TableNextColumn(); ImGui::Text("Speed");
-                        ImGui::TableNextColumn(); ImGui::Text("%.6f",
-                                                              state_features::Speed(selected_drone->GetLastState()));
-
-                        ImGui::TableNextRow();
-                        ImGui::TableNextColumn(); ImGui::Text("DistanceToGoal");
-                        ImGui::TableNextColumn(); ImGui::Text("%.6f",
-                                                              state_features::DistanceToGoal(selected_drone->GetLastState()));
-
-                        auto distances_to_other_agents = *selected_drone->GetLastState().distances_to_other_agents;
-                        auto masks = *selected_drone->GetLastState().distances_mask;
-                        for (size_t i = 0; i < distances_to_other_agents.size(); ++i) {
-                            ImGui::TableNextRow();
-                            ImGui::TableNextColumn(); ImGui::Text("Distance_%d", static_cast<int>(i));
-                            ImGui::TableNextColumn(); ImGui::Text("[dx,dy]: (%.6f, %.6f)\n[dvx, dvy]: (%.6f, %.6f)\n(Mask: %d)",
-                                                                  distances_to_other_agents[i][0],
-                                                                  distances_to_other_agents[i][1],
-                                                                  distances_to_other_agents[i][2],
-                                                                  distances_to_other_agents[i][3],
-                                                                  static_cast<bool>(masks[i]));
-                        }
-
-                        ImGui::EndTable();
-                    }
+                    // Drone State / Network Input rendering moved to
+                    // src/firespin/rendering/imgui/components/{DroneInfoWidget,SchemaTable,PlannerInfoWidget}.h
+                    // and is invoked by ControlPanelWindow / RLStatusWindow via UIManager.
                     ImGui::Spacing();
                     ImGui::Separator();
                     ImGui::Spacing();

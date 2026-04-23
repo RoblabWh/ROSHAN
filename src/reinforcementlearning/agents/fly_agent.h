@@ -117,8 +117,6 @@ public:
     void ClearMask() { distance_mask_.clear(); }
     void AppendDistance(const std::vector<double> &dist) {distance_to_other_agents_.push_back(dist);}
     void AppendMask(bool mask) {distance_mask_.push_back(mask);}
-    void CommandRecharge(bool recharge) { planner_commanded_recharge_ = recharge; still_charging_ = true; }
-    bool StillCharging() const { return still_charging_; }
     double GetWaterCapacity() const { return water_capacity_; }
     double GetNormScale() const { return norm_scale_; }
     std::vector<std::vector<double>> GetDistancesToOtherAgents() const { return distance_to_other_agents_; }
@@ -180,8 +178,6 @@ private:
     bool should_render_ = true; // If false, the agent will not render anything
     bool is_explorer_ = false;
     bool is_planner_agent_ = false;
-    bool planner_commanded_recharge_ = false;
-    bool still_charging_ = false;
 };
 
 #endif //ROSHAN_FLY_AGENT_H

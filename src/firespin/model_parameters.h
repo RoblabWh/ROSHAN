@@ -52,7 +52,15 @@ public:
         gen_.seed(seed_);
         init_rl_mode_ = config["settings"]["rl_mode"].as<std::string>();
         cia_mode_ = config["settings"]["cia_mode"].as<bool>();
-        eval_fly_policy_ = config["settings"]["eval_fly_policy"].as<bool>();
+        // Accept both the new key and the legacy key ('eval_fly_policy') for one release.
+        if (config["settings"]["use_heuristic"]) {
+            use_heuristic_ = config["settings"]["use_heuristic"].as<bool>();
+        } else if (config["settings"]["eval_fly_policy"]) {
+            use_heuristic_ = config["settings"]["eval_fly_policy"].as<bool>();
+            std::cout << "[DEPRECATION] Config key 'eval_fly_policy' is deprecated; rename it to 'use_heuristic'." << std::endl;
+        } else {
+            use_heuristic_ = false;
+        }
 
         // Paths
         auto paths = config["paths"];
@@ -180,6 +188,23 @@ public:
         PlannerFastExtinguish_ = planner_reward["FastExtinguish"].as<double>();
         PlannerDistanceProgress_ = planner_reward["DistanceProgress"].as<double>();
         PlannerSpreadPrevention_ = planner_reward["SpreadPrevention"].as<double>();
+        // Water fraction above which assigning the groundstation is treated as "unnecessary"
+        // and penalized by FlyingTowardsGroundstation. Below this fraction, the penalty is skipped
+        // because a refuel is legitimate. Defaults to 0.5 if the key is absent (back-compat).
+        PlannerFlyingTowardsGroundstationWaterThreshold_ =
+            planner_reward["FlyingTowardsGroundStation_water_threshold"]
+                ? planner_reward["FlyingTowardsGroundStation_water_threshold"].as<double>()
+                : 0.5;
+        // Positive reward coefficient for fractional tank refills per planner step
+        // (new in this change). Default 0.0 preserves prior behavior for older configs.
+        PlannerWaterRefill_ = planner_reward["WaterRefill"]
+                ? planner_reward["WaterRefill"].as<double>()
+                : 0.0;
+        // Per-drone-per-step penalty for empty tanks while fires remain (new in this change).
+        // Default 0.0 preserves prior behavior for older configs.
+        PlannerEmptyTank_ = planner_reward["EmptyTank"]
+                ? planner_reward["EmptyTank"].as<double>()
+                : 0.0;
 
         //Hierarchy steps
         auto hierarchy_type_ = config["settings"]["hierarchy_type"].as<std::string>();
@@ -364,114 +389,57 @@ public:
     int current_env_steps_ = 0;
     [[nodiscard]] int GetCurrentEnvSteps() const {return current_env_steps_;}
     void SetCurrentEnvSteps(int steps) {current_env_steps_ = steps;}
-//    int GetTotalEnvSteps() const {return (int)((grid_nx_ * grid_ny_ * (0.1 / dt_)) + 80);}
-//    [[nodiscard]] int GetTotalEnvSteps() const {
-//        int agent_factor = hierarchy_type == "fly_agent" ? 1 : hierarchy_type == "explore_agent" ? 5 : 10;
-//        auto max_speed = hierarchy_type == "fly_agent" ? fly_agent_speed_ : hierarchy_type == "explore_agent" ? explore_agent_speed_ : extinguisher_speed_;
-//        return (int)(agent_factor * sqrt(grid_nx_ * grid_nx_ + grid_ny_ * grid_ny_) * (20 / (max_speed * dt_)));
-//    }
-
     double coverage_eff = 0.7; // Efficiency factor for exploration agents
     int total_env_steps_ = 0;
     double k_turn_ = 1.5; // Factor to account for turns and non-optimal paths
-    double slack_ = 2.0; // Slack factor to allow for exploration and other tasks
+    double slack_ = 4.0; // Slack factor to allow for exploration and other tasks
     const double beta_ = 0.42; // Scaling factor for path length estimation
-    const double beta_2_ = 0.32; // Alternative scaling factor for path length estimation
-    const double fire_time_ = this->GetDt(); // Scaling factor for time spent extinguishing each fire in seconds (s)
     std::string env_step_string_;
 
-
-
-    int GetTotalEnvSteps(bool is_eval) {
-        const double D = cell_size_ * std::hypot((double)grid_nx_, (double)grid_ny_); // Diagonal distance in meters
-        auto max_speed = hierarchy_type == "fly_agent" ? fly_agent_speed_ : hierarchy_type == "explore_agent" ? explore_agent_speed_ : extinguisher_speed_;
-        const double base_time = D / max_speed * k_turn_; // Base time in seconds
-        int T_physical = (int)std::ceil(base_time / dt_); // Convert to time steps
-        int T_Task = T_physical; // default
-
-        if (hierarchy_type == "fly_agent" && !eval_fly_policy_) {
-            T_Task = (int)std::ceil(slack_ * T_physical);
-            if (!use_simple_policy_) {
-                const int F = (int)std::ceil(fire_percentage_ * (double)(grid_nx_ * grid_ny_));
-                T_Task *= (int)std::ceil(beta_2_ * std::sqrt(std::max(1e-9, (double)(grid_nx_ * grid_ny_))) * std::sqrt((double)F) / max_speed);
-            }
-        }
-        else if (hierarchy_type == "explore_agent") {
-            const double A = (double)grid_nx_ * (double)grid_ny_;
-            const double steps_cover = A / std::max(1.0, (double)explore_agent_view_range_ * coverage_eff);
-            T_Task = (int)std::ceil(steps_cover);
-            T_Task = std::max(T_Task, (int)(slack_ * T_physical));
-        }
-        else if (hierarchy_type == "planner_agent" || eval_fly_policy_) {
-            const double area_m2 = (grid_nx_ * cell_size_) * (grid_ny_ * cell_size_);
-            const int F = (int)std::ceil(fire_percentage_ * (double)(grid_nx_ * grid_ny_));
-            double L = beta_ * std::sqrt(std::max(1e-9, area_m2)) * std::sqrt((double)F);
-            double t_move = L / std::max(1e-6, max_speed);
-            double t_svc  = F * std::max(0.0, this->GetDt()); // actually use fire_time instead (but its dt for now since a fire is extinguished in one step)
-            int steps = (int)std::ceil((t_move + t_svc) / std::max(1e-9, dt_));
-            T_Task = std::max(steps, (int)std::ceil(slack_ * T_physical));
-        }
-        total_env_steps_ = T_Task;
-        env_step_string_ = GetTotalEnvStepsExplanation();
-        return total_env_steps_;
-    }
-
-    [[nodiscard]] std::string GetTotalEnvStepsExplanation() const {
+    int GetTotalEnvSteps() {
         std::ostringstream oss;
-        const double D = cell_size_ * std::hypot((double)grid_nx_, (double)grid_ny_);
-        auto max_speed = hierarchy_type == "fly_agent" ? fly_agent_speed_
-                                                       : hierarchy_type == "explore_agent" ? explore_agent_speed_
-                                                                                           : extinguisher_speed_;
-        const double base_time = D / max_speed * k_turn_;
-        int T_physical = (int)std::ceil(base_time / dt_);
 
-        oss << "Grid: " << grid_nx_ << " x " << grid_ny_ << " cells ("
-            << cell_size_ << " m each)\n";
-        oss << "Diagonal distance D = " << D << " m\n";
-        oss << "Max speed = " << max_speed << " m/s\n";
-        oss << "Turn factor k_turn = " << k_turn_ << "\n";
-        oss << "Base time = D / speed * k_turn = " << base_time << " s\n";
-        oss << "Physical steps = ceil(base_time / dt) = " << T_physical << "\n";
-        oss << "Slack factor = " << slack_ << "\n";
+        const double area_cells = (double)grid_nx_ * (double)grid_ny_;
+        const double area_m2    = area_cells * cell_size_ * cell_size_;
+        const double D          = cell_size_ * std::hypot((double)grid_nx_, (double)grid_ny_);
+        const double v_max      = hierarchy_type == "fly_agent"     ? fly_agent_speed_
+                                : hierarchy_type == "explore_agent" ? explore_agent_speed_
+                                                                    : extinguisher_speed_;
+        const int    T_physical = (int)std::ceil(D / std::max(1e-6, v_max) * k_turn_ / std::max(1e-9, dt_));
+        const int    F          = (int)std::ceil(fire_percentage_ * area_cells);
 
-        if (hierarchy_type == "fly_agent" && !eval_fly_policy_) {
-            oss << "\nAgent Type: Fly\n";
-            oss << "Total steps = ceil(slack * T_physical) = "
-                << (int)std::ceil(slack_ * T_physical);
-        }
-        else if (hierarchy_type == "explore_agent") {
-            oss << "\nAgent Type: Explore\n";
-            const double A = (double)grid_nx_ * (double)grid_ny_;
-            const double steps_cover = A / std::max(1.0, (double)explore_agent_view_range_ * coverage_eff);
-            oss << "Area A = " << A << " cells\n";
-            oss << "Coverage steps = A / (view_range * efficiency) = "
-                << steps_cover << "\n";
-            int T_Task = (int)std::ceil(steps_cover);
-            T_Task = std::max(T_Task, (int)(slack_ * T_physical));
-            oss << "Total steps = max(coverage, slack*physical) = " << T_Task;
-        }
-        else if (hierarchy_type == "planner_agent" || eval_fly_policy_) {
-            oss << "\nAgent Type: Planner\n";
-            const double area_m2 = (grid_nx_ * cell_size_) * (grid_ny_ * cell_size_);
+        oss << "Grid: " << grid_nx_ << " x " << grid_ny_
+            << " cells (" << cell_size_ << " m each)\n"
+            << "Diagonal D = " << D << " m, v_max = " << v_max
+            << " m/s, dt = " << dt_ << " s\n"
+            << "Physical steps = ceil(D/v * k_turn / dt) = " << T_physical << "\n"
+            << "Slack = " << slack_ << "\n";
 
-            const int F = (int)std::ceil(fire_percentage_ * (double)(grid_nx_ * grid_ny_));
-            double L = beta_ * std::sqrt(std::max(1e-9, area_m2)) * std::sqrt((double)F);
-            double t_move = L / std::max(1e-6, max_speed);
-            double t_svc  = F * std::max(0.0, this->GetDt());
-            int steps = (int)std::ceil((t_move + t_svc) / std::max(1e-9, dt_));
-            int T_Task = std::max(steps, (int)std::ceil(slack_ * T_physical));
-            oss << "Area = " << area_m2 << " m²\n";
-            oss << "Fires F = " << F << "\n";
-            oss << "TSP estimate length = " << L << " m\n";
-            oss << "Move time = " << t_move << " s, Service time = " << t_svc << " s\n";
-            oss << "Steps = ceil((move+service)/dt) = " << steps << "\n";
-            oss << "Total steps = max(steps, slack*physical) = " << T_Task;
-        }
-        else {
-            oss << "\nAgent Type: Unknown\n";
+        int T;
+        if (hierarchy_type == "explore_agent") {
+            const double steps_cover =
+                area_cells / std::max(1.0, (double)explore_agent_view_range_ * coverage_eff);
+            T = std::max((int)std::ceil(steps_cover),
+                         (int)std::ceil(slack_ * T_physical));
+            oss << "Agent: Explore. Coverage steps = " << steps_cover
+                << ", total = max(coverage, slack*physical) = " << T;
+        } else if (hierarchy_type == "planner_agent" || use_heuristic_) {
+            const double L      = beta_ * std::sqrt(std::max(1e-9, area_m2)) * std::sqrt((double)F);
+            const int    t_move = (int)std::ceil(L / std::max(1e-6, v_max) / std::max(1e-9, dt_));
+            T = std::max(t_move + F, (int)std::ceil(slack_ * T_physical));
+            oss << "Agent: Planner. Fires F = " << F
+                << ", TSP length L = " << L << " m"
+                << ", move steps = " << t_move
+                << ", service steps = " << F
+                << ", total = max(move+service, slack*physical) = " << T;
+        } else { // fly_agent (non-heuristic) and fallback
+            T = (int)std::ceil(slack_ * T_physical);
+            oss << "Agent: Fly. Total = ceil(slack*physical) = " << T;
         }
 
-        return oss.str();
+        total_env_steps_ = T;
+        env_step_string_ = oss.str();
+        return total_env_steps_;
     }
 
     int number_of_flyagents_{};
@@ -479,7 +447,7 @@ public:
     int fly_agent_view_range_{};
     int fly_agent_time_steps_{};
     bool fly_agent_collision_{};
-    bool eval_fly_policy_{};
+    bool use_heuristic_{};
     bool use_simple_policy_{};
     // Fly Reward
     double FlyGoalReached_{};
@@ -509,6 +477,9 @@ public:
     double PlannerFastExtinguish_{};
     double PlannerDistanceProgress_{};
     double PlannerSpreadPrevention_{};
+    double PlannerFlyingTowardsGroundstationWaterThreshold_{};
+    double PlannerWaterRefill_{};
+    double PlannerEmptyTank_{};
     int water_capacity_{};
     [[nodiscard]] int GetNumberOfFlyAgents() const {return number_of_flyagents_;}
     [[nodiscard]] int GetNumberOfExplorers() const {return number_of_explorers_;}
@@ -517,7 +488,20 @@ public:
     void SetNumberOfExplorers(int number) {number_of_explorers_ = number;}
     void SetNumberOfExtinguishers(int number) {number_of_extinguishers_ = number;}
     [[nodiscard]] int GetWaterCapacity() const {return water_capacity_;}
-    [[nodiscard]] double GetWaterRefillDt() const {return std::clamp((water_capacity_ / (recharge_time_ + 0.0001) / GetDt()), 0.0, static_cast<double>(water_capacity_));}
+    // Refill rate per simulation step.
+    //   steps_to_fully_refill = recharge_time / dt    (recharge_time is seconds)
+    //   rate_per_step         = water_capacity / steps_to_fully_refill
+    //                         = water_capacity * dt / recharge_time
+    // Previously the formula had dt in the denominator instead of the numerator, which for
+    // dt<1 overshot by a factor of 1/dt² and was masked by the clamp — making any nonzero
+    // recharge_time refill the tank in a single step (time penalty was effectively zero).
+    // Clamp to [0, capacity] so pathological configs (recharge_time ~ 0) still stay sane.
+    [[nodiscard]] double GetWaterRefillDt() const {
+        return std::clamp(
+            static_cast<double>(water_capacity_) * GetDt() / (recharge_time_ + 0.0001),
+            0.0,
+            static_cast<double>(water_capacity_));
+    }
 };
 
 

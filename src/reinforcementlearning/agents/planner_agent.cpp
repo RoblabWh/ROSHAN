@@ -22,21 +22,17 @@ void PlannerAgent::PerformPlan(PlanAction *action, const std::string &hierarchy_
     // Count only fires extinguished in this step
     extinguished_fires_ = 0;
 
-    // Iterate over all Actions and set a new goal for each FlyAgent
+    // Iterate over all Actions and set a new goal for each FlyAgent.
+    // Water depletion no longer forces a groundstation goal here; the planner's action is
+    // honored directly, and refuel is handled passively when a drone co-locates with the groundstation.
     for (int i = 0; i < fly_agents_.size(); ++i) {
         auto fly_agent = fly_agents_[i];
-        std::pair<double, double> goal;
-        if (parameters_.eval_fly_policy_ && (fly_agent->GetWaterCapacity() <= 0 || fly_agent->StillCharging())) {
-            goal = std::make_pair(-1.0, -1.0);
-            fly_agent->CommandRecharge(true);
-        } else {
-            // Get the goal from the action (in normalized observation space)
-            goal = action->GetGoalFromAction(i);
-            // Denormalize from observation space back to grid space:
-            // inverse of (2 * grid_pos / norm_map) - 1, where norm_map = max(rows, cols)
-            double norm_map = static_cast<double>(std::max(gridMap->GetRows(), gridMap->GetCols()));
-            goal = {(goal.first + 1.0) * norm_map / 2.0, (goal.second + 1.0) * norm_map / 2.0};
-        }
+        // Get the goal from the action (in normalized observation space)
+        std::pair<double, double> goal = action->GetGoalFromAction(i);
+        // Denormalize from observation space back to grid space:
+        // inverse of (2 * grid_pos / norm_map) - 1, where norm_map = max(rows, cols)
+        double norm_map = static_cast<double>(std::max(gridMap->GetRows(), gridMap->GetCols()));
+        goal = {(goal.first + 1.0) * norm_map / 2.0, (goal.second + 1.0) * norm_map / 2.0};
 
         if (goal == std::make_pair(-1.0, -1.0)) {
             // If the goal is (-1.0, -1.0) we set the goal to the groundstation
@@ -82,6 +78,7 @@ void PlannerAgent::Reset(Mode mode,
     extinguished_last_fire_ = false;
     prev_mean_distance_ = -1.0;
     prev_num_burning_ = -1.0;
+    prev_water_levels_.clear();
     perfect_goals_.clear();
     agent_states_.clear();
     Initialize(explore_agent_, fly_agents_, grid_map);
@@ -143,20 +140,75 @@ double PlannerAgent::CalculateReward(const std::shared_ptr<GridMap>& grid_map) {
     for(const auto& agent : fly_agents_) {
         auto goal_position = agent->GetGoalPosition();
         if (goal_position == groundstation_pos && !fire_positions->empty()) {
-            // If the goal position is set to the groundstation it's probably bad
-            reward_components["FlyingTowardsGroundstation"] = parameters_.PlannerFlyingTowardsGroundstation_;
+            // Penalize groundstation goals only when the drone has enough water to make
+            // refueling "unnecessary". Below the threshold the trip is legitimate and
+            // should carry no penalty (otherwise every refuel step eats -0.29 × N_steps,
+            // swamping the rewards for learning refuel behavior).
+            // Scale by water fraction: full tank = full penalty, threshold = half penalty,
+            // empty = zero (though the threshold gate already handles that).
+            double water_frac = parameters_.use_water_limit_
+                ? (agent->GetWaterCapacity() / static_cast<double>(parameters_.GetWaterCapacity()))
+                : 1.0;  // without water limit, penalty behaves as before (always full)
+            if (water_frac > parameters_.PlannerFlyingTowardsGroundstationWaterThreshold_) {
+                reward_components["FlyingTowardsGroundstation"] +=
+                    parameters_.PlannerFlyingTowardsGroundstation_ * water_frac;
+            }
         }
         fly_agent_goals.push_back(goal_position);
     }
 
-    // Check if there are multiple agents going to the same goal
-    std::set<std::pair<double, double>> unique_goals(fly_agent_goals.begin(), fly_agent_goals.end());
-    if (unique_goals.size() < fly_agent_goals.size()) {
-        // There are multiple agents going to the same goal
-        reward_components["SameGoalPenalty"] = parameters_.PlannerSameGoalPenalty_ * static_cast<double>(fly_agent_goals.size() - unique_goals.size());
+    // Check if there are multiple agents going to the same goal.
+    // The groundstation is excluded — simultaneous refueling is a legitimate strategic
+    // choice (e.g. after a coordinated burn-down) and shouldn't be penalized.
+    std::vector<std::pair<double, double>> non_gs_goals;
+    non_gs_goals.reserve(fly_agent_goals.size());
+    for (const auto& g : fly_agent_goals) {
+        if (g != groundstation_pos) non_gs_goals.push_back(g);
+    }
+    std::set<std::pair<double, double>> unique_goals(non_gs_goals.begin(), non_gs_goals.end());
+    if (unique_goals.size() < non_gs_goals.size()) {
+        reward_components["SameGoalPenalty"] = parameters_.PlannerSameGoalPenalty_
+            * static_cast<double>(non_gs_goals.size() - unique_goals.size());
     }
 
     reward_components["ExtinguishedFires"] = extinguished_fires_ * parameters_.PlannerExtinguishFires_;
+
+    // WaterRefill: dense positive reward for actual tank refilling. Sums fractional
+    // per-drone water increases this planner step. Mirrors ExtinguishedFires (rewards
+    // outcome, not assignment intent). Non-zero only while a drone is at the
+    // groundstation with water < max — no gaming surface.
+    // EmptyTank: per-drone penalty for sitting at water=0 while fires remain. Turns
+    // the silent "can't extinguish" state into a pushed signal the planner can credit.
+    // Both gated on use_water_limit_ so toggling the feature restores prior reward shape.
+    if (parameters_.use_water_limit_) {
+        if (prev_water_levels_.size() == fly_agents_.size()) {
+            const double cap = static_cast<double>(parameters_.GetWaterCapacity());
+            if (cap > 0.0) {
+                double refill_sum = 0.0;
+                for (size_t i = 0; i < fly_agents_.size(); ++i) {
+                    double delta = fly_agents_[i]->GetWaterCapacity() - prev_water_levels_[i];
+                    if (delta > 0.0) refill_sum += delta / cap;
+                }
+                if (refill_sum > 0.0) {
+                    reward_components["WaterRefill"] = refill_sum * parameters_.PlannerWaterRefill_;
+                }
+            }
+        }
+        prev_water_levels_.resize(fly_agents_.size());
+        for (size_t i = 0; i < fly_agents_.size(); ++i) {
+            prev_water_levels_[i] = fly_agents_[i]->GetWaterCapacity();
+        }
+
+        if (!fire_positions->empty()) {
+            int empty_drones = 0;
+            for (const auto& a : fly_agents_) {
+                if (a->GetWaterCapacity() <= 0.0) ++empty_drones;
+            }
+            if (empty_drones > 0) {
+                reward_components["EmptyTank"] = empty_drones * parameters_.PlannerEmptyTank_;
+            }
+        }
+    }
 
     // Spread-prevention: reward per-step reductions in total burning cells. Gives credit
     // for containing fire fronts (what the nearest-neighbor heuristic only rewards at terminal).
@@ -212,6 +264,8 @@ std::shared_ptr<AgentState> PlannerAgent::BuildAgentState(const std::shared_ptr<
 
     std::vector<std::pair<double, double>> drone_positions;
     std::vector<std::pair<double, double>> drone_goals;
+    std::vector<double> drone_water;
+    const double water_max = static_cast<double>(parameters_.GetWaterCapacity());
     for (const auto &fly_agent : fly_agents_) {
         auto gp = state_features::GridPositionDouble(fly_agent->GetLastState());
         drone_positions.push_back({(2.0 * gp.first / norm_map) - 1.0,
@@ -219,6 +273,10 @@ std::shared_ptr<AgentState> PlannerAgent::BuildAgentState(const std::shared_ptr<
         const auto& last = fly_agent->GetLastState();
         drone_goals.push_back({(2.0 * last.goal_position.first / norm_map) - 1.0,
                                (2.0 * last.goal_position.second / norm_map) - 1.0});
+        // Normalize by current max — gives scale-invariant "fraction of tank" signal.
+        drone_water.push_back(water_max > 0.0
+                                  ? std::clamp(fly_agent->GetWaterCapacity() / water_max, 0.0, 1.0)
+                                  : 1.0);
     }
 
     // Centralized Training, Decentralized Execution (CTDE):
@@ -285,6 +343,7 @@ std::shared_ptr<AgentState> PlannerAgent::BuildAgentState(const std::shared_ptr<
     state->fire_positions = normalized_fires;
     state->drone_positions = std::make_shared<std::vector<std::pair<double, double>>>(drone_positions);
     state->goal_positions = std::make_shared<std::vector<std::pair<double, double>>>(drone_goals);
+    state->drone_water_levels = std::make_shared<std::vector<double>>(std::move(drone_water));
 
     // Global wind vector: components normalized to [-1, 1] by a fixed reference speed.
     // kMaxWind = 2x the default config.yaml wind_uw (10.0 m/s); anything beyond is clamped.

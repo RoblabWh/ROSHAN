@@ -57,7 +57,9 @@ class TrainingMonitor:
 
         # Determine metric registry
         hierarchy_type = sim_bridge.get("hierarchy_type")
-        use_fly_registry = hierarchy_type == "fly_agent" and not config["settings"]["eval_fly_policy"]
+        _settings = config["settings"]
+        _use_heuristic_flag = bool(_settings["use_heuristic"]) if "use_heuristic" in _settings else bool(_settings.get("eval_fly_policy", False))
+        use_fly_registry = hierarchy_type == "fly_agent" and not _use_heuristic_flag
         registry = METRIC_REGISTRY_FLY_AGENT if use_fly_registry else METRIC_REGISTRY
 
         hierarchy_steps = 1 if not self.is_planner else config["environment"]["agent"]["planner_agent"]["hierarchy_timesteps"]

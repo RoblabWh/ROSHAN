@@ -131,7 +131,7 @@ py::dict ReinforcementLearningHandler::GetBatchedObservations(const std::string&
             int K = group.max_entities;
             if (K == 0 && group.entity_count) {
                 for (int i = 0; i < N; ++i) {
-                    for (auto* as : agent_states[i]) {
+                    for (const auto* as : agent_states[i]) {
                         K = std::max(K, group.entity_count(*as));
                     }
                 }
@@ -144,8 +144,8 @@ py::dict ReinforcementLearningHandler::GetBatchedObservations(const std::string&
             std::memset(data_arr.mutable_data(), 0, N * max_T * K * D * sizeof(float));
             std::memset(mask_arr.mutable_data(), 0, N * max_T * K * sizeof(bool));
 
-            auto data_buf = data_arr.mutable_data();
-            auto mask_buf = mask_arr.mutable_data();
+            const auto data_buf = data_arr.mutable_data();
+            const auto mask_buf = mask_arr.mutable_data();
 
             for (int i = 0; i < N; ++i) {
                 const int T_i = static_cast<int>(agent_states[i].size());
@@ -165,7 +165,7 @@ py::dict ReinforcementLearningHandler::GetBatchedObservations(const std::string&
             int M = group.max_entities;
             if (M == 0 && group.entity_count) {
                 for (int i = 0; i < N; ++i) {
-                    for (auto* as : agent_states[i]) {
+                    for (const auto* as : agent_states[i]) {
                         M = std::max(M, group.entity_count(*as));
                     }
                 }
@@ -176,7 +176,7 @@ py::dict ReinforcementLearningHandler::GetBatchedObservations(const std::string&
 
             std::memset(data_arr.mutable_data(), 0, N * max_T * M * D * sizeof(float));
 
-            auto data_buf = data_arr.mutable_data();
+            const auto data_buf = data_arr.mutable_data();
             // SET groups use bool mask just for the bulk extractor but we don't expose it
             // (fires don't need an explicit mask since zero-padding is sufficient)
             // Use unique_ptr<bool[]> since vector<bool> is bitpacked and has no .data()
@@ -218,7 +218,7 @@ void ReinforcementLearningHandler::ResetEnvironment(Mode mode) {
     rl_status_["env_reset"] = true;
     parameters_.SetHierarchyType(hierarchy_type);
     const auto rl_mode = rl_status_["rl_mode"].cast<std::string>();
-    total_env_steps_ = parameters_.GetTotalEnvSteps(rl_mode == "eval");
+    total_env_steps_ = parameters_.GetTotalEnvSteps();
 
     // --- Helpers -------------------------------------------------------------
 
@@ -331,8 +331,8 @@ void ReinforcementLearningHandler::ResetEnvironment(Mode mode) {
     // (3) Hierarchical mode with planner_agent and explore_agent: We don’t need fly_agent
     // (4) only explore_agent: We don’t need planner_agent and fly_agent (debug for now)
 
-    auto pure_fly_agent_mode = parameters_.GetHierarchyType() == "fly_agent" && !parameters_.eval_fly_policy_;
-    auto eval_fly_policy_mode = parameters_.GetHierarchyType() == "fly_agent" && parameters_.eval_fly_policy_;
+    auto pure_fly_agent_mode = parameters_.GetHierarchyType() == "fly_agent" && !parameters_.use_heuristic_;
+    auto heuristic_fly_agent_mode = parameters_.GetHierarchyType() == "fly_agent" && parameters_.use_heuristic_;
     auto hierarchical_planner_mode = parameters_.GetHierarchyType() == "planner_agent";
 
     if (pure_fly_agent_mode) {
@@ -353,7 +353,7 @@ void ReinforcementLearningHandler::ResetEnvironment(Mode mode) {
         // Clear others we don’t use in this mode
         clear_buckets({"ExploreFlyAgent","PlannerFlyAgent","explore_agent","planner_agent"});
     }
-    else if (eval_fly_policy_mode) {
+    else if (heuristic_fly_agent_mode) {
         spawn_config.group_size = parameters_.GetNumberOfFlyAgents() + parameters_.GetNumberOfExplorers();
 
         // Ensure the flat fly_agent group

@@ -61,22 +61,40 @@ def assert_config(config):
         if not (0 < c_algo["eps_clip"] < 1):
             raise ValueError(f"PPO eps_clip must be in (0, 1), got {c_algo['eps_clip']}.")
 
-    # --- Eval fly policy constraints ---
-    if c_settings["eval_fly_policy"]:
-        if hierarchy_type not in ["fly_agent", "planner_agent"]:
-            raise ValueError("eval_fly_policy can only be True when hierarchy_type is 'fly_agent' or 'planner_agent' in config.yaml.")
-        if rl_mode != "eval":
-            raise ValueError("eval_fly_policy can only be True when rl_mode is 'eval' in config.yaml.")
-        if not c_settings["log_eval"]:
-            raise ValueError("log_eval must be True when eval_fly_policy is True in config.yaml.")
-        if hierarchy_type == "planner_agent" and not config["environment"]["agent"]["use_water_limit"]:
-            raise ValueError(
-                "use_water_limit must be True when eval_fly_policy is True with hierarchy_type 'planner_agent'. "
-                "Without water limits, eval_fly_policy has no effect on planner_agent."
+    # --- use_heuristic / use_water_limit (independent flags) ---
+    # use_heuristic is the new name for eval_fly_policy. Accept the legacy key with a deprecation warning.
+    _use_heuristic_key = "use_heuristic" if "use_heuristic" in c_settings else (
+        "eval_fly_policy" if "eval_fly_policy" in c_settings else None
+    )
+    if _use_heuristic_key == "eval_fly_policy":
+        logging.warning("Config key 'eval_fly_policy' is deprecated; rename to 'use_heuristic'.")
+    use_heuristic = bool(c_settings[_use_heuristic_key]) if _use_heuristic_key else False
+    use_water_limit = bool(config["environment"]["agent"]["use_water_limit"])
+
+    # use_heuristic is only meaningful for FlyAgent in eval mode; warn (don't fail) otherwise so it's
+    # simply ignored. The heuristic FlyPolicy gating in fly_agent.cpp enforces this at runtime.
+    if use_heuristic:
+        if hierarchy_type != "fly_agent":
+            logging.warning(
+                f"use_heuristic=true has no effect when hierarchy_type={hierarchy_type!r}. "
+                "The heuristic FlyPolicy only runs for fly_agent. Ignoring use_heuristic."
             )
-    if config["environment"]["agent"]["use_water_limit"]:
-        if not c_settings["eval_fly_policy"]:
-            raise ValueError("Water limit use can only be True when eval_fly_policy is True in config.yaml.")
+        elif rl_mode != "eval":
+            logging.warning(
+                "use_heuristic=true but rl_mode is not 'eval'. The heuristic is a no-learning "
+                "controller; it should be used only for evaluation. Ignoring use_heuristic."
+            )
+        elif not c_settings["log_eval"]:
+            raise ValueError("log_eval must be True when running the heuristic (use_heuristic=true).")
+
+    # use_water_limit is independent of use_heuristic — refueling now works for trained planners too.
+    # Warn only when it is likely misconfigured (trainable FlyAgent with water pressure but no learned refuel path).
+    if use_water_limit and hierarchy_type == "fly_agent" and rl_mode == "train" and not use_heuristic:
+        logging.warning(
+            "use_water_limit=true with a trainable FlyAgent (rl_mode=train, use_heuristic=false) "
+            "enables water depletion but the learned policy has no explicit refuel incentive. "
+            "Usually use_water_limit is paired with PlannerAgent training or heuristic eval."
+        )
 
     if rl_mode == "train":
         if not c_settings["log_eval"]:

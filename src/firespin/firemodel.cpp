@@ -244,7 +244,8 @@ void FireModel::ImGuiRendering(bool &update_simulation, bool &render_simulation,
                                             running_time_);
     ui_manager_->ImGuiModelMenu(current_raster_data_);
     ui_manager_->Config(model_renderer_, current_raster_data_, wind_);
-    ui_manager_->PyConfig(user_input_,model_output_, gridmap_, rl_handler_->GetDrones(), model_renderer_);
+    ui_manager_->PyConfig(user_input_, model_output_, gridmap_, rl_handler_->GetDrones(),
+                          model_renderer_, rl_handler_.get());
     ui_manager_->FileHandling(dataset_handler_, current_raster_data_);
     ui_manager_->ShowPopups(gridmap_, current_raster_data_);
 }

@@ -21,14 +21,15 @@ class Inputspace(nn.Module):
         self.goal_emb = nn.Sequential(nn.Linear(2, hidden_dim), nn.ReLU())
         self.fire_emb = nn.Sequential(nn.Linear(2, hidden_dim), nn.ReLU())
         self.vel_emb = nn.Sequential(nn.Linear(2, hidden_dim), nn.ReLU())
+        self.water_emb = nn.Sequential(nn.Linear(1, hidden_dim), nn.ReLU())
         self.fire_count_emb = nn.Sequential(nn.Linear(1, hidden_dim), nn.ReLU())
         self.fire_centroid_emb = nn.Sequential(nn.Linear(2, hidden_dim), nn.ReLU())
         self.wind_emb = nn.Sequential(nn.Linear(2, hidden_dim), nn.ReLU())
         self.id_emb = nn.Embedding(drone_dim, hidden_dim)
 
-        # Fusion MLP: cat(pos, goal, id, vel) -> hidden
+        # Fusion MLP: cat(pos, goal, id, vel, water) -> hidden
         self.fusion = nn.Sequential(
-            nn.Linear(hidden_dim * 4, hidden_dim * 2),
+            nn.Linear(hidden_dim * 5, hidden_dim * 2),
             nn.ReLU(),
             nn.Linear(hidden_dim * 2, hidden_dim),
             nn.ReLU()
@@ -69,6 +70,8 @@ class Inputspace(nn.Module):
         drone_states = self._ensure_tensor(states["drone_positions"])
         goal_positions = self._ensure_tensor(states["goal_positions"])
         fire_states = self._select_last_timestep(self._ensure_tensor(states["fire_positions"]))
+        # drone_water: SET group with bulk_dims=1 → shape (B, T, N, 1). Collapse to (B, N, 1).
+        drone_water = self._select_last_timestep(self._ensure_tensor(states["drone_water"]))
 
         # C++ emits fire_positions_mask (True = valid) when fires are RELATIONAL.
         # Convert to the network's convention (True = padded/invalid).
@@ -102,10 +105,10 @@ class Inputspace(nn.Module):
 
         batch_size, n_drones, _ = drone_pos.shape
         agent_ids = self._agent_ids.unsqueeze(0).expand(batch_size, -1)
-        return drone_pos, goal_positions, fire_states, agent_ids, velocity, fire_count, fire_centroid, wind, fire_mask
+        return drone_pos, goal_positions, fire_states, agent_ids, velocity, drone_water, fire_count, fire_centroid, wind, fire_mask
 
     def forward(self, states, mask=None):
-        (drone_pos, goal_pos, fire_states, agent_ids, velocity,
+        (drone_pos, goal_pos, fire_states, agent_ids, velocity, drone_water,
          fire_count, fire_centroid, wind, fire_mask) = self.prepare_tensor(states)
 
         # Prefer the explicit mask from C++ (RELATIONAL fire_positions_mask).
@@ -116,25 +119,16 @@ class Inputspace(nn.Module):
             mask = torch.zeros(fire_states.shape[0], fire_states.shape[1],
                                dtype=torch.bool, device=self.device)
 
-        # nn.MultiheadAttention softmax produces NaN when a row is fully masked
-        # (all -inf). Groundstation (index 0) is always a valid target, so unmask
-        # it for any fully-masked rows before cross-attention. Downstream logits
-        # masking still blocks invalid fires — this guard only keeps attention
-        # numerically well-defined.
-        fully_masked_rows = mask.all(dim=-1)
-        if fully_masked_rows.any():
-            mask = mask.clone()
-            mask[fully_masked_rows, 0] = False
-
         # Embed
         pos_e = self.pos_emb(drone_pos)
         goal_e = self.goal_emb(goal_pos)
         fire_e = self.fire_emb(fire_states)
         vel_e = self.vel_emb(velocity)
+        water_e = self.water_emb(drone_water)
         id_e = self.id_emb(agent_ids)
 
         # Fusion MLP (replaces additive collapse)
-        drone_emb = self.fusion(torch.cat([pos_e, goal_e, id_e, vel_e], dim=-1))
+        drone_emb = self.fusion(torch.cat([pos_e, goal_e, id_e, vel_e, water_e], dim=-1))
 
         # Inject global fire context (broadcast-add over all drones)
         fire_count_e = self.fire_count_emb(fire_count)          # (B, 64)
@@ -147,16 +141,18 @@ class Inputspace(nn.Module):
         self_out, _ = self.self_attn(drone_emb, drone_emb, drone_emb)
         drone_emb = self.self_attn_norm(drone_emb + self_out)
 
-        # Cross-attention: drones attend to fires + residual + LayerNorm
-        cross_out, attn_weights = self.cross_attn(
+        # Cross-attention: drones attend to fires + residual + LayerNorm.
+        # need_weights=False routes through SDPA, which handles fully-masked
+        # rows without NaN (see comment above) and is the faster kernel.
+        cross_out, _ = self.cross_attn(
             query=drone_emb, key=fire_e, value=fire_e,
-            key_padding_mask=mask
+            key_padding_mask=mask, need_weights=False,
         )
         drone_repr = self.cross_attn_norm(drone_emb + cross_out)
 
         # Return the effective fire mask alongside so downstream heads
         # (pointer-network logits) can reuse it without re-resolving.
-        return drone_repr, fire_e, attn_weights, mask
+        return drone_repr, fire_e, mask
 
 class AttentionActor(nn.Module):
     def __init__(self, vision_range, drone_count, map_size, time_steps, manual_decay):
@@ -176,7 +172,7 @@ class AttentionActor(nn.Module):
 
     def _compute_base_logits(self, states, masks=None):
         """Compute base pointer-network logits and effective mask."""
-        drone_repr, fire_repr, _, resolved_mask = self.Inputspace(states, masks)
+        drone_repr, fire_repr, resolved_mask = self.Inputspace(states, masks)
 
         q = self.query_proj(drone_repr)   # (B, N, D)
         k = self.key_proj(fire_repr)       # (B, F, D)
@@ -296,7 +292,7 @@ class CriticPPO(nn.Module):
         self.value_head[-1]._init_gain = 1.0
 
     def forward(self, states, masks=None):
-        drone_repr, _, _, _ = self.Inputspace_1(states, masks)  # (B, N, 64)
+        drone_repr, _, _ = self.Inputspace_1(states, masks)  # (B, N, 64)
         pooled, _ = self.pool_attn(
             self.pool_query.expand(drone_repr.shape[0], -1, -1),
             drone_repr, drone_repr
@@ -335,7 +331,7 @@ class OffPolicyCritic(Critic):
         return q1, q2
 
     def Q1(self, state, action):
-        x, _, _, _ = self.Inputspace_1(state)
+        x, _, _ = self.Inputspace_1(state)
         pooled, _ = self.pool_attn_1(
             self.pool_query_1.expand(x.shape[0], -1, -1), x, x
         )
@@ -348,7 +344,7 @@ class OffPolicyCritic(Critic):
         return q1
 
     def Q2(self, state, action):
-        x, _, _, _ = self.Inputspace_2(state)
+        x, _, _ = self.Inputspace_2(state)
         pooled, _ = self.pool_attn_2(
             self.pool_query_2.expand(x.shape[0], -1, -1), x, x
         )
@@ -378,7 +374,7 @@ class Value(nn.Module):
         self.v_value._init_gain = 1.0
 
     def forward(self, state):
-        x, _, _, _ = self.Inputspace(state)
+        x, _, _ = self.Inputspace(state)
         pooled, _ = self.pool_attn(
             self.pool_query.expand(x.shape[0], -1, -1), x, x
         )

@@ -14,6 +14,7 @@
 #include "../UIState.h"
 #include "../components/LogConsoleWidget.h"
 #include "../components/DroneInfoWidget.h"
+#include "../components/PlannerInfoWidget.h"
 #include "../components/RewardPlot.h"
 #include "../components/GridVisualizer.h"
 #include "../components/ConfigTable.h"
@@ -23,6 +24,7 @@
 #include "firespin/firemodel_gridmap.h"
 #include "firespin/rendering/firemodel_renderer.h"
 #include "reinforcementlearning/agents/fly_agent.h"
+#include "src/reinforcementlearning/rl_handler.h"
 #include "src/utils.h"
 #include "externals/pybind11/include/pybind11/pybind11.h"
 #include <memory>
@@ -89,6 +91,7 @@ public:
     void SetGridMap(std::shared_ptr<GridMap> gridmap) { gridmap_ = std::move(gridmap); }
     void SetRenderer(std::shared_ptr<FireModelRenderer> renderer) { renderer_ = std::move(renderer); }
     void SetDrones(std::shared_ptr<std::vector<std::shared_ptr<FlyAgent>>> drones) { drones_ = std::move(drones); }
+    void SetRLHandler(ReinforcementLearningHandler* handler) { rlHandler_ = handler; }
 
     // Simulation control pointers
     void SetUpdateSimulation(bool* update) { updateSimulation_ = update; }
@@ -126,7 +129,7 @@ private:
             ImGui::PushStyleColor(ImGuiCol_ButtonHovered, ImVec4(0.28f, 0.28f, 0.32f, 1.0f));
         }
         if (ImGui::Button("TRAIN", ImVec2(72, buttonHeight)) && !isTrain) {
-            if (!parameters_.eval_fly_policy_) {
+            if (!parameters_.use_heuristic_) {
                 ImGui::OpenPopup("Switch Mode");
             }
         }
@@ -143,7 +146,7 @@ private:
             ImGui::PushStyleColor(ImGuiCol_ButtonHovered, ImVec4(0.28f, 0.28f, 0.32f, 1.0f));
         }
         if (ImGui::Button("EVAL", ImVec2(72, buttonHeight)) && isTrain) {
-            if (!parameters_.eval_fly_policy_) {
+            if (!parameters_.use_heuristic_) {
                 ImGui::OpenPopup("Switch Mode");
             }
         }
@@ -368,14 +371,26 @@ private:
         ImGui::BeginChild("DroneInfoScroll", ImVec2(0, ImGui::GetTextLineHeightWithSpacing() * 15),
                           true, ImGuiWindowFlags_HorizontalScrollbar);
 
+        const FeatureSchema* flySchema = rlHandler_ ? rlHandler_->GetSchema("fly_agent") : nullptr;
         DroneInfoWidget::DrawStateInfo(selectedDrone);
-        DroneInfoWidget::DrawNetworkInputInfo(selectedDrone);
+        DroneInfoWidget::DrawNetworkInputInfo(selectedDrone, flySchema);
 
         if (droneUI_.showInputImages) {
             RenderDroneViewTables(selectedDrone);
         }
 
         ImGui::EndChild();
+
+        // Planner panel — only present when the active hierarchy includes a planner.
+        if (auto planner = rlHandler_ ? rlHandler_->GetPlannerAgent() : nullptr) {
+            ImGui::Separator();
+            PlannerInfoWidget::DrawHeader(planner);
+            ImGui::BeginChild("PlannerInfoScroll", ImVec2(0, ImGui::GetTextLineHeightWithSpacing() * 15),
+                              true, ImGuiWindowFlags_HorizontalScrollbar);
+            PlannerInfoWidget::DrawStateInfo(planner);
+            PlannerInfoWidget::DrawNetworkInputInfo(planner, rlHandler_->GetSchema("planner_agent"));
+            ImGui::EndChild();
+        }
 
         if (ImGui::CollapsingHeader("Rewards", ImGuiTreeNodeFlags_DefaultOpen)) {
             auto rewards = selectedDrone->GetEpisodeRewards().getBuffer();
@@ -804,6 +819,8 @@ private:
     std::shared_ptr<GridMap> gridmap_;
     std::shared_ptr<FireModelRenderer> renderer_;
     std::shared_ptr<std::vector<std::shared_ptr<FlyAgent>>> drones_;
+    // Non-owning; lifetime is managed by FireModel which outlives this window.
+    ReinforcementLearningHandler* rlHandler_ = nullptr;
     Mode mode_;
 
     bool visible_ = true;

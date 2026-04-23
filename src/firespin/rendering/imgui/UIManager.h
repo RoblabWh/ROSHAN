@@ -27,6 +27,7 @@
 #include "firespin/wind.h"
 #include "src/corine/dataset_handler.h"
 #include "reinforcementlearning/agents/fly_agent.h"
+#include "src/reinforcementlearning/rl_handler.h"
 #include "src/utils.h"
 #include "externals/pybind11/include/pybind11/pybind11.h"
 
@@ -63,7 +64,8 @@ public:
     void PyConfig(std::string& userInput, std::string& modelOutput,
                   const std::shared_ptr<GridMap>& gridmap,
                   const std::shared_ptr<std::vector<std::shared_ptr<FlyAgent>>>& drones,
-                  const std::shared_ptr<FireModelRenderer>& modelRenderer);
+                  const std::shared_ptr<FireModelRenderer>& modelRenderer,
+                  ReinforcementLearningHandler* rlHandler = nullptr);
 
     void ImGuiModelMenu(std::vector<std::vector<int>>& currentRasterData);
 
