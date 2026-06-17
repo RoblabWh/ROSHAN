@@ -65,19 +65,22 @@ class CategoricalActorCritic(nn.Module):
 
     def evaluate(self, state, actions, masks=None):
         """
-        Returns the log probability of the given action, the value of the given state, and the entropy of the actor's
-        distribution. Uses autoregressive decoding conditioned on the given action indices.
+        Returns per-drone log probability, the state value, and per-drone entropy.
+
+        Per-drone tensors are returned (NOT pre-summed over the drone dim) so that
+        PPO can apply a per-drone ``locked_mask`` to zero out drones whose actions
+        were structurally overridden via PlannerAgent.apply_commitment. PPO is
+        responsible for the masked sum: ``(per_drone * (1 - locked)).sum(dim=1)``.
         """
         state_value = self.critic(state, masks)  # (B, 1)
 
         # Rebuild indices from coordinates
         actions_idx = self._coords_to_idx(state, actions)
 
-        # Autoregressive evaluate: condition each drone's log-prob on prior assignments
+        # Independent Categorical per drone (current PointerActor) — actions_idx
+        # parameter forces evaluation at the given indices instead of resampling.
         _, action_logprob, dist_entropy = self.actor(state, masks, actions_idx=actions_idx)
-
-        action_logprob = action_logprob.sum(dim=1)  # (B,) — joint log-prob
-        dist_entropy = dist_entropy.sum(dim=1)       # (B,)
+        # action_logprob: (B, N), dist_entropy: (B, N) — keep per-drone shape.
         state_value = torch.squeeze(state_value)      # (B,)
 
         return action_logprob, state_value, dist_entropy

@@ -260,6 +260,8 @@ environment:
     # Noise ([-0.5, 0,5]*noise) for the fire spread probability, to introduce randomness in the fire spread
     # Setting this to < 0.0 will lead to random fire_noise between 0 and 1
     fire_noise: 1
+    # Starting fire layout: cluster, scattered, ring, or random
+    fire_pattern: cluster
   agent_behaviour:
     # Percentage of initial goal set (for fly_agents) that are at a fire_position
     fire_goal_percentage: 1
@@ -375,3 +377,21 @@ environment:
         ExtinguishFires: 0.6054212968617818
         # Reward FACTOR for fast extinguishing
         FastExtinguish: 0.21654104693212245
+        # Reward FACTOR for drones getting closer to their assigned goals
+        DistanceProgress: 0.1
+        # Reward FACTOR per unit decrease in total burning cells per planner step
+        SpreadPrevention: 0.05
+        # Reward FACTOR per fractional tank refilled across all drones (gated on use_water_limit)
+        WaterRefill: 2.0
+        # Per-step penalty per drone sitting at empty tank while fires remain (gated on use_water_limit)
+        EmptyTank: -0.05
+        # Per-step penalty per drone with water=0 AND goal != groundstation (gated on use_water_limit)
+        FireGoalEmpty: -0.5
+        # Per-drone-per-step bonus for keeping the same goal as the previous planner step
+        GoalCommit: 0.0
+        # PBRS (Potential-Based Reward Shaping, Ng+ 1999); off by default
+        PbrsEnabled: false
+        PbrsGamma:   0.999
+        PbrsWFire:   1.0
+        PbrsWWater:  0.2
+        PbrsWDist:   0.1

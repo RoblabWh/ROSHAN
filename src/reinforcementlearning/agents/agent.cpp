@@ -5,8 +5,12 @@
 #include "agent.h"
 
 double Agent::ComputeTotalReward(const std::unordered_map<std::string, double>& rewards) {
+    // Keys starting with '_' are diagnostics-only — emitted for TensorBoard but
+    // excluded from the summed reward. Used e.g. by PlannerAgent to log Φ
+    // components alongside the PBRS differential without double-counting them.
     double total = 0;
     for (const auto& [key, value] : rewards) {
+        if (!key.empty() && key.front() == '_') continue;
         total += value;
     }
     return total;

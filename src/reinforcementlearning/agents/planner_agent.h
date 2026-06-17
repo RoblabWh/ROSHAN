@@ -40,6 +40,9 @@ public:
     void SetEvalMode(bool eval_mode) { eval_mode_ = eval_mode; }
 private:
     void InitializePlannerAgentStates(const std::shared_ptr<GridMap> &grid_map);
+    // Computes Φ(s) = w_f·Φ_fire + w_w·Φ_water + w_d·Φ_dist for the current grid state.
+    // Caches Φ_fire/Φ_water/Φ_dist in phi_*_last_ for tensorboard logging.
+    double ComputePotential(const std::shared_ptr<GridMap>& grid_map);
 
     // Agents
     std::shared_ptr<ExploreAgent> explore_agent_;
@@ -56,14 +59,31 @@ private:
 
     bool extinguished_last_fire_ = false;
     bool eval_mode_ = false;
-    // Sentinel -1.0 skips the first-step reward without biasing later comparisons
-    // (old 0.0 gated with '> 0.0' silently dropped any first step where the
-    // drone spawned on its goal).
-    double prev_mean_distance_ = -1.0;
+    // Per-drone normalized distances from the previous planner step. -1.0 sentinel
+    // means the drone was ineligible last step (no baseline to compare against), so
+    // joining/leaving the eligible set doesn't fabricate a spurious progress signal.
+    // Indexed by fly_agents_ position; resized lazily.
+    std::vector<double> prev_drone_distances_;
     double prev_num_burning_ = -1.0;
     // Per-drone water levels from the previous planner step, used to compute the
     // WaterRefill dense reward. Empty vector is the "first call" sentinel.
     std::vector<double> prev_water_levels_;
+    // Per-drone planner-assigned goals from the previous planner step. Used to compute
+    // the GoalCommit reward (sticky-assignment bonus that counters autoregressive
+    // Categorical sampling noise). Empty vector is the "first call" sentinel.
+    std::vector<std::pair<double, double>> prev_planner_goals_;
+
+    // PBRS state. B_init_ is the burning-cell count captured once at episode reset;
+    // prev_phi_ stores Φ(s_{t-1}) so F = γΦ(s_t) − Φ(s_{t-1}) can be emitted.
+    // phi_initialized_ false → first planner step of episode → emit F = 0.
+    int    B_init_{0};
+    double prev_phi_{0.0};
+    bool   phi_initialized_{false};
+    // Component caches populated by ComputePotential, exposed via reward_components for
+    // tensorboard logging only (do not affect the reward).
+    double phi_fire_last_{0.0};
+    double phi_water_last_{0.0};
+    double phi_dist_last_{0.0};
 
     std::shared_ptr<AgentState> BuildAgentState(const std::shared_ptr<GridMap> &grid_map) override;
 };

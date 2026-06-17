@@ -4,8 +4,16 @@ from observation_dict import ObservationDict
 
 
 class FrameSkipController:
-    """Manages frame-skip action repetition state machine."""
-    __slots__ = ('frame_skips', 'counter', 'cached_actions', 'cached_logprobs')
+    """Manages frame-skip action repetition state machine.
+
+    ``cached_actions`` is what the engine executes; ``cached_sampled_actions`` is
+    what the policy actually sampled. They differ only when goal-commitment is
+    active (PlannerAgent.apply_commitment) — for everyone else they're the same
+    object. Memory stores ``cached_sampled_actions`` so the importance ratio in
+    PPO stays consistent with the policy at sample time.
+    """
+    __slots__ = ('frame_skips', 'counter', 'cached_actions', 'cached_sampled_actions',
+                 'cached_logprobs', 'cached_locked_mask')
 
     def __init__(self, frame_skips):
         self.frame_skips = frame_skips
@@ -20,14 +28,19 @@ class FrameSkipController:
         self.counter += 1
         return env_reset or (self.counter % self.frame_skips == 0)
 
-    def cache(self, actions, logprobs=None):
+    def cache(self, actions, logprobs=None, locked_mask=None, sampled_actions=None):
         self.cached_actions = actions
+        # Default: sampled == executed (no commitment override).
+        self.cached_sampled_actions = sampled_actions if sampled_actions is not None else actions
         self.cached_logprobs = logprobs
+        self.cached_locked_mask = locked_mask
 
     def reset(self):
         self.counter = 0
         self.cached_actions = None
+        self.cached_sampled_actions = None
         self.cached_logprobs = None
+        self.cached_locked_mask = None
 
 
 class AgentHandler:
@@ -123,6 +136,8 @@ class AgentHandler:
             model_name = self.sim_bridge.get("model_name")
             self.algorithm.set_paths(model_path, model_name)
             self.fsc.reset()
+            if hasattr(self.agent_type, "notify_episode_reset"):
+                self.agent_type.notify_episode_reset()
             self.rl_mode = new_rl_mode
             if self.algorithm_name != 'no_algo':
                 if self.rl_mode == "train":
@@ -152,9 +167,27 @@ class AgentHandler:
                 if self.current_obs is None:
                     self.current_obs = self._get_obs(engine)
                 actions, action_logprobs = self.act(self.current_obs)
+
+                # Goal-commitment override (planner-only). The sampled action goes
+                # into memory unchanged so the importance ratio stays clean; the
+                # overridden action is what actually gets executed in C++. Locked
+                # drones' contributions are masked out of the PPO loss downstream.
+                locked_mask = None
+                executed_actions = actions
+                if hasattr(self.agent_type, "apply_commitment"):
+                    executed_actions, locked_mask = self.agent_type.apply_commitment(
+                        self.current_obs, actions
+                    )
+
+                # Cache: executed actions → engine, sampled actions → memory. They
+                # differ only for locked drones; for everyone else they're identical.
+                # Storing sampled keeps the PPO importance ratio consistent with the
+                # policy at sample time; the locked_mask zeros locked-drone gradient.
                 self.fsc.cache(
-                    actions if not self.algorithm.use_noised_action else self.algorithm.raw_action,
-                    action_logprobs
+                    executed_actions if not self.algorithm.use_noised_action else self.algorithm.raw_action,
+                    action_logprobs,
+                    locked_mask=locked_mask,
+                    sampled_actions=actions if not self.algorithm.use_noised_action else self.algorithm.raw_action,
                 )
 
             rewards, terminals_vector, terminal_result, percent_burned = self.step_agent(engine, self.fsc.cached_actions)
@@ -167,14 +200,16 @@ class AgentHandler:
             # Intrinsic Reward Calculation (optional)
             intrinsic_reward = self.intrinsic_reward(terminals_vector, engine)
 
-            # Memory Adding
+            # Memory Adding — store the SAMPLED action (not executed) so PPO's
+            # importance ratio is computed at the policy's actual sample point.
             self.memory.add(self.current_obs,
-                            self.fsc.cached_actions,
+                            self.fsc.cached_sampled_actions,
                             self.fsc.cached_logprobs,
                             rewards,
                             terminals_vector,
                             next_obs=next_obs if self.use_next_obs else None,
-                            intrinsic_reward=intrinsic_reward)
+                            intrinsic_reward=intrinsic_reward,
+                            locked_mask=self.fsc.cached_locked_mask)
 
             # Update the Logger before checking if we should train, so that the logger has the latest information
             # to calculate the objective percentage and best reward
@@ -202,7 +237,14 @@ class AgentHandler:
         if self.fsc.at_decision_point:
             if self.current_obs is None:
                 self.current_obs = self._get_obs(engine)
-            self.fsc.cache(self.act_certain(self.current_obs))
+            actions = self.act_certain(self.current_obs)
+            # Mirror training-time commitment in eval so the policy we evaluate
+            # matches the one we trained — otherwise eval drones oscillate while
+            # training drones commit, and the metrics aren't comparable.
+            locked_mask = None
+            if hasattr(self.agent_type, "apply_commitment"):
+                actions, locked_mask = self.agent_type.apply_commitment(self.current_obs, actions)
+            self.fsc.cache(actions, locked_mask=locked_mask)
 
         rewards, terminals_vector, terminal_result, percent_burned = self.step_agent(engine, self.fsc.cached_actions)
 
@@ -212,14 +254,17 @@ class AgentHandler:
             intrinsic_reward = self.intrinsic_reward(terminals_vector, engine)
             if self.env_step % 5000 == 0:
                 self.logger.info(f"Replay Buffer size: {len(self.memory)}/{int(self.save_size)}")
-            # Memory Adding
+            # Memory Adding (eval/replay-buffer path). Note: this path stores
+            # the EXECUTED action since there's no PPO update consuming the
+            # importance ratio — the buffer is for offline algorithms (IQL).
             self.memory.add(self.current_obs,
                             self.fsc.cached_actions,
                             None,
                             rewards,
                             terminals_vector,
                             next_obs=self._get_obs(engine) if self.use_next_obs else None,
-                            intrinsic_reward=intrinsic_reward)
+                            intrinsic_reward=intrinsic_reward,
+                            locked_mask=self.fsc.cached_locked_mask)
             if len(self.memory) >= self.save_size:
                 mem_name = os.path.join(self.root_model_path, 'memory.pkl')
                 self.memory.save(mem_name)
@@ -255,6 +300,8 @@ class AgentHandler:
 
             self.hierarchy_steps = 0
             self.fsc.reset()
+            if hasattr(self.agent_type, "notify_episode_reset"):
+                self.agent_type.notify_episode_reset()
             self.env_step = 0
             self.current_obs = None
             self.env_reset = True
@@ -274,6 +321,15 @@ class AgentHandler:
         terminal_result = env_step.summary
         all_terminals = [t.is_terminal for t in terminals if t is not None]
 
+        # Per-component reward logging. Each agent that took a hierarchy action this step
+        # contributes its own reward_components dict. Summing per tag over a window and letting
+        # tensorboard_logger take the mean gives the average magnitude of each reward term.
+        if self.monitor is not None:
+            tb = self.monitor.tensorboard
+            for comp in env_step.reward_components:
+                for tag, value in comp.items():
+                    tb.add_metric(f"Rewards/{tag}", float(value))
+
         return rewards, all_terminals, terminal_result, percent_burned
 
     def step_without_network(self, engine):
@@ -285,6 +341,8 @@ class AgentHandler:
         if self.env_reset:
             self.sim_bridge.set("current_episode", self.sim_bridge.get("current_episode") + 1)
             self.fsc.reset()
+            if hasattr(self.agent_type, "notify_episode_reset"):
+                self.agent_type.notify_episode_reset()
             self.current_obs = None
 
     def update(self, mini_batch_size, next_obs):

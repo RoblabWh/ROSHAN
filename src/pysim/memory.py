@@ -11,9 +11,9 @@ def _to_cpu_numpy(x):
     return np.asarray(x) if not isinstance(x, np.ndarray) else x
 
 class SwarmMemory(object):
-    def __init__(self, num_agents=2, action_dim=2, max_size=int(1e5), use_intrinsic_reward=False, use_next_obs=False):
+    def __init__(self, num_agents=2, action_dim=2, max_size=int(1e5), use_intrinsic_reward=False, use_next_obs=False, use_locked_mask=False):
         self.num_agents = num_agents
-        self.memory = [Memory(action_dim=action_dim, max_size=max_size, use_intrinsic_reward=use_intrinsic_reward, use_next_obs=use_next_obs) for _ in range(num_agents)]
+        self.memory = [Memory(action_dim=action_dim, max_size=max_size, use_intrinsic_reward=use_intrinsic_reward, use_next_obs=use_next_obs, use_locked_mask=use_locked_mask) for _ in range(num_agents)]
         self._cached_cumsum = None  # Cached for sample_batch
 
     def save(self, path: str):
@@ -36,6 +36,7 @@ class SwarmMemory(object):
                 max_size=mstate["max_size"],
                 use_intrinsic_reward=mstate["use_intrinsic_reward"],
                 use_next_obs=mstate["use_next_obs"],
+                use_locked_mask=bool(mstate.get("use_locked_mask", False)),
             )
             m.load_state_dict(mstate)
             mems.append(m)
@@ -45,7 +46,8 @@ class SwarmMemory(object):
                  action_dim=mems[0].action_dim,
                  max_size=mems[0].max_size,
                  use_intrinsic_reward=mems[0].use_intrinsic_reward,
-                 use_next_obs=mems[0].use_next_obs)
+                 use_next_obs=mems[0].use_next_obs,
+                 use_locked_mask=mems[0].use_locked_mask)
         sm.memory = mems
         return sm
 
@@ -116,12 +118,13 @@ class SwarmMemory(object):
                 out.append(padded_data[i][valid_idx])
             return out
 
-    def add(self, state, action, action_logprobs, reward, done, next_obs=None, intrinsic_reward=None):
+    def add(self, state, action, action_logprobs, reward, done, next_obs=None, intrinsic_reward=None, locked_mask=None):
         self._cached_cumsum = None  # Invalidate sample_batch cache
         for i in range(self.num_agents):
             int_reward = intrinsic_reward[i] if intrinsic_reward is not None else None
             n_obs_ = self.get_agent_state(next_obs, agent_id=i) if next_obs is not None else None
             action_logprobs_ = action_logprobs[i] if action_logprobs is not None else None
+            lock_ = locked_mask[i] if locked_mask is not None else None
             self.memory[i].add(
                 self.get_agent_state(state, agent_id=i),
                 action[i],
@@ -129,7 +132,8 @@ class SwarmMemory(object):
                 reward[i],
                 done[i],
                 next_obs=n_obs_,
-                intrinsic_reward=int_reward
+                intrinsic_reward=int_reward,
+                locked_mask=lock_,
             )
 
     def __len__(self):
@@ -238,7 +242,8 @@ class Memory(object):
                  '_tensor_cache', '_tensor_cache_valid',
                  'state', 'action', 'logprobs', 'reward', 'not_done', 'masks',
                  'use_intrinsic_reward', 'intrinsic_reward',
-                 'use_next_obs', 'next_obs', 'device')
+                 'use_next_obs', 'next_obs',
+                 'use_locked_mask', 'locked_mask', 'device')
 
     def _alloc_buffer(self, shape):
         """Allocate numpy buffer, pinned if CUDA available."""
@@ -248,7 +253,7 @@ class Memory(object):
             return t.numpy()
         return np.zeros(shape)
 
-    def __init__(self, action_dim=2, max_size=int(1e5), use_intrinsic_reward=False, use_next_obs=False):
+    def __init__(self, action_dim=2, max_size=int(1e5), use_intrinsic_reward=False, use_next_obs=False, use_locked_mask=False):
         self.max_size = int(max_size)
         self.action_dim = action_dim
         self.ptr = 0
@@ -277,6 +282,18 @@ class Memory(object):
             self.next_obs = [0 for _ in range(self.max_size)]
         else:
             self.next_obs = None
+
+        # locked_mask: per-step per-drone bool flag indicating drones whose actions
+        # were structurally overridden (goal-commitment lock). Stored as float32 0/1
+        # to share the pinned-buffer machinery; cast to bool at to_tensor() time.
+        # Shape (max_size, num_drones) — pulled from action_dim[0] when action_dim is
+        # a tuple (planner: (num_drones, 2)). Falls back to scalar shape otherwise.
+        self.use_locked_mask = use_locked_mask
+        if self.use_locked_mask:
+            num_drones = action_dim[0] if isinstance(action_dim, (tuple, list)) and len(action_dim) >= 1 else 1
+            self.locked_mask = self._alloc_buffer((self.max_size, num_drones))
+        else:
+            self.locked_mask = None
 
         self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
@@ -322,6 +339,10 @@ class Memory(object):
                 None if not self.use_intrinsic_reward else self.intrinsic_reward[:self.size]
             ),
             "next_obs": _convert_state_list(self.next_obs) if self.use_next_obs else None,
+            "use_locked_mask": self.use_locked_mask,
+            "locked_mask": (
+                None if not self.use_locked_mask else self.locked_mask[:self.size]
+            ),
         }
         return data
 
@@ -332,6 +353,7 @@ class Memory(object):
         self.action_dim = state["action_dim"]
         self.use_intrinsic_reward = bool(state["use_intrinsic_reward"])
         self.use_next_obs = bool(state["use_next_obs"])
+        self.use_locked_mask = bool(state.get("use_locked_mask", False))
 
         # Re-init backing storage
         self._pinned_refs = []
@@ -351,6 +373,12 @@ class Memory(object):
             self.next_obs = [0 for _ in range(self.max_size)]
         else:
             self.next_obs = None
+
+        if self.use_locked_mask:
+            num_drones = self.action_dim[0] if isinstance(self.action_dim, (tuple, list)) and len(self.action_dim) >= 1 else 1
+            self.locked_mask = self._alloc_buffer((self.max_size, num_drones))
+        else:
+            self.locked_mask = None
 
         # Fill with the saved content
         n = int(state["size"])
@@ -372,6 +400,9 @@ class Memory(object):
 
         if self.use_intrinsic_reward and state["intrinsic_reward"] is not None:
             self.intrinsic_reward[:n] = state["intrinsic_reward"]
+
+        if self.use_locked_mask and state.get("locked_mask") is not None:
+            self.locked_mask[:n] = state["locked_mask"]
 
         if self.use_next_obs and state["next_obs"] is not None:
             for i in range(n):
@@ -405,10 +436,13 @@ class Memory(object):
             reward,
             done,
             next_obs=None,
-            intrinsic_reward=None):
+            intrinsic_reward=None,
+            locked_mask=None):
         """
         Add a new experience to the memory.
         :param intrinsic_reward: Optional intrinsic reward (float)
+        :param locked_mask: Optional per-drone bool mask (1=locked, 0=free).
+                            Stored only when ``use_locked_mask`` is True.
         """
         if hasattr(state, 'keys') or isinstance(state, dict):
             self.state[self.ptr] = dict(state)
@@ -427,6 +461,9 @@ class Memory(object):
                 self.next_obs[self.ptr] = dict(next_obs)
             else:
                 self.next_obs[self.ptr] = tuple(s for s in next_obs)
+
+        if self.use_locked_mask:
+            self.locked_mask[self.ptr] = locked_mask if locked_mask is not None else 0
 
         self.ptr = (self.ptr + 1) % self.max_size
         self.size = min(self.size + 1, self.max_size)
@@ -606,6 +643,11 @@ class Memory(object):
         if self.use_intrinsic_reward:
             data['intrinsic_reward'] = torch.as_tensor(self.intrinsic_reward[:self.size], dtype=torch.float32).to(self.device, non_blocking=True)
 
+        # Only add locked_mask if it is available. Cast to bool here — buffer is float
+        # to share the pinned-allocator path, but consumers want bool semantics.
+        if self.use_locked_mask:
+            data['locked_mask'] = torch.as_tensor(self.locked_mask[:self.size], dtype=torch.bool).to(self.device, non_blocking=True)
+
         # Only add next_obs if it is available
         if self.use_next_obs:
             if self._is_dict_state():
@@ -671,6 +713,11 @@ class Memory(object):
                 self.intrinsic_reward[idx_arr], dtype=torch.float32, device=self.device
             )
 
+        if self.use_locked_mask and self.locked_mask is not None:
+            out["locked_mask"] = torch.as_tensor(
+                self.locked_mask[idx_arr], dtype=torch.bool, device=self.device
+            )
+
         if self.use_next_obs and len(self.next_obs) > 0:
             selected_next = [self.next_obs[i] for i in idx]
             if selected_next and isinstance(selected_next[0], dict):
@@ -728,6 +775,11 @@ class Memory(object):
             self.next_obs = [0 for _ in range(self.max_size)]
         else:
             self.next_obs = None
+        if self.use_locked_mask:
+            num_drones = self.locked_mask.shape[1] if self.locked_mask is not None else 1
+            self.locked_mask = self._alloc_buffer((self.max_size, num_drones))
+        else:
+            self.locked_mask = None
         self._tensor_cache = None
         self._tensor_cache_valid = False
 
@@ -746,5 +798,7 @@ class Memory(object):
         self.masks = []
         if self.intrinsic_reward is not None:
             self.intrinsic_reward.fill(0)
+        if self.locked_mask is not None:
+            self.locked_mask.fill(0)
         self._tensor_cache = None
         self._tensor_cache_valid = False

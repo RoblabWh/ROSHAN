@@ -3,6 +3,7 @@
 //
 
 #include "planner_agent.h"
+#include <iostream>
 
 
 PlannerAgent::PlannerAgent(FireModelParameters &parameters, int total_id, int id, int time_steps) : Agent(parameters, 300) {
@@ -76,9 +77,19 @@ void PlannerAgent::Reset(Mode mode,
     extinguished_fires_ = 0;
     frame_ctrl_ = 0;
     extinguished_last_fire_ = false;
-    prev_mean_distance_ = -1.0;
+    prev_drone_distances_.clear();
     prev_num_burning_ = -1.0;
     prev_water_levels_.clear();
+    prev_planner_goals_.clear();
+    // PBRS state — capture B_init from the freshly-reset grid_map so Φ_fire = -B(s)/B_init
+    // is well-defined throughout the episode. max(_, 1) prevents div-by-zero on degenerate
+    // maps. phi_initialized_=false → first reward call emits F=0.
+    prev_phi_         = 0.0;
+    phi_initialized_  = false;
+    B_init_           = std::max(grid_map->GetNumBurningCells(), 1);
+    phi_fire_last_    = 0.0;
+    phi_water_last_   = 0.0;
+    phi_dist_last_    = 0.0;
     perfect_goals_.clear();
     agent_states_.clear();
     Initialize(explore_agent_, fly_agents_, grid_map);
@@ -139,7 +150,11 @@ double PlannerAgent::CalculateReward(const std::shared_ptr<GridMap>& grid_map) {
     std::vector<std::pair<double, double>> fly_agent_goals;
     for(const auto& agent : fly_agents_) {
         auto goal_position = agent->GetGoalPosition();
-        if (goal_position == groundstation_pos && !fire_positions->empty()) {
+        // Gated on !PBRS: refuel-vs-extinguish trade-off is expressed via Φ_water in
+        // PBRS mode, so this independent action-quality penalty would interfere with
+        // the policy-invariance guarantee of F = γΦ(s')−Φ(s).
+        if (!parameters_.PlannerPbrsEnabled_
+            && goal_position == groundstation_pos && !fire_positions->empty()) {
             // Penalize groundstation goals only when the drone has enough water to make
             // refueling "unnecessary". Below the threshold the trip is legitimate and
             // should carry no penalty (otherwise every refuel step eats -0.29 × N_steps,
@@ -166,11 +181,22 @@ double PlannerAgent::CalculateReward(const std::shared_ptr<GridMap>& grid_map) {
         if (g != groundstation_pos) non_gs_goals.push_back(g);
     }
     std::set<std::pair<double, double>> unique_goals(non_gs_goals.begin(), non_gs_goals.end());
-    if (unique_goals.size() < non_gs_goals.size()) {
+    const int duplicate_count = static_cast<int>(non_gs_goals.size() - unique_goals.size());
+    // Always emit SameGoalCount (even when 0) so TensorBoard sees the full distribution,
+    // not just the subset where duplicates occurred. Kept always-on (even in PBRS mode)
+    // because it's a pure diagnostic — useful for spotting oscillation regardless of
+    // which shaping path is active.
+    reward_components["SameGoalCount"] = static_cast<double>(duplicate_count);
+    // Gated on !PBRS: action-coordination penalty isn't expressible as a state
+    // potential, so it stays as independent shaping outside PBRS mode and stays off
+    // inside it (avoids contaminating the PBRS policy-invariance experiment).
+    if (duplicate_count > 0 && !parameters_.PlannerPbrsEnabled_) {
         reward_components["SameGoalPenalty"] = parameters_.PlannerSameGoalPenalty_
-            * static_cast<double>(non_gs_goals.size() - unique_goals.size());
+            * static_cast<double>(duplicate_count);
     }
 
+    // ─── Legacy dense shaping (skipped when PBRS is on; subsumed by F = γΦ(s')−Φ(s)) ───
+    if (!parameters_.PlannerPbrsEnabled_) {
     reward_components["ExtinguishedFires"] = extinguished_fires_ * parameters_.PlannerExtinguishFires_;
 
     // WaterRefill: dense positive reward for actual tank refilling. Sums fractional
@@ -200,12 +226,25 @@ double PlannerAgent::CalculateReward(const std::shared_ptr<GridMap>& grid_map) {
         }
 
         if (!fire_positions->empty()) {
+            // Single pass: EmptyTank counts every empty drone (ambient pressure on the
+            // empty state); FireGoalEmpty further counts only those with a non-groundstation
+            // goal (targets the assignment decision, so a refueling-bound empty drone
+            // bleeds only EmptyTank, not the larger FireGoalEmpty).
             int empty_drones = 0;
+            int empty_with_fire_goal = 0;
             for (const auto& a : fly_agents_) {
-                if (a->GetWaterCapacity() <= 0.0) ++empty_drones;
+                if (a->GetWaterCapacity() <= 0.0) {
+                    ++empty_drones;
+                    if (a->GetGoalPosition() != groundstation_pos) {
+                        ++empty_with_fire_goal;
+                    }
+                }
             }
             if (empty_drones > 0) {
                 reward_components["EmptyTank"] = empty_drones * parameters_.PlannerEmptyTank_;
+            }
+            if (empty_with_fire_goal > 0) {
+                reward_components["FireGoalEmpty"] = empty_with_fire_goal * parameters_.PlannerFireGoalEmpty_;
             }
         }
     }
@@ -219,32 +258,169 @@ double PlannerAgent::CalculateReward(const std::shared_ptr<GridMap>& grid_map) {
     }
     prev_num_burning_ = num_burning;
 
-    // Distance-based progress reward: reward drones for getting closer to their goals.
-    // Normalize by map scale so the reward weight stays meaningful across map sizes —
-    // without this, a raw per-step improvement of ~10 cells on a small map gave the
-    // same numeric reward as 10 cells on a large map, even though semantically the
-    // large-map improvement is much smaller progress.
+    // GoalCommit: per-drone bonus for keeping the same goal as the previous planner step,
+    // when the drone hasn't yet reached it. Counterbalances autoregressive Categorical
+    // sampling noise in the pointer decoder — without a sticky signal the policy re-rolls
+    // assignments every planner step and drones oscillate between goals without ever
+    // completing a trip. The "at goal" guard (within 1 cell) keeps re-evaluation free
+    // once the drone has actually arrived, so this rewards commitment, not goal-camping.
+    if (prev_planner_goals_.size() == fly_agents_.size()) {
+        int committed = 0;
+        for (size_t i = 0; i < fly_agents_.size(); ++i) {
+            const auto cur = fly_agents_[i]->GetGoalPosition();
+            const auto prev = prev_planner_goals_[i];
+            const auto pos = fly_agents_[i]->GetGridPositionDouble();
+            const double dx = pos.first - cur.first;
+            const double dy = pos.second - cur.second;
+            const bool at_goal = (dx * dx + dy * dy) < 1.0;
+            if (cur == prev && !at_goal) ++committed;
+        }
+        if (committed > 0) {
+            reward_components["GoalCommit"] = committed * parameters_.PlannerGoalCommit_;
+        }
+    }
+    prev_planner_goals_.assign(fly_agents_.size(), {0.0, 0.0});
+    for (size_t i = 0; i < fly_agents_.size(); ++i) {
+        prev_planner_goals_[i] = fly_agents_[i]->GetGoalPosition();
+    }
+
+    // Distance-based progress reward: reward drones for getting closer to their goals,
+    // but only when the (water, goal) combination is task-aligned. Without this filter,
+    // an empty drone flying toward a fire it cannot extinguish — or a full drone flying
+    // toward the groundstation it doesn't need — both earn the planner positive shaping
+    // for the FlyAgent's competence on a strategically wasted assignment.
+    // Normalize by map scale so the reward weight stays meaningful across map sizes.
+    // Per-drone deltas (rather than mean-over-set) so eligible drones joining/leaving
+    // the set don't fabricate a spurious progress signal.
     const double norm_map = static_cast<double>(std::max(grid_map->GetRows(), grid_map->GetCols()));
-    double total_distance = 0.0;
-    for (const auto& agent : fly_agents_) {
-        auto pos = agent->GetGridPositionDouble();
+    const double water_max = static_cast<double>(parameters_.GetWaterCapacity());
+    if (prev_drone_distances_.size() != fly_agents_.size()) {
+        prev_drone_distances_.assign(fly_agents_.size(), -1.0);
+    }
+    double total_improvement = 0.0;
+    int compared_drones = 0;
+    for (size_t i = 0; i < fly_agents_.size(); ++i) {
+        const auto& agent = fly_agents_[i];
         auto goal = agent->GetGoalPosition();
+        const bool goal_is_gs = (goal == groundstation_pos);
+        const double water = agent->GetWaterCapacity();
+        bool eligible;
+        if (goal_is_gs) {
+            // Approaching groundstation only counts when there's actual room to refill.
+            // Without use_water_limit, refueling is meaningless — never eligible.
+            eligible = parameters_.use_water_limit_ && (water < water_max);
+        } else {
+            // Approaching a fire only counts when the drone can extinguish on arrival.
+            // Without use_water_limit, every drone can always extinguish.
+            eligible = !parameters_.use_water_limit_ || (water > 0.0);
+        }
+        if (!eligible) {
+            prev_drone_distances_[i] = -1.0;
+            continue;
+        }
+        auto pos = agent->GetGridPositionDouble();
         double dx = goal.first - pos.first;
         double dy = goal.second - pos.second;
-        total_distance += std::sqrt(dx * dx + dy * dy);
+        double dist = std::sqrt(dx * dx + dy * dy) / norm_map;
+        if (prev_drone_distances_[i] >= 0.0) {
+            total_improvement += (prev_drone_distances_[i] - dist);
+            ++compared_drones;
+        }
+        prev_drone_distances_[i] = dist;
     }
-    double mean_distance = total_distance / static_cast<double>(fly_agents_.size()) / norm_map;
-    if (prev_mean_distance_ >= 0.0) {
-        double distance_improvement = prev_mean_distance_ - mean_distance;
-        reward_components["DistanceProgress"] = distance_improvement * parameters_.PlannerDistanceProgress_;
+    if (compared_drones > 0) {
+        const double mean_improvement = total_improvement / static_cast<double>(compared_drones);
+        reward_components["DistanceProgress"] = mean_improvement * parameters_.PlannerDistanceProgress_;
     }
-    prev_mean_distance_ = mean_distance;
+    } // !PlannerPbrsEnabled_
+
+    // ─── PBRS shaping: F = γΦ(s_t) − Φ(s_{t-1}). Policy-invariant (Ng+ 1999). ───
+    if (parameters_.PlannerPbrsEnabled_) {
+        const double phi = ComputePotential(grid_map);
+        double F = 0.0;
+        if (phi_initialized_) {
+            F = parameters_.PlannerPbrsGamma_ * phi - prev_phi_;
+        }
+        prev_phi_         = phi;
+        phi_initialized_  = true;
+        reward_components["PBRS"]     = F;
+        // Leading-underscore keys are diagnostics — logged to TensorBoard but
+        // excluded from ComputeTotalReward (see agent.cpp). The Φ components
+        // are already wrapped into F = γΦ(s')−Φ(s); summing them directly into
+        // the reward double-counts the potential and breaks Ng+ 1999 invariance.
+        reward_components["_PhiFire"]  = phi_fire_last_;
+        reward_components["_PhiWater"] = phi_water_last_;
+        reward_components["_PhiDist"]  = phi_dist_last_;
+    }
 
     total_reward = ComputeTotalReward(reward_components);
     LogRewards(reward_components);
     reward_components_ = reward_components;
     this->SetReward(total_reward);
     return total_reward;
+}
+
+double PlannerAgent::ComputePotential(const std::shared_ptr<GridMap>& grid_map) {
+    // Φ_fire(s) = -B(s)/B_init  ∈ [-1, 0]; closer to 0 = better.
+    const double phi_fire = -static_cast<double>(grid_map->GetNumBurningCells())
+                             / static_cast<double>(std::max(B_init_, 1));
+
+    // Φ_water(s) = mean fractional tank ∈ [0, 1]. Disabled (returns 0) when water_limit
+    // is off, so refuel shaping has no effect in that regime — matches existing semantics
+    // for WaterRefill/EmptyTank.
+    double phi_water = 0.0;
+    if (parameters_.use_water_limit_ && !fly_agents_.empty()) {
+        const double cap = static_cast<double>(parameters_.GetWaterCapacity());
+        if (cap > 0.0) {
+            double sum_frac = 0.0;
+            for (const auto& a : fly_agents_) {
+                sum_frac += std::clamp(a->GetWaterCapacity() / cap, 0.0, 1.0);
+            }
+            phi_water = sum_frac / static_cast<double>(fly_agents_.size());
+        }
+    }
+
+    // Φ_dist(s) = -mean(eligible drone→goal distance) ∈ [-1, 0]. Eligibility mirrors the
+    // legacy DistanceProgress block: empty drones with fire goals and full drones with
+    // groundstation goals are excluded so distance-shaping can't fabricate progress on
+    // strategically-misaligned assignments. Distance is map-normalized (already in [0,√2]).
+    double phi_dist = 0.0;
+    if (!fly_agents_.empty()) {
+        const auto groundstation_pos = grid_map->GetGroundstation()->GetGridPositionDouble();
+        const double norm_map = static_cast<double>(std::max(grid_map->GetRows(),
+                                                             grid_map->GetCols()));
+        const double water_max = static_cast<double>(parameters_.GetWaterCapacity());
+        double dist_sum = 0.0;
+        int eligible_count = 0;
+        for (const auto& agent : fly_agents_) {
+            const auto goal = agent->GetGoalPosition();
+            const bool goal_is_gs = (goal == groundstation_pos);
+            const double water = agent->GetWaterCapacity();
+            bool eligible;
+            if (goal_is_gs) {
+                eligible = parameters_.use_water_limit_ && (water < water_max);
+            } else {
+                eligible = !parameters_.use_water_limit_ || (water > 0.0);
+            }
+            if (!eligible) continue;
+            const auto pos = agent->GetGridPositionDouble();
+            const double dx = goal.first - pos.first;
+            const double dy = goal.second - pos.second;
+            dist_sum += std::sqrt(dx * dx + dy * dy) / norm_map;
+            ++eligible_count;
+        }
+        if (eligible_count > 0) {
+            phi_dist = -dist_sum / static_cast<double>(eligible_count);
+        }
+    }
+
+    phi_fire_last_  = phi_fire;
+    phi_water_last_ = phi_water;
+    phi_dist_last_  = phi_dist;
+
+    return parameters_.PlannerPbrsWFire_  * phi_fire
+         + parameters_.PlannerPbrsWWater_ * phi_water
+         + parameters_.PlannerPbrsWDist_  * phi_dist;
 }
 
 void PlannerAgent::InitializePlannerAgentStates(const std::shared_ptr<GridMap> &grid_map) {

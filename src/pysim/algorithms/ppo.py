@@ -261,6 +261,11 @@ class PPO(RLAlgorithm):
         old_logprobs = t_dict['logprobs']
         ext_rewards = t_dict['reward']
         masks = t_dict['not_done']
+        # Per-step per-drone goal-commitment lock (planner only). When present,
+        # PPO zeros out locked drones' contributions to actor loss and entropy
+        # so the policy isn't credited/penalized for outputs the C++ side overrode.
+        # List of per-agent (T_i, N) bool tensors, or None for non-planner agents.
+        locked_mask_per_agent = t_dict.get('locked_mask', None)
 
         # Prepare rewards
         rewards, log_rewards_raw, log_rewards_scaled = self.prepare_rewards(ext_rewards, t_dict)
@@ -295,6 +300,41 @@ class PPO(RLAlgorithm):
                 if self.use_variable_state_masks and len(variable_state_masks[0]) > 0
                 else None
             )
+
+            # Planner diagnostics — only meaningful for categorical (pointer-network) actors.
+            # Memory stores the continuous (x,y) coordinates returned by _idx_to_coords,
+            # not the pointer indices. Recover indices via nearest-neighbor match to
+            # fire_positions (groundstation at index 0) — mirrors CategoricalActorCritic
+            # ._coords_to_idx but without the strict 1e-8 tolerance assert, which can trip
+            # on float precision during memory roundtrip.
+            if self.use_categorical:
+                fire_pos = all_states["fire_positions"] if isinstance(all_states, dict) else all_states[2]
+                if not torch.is_tensor(fire_pos):
+                    fire_pos = torch.as_tensor(np.asarray(fire_pos))
+                fire_pos = fire_pos.to(all_actions.device).float()
+                # (B, T_max, K, 2) → last timestep, (B, K, 2). (B, K, 2) stays as-is.
+                fire_pos_last = fire_pos[:, -1] if fire_pos.dim() == 4 else fire_pos
+                # all_actions: (B, N_D, 2); fire_pos_last: (B, K, 2)
+                dists = torch.cdist(all_actions.float(), fire_pos_last)  # (B, N_D, K)
+                all_action_idx = dists.argmin(dim=-1)                    # (B, N_D)
+                gs_frac = (all_action_idx == 0).float().mean().item()
+                logger.add_metric("Planner/groundstation_fraction", gs_frac)
+                logger.add_metric("Planner/action_idx", all_action_idx.flatten().cpu().numpy(), hist=True)
+                if hasattr(self.policy.actor, "log_assignment_penalty"):
+                    penalty = self.policy.actor.log_assignment_penalty.clamp(-3.0, 3.0).exp()
+                    logger.add_metric("Training/assignment_penalty", penalty.detach().cpu().item())
+                if isinstance(all_states, dict) and "drone_water" in all_states:
+                    dw = all_states["drone_water"]
+                    water_tensor = dw if torch.is_tensor(dw) else torch.as_tensor(np.asarray(dw))
+                    water_flat = water_tensor.reshape(-1).float()
+                    logger.add_metric("Planner/water_mean", water_flat.mean().item())
+                    logger.add_metric("Planner/water_min", water_flat.min().item())
+                # Goal-commitment lock visibility: fraction of (planner step × drone)
+                # cells where the planner's output was overridden by the previous goal.
+                # Catches degenerate cases (always-locked or never-locked) early.
+                if locked_mask_per_agent is not None and len(locked_mask_per_agent) > 0:
+                    lm_flat = torch.cat(locked_mask_per_agent).float().reshape(-1)
+                    logger.add_metric("Planner/locked_fraction", lm_flat.mean().item())
 
             # Chunk the critic forward to cap GPU memory at ~mini_batch_size
             # instead of processing the entire horizon at once.
@@ -366,6 +406,13 @@ class PPO(RLAlgorithm):
         old_logprobs = torch.cat(old_logprobs).detach()
         states = all_states
         actions = all_actions
+        # Concat per-agent locked masks into a single (T_total, N) tensor; None
+        # otherwise. Stays None for non-planner agents that don't emit the field.
+        all_locked_mask = (
+            torch.cat(locked_mask_per_agent)
+            if locked_mask_per_agent is not None and len(locked_mask_per_agent) > 0
+            else None
+        )
         logger.add_metric("Rewards/Returns", returns.detach().cpu().numpy())
         logger.add_metric("Rewards/Advantages", advantages.detach().cpu().numpy())
 
@@ -395,10 +442,33 @@ class PPO(RLAlgorithm):
                 batch_adv = (batch_adv - batch_adv.mean()) / (batch_adv.std() + 1e-8)
                 batch_variable_masks = all_mask_arg[index] if all_mask_arg is not None else None
                 batch_old_logprobs = old_logprobs[index]
-                # Joint log_probs for multi-discrete actions
-                if batch_old_logprobs.dim() == 2:
-                    batch_old_logprobs = batch_old_logprobs.sum(dim=1)
+                # Goal-commitment lock (planner-only). When present, locked-drone
+                # log_probs and entropy get zeroed before the sum-over-drones, so
+                # those outputs contribute nothing to the gradient — they had no
+                # causal effect on the reward (executed action was overridden).
+                batch_locked = all_locked_mask[index] if all_locked_mask is not None else None
+                if batch_locked is not None:
+                    free = (~batch_locked).float()  # (B, N)
+                    # Multi-discrete (per-drone) log_probs path: mask, then sum.
+                    if batch_old_logprobs.dim() == 2:
+                        batch_old_logprobs = (batch_old_logprobs * free).sum(dim=1)
+                else:
+                    # Default behavior: joint log-probs by simple sum-over-drones.
+                    if batch_old_logprobs.dim() == 2:
+                        batch_old_logprobs = batch_old_logprobs.sum(dim=1)
                 logprobs, values, dist_entropy = self.policy.evaluate(batch_states, batch_actions, batch_variable_masks)
+                # New log-probs / entropy may also come back per-drone from the
+                # categorical evaluate path — apply the same masked sum.
+                if logprobs.dim() == 2:
+                    if batch_locked is not None:
+                        logprobs = (logprobs * free).sum(dim=1)
+                    else:
+                        logprobs = logprobs.sum(dim=1)
+                if dist_entropy.dim() == 2:
+                    if batch_locked is not None:
+                        dist_entropy = (dist_entropy * free).sum(dim=1)
+                    else:
+                        dist_entropy = dist_entropy.sum(dim=1)
 
                 # Importance ratio: p/q
                 # Clamp the ratios for stability (higher LRs can cause overflow, which results in NaNs)

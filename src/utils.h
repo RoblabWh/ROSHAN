@@ -7,6 +7,8 @@
 
 #include <chrono>
 #include <unordered_set>
+#include <unordered_map>
+#include <string>
 #include <functional>
 #include <memory>
 #include <deque>
@@ -119,6 +121,9 @@ struct EpisodeSummary {
 // --- Whole step result ---
 struct StepResult {
     std::vector<double> rewards;        // aligned with agents vector
+    // Per-component reward breakdown, aligned with rewards. Populated only for agents that
+    // took a hierarchy action this step (same gate as rewards). Empty map for no-op steps.
+    std::vector<std::unordered_map<std::string, double>> reward_components;
     std::vector<AgentTerminal> terminals; // aligned with agents vector
     EpisodeSummary summary;
     double percent_burned{0.0};

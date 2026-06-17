@@ -275,11 +275,16 @@ class AgentBuilder:
             logger.info("Loading replay buffer from {}".format(memory_path))
             memory = SwarmMemory.load(memory_path)
         else:
+            # Goal-commitment opt-in: agents with apply_commitment() emit a per-step
+            # locked_mask that PPO masks out of the policy gradient. Other agent types
+            # (FlyAgent, ExploreAgent) leave the buffer unallocated.
+            use_locked_mask = hasattr(agent_type_obj, "apply_commitment")
             memory = SwarmMemory(max_size=algo_instance.memory_size,
                                  num_agents=num_agents,
                                  action_dim=agent_type_obj.action_dim,
                                  use_intrinsic_reward=use_intrinsic_reward,
-                                 use_next_obs=use_next_obs)
+                                 use_next_obs=use_next_obs,
+                                 use_locked_mask=use_locked_mask)
 
         # --- Build TrainingMonitor (main agent only) ---
         monitor = None

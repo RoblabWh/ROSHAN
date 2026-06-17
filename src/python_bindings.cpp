@@ -64,10 +64,11 @@ PYBIND11_MODULE(firesim, m) {
             .def_readonly("reason",          &EpisodeSummary::reason);
 
     py::class_<StepResult>(m, "StepResult")
-            .def_readonly("rewards",        &StepResult::rewards)
-            .def_readonly("terminals",      &StepResult::terminals)
-            .def_readonly("summary",        &StepResult::summary)
-            .def_readonly("percent_burned", &StepResult::percent_burned);
+            .def_readonly("rewards",           &StepResult::rewards)
+            .def_readonly("reward_components", &StepResult::reward_components)
+            .def_readonly("terminals",         &StepResult::terminals)
+            .def_readonly("summary",           &StepResult::summary)
+            .def_readonly("percent_burned",    &StepResult::percent_burned);
 
     py::class_<EngineCore>(m, "EngineCore")
             .def(py::init<>())

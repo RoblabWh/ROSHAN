@@ -205,6 +205,41 @@ public:
         PlannerEmptyTank_ = planner_reward["EmptyTank"]
                 ? planner_reward["EmptyTank"].as<double>()
                 : 0.0;
+        // Per-drone-per-step penalty for empty tanks paired with a non-groundstation goal
+        // (i.e. planner sent an empty drone to extinguish). Targets the assignment decision
+        // itself rather than the empty state — additive with EmptyTank, so a refueling-bound
+        // empty drone bleeds only the small EmptyTank, not this larger penalty.
+        // Default 0.0 preserves prior behavior for older configs.
+        PlannerFireGoalEmpty_ = planner_reward["FireGoalEmpty"]
+                ? planner_reward["FireGoalEmpty"].as<double>()
+                : 0.0;
+        // Per-drone-per-step bonus for keeping the same goal as the previous planner step
+        // (and the drone hasn't yet reached it). Counterbalances autoregressive Categorical
+        // sampling noise that otherwise drives goal-thrashing in the pointer-network policy.
+        // Default 0.0 preserves prior behavior for older configs.
+        PlannerGoalCommit_ = planner_reward["GoalCommit"]
+                ? planner_reward["GoalCommit"].as<double>()
+                : 0.0;
+        // PBRS-based reward (Ng, Harada & Russell 1999). When enabled, the six dense
+        // shaping terms (ExtinguishFires, SpreadPrevention, WaterRefill, EmptyTank,
+        // FireGoalEmpty, DistanceProgress) are skipped and replaced by a single
+        // F = γΦ(s') − Φ(s) signal that is provably policy-invariant. Terminal and
+        // action-dependent rewards are unaffected.
+        PlannerPbrsEnabled_ = planner_reward["PbrsEnabled"]
+                ? planner_reward["PbrsEnabled"].as<bool>()
+                : false;
+        PlannerPbrsGamma_ = planner_reward["PbrsGamma"]
+                ? planner_reward["PbrsGamma"].as<double>()
+                : 0.999;
+        PlannerPbrsWFire_ = planner_reward["PbrsWFire"]
+                ? planner_reward["PbrsWFire"].as<double>()
+                : 1.0;
+        PlannerPbrsWWater_ = planner_reward["PbrsWWater"]
+                ? planner_reward["PbrsWWater"].as<double>()
+                : 0.2;
+        PlannerPbrsWDist_ = planner_reward["PbrsWDist"]
+                ? planner_reward["PbrsWDist"].as<double>()
+                : 0.1;
 
         //Hierarchy steps
         auto hierarchy_type_ = config["settings"]["hierarchy_type"].as<std::string>();
@@ -480,6 +515,13 @@ public:
     double PlannerFlyingTowardsGroundstationWaterThreshold_{};
     double PlannerWaterRefill_{};
     double PlannerEmptyTank_{};
+    double PlannerFireGoalEmpty_{};
+    double PlannerGoalCommit_{};
+    bool   PlannerPbrsEnabled_{false};
+    double PlannerPbrsGamma_{0.999};
+    double PlannerPbrsWFire_{1.0};
+    double PlannerPbrsWWater_{0.2};
+    double PlannerPbrsWDist_{0.1};
     int water_capacity_{};
     [[nodiscard]] int GetNumberOfFlyAgents() const {return number_of_flyagents_;}
     [[nodiscard]] int GetNumberOfExplorers() const {return number_of_explorers_;}
