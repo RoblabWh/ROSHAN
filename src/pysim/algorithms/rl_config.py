@@ -84,9 +84,23 @@ class PPOConfig(RLConfig):
     manual_decay: bool = False
     use_logstep_decay: bool = True
     decay_rate: float = 0.99
+    # Entropy-coefficient decay (categorical/pointer actors): each PPO update multiplies
+    # entropy_coeff by entropy_decay_rate down to entropy_coeff_min. 1.0 = off (default,
+    # preserves prior behavior). Used so the late policy sharpens and argmax ≈ sampling
+    # by end of training instead of staying entropy-soft.
+    entropy_decay_rate: float = 1.0
+    entropy_coeff_min: float = 0.0
     kl_early_stop: bool = True
     kl_target: float = 0.02
     use_kl_1: bool = True
+    # SMDP variable-duration GAE (planner-only; set by agent_builder from the planner
+    # config block). When smdp_gae is True, get_advantages discounts each transition by
+    # gamma^k (k = env steps it spanned) instead of gamma^1. smdp_normalize_k divides k by
+    # max_low_level_steps so a fixed cadence stays ~= gamma^1 (A/B isolation). Defaults keep
+    # all non-planner PPO agents on the standard one-step path.
+    smdp_gae: bool = False
+    smdp_normalize_k: bool = False
+    max_low_level_steps: int = 1
 #Current Best: {'lr': 2.450621398427006e-05, 'gamma': 0.9635130394855251, 'clip_range': 0.2783066147446984, 'ent_coef': 0.0006194758615931694, 'k_epochs': 6, 'batch_size': 1024}
 @dataclass
 class IQLConfig(RLConfig):
@@ -141,7 +155,7 @@ def override_from_dict(config: Union[RLConfig, IQLConfig, PPOConfig, TD3Config],
     logger = logging.getLogger("RLConfig")
 
     for key, value in params.items():
-        if hasattr(config, key) and (value is not None and value != ""):
+        if hasattr(config, key) and value is not None:
             setattr(config, key, value)
         else:
             if hasattr(config, key):

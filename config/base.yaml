@@ -5,10 +5,10 @@ settings:
   seed: -1
   # RL_MODE: Either "train" or "eval"
   rl_mode: train
-  # Use the hardcoded greedy FlyPolicy state machine instead of a learned low-level policy.
-  # Only meaningful with hierarchy_type='fly_agent' in rl_mode='eval'. Ignored (with a warning) otherwise.
-  # Independent of use_water_limit — refueling now works for trained planners too.
-  use_heuristic: false
+  # Eval-time action selection: false = deterministic argmax (act_certain), true = sample
+  # from the policy distribution like training rollouts do. Planner-only (sub-agents stay
+  # deterministic). Diagnostic knob to separate argmax-collapse from observation effects.
+  eval_sampling: false
   # Resume training from a checkpoint
   # If set to true, the training will continue from the specified checkpoint
   resume: false
@@ -33,11 +33,11 @@ settings:
     use_auto_train: false
     # Number of total trainings, each containing max_train train_steps
     # automatically set to 1 when use_auto_train is false
-    train_episodes: 3
+    train_episodes: 10
     # Maximum number of train_steps(NOT policy steps) to perform
     # this setting is also used in case of NoGUI mode to determine when to stop training and switch to evaluation
     # This setting gets overridden in IQL settings and is calculated as the total number of offline_updates + online_updates
-    max_train: 100 #12000 for TD3 ~ 8.5h
+    max_train: 300 #12000 for TD3 ~ 8.5h
     # Maximum number of evaluations(one evaluation = one environment completed) to perform
     max_eval: 100
   optuna:
@@ -58,15 +58,15 @@ paths:
   # This is the root_path where your NEW trained models data is stored
   # Loading for your ROOT Model(chosen hierarchy) is ALSO done from here (Eval and Resuming Training)
   # Absolute or relative to the project root
-  model_directory: models/NotebookTest #PPO_4A_NoManualDecay_P9Like
+  model_directory: models/CollisionFlyAgent2 #PPO_4A_NoManualDecay_P9Like
   # Leave this empty to get a default name from this config (best practice for training)
   # You can fast load models with suffixes ["latest", "best_reward", "best_obj"]
   # If you want to load a specific model, set the model_name to the name of the model file
-  model_name: ""
+  model_name: "latest"
   # Name of the CORINE dataset-file, Path to the Corine dataset file must be set in project_paths.json (generated default paths at compile time)
   corine_dataset_name: CLMS_CLCplus_RASTER_2021_010m_eu_03035_V1_1.tif
   # This map is used in NoGUI & skip_gui_init setup, if left empty("") the default map (uniform map) will be used.
-  init_map: 35x36_Woods.tif #81x129_Campsite.tif
+  init_map: 35x36_Woods.tif #35x36_Woods.tif #81x129_Campsite.tif
 #{'entropy_coeff': 1.230811218699769e-06, 'gamma': 0.9773972579784836, '_lambda': 0.9096741778233516, 'eps_clip': 0.22816431818213967}
 algorithm:
   # Share the encoder(Inputspace in the network files) between the policy and value networks
@@ -77,35 +77,60 @@ algorithm:
   # Note: This leads to log_prob issues and suboptimal policies
   # TanhNormal is generally preferred as it naturally bounds the actions within the action space limits
   use_tanh_dist: true
+  # JIT-compile actor/critic networks with torch.compile() for faster forward/backward passes
+  # Opt in explicitly if you want it.
+  use_torch_compile: false
+  # Compilation mode: "default", "reduce-overhead", or "max-autotune".
+  # "reduce-overhead" (CUDA graphs) currently BREAKS PPO training here; graph outputs get
+  # overwritten between invocations (network_fly.py value head).
+  # Use "default" (verified working). The planner is auto-forced to "default" in ppo.py anyway.
+  compile_mode: "default"
   PPO:
-    # Size of the Replay Buffer 
+    # Size of the Replay Buffer
     # Gets cleaned up after each training episode
     # Needs to be bigger when trying to safe the buffer
     memory_size: 1.0e+6
     # Learning rate for the optimizer #1.575e-4 for FlyAgent #1.0e-4 for PlannerAgent
     lr: 1.575e-4 #Top10: 2.965e-4 # Learning rate for the optimizer
     # Batch size for the optimizer
-    batch_size: 200 #2000 #300
+    batch_size: 500 #2000 #300 #2048
     # Number of steps to collect before updating the model
-    horizon: 1200 #66000 #3600
+    horizon: 10000 #66000 #3600 #65536
     # Number of epochs to update the model
     k_epochs: 3
     # Coefficient for the entropy loss
     entropy_coeff: 0.0005
+    # Multiplicative entropy_coeff decay per PPO update, floored at entropy_coeff_min.
+    # 1.0 = off. Sharpens the late policy so argmax ≈ sampled by end of training.
+    entropy_decay_rate: 1.0
+    entropy_coeff_min: 0.0
     # Coefficient for the value loss (no effect if separate_optimizers is true)
     value_loss_coef: 0.5
     # Use separate optimizers for the policy and value networks
-    # If this is set to false, a single optimizer will be used for 
+    # If this is set to false, a single optimizer will be used for
     # both networks (only works if share_encoder is false)
     separate_optimizers: false
+    # Optimizer config — type + any kwargs accepted by that optimizer.
+    # Available: Adam, AdamW, SGD, RMSprop, RAdam, Muon
+    # Kwargs are signature-filtered per type: keys the chosen optimizer doesn't accept
+    # are silently dropped (so betas is ignored by SGD, etc.).
     optimizer:
-      type: Adam
+      type: AdamW
+      # Adam-family momentum coefficients (running averages of grad and grad^2)
       betas: [0.9, 0.999]
+      # Numerical stability term added to the denominator
       eps: 1.0e-5
+      # L2 penalty (AdamW: decoupled weight decay). 0 = off
       weight_decay: 0
+    # Scheduler config — type + any kwargs accepted by that scheduler (same signature
+    # filtering as optimizer kwargs).
+    # Available: CosineAnnealingLR, CosineAnnealingWarmRestarts, StepLR, ExponentialLR, ConstantLR, None
     scheduler:
       type: CosineAnnealingLR
+      # Cosine half-period in scheduler steps; lr reaches eta_min after T_max steps
       T_max: 1000000
+      # Lower bound the cosine decays to (torch default 0.0)
+      eta_min: 0.0
     # Discount factor for the rewards
     gamma: 0.9635
     # Lambda for the Generalized Advantage Estimation (GAE)
@@ -153,7 +178,7 @@ algorithm:
     # Target network soft update rate
     tau: 0.005
     # Temperature for the IQL loss
-    temperature: 3.0 
+    temperature: 3.0
     # Frequency of policy updates in online finetuning
     # i.e. how many environment steps between the next policy update
     policy_freq: 50
@@ -164,6 +189,7 @@ algorithm:
     online_updates: 0
     # Number of epochs in online-finetuning, has no effect on offline training
     k_epochs: 1
+    # Same semantics as algorithm.PPO.optimizer / .scheduler (see comments there)
     optimizer:
       type: Adam
       betas: [0.9, 0.999]
@@ -186,6 +212,7 @@ algorithm:
     policy_noise: 0.2 # Noise added to the policy network
     noise_clip: 0.5 # Clipping value for the noise
     policy_freq: 2 # Frequency of policy updates
+    # Same semantics as algorithm.PPO.optimizer / .scheduler (see comments there)
     optimizer:
       type: Adam
       betas: [0.9, 0.999]
@@ -196,13 +223,19 @@ algorithm:
       T_max: 1000000
 
 fire_model:
-  # Rendering Parameters
+  # Rendering Parameters — purely cosmetic (GUI modes only), no effect on simulation or training
   rendering:
+    # Draw the cell grid lines
     render_grid: false
+    # Per-cell texture noise on terrain cells (visual variety for cell classes that support it)
     has_noise: true
+    # Keep a lingering visual trace on cells after their state changes
     lingering: false
+    # Intensity of the per-cell texture noise
     noise_level: 20
+    # Pixel size of the noise pattern
     noise_size: 2
+    # Window background color as RGBA
     background_color: [21, 19, 51, 255] #[41, 49, 51, 255]
   #### Simulation Parameters
   # These parameters are used to configure the simulation environment
@@ -211,7 +244,9 @@ fire_model:
   # Most of them can be adjusted in the GUI, adjustment here only for testing purposes
   simulation:
     time:
+      # Simulation time step in seconds; all speeds/durations scale with it
       dt: 0.1 # 0.3
+      # Bounds for dt when adjusted in the GUI
       min_dt: 0.0001
       max_dt: 5.0
     cells:
@@ -247,9 +282,16 @@ environment:
   # These parameters are used to configure the fire START behaviour in the environment
   # It does NOT affect the actual fire spread during simulation, this is handled by the fire_model
   fire_behaviour:
+    # Fire ignition pattern: "cluster", "scattered", "ring", "random" (random picks one of the others each episode)
+    fire_pattern: cluster
     # Percentage of cells that should be ignited at the start of the simulation [0.0 - 1.0]
-    # Setting this to < 0.0 will lead to randomly generated fire_percentage between (0, 1]
-    fire_percentage: 0.01
+    # Setting this to < 0.0 enables CURRICULUM mode: each episode samples fire_percentage
+    # uniformly from [fire_percentage_min, fire_percentage_max] (a bounded difficulty
+    # gradient) instead of using a fixed value.
+    fire_percentage: 0.05
+    # Curriculum bounds, used only when fire_percentage < 0.
+    fire_percentage_min: 0.01
+    fire_percentage_max: 0.05
     # How many clusters of fire should be started at the beginning of the simulation
     # Setting this to <= 0 will lead to single cells being ignited randomly according to fire_percentage
     num_fire_clusters: 2
@@ -260,8 +302,6 @@ environment:
     # Noise ([-0.5, 0,5]*noise) for the fire spread probability, to introduce randomness in the fire spread
     # Setting this to < 0.0 will lead to random fire_noise between 0 and 1
     fire_noise: 1
-    # Starting fire layout: cluster, scattered, ring, or random
-    fire_pattern: cluster
   agent_behaviour:
     # Percentage of initial goal set (for fly_agents) that are at a fire_position
     fire_goal_percentage: 1
@@ -270,13 +310,23 @@ environment:
     # Other parameters that are currently hard-coded or only accessible via GUI will be added here later
   agent:
     # If true, drones have a finite water tank and must recharge at the groundstation.
-    # Works independently of use_heuristic: applies to trained PlannerAgents and to the heuristic FlyPolicy alike.
+    # Applies to trained PlannerAgents and the heuristic_goals baseline alike.
     # Refuel is passive (fires whenever the drone is co-located with the groundstation and water < max).
-    use_water_limit: true
+    use_water_limit: false
     # Number of water units a drone can carry (one unit extinguishes one cell)
     water_capacity: 4
     # Time in seconds to recharge water at the groundstation (set this to 0 for instant recharge).
+    # Full refill takes recharge_time / dt steps. With dt=0.1s and recharge_time=2.0, full refill = 20 steps,
+    # roughly a one-way flight across a medium map — makes the trip a real opportunity cost.
     recharge_time: 2.0
+    # If true (default, legacy behavior), planner sub-drones dispense water over ANY burning
+    # cell they overfly on the way to their goal. If false, they dispense only at the assigned
+    # goal cell, matching the standalone fly_agent branch.
+    extinguish_en_route: true
+    # EVRP-style water feasibility threshold (fraction of capacity, [0, 1]) for the PlannerAgent.
+    # Below this, the pointer decoder masks all non-groundstation targets, forcing a refuel.
+    # 0.0 disables. See config_planner.yaml for details. Only applied to planner_agent training.
+    water_refuel_threshold: 0.0
     # Size of the drone in m (used for rendering and collision detection);
     # for convenience, all drones have the same size
     drone_size: 2
@@ -319,15 +369,31 @@ environment:
         Collision: -4.328008565212994 #Top10: -4.328008565212994 #Default: -1.0
         # Reward FACTOR for improving distance to the goal
         DistanceImprovement: 0.29559098335108996 #Top10: 0.29559098335108996 #Default: 0.1
-        # Penalty FACTOR for being to close to other agents
-        ProximityPenalty: -0.11500008188778862 #Top10: -0.11500008188778862 #Default: -0.05
+        # Penalty FACTOR applied to the per-step INCREASE in closeness to other drones
+        # (potential-based, one-sided). Multiplies a small per-step closeness delta, so it
+        # is larger than the old absolute-proximity factor. Being near costs nothing; only
+        # actively approaching does. #old Optuna(absolute): -0.11500008188778862
+        ProximityPenalty: -1.0
+        # Activation band for the proximity shaping, in view_range-normalized units
+        # (0.4 ~= 4 cells at view_range=10). Closeness = sum of (thr - d) for neighbors
+        # within this band; only its step-over-step increase is penalized.
+        ProximityThreshold: 0.4
+        # Penalty FACTOR for the per-step INCREASE in closeness to the nearest MAP EDGE
+        # (potential-based, one-sided — same idea as ProximityPenalty but for the boundary).
+        # Anticipatory: discourages moving toward the edge without penalising merely being near
+        # it, so it fixes BoundaryExit failures WITHOUT the over-caution of BoundaryTerminal.
+        # 0.0 => feature OFF (default; keeps existing models/configs unchanged).
+        BoundaryProximityPenalty: 0.0
+        # Activation band for the boundary shaping (view_range-normalized distance to the edge;
+        # 0.3 ~= 1.5 cells at view_range=10). Only the step-over-step increase is penalized.
+        BoundaryProximityThreshold: 0.3
     explore_agent:
       # Determines the frequency of action selection (1 = every frame, 2 = every 2nd frame, etc.)
       frame_skips: 1 
       # Algorithm used by the explore_agent (currently no training implemented, so set to no_algo)
       algorithm: no_algo 
       # Number of explore_agents
-      num_agents: 12
+      num_agents: 3
       # Number of time steps to consider in the ExploreAgent's memory
       time_steps: 3
       # Maximum speed of the explore_agent in m/s
@@ -336,19 +402,51 @@ environment:
       # View range of the explore_agent in cells
       view_range: 20 
       # Default model path for the fly_agent (either absolute or relative to the project root)
-      default_model_folder: "models/SimpleFlyAgent/" 
+      default_model_folder: "models/SimpleFlyAgent/"
       # You can fast load models with suffixes ["latest", "best_reward", "best_objective"]
       # If you want to load a specific model, set the model_name to the name of the model file
-      default_model_name: best_reward
+      default_model_name: best_obj
     planner_agent:
       # Hierarchy Timesteps (number of low-level steps per high-level step)
-      hierarchy_timesteps: 3
+      hierarchy_timesteps: 60
       # Determines the frequency of action selection (1 = every frame, 2 = every 2nd frame, etc.)
-      frame_skips: 1 
+      frame_skips: 1
+      # ─── Event-driven replanning + SMDP credit assignment (planner-only) ──────────
+      # When event_replan is true, the planner makes an off-schedule decision (instead of
+      # only every hierarchy_timesteps steps) as soon as a drone frees up — it reaches its
+      # goal or its assigned fire-cell stops burning — provided a burning fire exists that
+      # no drone currently targets. Kills the "drone idles on an extinguished cell" waste.
+      event_replan: false
+      # Minimum number of low-level steps between planner decisions when event_replan fires.
+      # Anti-thrash clamp; the fixed hierarchy_timesteps boundary is unaffected.
+      min_replan_interval: 5
+      # When smdp_gae is true, each planner PPO transition is discounted by gamma^k (k = env
+      # steps that transition actually spanned) instead of gamma^1, so variable replanning
+      # intervals get correct (SMDP/options) credit assignment. Python-only.
+      smdp_gae: false
+      # When true, normalize k by hierarchy_timesteps in the SMDP discount so a FIXED cadence
+      # stays numerically ~= gamma^1 (used to isolate the discount change from the event
+      # trigger in A/B experiments). Python-only.
+      smdp_normalize_k: false
+      # Eval-time fire source for the planner's OWN observations. false (default) = explored
+      # fire_map only (fog / decentralized eval, current behavior); true = ground-truth
+      # burning cells, exactly matching what the actor saw during training. Diagnostic knob
+      # to separate the CTDE-fog effect from policy effects. Training is unaffected.
+      eval_ground_truth_fires: false
+      # Heuristic baseline (eval-only): replace the pointer network's goal assignment with
+      # greedy nearest-pair matching (closest free-drone/fire pairs first; low-water and
+      # left-over drones -> groundstation). Everything else — FlyAgent network, commitment
+      # lock, event replans, water release — is identical to the learned planner.
+      heuristic_goals: false
+      # Lower clamp bound for the learned log_assignment_penalty in the pointer decoder.
+      # -3.0 = legacy symmetric bound (penalty can decay to exp(-3) ~ 0.05). 0.0 floors the
+      # duplicate penalty at exp(0) = 1 so PPO can strengthen but not erase it (counters
+      # the GS free-riding drift where the policy erodes its own penalty).
+      assignment_penalty_min: -3.0
       # Algorithm used by the planner_agent
       algorithm: PPO 
       # These parameters are used to configure the planner_agents LOW-LEVEL AGENTS
-      num_agents: 4
+      num_agents: 5
       # Number of time steps to consider in the ExtinguishAgent's memory
       time_steps: 3
       # Maximum speed of the ExtinguishAgent (low-level-agent of the Planner) in m/s
@@ -359,15 +457,20 @@ environment:
       default_model_folder: "models/SimpleFlyAgent/"
       # You can fast load models with suffixes ["latest", "best_reward", "best_objective"]
       # If you want to load a specific model, set the model_name to the name of the model file
-      default_model_name: best_reward
+      default_model_name: best_obj
       rewards:
         # Reward for reaching the goal (extinguishing all fires)
         GoalReached: 3.9105863581302542
         # Penalty for the Map being burned too much
         MapBurnedTooMuch: -2.1999479401238373
-        # Penalty for selecting the groundstation goal while fires remain. Scaled by water fraction
-        # and only applied when water > FlyingTowardsGroundStation_water_threshold.
-        FlyingTowardsGroundStation: -0.29328248592328265
+        # Per-step penalty per drone assigned to the groundstation while fires remain,
+        # applied only when the drone's tank is above the water threshold below ("full-tank
+        # parking tax"). 0.0 = off (legacy-neutral base default).
+        FlyingTowardsGroundStation: 0.0
+        # Water fraction above which the groundstation penalty fires. Below this, assigning
+        # the groundstation is treated as a legitimate refuel (no penalty). 0.95 = only
+        # near-full tanks are taxed (validated); 0.5 taxes any half-full drone (failed —
+        # see FlyingTowardsGroundStation above).
         FlyingTowardsGroundStation_water_threshold: 0.5
         # Penalty for each time step to encourage faster completion
         TimeOut: -2.3843039593546047
@@ -380,18 +483,46 @@ environment:
         # Reward FACTOR for drones getting closer to their assigned goals
         DistanceProgress: 0.1
         # Reward FACTOR per unit decrease in total burning cells per planner step
+        # (positive delta = fire contained). Small — must augment ExtinguishFires, not dominate.
         SpreadPrevention: 0.05
-        # Reward FACTOR per fractional tank refilled across all drones (gated on use_water_limit)
+        # Reward FACTOR per fractional tank refilled across all drones (outcome-based;
+        # fires only when water actually increases, i.e. drone is at groundstation).
+        # Sized to compete with ExtinguishFires (~0.6/cell): a full refuel of one drone
+        # yields ~2.0 reward (≈3 extinguished cells), making refuel a strategically
+        # profitable move rather than marginal. Gated on use_water_limit.
         WaterRefill: 2.0
-        # Per-step penalty per drone sitting at empty tank while fires remain (gated on use_water_limit)
+        # Per-step penalty per drone sitting at empty tank while fires remain. Pushes
+        # empty-tank from silent missing-reward into an active negative signal so PPO can
+        # credit recharge as avoidance of this state. Gated on use_water_limit.
         EmptyTank: -0.05
-        # Per-step penalty per drone with water=0 AND goal != groundstation (gated on use_water_limit)
+        # Per-step penalty per drone with water=0 AND goal != groundstation. Targets the
+        # planner's *assignment decision* rather than the empty state — additive with
+        # EmptyTank, so a refueling-bound empty drone bleeds only the small EmptyTank
+        # while a misrouted empty drone bleeds both. Sized so two planner steps of bad
+        # assignment (~-1.0 total) is comparable to a SameGoalPenalty (-1.55) the planner
+        # already learns to avoid. Gated on use_water_limit.
         FireGoalEmpty: -0.5
-        # Per-drone-per-step bonus for keeping the same goal as the previous planner step
+        # Per-drone-per-step bonus for keeping the same goal as the previous planner step.
+        # Disabled (0.0) — commitment is now structurally enforced by PlannerAgent.apply_commitment
+        # (planner_agent.py), which silently overrides locked drones' actions with the previous
+        # goal until they arrive or the goal becomes invalid. Restoring a non-zero weight here
+        # would double-shape what the lock already guarantees.
         GoalCommit: 0.0
-        # PBRS (Potential-Based Reward Shaping, Ng+ 1999); off by default
+        # ─── PBRS (Potential-Based Reward Shaping, Ng+ 1999) ─────────────────────────
+        # When PbrsEnabled is true, the six dense terms above (ExtinguishFires,
+        # SpreadPrevention, WaterRefill, EmptyTank, FireGoalEmpty, DistanceProgress) are
+        # SKIPPED and replaced by a single F = γΦ(s')−Φ(s) signal where
+        #   Φ(s) = wF·(-B/B_init) + wW·mean_water_frac + wD·(-mean_eligible_dist).
+        # F is provably policy-invariant — the optimal policy is unchanged regardless of
+        # weights. Terminal rewards (GoalReached, FastExtinguish, TimeOut, MapBurnedTooMuch)
+        # and action-dependent terms (FlyingTowardsGroundStation, SameGoalPenalty,
+        # GoalCommit) are unaffected. Defaults: off, so existing configs are unchanged.
         PbrsEnabled: false
+        # Discount used inside the shaping. Must match the PPO γ to preserve invariance.
         PbrsGamma:   0.999
+        # Φ_fire weight — primary task (suppress fires).
         PbrsWFire:   1.0
+        # Φ_water weight — keep tanks non-empty so future suppression is feasible.
         PbrsWWater:  0.2
+        # Φ_dist weight — purely heuristic shaping, useful early in training.
         PbrsWDist:   0.1

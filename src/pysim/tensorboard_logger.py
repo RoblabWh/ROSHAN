@@ -19,6 +19,9 @@ class TensorboardLogger:
         self.histograms = defaultdict(list)
         self.episode_steps = 0 # Steps in the current episode
         self.objectives = deque(maxlen=100)
+        # When True, episode objective = success * (1 - time_used_frac) instead of
+        # binary success (set by TrainingMonitor for the planner; see log_step).
+        self.tte_aware_objective = False
         self.logging_step = 0
         self.episode = 0 # Current episode number
         self.best_metrics = {"current_objective": 0.0, "best_objective": -np.inf,
@@ -79,7 +82,13 @@ class TensorboardLogger:
 
         if terminal_result.env_reset:
             self.episode += 1
-            self.objectives.append(1 if terminal_result.any_succeeded else 0)
+            if self.tte_aware_objective and terminal_result.any_succeeded:
+                # TTE-aware episode objective: success weighted by how fast it came.
+                # Rolling plain success saturates at 1.0 under a generous step budget,
+                # blinding the best_obj latch; (1 - time_used_frac) keeps it selective.
+                self.objectives.append(1.0 - getattr(terminal_result, "time_used_frac", 0.0))
+            else:
+                self.objectives.append(1 if terminal_result.any_succeeded else 0)
             self.episode_ended = True
 
     def add_metric(self, tag, value=None, hist=False):
@@ -155,6 +164,11 @@ class TensorboardLogger:
             self.best_metrics["current_objective"] = float(np.mean(self.objectives))
 
     def get_best_objective(self):
+        # No verdict before the rolling window has filled: current_objective is still
+        # the 0.0 placeholder then, and 0.0 >= -inf would latch best-model saves onto
+        # arbitrary early weights every update.
+        if len(self.objectives) < self.objectives.maxlen:
+            return False, self.best_metrics["best_objective"]
         if self.best_metrics["current_objective"] >= self.best_metrics["best_objective"]:
             return True, self.best_metrics["current_objective"]
         else:

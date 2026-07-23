@@ -45,6 +45,18 @@ ReinforcementLearningHandler::ReinforcementLearningHandler(FireModelParameters &
 // N = number of agents, max_T = longest observation history,
 // K/M = max entity count (determined dynamically if max_entities == 0).
 // Slots beyond an agent's actual timestep count are zero-filled.
+void ReinforcementLearningHandler::RefreshObservations(const std::string& agent_type) {
+    if (gridmap_ == nullptr) return;
+    auto it = agents_by_type_.find(agent_type);
+    if (it == agents_by_type_.end()) return;
+    // Push one fresh AgentState frame per agent, reflecting the current grid/agent state.
+    // For the planner this is its single per-window observation update (its Step-time
+    // UpdateStates is skipped so the history stride stays one frame per decision).
+    for (const auto& agent : it->second) {
+        agent->UpdateStates(gridmap_);
+    }
+}
+
 py::dict ReinforcementLearningHandler::GetBatchedObservations(const std::string& agent_type) {
     // Look up schema
     auto schema_it = schemas_.find(agent_type);
@@ -219,6 +231,7 @@ void ReinforcementLearningHandler::ResetEnvironment(Mode mode) {
     parameters_.SetHierarchyType(hierarchy_type);
     const auto rl_mode = rl_status_["rl_mode"].cast<std::string>();
     total_env_steps_ = parameters_.GetTotalEnvSteps();
+    planner_window_steps_ = 0;
 
     // --- Helpers -------------------------------------------------------------
 
@@ -327,12 +340,10 @@ void ReinforcementLearningHandler::ResetEnvironment(Mode mode) {
 
     // --- Flows ---------------------------------------------------------------
     // (1) Pure fly_agent mode: We don’t need any manager agents
-    // (2) Evaluation of fly_agent with explore_agent: We don’t need planner_agent
-    // (3) Hierarchical mode with planner_agent and explore_agent: We don’t need fly_agent
-    // (4) only explore_agent: We don’t need planner_agent and fly_agent (debug for now)
+    // (2) Hierarchical mode with planner_agent and explore_agent: We don’t need fly_agent
+    // (3) only explore_agent: We don’t need planner_agent and fly_agent (debug for now)
 
-    auto pure_fly_agent_mode = parameters_.GetHierarchyType() == "fly_agent" && !parameters_.use_heuristic_;
-    auto heuristic_fly_agent_mode = parameters_.GetHierarchyType() == "fly_agent" && parameters_.use_heuristic_;
+    auto pure_fly_agent_mode = parameters_.GetHierarchyType() == "fly_agent";
     auto hierarchical_planner_mode = parameters_.GetHierarchyType() == "planner_agent";
 
     if (pure_fly_agent_mode) {
@@ -352,51 +363,6 @@ void ReinforcementLearningHandler::ResetEnvironment(Mode mode) {
 
         // Clear others we don’t use in this mode
         clear_buckets({"ExploreFlyAgent","PlannerFlyAgent","explore_agent","planner_agent"});
-    }
-    else if (heuristic_fly_agent_mode) {
-        spawn_config.group_size = parameters_.GetNumberOfFlyAgents() + parameters_.GetNumberOfExplorers();
-
-        // Ensure the flat fly_agent group
-        (void) ensure_fly_group(
-                "fly_agent",
-                parameters_.GetNumberOfFlyAgents(),
-                /*id_offset*/ 0,
-                /*label*/ "fly_agent",
-                parameters_.fly_agent_speed_,
-                parameters_.fly_agent_view_range_,
-                parameters_.fly_agent_time_steps_
-        );
-
-        // ExploreFlyAgent group
-        auto explore_fly_agents = ensure_fly_group(
-                "ExploreFlyAgent",
-                parameters_.GetNumberOfExplorers(),
-                /*id_offset*/ parameters_.GetNumberOfFlyAgents(),
-                /*label*/ "ExploreFlyAgent",
-                parameters_.explore_agent_speed_,
-                parameters_.explore_agent_view_range_,
-                parameters_.explore_agent_time_steps_
-        );
-
-        // explore_agent singleton
-        ensure_singleton(
-                "explore_agent",
-                // init
-                [&](std::shared_ptr<Agent>& a){
-                    auto explore = std::dynamic_pointer_cast<ExploreAgent>(a);
-                    if (!explore) { std::cerr << "Failed to cast explore_agent\n"; return; }
-                    auto flys = CastAgents<FlyAgent>(agents_by_type_["ExploreFlyAgent"]);
-                    explore->Initialize(flys, gridmap_);
-                },
-                // reset
-                [&](std::shared_ptr<Agent>& a){
-                    auto explore = std::dynamic_pointer_cast<ExploreAgent>(a);
-                    if (explore) explore->Reset(mode, gridmap_, model_renderer_);
-                }
-        );
-
-        // Clear others we don’t use in this mode
-        clear_buckets({"PlannerFlyAgent","planner_agent"});
     }
     else {
         // We’re in hierarchical mode: explore + maybe planner
@@ -528,7 +494,22 @@ StepResult ReinforcementLearningHandler::Step(const std::string& agent_type, std
     auto &agents = agents_by_type_[agent_type];
     auto hierarchy_type = parameters_.GetHierarchyType();
     if (agent_type == hierarchy_type) {
-        total_env_steps_ -= static_cast<int>(1 * parameters_.hierarchy_time_steps_);
+        if (parameters_.planner_smdp_enabled_) {
+            // Variable cadence: debit the env steps that actually elapsed since the last
+            // decision (counted via planner_window_steps_ on PlannerFlyAgent steps), then
+            // reset. Over a full fixed window this equals hierarchy_time_steps_, so a fixed
+            // cadence is unchanged; early replans debit only what really elapsed.
+            total_env_steps_ -= planner_window_steps_;
+            planner_window_steps_ = 0;
+        } else {
+            total_env_steps_ -= static_cast<int>(1 * parameters_.hierarchy_time_steps_);
+        }
+    }
+
+    // Count low-level steps for the SMDP budget (one PlannerFlyAgent step == one env step).
+    if (parameters_.planner_smdp_enabled_ && hierarchy_type == "planner_agent"
+        && agent_type == "PlannerFlyAgent") {
+        ++planner_window_steps_;
     }
 
     result.rewards.reserve(agents.size());
@@ -551,12 +532,20 @@ StepResult ReinforcementLearningHandler::Step(const std::string& agent_type, std
         if (agent->GetPerformedHierarchyAction()) {
             result.rewards.push_back(agent->CalculateReward(gridmap_));
             result.reward_components.push_back(agent->GetRewardComponents());
+            // Commit the just-decided action's effects (planner: assign new goals) AFTER the
+            // reward has been computed, so CalculateReward above read the goals that governed
+            // the completed window rather than the freshly-decided ones. No-op for agents
+            // whose action has no deferred commit step (fly/explore).
+            agent->CommitAction(actions[i], hierarchy_type, gridmap_);
             // Summary is only relevant for the highest Hierarchy Agent
             // (e.g. PlannerAgent -> Environment Reset doesn't trigger when FlyAgents reach their GoalPos)
             result.summary.env_reset = result.summary.env_reset || terminal_state.is_terminal;
             result.summary.any_failed |= terminal_state.kind == TerminationKind::Failed;
             if (terminal_state.is_terminal) {
                 result.summary.reason = terminal_state.reason;
+                result.summary.time_used_frac = parameters_.total_env_steps_ > 0
+                    ? 1.0 - std::max(0, total_env_steps_) / (double)parameters_.total_env_steps_
+                    : 0.0;
             }
             result.summary.any_succeeded |= terminal_state.kind == TerminationKind::Succeeded;
             agent->StepReset();
@@ -570,8 +559,65 @@ StepResult ReinforcementLearningHandler::Step(const std::string& agent_type, std
     }
 
     for (const auto &agent : agents) {
-        // Update the Agent States for the next observation
+        // Update the Agent States for the next observation. The planner is refreshed
+        // explicitly at its decision point (see RefreshObservations), just before it acts
+        // on a FRESH observation — so skip it here to keep exactly one AgentState frame per
+        // planner window. Double-pushing would halve the history stride used for velocity
+        // and desynchronize the observation from the decision cadence.
+        if (agent->GetAgentType() == PLANNER_AGENT) continue;
         if (result.summary.env_reset || (agent->GetFrameCtrl() % agent->GetFrameSkips() == 0)) agent->UpdateStates(gridmap_);
+    }
+
+    // Event-driven replanning signal (planner only): recommend an off-schedule planner
+    // decision when a drone has freed up AND a burning fire is currently untargeted. The
+    // "freed" predicate mirrors PlannerAgent.apply_commitment (planner_agent.py) so the
+    // trigger and the commitment lock agree on what "free" means. GS-bound goals never
+    // count as freed (a drone in transit to refuel must not trigger replans).
+    if (parameters_.planner_event_replan_ && hierarchy_type == "planner_agent"
+        && agent_type == "PlannerFlyAgent" && !agents.empty()) {
+        auto fly_agents = CastAgents<FlyAgent>(agents);
+        const auto gs = gridmap_->GetGroundstation()->GetGridPositionDouble();
+        // Local proximity test (mirrors FlyAgent::almostEqual's default 0.25 epsilon,
+        // which is private). ~quarter-cell tolerance for "same position".
+        const double kEps2 = 0.25 * 0.25;
+        auto close = [kEps2](const std::pair<double,double>& a,
+                             const std::pair<double,double>& b) {
+            const double dx = a.first - b.first;
+            const double dy = a.second - b.second;
+            return (dx * dx + dy * dy) < kEps2;
+        };
+
+        bool any_freed = false;
+        for (const auto& fa : fly_agents) {
+            const auto goal = fa->GetGoalPosition();
+            const bool heading_gs = close(goal, gs);
+            const bool at_goal = close(goal, fa->GetGridPositionDouble());
+            bool fire_out = false;
+            if (!heading_gs) {
+                const auto gi = fa->GetGoalPositionInt();
+                if (gridmap_->IsPointInGrid(gi.first, gi.second)
+                    && gridmap_->GetCellState(gi.first, gi.second) != GENERIC_BURNING) {
+                    fire_out = true;  // assigned fire-cell no longer burning
+                }
+            }
+            if (at_goal || fire_out) { any_freed = true; break; }
+        }
+
+        bool uncovered_fire = false;
+        if (any_freed) {
+            auto fires = gridmap_->GetFirePositionsFromBurningCells();  // idx 0 = dummy GS
+            for (size_t fi = 1; fires && fi < fires->size(); ++fi) {
+                const int cx = static_cast<int>((*fires)[fi].first);
+                const int cy = static_cast<int>((*fires)[fi].second);
+                bool covered = false;
+                for (const auto& fa : fly_agents) {
+                    const auto gi = fa->GetGoalPositionInt();
+                    if (gi.first == cx && gi.second == cy) { covered = true; break; }
+                }
+                if (!covered) { uncovered_fire = true; break; }
+            }
+        }
+        result.summary.replan_recommended = any_freed && uncovered_fire;
     }
 
     result.percent_burned = gridmap_->PercentageBurned();

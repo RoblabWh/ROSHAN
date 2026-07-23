@@ -40,6 +40,7 @@ public:
     void Update() override;
     StepResult Step(const std::string& agent_type, std::vector<std::shared_ptr<Action>> actions) override;
     pybind11::dict GetBatchedObservations(const std::string& agent_type) override;
+    void RefreshObservations(const std::string& agent_type) override;
     void Render() override;
     void SetRenderer(SDL_Renderer* renderer) override;
     bool GetEarlyClosing() override;

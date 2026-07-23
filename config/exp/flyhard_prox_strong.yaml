@@ -1,0 +1,19 @@
+# FlyHard FT-A "prox_strong": attack the residual collisions by pushing drones apart
+# earlier and making collisions costlier, then polish with reduced exploration.
+# Compose: main.py config/agent/fly.yaml config/exp/flyhard_prox_strong.yaml \
+#          settings.resume=true paths.model_directory=models/FlyHard_ftA \
+#          paths.model_name=best_reward settings.seed=1
+# Fine-tune from CollisionFlyAgent (baseline train_step=300) -> max_train=450 (+150 updates).
+settings:
+  auto_train:
+    max_train: 450
+algorithm:
+  PPO:
+    entropy_coeff: 0.0002   # base 0.0005 -> lower to polish a near-converged policy
+environment:
+  agent:
+    fly_agent:
+      rewards:
+        ProximityPenalty: -2.0    # base -1.0 (one-sided PBRS; safe to strengthen)
+        ProximityThreshold: 0.5   # base 0.4 -> trigger avoidance ~1 cell earlier
+        Collision: -7.0           # base -4.328 -> make the terminal collision costlier

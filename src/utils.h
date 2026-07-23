@@ -110,7 +110,17 @@ struct EpisodeSummary {
     bool any_failed{false};
     bool any_succeeded{false};
     bool explorers_reached_goal{true};
+    // Event-driven replanning (planner only): set when a planner-controlled drone has
+    // freed up (reached its goal, or its assigned fire-cell stopped burning) AND a burning
+    // fire exists that no drone currently targets. Python (hierarchy_manager) reads this to
+    // trigger an off-schedule planner decision. Always false unless planner_event_replan_.
+    bool replan_recommended{false};
     FailureReason reason{FailureReason::None};
+    // Fraction of the episode step budget consumed when the episode terminated (0 when
+    // not terminal). Lets Python build a TTE-aware training objective — rolling success
+    // saturates at 1.0 once the budget is generous enough (success is no longer the
+    // discriminator; time-to-extinguish is).
+    double time_used_frac{0.0};
     // These two are no longer needed, but this would be the place to add them when you would change the behavior
     // from ONE agent fails/succeeds to ALL agents must fail/succeed -> but this requires huge changes in alot of
     // places. Python-side we deal with irregular tensor-shapes which is a hassle and I don't want to deal with that

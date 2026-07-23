@@ -1,0 +1,3 @@
+# ExploreAgent overlay — selector only; add explore-specific deltas as needed.
+settings:
+  hierarchy_type: explore_agent

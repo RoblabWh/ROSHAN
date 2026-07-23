@@ -1,0 +1,21 @@
+# FlyHard Wave-2 "prox_mid_long": the scB2 moderate-avoidance recipe trained much longer.
+# Rationale: in Wave 1 both arms were still climbing at update 400 (scB2 reached ~0.67 and
+# rising) — none plateaued near the baseline's 0.87 training-objective. Runs are cheap
+# (~7 s/update), so extend to 800 updates to let the policy converge and log_std fully
+# anneal. entropy_coeff nudged down (0.0005 -> 0.0003) to sharpen the late policy toward a
+# crisp deterministic eval. Final reward shaping identical to scB2 (Prox -1.5/0.45, Coll -5.0).
+# Compose: main.py config/agent/fly.yaml config/exp/flyhard_sc_prox_mid_long.yaml \
+#          paths.model_directory=models/FlyHard_scC settings.seed=4
+settings:
+  auto_train:
+    max_train: 800
+algorithm:
+  PPO:
+    entropy_coeff: 0.0003
+environment:
+  agent:
+    fly_agent:
+      rewards:
+        ProximityPenalty: -1.5
+        ProximityThreshold: 0.45
+        Collision: -5.0

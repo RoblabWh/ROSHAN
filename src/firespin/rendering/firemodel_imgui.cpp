@@ -226,7 +226,7 @@ void ImguiHandler::RLStatusParser(const py::dict& rl_status) {
     ImGui::Separator();
     ImGui::SetWindowFontScale(1.5f);
     ImGui::PushStyleColor(ImGuiCol_Text, color);
-    if (ImGui::Selectable("Mode of operation:") && !parameters_.use_heuristic_) {
+    if (ImGui::Selectable("Mode of operation:")) {
         ImGui::OpenPopup("Warning RL Mode");
     }
     ImGui::SetWindowFontScale(1.0f);

@@ -21,6 +21,16 @@ public:
         action->ExecuteOn(shared_from_this(), hierarchy_type, gridMap);
     }
 
+    // Deferred goal assignment: runs after CalculateReward so the reward reflects the goals
+    // that governed the just-completed window (not the freshly-decided ones). Dispatches to
+    // CommitPlan for PlanAction; ignores other action types.
+    void CommitAction(std::shared_ptr<Action> action, std::string hierarchy_type, std::shared_ptr<GridMap> gridMap) override {
+        (void)hierarchy_type;
+        if (auto plan = std::dynamic_pointer_cast<PlanAction>(action)) {
+            CommitPlan(plan.get(), gridMap);
+        }
+    }
+
     void Initialize(std::shared_ptr<ExploreAgent> explore_agent,
                     std::vector<std::shared_ptr<FlyAgent>> fly_agents,
                     const std::shared_ptr<GridMap> &grid_map);
@@ -30,6 +40,10 @@ public:
                const std::shared_ptr<FireModelRenderer>& model_renderer) override;
 
     void PerformPlan(PlanAction* action, const std::string& hierarchy_type, const std::shared_ptr<GridMap>& gridMap);
+    // Assigns the newly-decided goals to the fly agents and re-baselines the per-drone
+    // DistanceProgress buffer against those goals. Called via CommitAction after the reward
+    // for the completed window has been computed.
+    void CommitPlan(PlanAction* action, const std::shared_ptr<GridMap>& gridMap);
     bool GetPerformedHierarchyAction() const override { return did_hierarchy_step; }
     double CalculateReward(const std::shared_ptr<GridMap>& grid_map) override;
     void StepReset() override {

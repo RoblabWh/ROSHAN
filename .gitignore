@@ -55,3 +55,7 @@ CLMS_CLCplus_*
 
 # Files
 project_paths.json
+
+# Generated config snapshots (effective config dumped at runtime; the C++ engine reads these)
+used_config.yaml
+config/notebook/_generated_exec.yaml

@@ -1,0 +1,33 @@
+# Notebook overlay — deltas vs config/base.yaml for the interactive ROSHAN.ipynb workflow.
+# Loaded in the notebook's first cell; edited in-place across cells; dumped + run in the last cell.
+# Everything is sized DOWN for fast interactive iteration, not for real training results.
+settings:
+  auto_train:
+    train_episodes: 3   # base 10 -> 3: quick multi-run demo
+    max_train: 100      # base 300 -> 100: short training per run
+paths:
+  model_directory: models/NotebookTest  # scratch target, safe to delete
+  model_name: ''                        # empty = derive a default name from this config
+algorithm:
+  PPO:
+    batch_size: 200   # base 500 -> 200: small updates for fast cells
+    horizon: 1200     # base 10000 -> 1200: collect little before each update
+    optimizer:
+      type: Adam      # base AdamW -> Adam: keep the notebook runs on the legacy optimizer
+environment:
+  fire_behaviour:
+    fire_percentage: 0.01  # base 0.05 -> 0.01: tiny fires so demo episodes finish quickly
+  agent:
+    use_water_limit: true  # demo the water/refuel mechanic in the notebook
+    explore_agent:
+      num_agents: 12
+      default_model_name: best_reward
+    planner_agent:
+      hierarchy_timesteps: 3  # very frequent replanning for visible planner activity
+      num_agents: 4
+      default_model_name: best_reward
+      rewards:
+        # Legacy Optuna-tuned GS penalty from a pre-Wave-G sweep; kept for notebook continuity.
+        # Note: fires per-step for any GS assignment above the (base) 0.5 water threshold —
+        # NOT the validated G1 tax (-0.2 @ 0.95) that config/agent/planner.yaml uses.
+        FlyingTowardsGroundStation: -0.29328248592328265

@@ -1,5 +1,7 @@
 import os
 import logging
+import numpy as np
+import firesim
 from observation_dict import ObservationDict
 
 
@@ -50,7 +52,8 @@ class AgentHandler:
                  memory, monitor, sim_bridge, fsc, hierarchy_level,
                  use_intrinsic_reward, is_sub_agent,
                  use_next_obs, save_replay_buffer, save_size,
-                 root_model_path, rl_mode, resume, no_gui, num_agents, logger):
+                 root_model_path, rl_mode, resume, no_gui, num_agents, logger,
+                 eval_sampling=False):
         # Injected dependencies
         self.agent_type = agent_type
         self.agent_type_str = agent_type_str
@@ -72,6 +75,7 @@ class AgentHandler:
         self.no_gui = no_gui
         self.num_agents = num_agents
         self.logger = logger
+        self.eval_sampling = eval_sampling
 
         # Runtime state
         self.current_obs = None
@@ -79,6 +83,12 @@ class AgentHandler:
         self.env_reset = False
         self.hierarchy_steps = 0
         self.hierarchy_early_stop = False
+        self.last_summary = None  # most recent StepResult.summary (for event-driven replan)
+        # Deferred SMDP transition buffer (planner only). At each decision the reward returned
+        # describes the window governed by the PREVIOUS action, so we hold (obs, action,
+        # logprob, locked_mask) here and store the completed transition once the next
+        # decision's reward + fresh next_obs + window duration arrive. None = nothing pending.
+        self._pending = None
 
     def should_train(self):
         if self.algorithm_name == 'PPO':
@@ -164,7 +174,14 @@ class AgentHandler:
         next_obs = None
         if not skip_step:
             if self.fsc.at_decision_point:
-                if self.current_obs is None:
+                if hasattr(self.agent_type, "apply_commitment"):
+                    # Planner: refresh the observation at the decision point so the network
+                    # decides on the CURRENT post-window state (its per-step UpdateStates is
+                    # gated out in the C++ Step). The refreshed obs still carries the previous
+                    # goals a_{i-1}, which apply_commitment relies on for the commitment lock.
+                    engine.RefreshObservations(self.agent_type.name)
+                    self.current_obs = self._get_obs(engine)
+                elif self.current_obs is None:
                     self.current_obs = self._get_obs(engine)
                 actions, action_logprobs = self.act(self.current_obs)
 
@@ -200,16 +217,60 @@ class AgentHandler:
             # Intrinsic Reward Calculation (optional)
             intrinsic_reward = self.intrinsic_reward(terminals_vector, engine)
 
-            # Memory Adding — store the SAMPLED action (not executed) so PPO's
-            # importance ratio is computed at the policy's actual sample point.
-            self.memory.add(self.current_obs,
-                            self.fsc.cached_sampled_actions,
-                            self.fsc.cached_logprobs,
-                            rewards,
-                            terminals_vector,
-                            next_obs=next_obs if self.use_next_obs else None,
-                            intrinsic_reward=intrinsic_reward,
-                            locked_mask=self.fsc.cached_locked_mask)
+            # SMDP duration = env steps this planner decision spanned. self.hierarchy_steps
+            # here is the just-elapsed window length (reset only AFTER train_loop returns, in
+            # hierarchy_manager._reset_agent). Ignored by memory unless use_duration is on
+            # (planner + smdp_gae).
+            decision_duration = max(int(getattr(self, "hierarchy_steps", 1)), 1) \
+                if hasattr(self.agent_type, "apply_commitment") else None
+
+            if hasattr(self.agent_type, "apply_commitment"):
+                # Deferred SMDP collection (planner). The reward/terminals just returned
+                # describe the window governed by the PREVIOUS action, so attach them to the
+                # pending transition (s_{i-1}, a_{i-1}): next_obs (fresh here) is its successor
+                # s_i, and decision_duration is that window's length k_{i-1}. Reward, duration,
+                # and bootstrap now all describe the same window. The current sampled action
+                # becomes the new pending transition.
+                terminal = bool(terminal_result.env_reset) or (
+                    bool(any(terminals_vector)) if terminals_vector else False)
+                # Timeout is a truncation, not a true terminal: the stored done=1 would
+                # give the critic a target of r + 0 for exactly the endgame states where
+                # the clock runs out. Fold gamma^k * V(s_T) into the reward so the target
+                # is the correct truncation value — no memory/PPO plumbing needed.
+                if terminal and terminal_result.reason == firesim.FailureReason.Timeout \
+                        and self._pending is not None:
+                    boot = self._truncation_bootstrap(next_obs, decision_duration)
+                    rewards = [r + boot for r in rewards]
+                if self._pending is not None:
+                    self.memory.add(self._pending["obs"],
+                                    self._pending["action"],
+                                    self._pending["logprob"],
+                                    rewards,
+                                    terminals_vector,
+                                    next_obs=next_obs if self.use_next_obs else None,
+                                    intrinsic_reward=intrinsic_reward,
+                                    locked_mask=self._pending["locked_mask"],
+                                    duration=decision_duration)
+                if terminal:
+                    # Episode ended at s_i; the just-sampled action never governs a window.
+                    self._pending = None
+                else:
+                    self._pending = dict(obs=self.current_obs,
+                                         action=self.fsc.cached_sampled_actions,
+                                         logprob=self.fsc.cached_logprobs,
+                                         locked_mask=self.fsc.cached_locked_mask)
+            else:
+                # Non-planner: store the SAMPLED action (not executed) so PPO's importance
+                # ratio is computed at the policy's actual sample point. Unchanged behavior.
+                self.memory.add(self.current_obs,
+                                self.fsc.cached_sampled_actions,
+                                self.fsc.cached_logprobs,
+                                rewards,
+                                terminals_vector,
+                                next_obs=next_obs if self.use_next_obs else None,
+                                intrinsic_reward=intrinsic_reward,
+                                locked_mask=self.fsc.cached_locked_mask,
+                                duration=decision_duration)
 
             # Update the Logger before checking if we should train, so that the logger has the latest information
             # to calculate the objective percentage and best reward
@@ -235,9 +296,23 @@ class AgentHandler:
     def eval_loop(self, engine, evaluate=False):
 
         if self.fsc.at_decision_point:
-            if self.current_obs is None:
+            if hasattr(self.agent_type, "apply_commitment"):
+                # Planner: refresh the observation at the decision point so eval matches the
+                # (now fresh-obs) training path. Mirrors train_loop.
+                engine.RefreshObservations(self.agent_type.name)
                 self.current_obs = self._get_obs(engine)
-            actions = self.act_certain(self.current_obs)
+            elif self.current_obs is None:
+                self.current_obs = self._get_obs(engine)
+            if getattr(self.agent_type, "heuristic_goals", False):
+                # Greedy nearest-fire assignment baseline (planner-only); the loaded
+                # pointer network is bypassed, everything else stays identical.
+                actions = self.agent_type.greedy_actions(self.current_obs)
+            elif self.eval_sampling and hasattr(self.agent_type, "apply_commitment"):
+                # Diagnostic: evaluate the stochastic policy (sample like training
+                # rollouts) instead of argmax. Planner-only; sub-agents stay certain.
+                actions, _ = self.act(self.current_obs)
+            else:
+                actions = self.act_certain(self.current_obs)
             # Mirror training-time commitment in eval so the policy we evaluate
             # matches the one we trained — otherwise eval drones oscillate while
             # training drones commit, and the metrics aren't comparable.
@@ -247,6 +322,9 @@ class AgentHandler:
             self.fsc.cache(actions, locked_mask=locked_mask)
 
         rewards, terminals_vector, terminal_result, percent_burned = self.step_agent(engine, self.fsc.cached_actions)
+        # Expose this step's summary so the HierarchyManager can read replan_recommended
+        # (event-driven planning). plan_low (PlannerFlyAgent) is stepped every env step.
+        self.last_summary = terminal_result
 
         # Only do these extra steps when you SHOULD populate memory
         if self.save_replay_buffer:
@@ -276,7 +354,13 @@ class AgentHandler:
 
         self.current_obs = self._get_obs(engine)
         if evaluate and not self.save_replay_buffer:
-            flags = self.monitor.evaluate(rewards, terminal_result, percent_burned)
+            # For the planner, report the ACTUAL env steps elapsed for this decision so TTE
+            # is correct under event-driven (variable-cadence) replanning. hierarchy_steps is
+            # the runtime window counter (reset each decision by HierarchyManager). Non-planner
+            # handlers pass None → evaluator uses its fixed per-step value (unchanged).
+            elapsed = self.hierarchy_steps if self.hierarchy_level == "high" else None
+            flags = self.monitor.evaluate(rewards, terminal_result, percent_burned,
+                                          elapsed_steps=elapsed)
             self.check_reset(flags)
 
         self.env_step += 1
@@ -305,6 +389,8 @@ class AgentHandler:
             self.env_step = 0
             self.current_obs = None
             self.env_reset = True
+            # Drop any half-collected SMDP transition — the new episode starts clean.
+            self._pending = None
 
     def get_final_metric(self, metric_name: str):
         if self.monitor:
@@ -344,10 +430,15 @@ class AgentHandler:
             if hasattr(self.agent_type, "notify_episode_reset"):
                 self.agent_type.notify_episode_reset()
             self.current_obs = None
+            # Drop any half-collected SMDP transition — the new episode starts clean.
+            self._pending = None
 
     def update(self, mini_batch_size, next_obs):
         tb = self.monitor.tensorboard if self.monitor else None
         try:
+            # Under deferred SMDP collection every STORED planner transition already carries
+            # its own forward-window duration, so no separate bootstrap_duration is threaded
+            # through here anymore (PPO.get_advantages derives k from durations directly).
             self.algorithm.update(self.memory, mini_batch_size, next_obs, tb)
         except Exception as e:
             self.logger.error(f"Error during algorithm update: {e}")
@@ -371,6 +462,31 @@ class AgentHandler:
     def act(self, observations):
         actions, action_logprobs = self.algorithm.select_action(observations)
         return actions, action_logprobs if action_logprobs is not None else None
+
+    def _truncation_bootstrap(self, next_obs, duration):
+        """gamma^k * V(s_T) for a timed-out (truncated) planner episode.
+
+        Mirrors the SMDP discount get_advantages would apply to this transition
+        (k normalized by the hierarchy cap when smdp_normalize_k is on; gamma^1
+        when smdp_gae is off), so folding it into the reward reproduces the
+        correct truncation target r + gamma^k V(s_T) under the stored done=1.
+        """
+        import torch
+        algo = self.algorithm
+        with torch.no_grad():
+            state = self.memory.get_agent_state(next_obs, 0)
+            # Preserve native dtypes — mask keys must stay bool (the network inverts them).
+            state_t = {k: torch.as_tensor(np.asarray(v), device=algo.device)
+                       for k, v in state.items()}
+            value = float(algo.policy.critic(state_t).reshape(-1)[0].cpu())
+        if getattr(algo, "smdp_gae", False):
+            k = float(max(duration or 1, 1))
+            if getattr(algo, "smdp_normalize_k", False):
+                cap = float(max(getattr(algo, "max_low_level_steps", 1), 1))
+                k = max(k / cap, 1.0 / cap)
+        else:
+            k = 1.0
+        return (algo.gamma ** k) * value
 
     def get_action(self, actions):
         return self.agent_type.get_action(actions)

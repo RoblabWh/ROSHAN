@@ -39,7 +39,7 @@ public:
     EngineCore()= default;
     ~EngineCore();
 
-    bool Init(int mode, const std::string& config_path = "../config.yaml");
+    bool Init(int mode, const std::string& config_path = "../config/base.yaml");
     void Clean();
 
     void Update();
@@ -55,6 +55,7 @@ public:
     bool AgentIsRunning();
     std::string GetUserInput();
     pybind11::dict GetBatchedObservations(const std::string& agent_type);
+    void RefreshObservations(const std::string& agent_type);
     StepResult Step(const std::string& agent_type, std::vector<std::shared_ptr<Action>> actions);
 
     [[nodiscard]] inline bool IsRunning() const { return is_running_; }

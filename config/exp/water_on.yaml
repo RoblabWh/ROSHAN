@@ -1,0 +1,9 @@
+# Example experiment overlay: enable the finite-water constraint + proactive refuel
+# masking on top of any agent overlay. Usage:
+#   python src/pysim/main.py config/agent/planner.yaml config/exp/water_on.yaml
+environment:
+  agent:
+    # Finite tanks: drones must return to the groundstation to refill
+    use_water_limit: true
+    # Below 25% tank the planner's pointer decoder masks non-groundstation targets (forced refuel)
+    water_refuel_threshold: 0.25

@@ -1,0 +1,26 @@
+# FlyHard Wave-8 scM "bigh_bnd_wide": the winning scI recipe (big-horizon + boundary PBRS,
+# 98.75%) with a WIDER proximity activation band to trim the residual collisions. Same penalty
+# MAGNITUDE (-1.5) so low choke risk; only the threshold widens (0.45 -> 0.55), so avoidance
+# triggers ~0.5 cell earlier. Now safe because the boundary PBRS blocks the flee-to-edge escape
+# that previously made stronger avoidance backfire into BoundaryExit. Longer (max_train 500) to
+# also reduce the timeout residual. Boundary PBRS unchanged (it gave 0 BoundaryExit at 0.5/-2.0).
+# Compose: main.py config/agent/fly.yaml config/exp/flyhard_bigh_bnd_wide.yaml \
+#          paths.model_directory=models/FlyHard_scM settings.seed=17
+settings:
+  auto_train:
+    max_train: 500
+algorithm:
+  PPO:
+    horizon: 66000
+    batch_size: 2000
+    entropy_coeff: 0.01
+    kl_early_stop: false
+environment:
+  agent:
+    fly_agent:
+      rewards:
+        ProximityPenalty: -1.5
+        ProximityThreshold: 0.55   # base scI used 0.45; wider band = earlier avoidance
+        Collision: -5.0
+        BoundaryProximityPenalty: -2.0
+        BoundaryProximityThreshold: 0.5

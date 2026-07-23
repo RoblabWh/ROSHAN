@@ -1,0 +1,17 @@
+# FlyHard SC-B2 "prox_mid": replacement for scB. scB's strong avoidance (Prox -2.0/0.5,
+# Coll -7.0) choked task acquisition (best objective stuck at 0.00 for 80+ updates while
+# the base-shaping arm climbed to 0.6+). This arm sits BETWEEN base (-1.0/0.4) and scB:
+# mild extra avoidance to trim the residual collisions of the 95% regime without the
+# flee/no-cluster failure. Watch eval for BoundaryExit.
+# Compose: main.py config/agent/fly.yaml config/exp/flyhard_sc_prox_mid.yaml \
+#          paths.model_directory=models/FlyHard_scB2 settings.seed=3
+settings:
+  auto_train:
+    max_train: 400
+environment:
+  agent:
+    fly_agent:
+      rewards:
+        ProximityPenalty: -1.5    # base -1.0 -> mild strengthening
+        ProximityThreshold: 0.45  # base 0.4 -> slightly earlier avoidance
+        Collision: -5.0           # base -4.328 -> modestly costlier (not scB's -7.0)

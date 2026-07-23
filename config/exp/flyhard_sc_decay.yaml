@@ -1,0 +1,30 @@
+# FlyHard Wave-4 scF "decay": scD's proven conservative+stable recipe (lr 1e-4, kl 0.05,
+# ent 3e-4, moderate shaping) PLUS real learning-rate decay. base.yaml ships the scheduler
+# as CosineAnnealingLR(T_max=1e6), which over ~800 updates barely moves lr (measured: lr
+# fell 0.06% over 459 updates) — so the policy wanders off its peak (scD hit 0.90 train-obj
+# then drifted to ~0.6; the saved best evals 84%). Scheduler steps per minibatch (~41/update
+# measured), so 800 updates ~ 32.8k steps -> T_max 35000 decays lr 1e-4 -> ~eta_min across the
+# run, letting late training fine-tune into a STABLE high optimum. No boundary-penalty bump
+# (scE's -8.0 hurt: made drones over-cautious, capping objective at 0.62 vs scD's 0.90).
+# Compose: main.py config/agent/fly.yaml config/exp/flyhard_sc_decay.yaml \
+#          paths.model_directory=models/FlyHard_scF settings.seed=7
+settings:
+  auto_train:
+    max_train: 800
+algorithm:
+  PPO:
+    kl_early_stop: true
+    kl_target: 0.05
+    lr: 1.0e-4
+    entropy_coeff: 0.0003
+    scheduler:
+      type: CosineAnnealingLR
+      T_max: 35000
+      eta_min: 1.0e-6
+environment:
+  agent:
+    fly_agent:
+      rewards:
+        ProximityPenalty: -1.5
+        ProximityThreshold: 0.45
+        Collision: -5.0

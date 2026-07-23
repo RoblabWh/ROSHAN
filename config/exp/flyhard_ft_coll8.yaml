@@ -1,0 +1,26 @@
+# FlyHard Wave-6 scH "ft_coll8": TWO-PHASE fine-tune. Resume scG's converged 97% policy
+# (best_obj, train-obj 0.96) and continue training with a HIGHER terminal collision penalty
+# (Coll -5.0 -> -8.0). From scratch, Coll -8/-10 chokes (agent too timid to ever co-locate),
+# but the resumed policy ALREADY co-locates and clears fires, so the higher penalty just
+# sharpens collision-avoidance to erase the residual ~3 collisions/100 — without choking.
+# Same big-horizon regime. scG was at train_step 132; max_train 250 => ~118 fine-tune updates.
+# Launch (direct, needs model_name=best_obj):
+#   main.py config/agent/fly.yaml config/exp/flyhard_ft_coll8.yaml settings.rl_mode=train \
+#     settings.mode=2 paths.model_directory=models/FlyHard_scH paths.model_name=best_obj \
+#     settings.resume=true settings.seed=12
+settings:
+  auto_train:
+    max_train: 250
+algorithm:
+  PPO:
+    horizon: 66000
+    batch_size: 2000
+    entropy_coeff: 0.01
+    kl_early_stop: false
+environment:
+  agent:
+    fly_agent:
+      rewards:
+        ProximityPenalty: -1.5
+        ProximityThreshold: 0.45
+        Collision: -8.0

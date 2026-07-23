@@ -161,6 +161,13 @@ class PPO(RLAlgorithm):
                 ## Logstep Decay
                 decay = np.log(np.exp(self.policy.actor.log_std.data[0].cpu()) * self.decay_rate)
             self.policy.actor.log_std.data.fill_(decay)
+        # Entropy-coefficient decay (categorical/pointer actors): multiplicative per
+        # update, floored at entropy_coeff_min, so the late policy sharpens and argmax
+        # approaches the sampled behavior by end of training. 1.0 = off.
+        # ponytail: not persisted across resume — restarts at the config value.
+        if self.entropy_decay_rate < 1.0:
+            self.entropy_coeff = max(self.entropy_coeff * self.entropy_decay_rate,
+                                     self.entropy_coeff_min)
 
     def reset_algorithm(self):
         from utils import RunningMeanStd
@@ -172,15 +179,27 @@ class PPO(RLAlgorithm):
         self.int_reward_rms = RunningMeanStd()
         self.set_train()
 
-    def get_advantages(self, values, masks, rewards):
+    def get_advantages(self, values, masks, rewards, durations=None, bootstrap_duration=1.0):
         """
         Computes the advantages using vectorized GAE (Generalized Advantage Estimation).
 
         :param values: The values of the states. May have len(rewards)+1 if bootstrapped.
         :param masks: The masks of the states (1 = not done, 0 = done).
         :param rewards: The rewards of the states.
+        :param durations: Optional per-transition env-step counts for SMDP discounting.
+            When None (default, all non-planner agents), the standard gamma^1 path runs
+            and the result is bit-identical to the original implementation. When provided,
+            each transition t is discounted by gamma^{k_t}, where k_t = durations[t] is the
+            number of env steps transition t spanned. Under the deferred SMDP collection in
+            agent_handler.train_loop, durations[t] already describes the FORWARD window
+            [t, t+1] governed by action a_t and is stored alongside rewards[t] and
+            next_values[t] — so no shift is applied here (the previous +1 "F3" shift
+            compensated for an off-by-one collection that has since been fixed).
+        :param bootstrap_duration: deprecated / no-op under deferred collection (kept for
+            call-site compatibility). Ignored when durations is None.
         :return: The advantages and returns as tensors on self.device.
         """
+        del bootstrap_duration  # no longer used: durations[t] already spans window [t, t+1]
         # Ensure tensors are on the correct device
         if not isinstance(rewards, torch.Tensor):
             rewards = torch.as_tensor(rewards, dtype=torch.float32, device=self.device)
@@ -198,13 +217,31 @@ class PPO(RLAlgorithm):
         T = len(rewards)
         # next_values: values[1:] when bootstrapped, else zeros for terminal
         next_values = values[1:T+1] if len(values) > T else torch.zeros_like(rewards)
-        deltas = rewards + self.gamma * masks * next_values - values[:T]
 
-        # Vectorized GAE via reverse cumulative scan
-        # GAE[t] = delta[t] + gamma*lambda*mask[t] * GAE[t+1]
-        # This is a reverse scan — we flip, apply cumulative weighted sum, then flip back
-        discount = self.gamma * self._lambda
-        coeffs = discount * masks  # per-step discount coefficients
+        if durations is None:
+            # Standard one-step GAE (unchanged — byte-identical to the original).
+            deltas = rewards + self.gamma * masks * next_values - values[:T]
+            discount = self.gamma * self._lambda
+            coeffs = discount * masks  # per-step discount coefficients
+        else:
+            # SMDP / options discounting: each transition spans k_t env steps, so the
+            # bootstrap and trace are discounted by gamma^{k_t} rather than gamma^1.
+            if not isinstance(durations, torch.Tensor):
+                durations = torch.as_tensor(durations, dtype=torch.float32, device=self.device)
+            elif durations.device != self.device:
+                durations = durations.to(self.device, non_blocking=True)
+            # No shift: under deferred collection durations[t] already describes the forward
+            # window [t, t+1] governed by a_t, aligned with rewards[t] and next_values[t].
+            k = durations.to(torch.float32)
+            if self.smdp_normalize_k:
+                # Keep a fixed cadence numerically ~= gamma^1 (A/B isolation knob).
+                k = k / float(max(self.max_low_level_steps, 1))
+                k = k.clamp(min=1.0 / float(max(self.max_low_level_steps, 1)))
+            else:
+                k = k.clamp(min=1.0)
+            gamma_k = self.gamma ** k
+            deltas = rewards + gamma_k * masks * next_values - values[:T]
+            coeffs = gamma_k * self._lambda * masks  # per-step SMDP discount coefficients
 
         # Reverse scan: process flipped deltas with cumulative discounting
         flipped_deltas = torch.flip(deltas, [0])
@@ -235,7 +272,7 @@ class PPO(RLAlgorithm):
         var_returns = returns.var()
         return 0 if var_returns == 0 else 1 - (returns - values).var() / var_returns
 
-    def update(self, memory: SwarmMemory, mini_batch_size, next_obs, logger : TensorboardLogger):
+    def update(self, memory: SwarmMemory, mini_batch_size, next_obs, logger : TensorboardLogger, bootstrap_duration=1.0):
         """
         This function implements the update step of the Proximal Policy Optimization (PPO) algorithm for a swarm of
         robots. It takes in the memory buffer containing the experiences of the swarm, as well as the number of batches
@@ -266,6 +303,9 @@ class PPO(RLAlgorithm):
         # so the policy isn't credited/penalized for outputs the C++ side overrode.
         # List of per-agent (T_i, N) bool tensors, or None for non-planner agents.
         locked_mask_per_agent = t_dict.get('locked_mask', None)
+        # Per-transition SMDP durations (planner only, when smdp_gae is on). List of
+        # per-agent (T_i,) float tensors, or None. Drives gamma^k discounting in GAE.
+        durations_per_agent = t_dict.get('duration', None)
 
         # Prepare rewards
         rewards, log_rewards_raw, log_rewards_scaled = self.prepare_rewards(ext_rewards, t_dict)
@@ -395,7 +435,16 @@ class PPO(RLAlgorithm):
                 values_ = values_per_agent[i]
                 if i in bootstrap_values:
                     values_ = torch.cat((values_, bootstrap_values[i]), dim=0)
-                adv, ret = self.get_advantages(values_.detach(), masks[i], rewards[i].detach())
+                durations_i = (
+                    durations_per_agent[i]
+                    if (self.smdp_gae and durations_per_agent is not None
+                        and len(durations_per_agent) > i)
+                    else None
+                )
+                adv, ret = self.get_advantages(
+                    values_.detach(), masks[i], rewards[i].detach(),
+                    durations=durations_i, bootstrap_duration=bootstrap_duration,
+                )
 
                 advantages.append(adv)
                 returns.append(ret)
@@ -456,6 +505,7 @@ class PPO(RLAlgorithm):
                     # Default behavior: joint log-probs by simple sum-over-drones.
                     if batch_old_logprobs.dim() == 2:
                         batch_old_logprobs = batch_old_logprobs.sum(dim=1)
+
                 logprobs, values, dist_entropy = self.policy.evaluate(batch_states, batch_actions, batch_variable_masks)
                 # New log-probs / entropy may also come back per-drone from the
                 # categorical evaluate path — apply the same masked sum.

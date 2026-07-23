@@ -3,20 +3,21 @@ from utils import SimulationBridge
 import logging
 
 
-def _use_heuristic(config):
-    settings = config["settings"]
-    if "use_heuristic" in settings:
-        return bool(settings["use_heuristic"])
-    return bool(settings.get("eval_fly_policy", False))
-
-
 class HierarchyManager:
     def __init__(self, config, sim_bridge : SimulationBridge):
         self.config = config
         self.sim_bridge = sim_bridge
         self.hierarchy = {}
         self.logger = logging.getLogger("HierarchyManager")
-        self.max_low_level_steps = self.config["environment"]["agent"]["planner_agent"]["hierarchy_timesteps"]
+        _planner_cfg = self.config["environment"]["agent"]["planner_agent"]
+        self.max_low_level_steps = _planner_cfg["hierarchy_timesteps"]
+        # Event-driven replanning: when enabled, an off-schedule planner decision is
+        # triggered as soon as plan_low reports replan_recommended (a drone freed up and a
+        # fire is untargeted), subject to a minimum step gap. Default off → fixed cadence.
+        self.event_replan = bool(_planner_cfg.get("event_replan", False))
+        self.min_replan_interval = int(_planner_cfg.get("min_replan_interval", 5))
+        self._replan_triggers = 0   # off-schedule decisions fired (diagnostics)
+        self._planner_steps = 0     # total env steps the planner ran (diagnostics)
         self._env_reset_flag = False  # Cached to avoid per-step pybind11 crossing
         self.builder = AgentBuilder(config, sim_bridge)
         self.build_hierarchy()
@@ -27,6 +28,30 @@ class HierarchyManager:
             or agent.env_reset
             or self._env_reset_flag
         )
+
+    def _maybe_event_replan(self, high):
+        """Set high.hierarchy_early_stop when plan_low recommends an off-schedule replan.
+
+        Gated on event_replan and a minimum step gap (anti-thrash). The C++ side already
+        gates replan_recommended on 'a drone freed AND an untargeted fire exists'. The flag
+        is consumed on the next _train_high/_eval_high tick (1-step latency, acceptable).
+        """
+        self._planner_steps += 1
+        if not self.event_replan or high.hierarchy_early_stop:
+            return
+        if high.hierarchy_steps < self.min_replan_interval:
+            return
+        summary = getattr(self.hierarchy.get("plan_low"), "last_summary", None)
+        if summary is not None and getattr(summary, "replan_recommended", False):
+            high.hierarchy_early_stop = True
+            self._replan_triggers += 1
+            if self._replan_triggers % 200 == 0:
+                rate = self._replan_triggers / max(self._planner_steps, 1)
+                self.logger.info(
+                    f"[event_replan] {self._replan_triggers} off-schedule replans "
+                    f"over {self._planner_steps} steps (rate={rate:.3f}, "
+                    f"min_interval={self.min_replan_interval})"
+                )
 
     def _reset_agent(self, agent):
         agent.hierarchy_steps = 0
@@ -44,6 +69,7 @@ class HierarchyManager:
 
         # Step through all low level agents (PlanFlyAgent)
         self.hierarchy["plan_low"].eval_loop(engine=engine, evaluate=False)
+        self._maybe_event_replan(high)
         high.hierarchy_steps += 1
         self._env_reset_flag = False
         self.sim_bridge.set("env_reset", False)
@@ -85,6 +111,7 @@ class HierarchyManager:
             medium.hierarchy_early_stop = all(self.hierarchy["explore_low"].eval_loop(engine=engine, evaluate=False))
 
         self.hierarchy["plan_low"].eval_loop(engine=engine, evaluate=False)
+        self._maybe_event_replan(high)
         high.hierarchy_steps += 1
         self._env_reset_flag = False
         self.sim_bridge.set("env_reset", False)
@@ -96,8 +123,6 @@ class HierarchyManager:
             self._reset_agent(medium)
 
         medium.hierarchy_early_stop = all(self.hierarchy["explore_low"].eval_loop(engine=engine, evaluate=False))
-        if _use_heuristic(self.config):
-            self._eval_low(engine)
         medium.hierarchy_steps += 1
 
     def _eval_low(self, engine):
@@ -140,7 +165,7 @@ class HierarchyManager:
         agent_handler.load_model(change_status=True)
 
         self.hierarchy[agent_handler.hierarchy_level] = agent_handler
-        construct_medium = agent_handler.hierarchy_level in {"medium", "high"} or _use_heuristic(self.config)
+        construct_medium = agent_handler.hierarchy_level in {"medium", "high"}
 
         # Construct a low level agent if the current agent is a high level agent
         if agent_handler.hierarchy_level == "high":
@@ -155,7 +180,7 @@ class HierarchyManager:
 
         if construct_medium:
             # Construct a medium level agent if the current agent is a high level agent
-            if agent_handler.hierarchy_level == "high" or _use_heuristic(self.config):
+            if agent_handler.hierarchy_level == "high":
                 medium_level_agent = self.builder.build(
                       agent_type="explore_agent",
                       mode="eval"

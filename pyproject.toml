@@ -12,6 +12,7 @@ dependencies = [
     "tabulate",
     "tensorboard",
     "pyyaml",
+    "omegaconf",
     "optuna",
     "packaging",
     "matplotlib>=3.9.4",

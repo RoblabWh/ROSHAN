@@ -1,0 +1,26 @@
+# FlyHard Wave-7 scI "bigh_bnd": the proven big-horizon scG recipe + the NEW one-sided
+# boundary-distance PBRS (C++: BoundaryProximityPenalty). scG converged at 93.5%/400 with the
+# residual dominated by BoundaryExit (~4.3%). The boundary PBRS adds an anticipatory gradient
+# away from the map edge (penalizes only the per-step INCREASE in edge-closeness), which the
+# terminal BoundaryTerminal could not do without over-caution. The network already sees the
+# boundary vector (index 0 of the distance features), so this is reward-only — no arch change.
+# Compose: main.py config/agent/fly.yaml config/exp/flyhard_bigh_bnd.yaml \
+#          paths.model_directory=models/FlyHard_scI settings.seed=14
+settings:
+  auto_train:
+    max_train: 300
+algorithm:
+  PPO:
+    horizon: 66000
+    batch_size: 2000
+    entropy_coeff: 0.01
+    kl_early_stop: false
+environment:
+  agent:
+    fly_agent:
+      rewards:
+        ProximityPenalty: -1.5
+        ProximityThreshold: 0.45
+        Collision: -5.0
+        BoundaryProximityPenalty: -2.0   # one-sided PBRS toward nearest edge
+        BoundaryProximityThreshold: 0.5  # ~2.5 cells at view_range 10 (anticipatory)

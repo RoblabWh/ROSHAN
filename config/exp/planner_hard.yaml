@@ -1,0 +1,26 @@
+# PlannerAgent HARD benchmark — calibrated July 13 2026 so assignment quality matters.
+# Layer on config/agent/planner.yaml.
+#
+# RECALIBRATED July 16 2026 (Wave G0) under the water-aware step budget (3016 -> 10209):
+# the old 56%-success bar was a budget-truncation artifact. Greedy heuristic, N=100, seed 1:
+#   fire 0.055: 100% / TTE med 2894 | 0.06: 100% / 3249 | 0.07: 100% / 3615 | 0.08: 100% / 4160
+# Success saturates at every fire % (little fire spread on this map) — SUCCESS IS NOT THE
+# METRIC. THE BAR IS THE HEURISTIC'S TTE-ON-SUCCESS: median 2894 (mean 2795, std 726) at
+# fire 0.055. Training model selection uses the TTE-aware objective (success * (1 - time
+# fraction used)); heuristic-equivalent rolling objective ~ 0.72.
+# (Pre-July-16 numbers — 56%/2926 bar, hardfix 28/57% — are NOT comparable.)
+#
+# Since July 2026 the training machinery (event-driven+SMDP, entropy decay, G1 GS parking
+# tax, campaign PPO regime) lives in config/agent/planner.yaml — this overlay is only the
+# hard-benchmark delta. fire_pattern=cluster and num_fire_clusters=2 inherit from base.
+settings:
+  mode: 2       # headless NoGUI_RL for benchmark runs
+  rl_mode: train
+  auto_train:
+    use_auto_train: false
+    max_train: 120  # planner.yaml 100 -> 120: Wave-G budget (entropy floor reached ~u80)
+    max_eval: 100   # train-time eval episodes (large-N confirm done separately)
+
+environment:
+  fire_behaviour:
+    fire_percentage: 0.055  # planner.yaml 0.045 -> 0.055: the calibrated hard difficulty

@@ -1,61 +1,63 @@
-"""Minimal MLP-based pointer network for the PlannerAgent.
-
-DeepSets-style: per-fire MLP encoder + per-drone MLP encoder + pairwise dot-product
-logits + INDEPENDENT Categorical per drone. Variable-size fire sets are handled via
-per-element MLP encoding plus a padding mask — no attention.
-
-Replaces the prior transformer + autoregressive pointer-network in
-``network_planner_attn.py``. The full attention-based implementation is preserved
-under that filename; flip ``planner_agent.py``'s import to revert.
-
-Public API (must stay stable for ``planner_agent.py`` / ``algorithms/``):
-- ``PointerActor.__init__(vision_range, drone_count, map_size, time_steps, manual_decay)``
-- ``PointerActor.forward(states, masks=None, actions_idx=None, deterministic=False)
-  -> (actions_idx (B,N), log_probs (B,N), entropy (B,N))``
-- ``PointerActor.log_temperature`` — required by ``ppo.py`` for logging
-- ``self.Inputspace`` attribute — required for ``share_encoder=True``
-"""
 import os
-import torch
 import torch.nn as nn
-
+import torch.nn.functional as F
+import torch
 from utils import get_device
 
 if os.getenv("PYTORCH_DETECT_ANOMALY", "").lower() in ("1", "true"):
     torch.autograd.set_detect_anomaly(True)
 
+# Goal-commitment thresholds — MUST match PlannerAgent in planner_agent.py
+# (_LOCK_AT_GOAL_EPS / _LOCK_MATCH_EPS). Kept local (not imported) to avoid a circular
+# import: planner_agent.py imports the networks from this module.
+_LOCK_AT_GOAL_EPS = 0.05
+_LOCK_MATCH_EPS = 1e-3
 
 class Inputspace(nn.Module):
-    """Encodes the planner's observation dict into per-drone and per-fire embeddings."""
 
     def __init__(self, drone_dim, time_steps):
         super().__init__()
-        del time_steps  # unused — we always read the last timestep
+
         self.device = get_device()
         self.drone_dim = drone_dim
         hidden_dim = 64
 
-        # Per-drone MLP: cat(pos(2), prev_goal(2), water(1)) → hidden
-        self.drone_mlp = nn.Sequential(
-            nn.Linear(5, hidden_dim), nn.ReLU(),
-            nn.Linear(hidden_dim, hidden_dim), nn.ReLU(),
-        )
-        # Per-fire MLP: pos(2) → hidden
-        self.fire_mlp = nn.Sequential(
-            nn.Linear(2, hidden_dim), nn.ReLU(),
-            nn.Linear(hidden_dim, hidden_dim), nn.ReLU(),
-        )
-        # GS marker added to fire-embedding index 0 so coincident-coordinate fires
-        # don't alias the groundstation. Init zero → no-op until learned.
+        # Embeddings with activation
+        self.pos_emb = nn.Sequential(nn.Linear(2, hidden_dim), nn.ReLU())
+        self.goal_emb = nn.Sequential(nn.Linear(2, hidden_dim), nn.ReLU())
+        self.fire_emb = nn.Sequential(nn.Linear(2, hidden_dim), nn.ReLU())
+        # Type marker added to the GS entry (index 0 of fire_positions) so K_GS has a
+        # learnable direction distinct from any real-fire key. Init zero → no-op at start.
         self.is_gs_emb = nn.Parameter(torch.zeros(hidden_dim))
-
-        # Global context — three small encoders, summed and broadcast-added to drones.
-        # Same pattern as the prior Inputspace (just without the attention pieces around it).
+        self.vel_emb = nn.Sequential(nn.Linear(2, hidden_dim), nn.ReLU())
+        self.water_emb = nn.Sequential(nn.Linear(1, hidden_dim), nn.ReLU())
         self.fire_count_emb = nn.Sequential(nn.Linear(1, hidden_dim), nn.ReLU())
         self.fire_centroid_emb = nn.Sequential(nn.Linear(2, hidden_dim), nn.ReLU())
         self.wind_emb = nn.Sequential(nn.Linear(2, hidden_dim), nn.ReLU())
+        self.id_emb = nn.Embedding(drone_dim, hidden_dim)
+
+        # Fusion MLP: cat(pos, goal, id, vel, water) -> hidden
+        self.fusion = nn.Sequential(
+            nn.Linear(hidden_dim * 5, hidden_dim * 2),
+            nn.ReLU(),
+            nn.Linear(hidden_dim * 2, hidden_dim),
+            nn.ReLU()
+        )
+
+        # Drone self-attention
+        self.self_attn = nn.MultiheadAttention(
+            embed_dim=hidden_dim, num_heads=4, batch_first=True
+        )
+        self.self_attn_norm = nn.LayerNorm(hidden_dim)
+
+        # Drone->Fire cross-attention
+        self.cross_attn = nn.MultiheadAttention(
+            embed_dim=hidden_dim, num_heads=4, batch_first=True
+        )
+        self.cross_attn_norm = nn.LayerNorm(hidden_dim)
 
         self.out_features = hidden_dim
+        self.register_buffer('_agent_ids', torch.arange(drone_dim))
 
     def _ensure_tensor(self, x, dtype=torch.float32):
         if not torch.is_tensor(x):
@@ -73,191 +75,488 @@ class Inputspace(nn.Module):
             return x[:, -1, :, :]
         return x
 
-    def forward(self, states, mask=None):
-        drone_pos = self._select_last_timestep(self._ensure_tensor(states["drone_positions"]))
-        goal_pos = self._select_last_timestep(self._ensure_tensor(states["goal_positions"]))
-        fire_pos = self._select_last_timestep(self._ensure_tensor(states["fire_positions"]))
+    def prepare_tensor(self, states):
+        drone_states = self._ensure_tensor(states["drone_positions"])
+        goal_positions = self._ensure_tensor(states["goal_positions"])
+        fire_states = self._select_last_timestep(self._ensure_tensor(states["fire_positions"]))
+        # drone_water: SET group with bulk_dims=1 → shape (B, T, N, 1). Collapse to (B, N, 1).
         drone_water = self._select_last_timestep(self._ensure_tensor(states["drone_water"]))
 
         # C++ emits fire_positions_mask (True = valid) when fires are RELATIONAL.
         # Convert to the network's convention (True = padded/invalid).
         fire_mask = None
-        if mask is None and "fire_positions_mask" in states:
-            fm = self._ensure_tensor(states["fire_positions_mask"], dtype=torch.bool)
-            if fm.dim() == 3:
-                fm = fm[:, -1, :]
-            fire_mask = ~fm
-        elif mask is not None:
-            fire_mask = mask
+        if "fire_positions_mask" in states:
+            fire_mask = self._ensure_tensor(states["fire_positions_mask"], dtype=torch.bool)
+            # Shape from rl_handler: (B, max_T, K). Select last timestep → (B, K).
+            if fire_mask.dim() == 3:
+                fire_mask = fire_mask[:, -1, :]
+            fire_mask = ~fire_mask  # valid → padded
 
-        # Global context: fire_globals → [count(1), centroid(2), wind(2)]
+        # Fire globals: FIXED group → (B, T, 5), select last timestep → (B, 5)
+        # Layout: [fire_count(1), fire_centroid(2), wind(2)]
         fire_globals = self._ensure_tensor(states["fire_globals"])
         if fire_globals.dim() == 3:
             fire_globals = fire_globals[:, -1, :]
-        fire_count = fire_globals[:, 0:1]
-        fire_centroid = fire_globals[:, 1:3]
-        wind = fire_globals[:, 3:5]
+        fire_count = fire_globals[:, 0:1]     # (B, 1)
+        fire_centroid = fire_globals[:, 1:3]  # (B, 2)
+        wind = fire_globals[:, 3:5]           # (B, 2)
 
-        # Per-drone embedding: cat(pos, prev_goal, water) → MLP
-        drone_feat = torch.cat([drone_pos, goal_pos, drone_water], dim=-1)
-        drone_emb = self.drone_mlp(drone_feat)  # (B, N, H)
+        # Extract velocity before collapsing timesteps
+        if drone_states.dim() == 4 and drone_states.shape[1] >= 2:
+            velocity = drone_states[:, -1] - drone_states[:, -2]  # (B, N, 2)
+            drone_pos = drone_states[:, -1]  # (B, N, 2)
+        else:
+            drone_states = self._select_last_timestep(drone_states)
+            velocity = torch.zeros_like(drone_states)
+            drone_pos = drone_states
 
-        # Per-fire embedding + GS marker on index 0
-        fire_emb = self.fire_mlp(fire_pos)  # (B, F, H)
-        fire_emb = fire_emb.clone()
-        fire_emb[:, 0, :] = fire_emb[:, 0, :] + self.is_gs_emb
+        goal_positions = self._select_last_timestep(goal_positions)
 
-        # Global context: broadcast-add to drone embeddings
-        global_ctx = (
-            self.fire_count_emb(fire_count)
-            + self.fire_centroid_emb(fire_centroid)
-            + self.wind_emb(wind)
-        ).unsqueeze(1)  # (B, 1, H)
+        batch_size, n_drones, _ = drone_pos.shape
+        agent_ids = self._agent_ids.unsqueeze(0).expand(batch_size, -1)
+        return drone_pos, goal_positions, fire_states, agent_ids, velocity, drone_water, fire_count, fire_centroid, wind, fire_mask
+
+    def forward(self, states, mask=None):
+        (drone_pos, goal_pos, fire_states, agent_ids, velocity, drone_water,
+         fire_count, fire_centroid, wind, fire_mask) = self.prepare_tensor(states)
+
+        # Prefer the explicit mask from C++ (RELATIONAL fire_positions_mask).
+        # Fall back to the caller-supplied mask, then to all-valid.
+        if mask is None:
+            mask = fire_mask
+        if mask is None:
+            mask = torch.zeros(fire_states.shape[0], fire_states.shape[1],
+                               dtype=torch.bool, device=self.device)
+
+        # Embed
+        pos_e = self.pos_emb(drone_pos)
+        goal_e = self.goal_emb(goal_pos)
+        fire_e = self.fire_emb(fire_states)
+        fire_e = fire_e.clone()
+        fire_e[:, 0, :] = fire_e[:, 0, :] + self.is_gs_emb
+        vel_e = self.vel_emb(velocity)
+        water_e = self.water_emb(drone_water)
+        id_e = self.id_emb(agent_ids)
+
+        # Fusion MLP (replaces additive collapse)
+        drone_emb = self.fusion(torch.cat([pos_e, goal_e, id_e, vel_e, water_e], dim=-1))
+
+        # Inject global fire context (broadcast-add over all drones)
+        fire_count_e = self.fire_count_emb(fire_count)          # (B, 64)
+        fire_centroid_e = self.fire_centroid_emb(fire_centroid) # (B, 64)
+        wind_e = self.wind_emb(wind)                            # (B, 64)
+        global_ctx = (fire_count_e + fire_centroid_e + wind_e).unsqueeze(1)  # (B, 1, 64)
         drone_emb = drone_emb + global_ctx
 
-        return drone_emb, fire_emb, fire_mask
+        # Self-attention among drones + residual + LayerNorm
+        self_out, _ = self.self_attn(drone_emb, drone_emb, drone_emb)
+        drone_emb = self.self_attn_norm(drone_emb + self_out)
 
+        # Cross-attention: drones attend to fires + residual + LayerNorm.
+        # need_weights=False routes through SDPA, which handles fully-masked
+        # rows without NaN (see comment above) and is the faster kernel.
+        cross_out, _ = self.cross_attn(
+            query=drone_emb, key=fire_e, value=fire_e,
+            key_padding_mask=mask, need_weights=False,
+        )
+        drone_repr = self.cross_attn_norm(drone_emb + cross_out)
+
+        # Return the effective fire mask alongside so downstream heads
+        # (pointer-network logits) can reuse it without re-resolving.
+        return drone_repr, fire_e, mask
 
 class PointerActor(nn.Module):
-    """Pointer policy: per-drone Categorical over fires via dot-product logits."""
-
     def __init__(self, vision_range, drone_count, map_size, time_steps, manual_decay):
         super().__init__()
-        del vision_range, map_size, manual_decay  # unused
         self.Inputspace = Inputspace(drone_dim=drone_count, time_steps=time_steps)
         hidden_dim = self.Inputspace.out_features
-        self.q_proj = nn.Linear(hidden_dim, hidden_dim)
-        self.k_proj = nn.Linear(hidden_dim, hidden_dim)
-        # Required by ppo.py:531 (unconditional read for TensorBoard logging).
+
+        # Learnable temperature for exploration control
         self.log_temperature = nn.Parameter(torch.zeros(1))
 
-    def _logits_and_dist(self, states, masks):
-        drone_emb, fire_emb, fire_mask = self.Inputspace(states, masks)
-        # If caller supplied a mask, prefer it; otherwise fall back to the C++ one;
-        # otherwise treat all fires as valid.
-        if masks is None:
-            masks = fire_mask
-        if masks is None:
-            masks = torch.zeros(
-                fire_emb.shape[0], fire_emb.shape[1],
-                dtype=torch.bool, device=fire_emb.device,
-            )
+        # Pointer-network projection heads
+        self.query_proj = nn.Linear(hidden_dim, hidden_dim)
+        self.key_proj = nn.Linear(hidden_dim, hidden_dim)
 
-        q = self.q_proj(drone_emb)  # (B, N, H)
-        k = self.k_proj(fire_emb)   # (B, F, H)
-        d_sqrt = q.shape[-1] ** 0.5
-        # Symmetric clamp prevents exp() overflow into either tail.
-        temperature = self.log_temperature.clamp(-3.0, 3.0).exp()
-        logits = torch.bmm(q, k.transpose(1, 2)) / (d_sqrt * temperature)  # (B, N, F)
+        # Learnable soft penalty for duplicate assignments in autoregressive decoding.
+        # Starts at exp(0)=1.0 (mild); PPO tunes upward if duplicate-assignment is truly costly.
+        # A higher init (e.g. 1.6) crowds out the groundstation in multi-drone batches before
+        # the policy can learn the refuel pattern.
+        self.log_assignment_penalty = nn.Parameter(torch.tensor(0.0))
 
-        # Guarantee at least one valid action per row — unmask GS (index 0) on
-        # fully-padded rows to keep Categorical finite.
-        safe_masks = masks.clone()
-        all_masked = safe_masks.all(dim=-1)
-        if all_masked.any():
-            safe_masks[all_masked, 0] = False
-        logits = logits.masked_fill(safe_masks.unsqueeze(1).expand_as(logits), float('-inf'))
+        # Inductive bias on the GS logit: bias = gs_water_bias * (1 - water_frac).
+        # At water=1 contributes 0; at water=0 contributes gs_water_bias. Init zero so
+        # behavior matches the unbiased pointer-network at step 0; PPO tunes magnitude.
+        self.gs_water_bias = nn.Parameter(torch.tensor(0.0))
 
-        return torch.distributions.Categorical(logits=logits)
+        # EVRP-style water feasibility threshold (fraction in [0, 1]). When a drone's
+        # tank is below this, every non-groundstation target is hard-masked in the
+        # decoder, leaving the groundstation as the only legal action — refuel becomes
+        # structurally required rather than something PPO must discover from reward
+        # shaping. 0.0 = disabled (backward-compatible: only truly-empty drones, who
+        # already can't extinguish, are constrained). Set externally from config (see
+        # agent_builder), mirroring the latent ``allow_groundstation`` hook below.
+        self.water_mask_threshold = 0.0
+
+        # Lower clamp bound for log_assignment_penalty (set from config via
+        # agent_builder; see the clamp in forward() for rationale).
+        self.assignment_penalty_min = -3.0
+
+        # Stickiness bias on logits matching each drone's *previous* goal coordinate.
+        # The previous-action signal already lives in observations as goal_positions
+        # (BuildAgentState pulls it from FlyAgent.last_state.goal_position), but the
+        # autoregressive decoder otherwise has to infer "this fire == my last goal"
+        # from continuous coordinates joined through two embedding paths. Making it
+        # an explicit (drone, fire) match mask + learnable bias gives PPO a direct
+        # gradient handle to commit to assignments and counter Categorical sampling
+        # noise. Init zero → no-op at step 0; PPO learns sign and magnitude.
+        self.stickiness_bias = nn.Parameter(torch.tensor(0.0))
+        # Match tolerance for the previous-goal coordinate vs. fire-position comparison.
+        # Both sides go through the same (2*p/norm_map - 1) normalization, so equality
+        # holds modulo float precision; 1e-3 is well below the smallest inter-cell gap
+        # (2/max_dim ≈ 0.025 for a 80-cell map) so collisions across distinct cells
+        # are impossible at any realistic map size.
+        self.stickiness_match_eps = 1e-3
+
+    def _compute_base_logits(self, states, masks=None):
+        """Compute base pointer-network logits and effective mask."""
+        drone_repr, fire_repr, resolved_mask = self.Inputspace(states, masks)
+
+        q = self.query_proj(drone_repr)   # (B, N, D)
+        k = self.key_proj(fire_repr)       # (B, F, D)
+        d = q.shape[-1] ** 0.5
+        # NOTE: the learned temperature is applied to the FINAL logits in the decoder
+        # loop (forward), AFTER gs_water_bias / stickiness / assignment_penalty. Scaling
+        # only the q·k scores here let the un-scaled biases dominate the argmax as
+        # temperature grew (sampling stayed fire-seeking, argmax collapsed to GS —
+        # see the July 2026 2x2 attribution eval).
+        base_logits = torch.bmm(q, k.transpose(1, 2)) / d  # (B, N, F)
+
+        # Water-conditioned bias on the GS logit (index 0). Lifts GS specifically when
+        # the drone is low on water; init zero so this is a no-op until PPO learns.
+        dw = self.Inputspace._ensure_tensor(states["drone_water"])
+        dw = self.Inputspace._select_last_timestep(dw)  # (B, N, 1) or (B, N)
+        if dw.dim() == 3:
+            dw = dw.squeeze(-1)
+        gs_bias = self.gs_water_bias * (1.0 - dw)  # (B, N)
+        base_logits = base_logits.clone()
+        base_logits[..., 0] = base_logits[..., 0] + gs_bias
+
+        # Stickiness bias: explicit (drone, fire) match between each drone's previous
+        # planner-assigned goal coordinate and each fire's coordinate. The decoder no
+        # longer has to infer the join through two embeddings — the match becomes a
+        # direct logit boost the policy can lean on to commit to assignments.
+        # Both coordinate sides come from the same (2*p/norm_map - 1) normalization,
+        # so equality is exact modulo float precision.
+        goal_pos_raw = self.Inputspace._ensure_tensor(states["goal_positions"])
+        goal_pos = self.Inputspace._select_last_timestep(goal_pos_raw)  # (B, N, 2)
+        fire_pos_raw = self.Inputspace._ensure_tensor(states["fire_positions"])
+        fire_pos = self.Inputspace._select_last_timestep(fire_pos_raw)  # (B, F, 2)
+        diff = (goal_pos.unsqueeze(2) - fire_pos.unsqueeze(1)).abs()  # (B, N, F, 2)
+        is_prev = (diff < self.stickiness_match_eps).all(dim=-1).to(base_logits.dtype)
+        base_logits = base_logits + self.stickiness_bias * is_prev
+
+        # Reuse the mask Inputspace resolved (caller mask → C++ mask → all-valid
+        # fallback, plus the groundstation unmask guard for fully-masked rows).
+        masks = resolved_mask.clone()
+        if not getattr(self, 'allow_groundstation', True):
+            masks[:, 0] = True
+            # After forcibly masking groundstation, re-check fully-masked rows.
+            all_masked = masks.all(dim=-1)
+            if all_masked.any():
+                masks[all_masked, 0] = False
+
+        # EVRP-style per-drone water feasibility mask (B, N, F): when a drone's tank is
+        # below the threshold, forbid every non-groundstation target so the only legal
+        # action is to refuel. Index 0 (groundstation) is always left feasible. Strict
+        # ``<`` means threshold=0.0 is a no-op (water ∈ [0,1]), preserving prior behavior.
+        B, N, F = base_logits.shape
+        threshold = float(getattr(self, 'water_mask_threshold', 0.0))
+        low_water = dw < threshold  # (B, N) bool — dw is the per-drone water fraction
+        non_gs = torch.ones(F, dtype=torch.bool, device=base_logits.device)
+        non_gs[0] = False  # groundstation column stays feasible
+        water_infeasible = low_water.unsqueeze(-1) & non_gs.view(1, 1, F)  # (B, N, F)
+
+        return base_logits, masks, water_infeasible
+
+    def _commitment_seed(self, states):
+        """Fires that goal-committed (locked) drones will keep flying to (Fix B).
+
+        The autoregressive hard-mask only dedups *sampled* indices, but a locked drone
+        *executes* its previous goal (PlannerAgent.apply_commitment overrides it), a fire
+        the decoder never masked — so a free drone could freshly sample that same fire →
+        executed collision. Pre-seeding the decoder's ``used_mask`` with locked drones'
+        committed non-GS fires removes that collision structurally.
+
+        Mirrors apply_commitment's lock logic in torch, batched, derived purely from
+        ``states`` → identical in the sampling path and the PPO ``evaluate`` path (both
+        call ``forward`` with the same ``state``), so no memory/PPO plumbing is needed.
+        Returns ``committed_seed`` (B, F) bool; index 0 (GS) is never seeded (reusable).
+        The first-decision exemption in apply_commitment is stateful and intentionally
+        NOT replicated here — the network stays self-consistent; worst case is a harmless
+        one-step over-reservation once per episode.
+        """
+        ens = self.Inputspace._ensure_tensor
+        last = self.Inputspace._select_last_timestep
+        drone_pos = last(ens(states["drone_positions"]))   # (B, N, 2)
+        prev_goal = last(ens(states["goal_positions"]))    # (B, N, 2)
+        fire_pos = last(ens(states["fire_positions"]))     # (B, K, 2)
+        B, N, _ = drone_pos.shape
+        K = fire_pos.shape[1]
+        device = drone_pos.device
+
+        at_goal = torch.norm(drone_pos - prev_goal, dim=-1) < _LOCK_AT_GOAL_EPS         # (B, N)
+        dist = torch.norm(prev_goal.unsqueeze(2) - fire_pos.unsqueeze(1), dim=-1)       # (B, N, K)
+        nearest_dist, nearest_idx = dist.min(dim=-1)                                    # (B, N)
+        locked = (~at_goal) & (nearest_dist < _LOCK_MATCH_EPS)                          # (B, N)
+
+        gs_coord = fire_pos[:, 0:1, :]                                                  # (B, 1, 2)
+        prev_is_gs = torch.norm(prev_goal - gs_coord, dim=-1) < _LOCK_MATCH_EPS         # (B, N)
+
+        # Water-feasibility release: low-water drones headed to a *fire* are freed so the
+        # water mask can route them to refuel (mirrors apply_commitment).
+        threshold = float(getattr(self, "water_mask_threshold", 0.0))
+        if threshold > 0.0 and "drone_water" in states:
+            water = last(ens(states["drone_water"]))
+            if water.dim() == 3:
+                water = water.squeeze(-1)                                               # (B, N)
+            locked = locked & ~((water < threshold) & (~prev_is_gs))
+
+        # Seed only locked, non-GS drones' committed fire index. scatter_add gives OR
+        # semantics so a non-seeded drone sharing an index can't clear a seeded one.
+        seed_drone = (locked & (~prev_is_gs) & (nearest_idx != 0)).long()              # (B, N)
+        acc = torch.zeros(B, K, dtype=torch.long, device=device).scatter_add_(1, nearest_idx, seed_drone)
+        return acc > 0                                                                 # (B, K) bool
 
     def forward(self, states, masks=None, actions_idx=None, deterministic=False):
-        dist = self._logits_and_dist(states, masks)
+        """Autoregressive decoding over drones.
 
-        if actions_idx is not None:
-            # PPO evaluate path: recompute log-prob and entropy for given indices.
-            return actions_idx, dist.log_prob(actions_idx), dist.entropy()
+        Args:
+            states: observation dict
+            masks: (B, F) bool mask for invalid fires
+            actions_idx: (B, N) pre-determined action indices (evaluate mode).
+                         If None, actions are sampled (or argmaxed if deterministic).
+            deterministic: if True and actions_idx is None, use argmax instead of sampling.
 
-        if deterministic:
-            actions = dist.logits.argmax(dim=-1)
-        else:
-            actions = dist.sample()
-        return actions, dist.log_prob(actions), dist.entropy()
+        Returns:
+            actions_idx: (B, N) fire index per drone
+            log_probs: (B, N) per-drone log probabilities
+            entropy: (B, N) per-drone entropy
+        """
+        base_logits, masks, water_infeasible = self._compute_base_logits(states, masks)
+        B, N, F = base_logits.shape
+        device = base_logits.device
 
+        # Bound the learned temperature on both sides. Without an upper clamp
+        # exp(log_temperature) can explode and flatten logits into a near-uniform
+        # distribution, effectively killing exploration signal. Applied to the FINAL
+        # per-drone logits (scores + biases + penalties) so it uniformly controls the
+        # distribution shape — argmax and sampling then agree on the relative structure.
+        temperature = self.log_temperature.clamp(-3.0, 3.0).exp()
 
-class PointerCritic(nn.Module):
-    """PPO state-value critic: mean-pool drone embeddings → MLP → scalar."""
+        # Upper bound — unbounded exp() otherwise lets the penalty diverge into
+        # numerical overflow when combined with -inf masking. The lower bound is
+        # configurable (assignment_penalty_min): PPO erodes its own duplicate penalty
+        # when GS-parking is team-reward-optimal (hardfix wave: 1.00 -> 0.92), so a
+        # floor of 0.0 keeps the penalty >= exp(0) = 1 while still letting PPO
+        # strengthen it. Default -3.0 preserves the legacy symmetric bound.
+        assignment_penalty = self.log_assignment_penalty.clamp(self.assignment_penalty_min, 3.0).exp()
+        assignment_counts = torch.zeros(B, F, device=device)
 
+        all_actions = torch.zeros(B, N, dtype=torch.long, device=device)
+        all_log_probs = torch.zeros(B, N, device=device)
+        all_entropy = torch.zeros(B, N, device=device)
+
+        # Running mask of already-assigned fires. Groundstation (index 0) is
+        # reusable across drones — do not add it to the hard-mask so multiple
+        # drones can recharge. Non-groundstation fires are hard-masked after
+        # selection so sample() and argmax() both respect pointer semantics.
+        #
+        # Fix B: pre-seed with the fires that goal-committed (locked) drones will keep
+        # flying to (executed via apply_commitment's override), which the decoder never
+        # masks otherwise — so a free drone can't freshly sample a locked drone's fire.
+        # Derived purely from ``states`` → identical in sample and evaluate.
+        used_mask = self._commitment_seed(states).clone()
+
+        for i in range(N):
+            logits_i = base_logits[:, i, :]  # (B, F)
+            # Soft-penalize by count (keeps gradient smooth during PPO update),
+            # then temperature-scale the COMPLETE logits (scores + biases + penalty).
+            logits_i = (logits_i - assignment_penalty * assignment_counts) / temperature
+            # Hard-mask invalid fires, previously-assigned non-groundstation fires, AND
+            # (per drone) every non-GS target when this drone is below the water threshold.
+            effective_mask = masks | used_mask | water_infeasible[:, i, :]
+            # Re-guarantee groundstation fallback if everything is masked
+            all_masked = effective_mask.all(dim=-1)
+            if all_masked.any():
+                effective_mask = effective_mask.clone()
+                effective_mask[all_masked, 0] = False
+            logits_i = logits_i.masked_fill(effective_mask, float('-inf'))
+
+            dist_i = torch.distributions.Categorical(logits=logits_i)
+
+            if actions_idx is not None:
+                a_i = actions_idx[:, i]
+            elif deterministic:
+                a_i = logits_i.argmax(dim=-1)
+            else:
+                a_i = dist_i.sample()
+
+            all_actions[:, i] = a_i
+            all_log_probs[:, i] = dist_i.log_prob(a_i)
+            all_entropy[:, i] = dist_i.entropy()
+
+            # Update soft-penalty counts for ALL picks, including the groundstation.
+            # GS stays out of the hard used_mask (reusable — multiple drones may
+            # recharge), but each additional GS pick now pays the same learned soft
+            # duplicate penalty as fires. The previous GS exemption made index 0 a
+            # never-penalized argmax attractor (GS free-riding, 2x2 attribution eval).
+            # Water-forced drones are unaffected: their mask leaves GS as the only
+            # finite logit, so the penalty cannot change their (forced) choice.
+            non_gs = a_i != 0
+            assignment_counts = assignment_counts.scatter_add(
+                1, a_i.unsqueeze(1), torch.ones(B, 1, device=device)
+            )
+            # Hard-mask non-groundstation assignments for subsequent drones
+            if non_gs.any():
+                used_mask = used_mask.clone()
+                rows = torch.nonzero(non_gs, as_tuple=False).squeeze(-1)
+                used_mask[rows, a_i[non_gs]] = True
+
+        # Diagnostic: non-GS actions should be unique per batch row (hard-mask invariant).
+        # Warn once per process if violated — the C++ SameGoalPenalty fires every step, and
+        # we want to know whether the decoder is at fault or if duplicates arise in the
+        # Python→C++ handoff or the coord mapping.
+        if not getattr(PointerActor, "_uniqueness_warned", False):
+            with torch.no_grad():
+                # Mask GS picks with -1 so they don't count as duplicates among themselves.
+                masked = torch.where(all_actions == 0, torch.full_like(all_actions, -1), all_actions)
+                for b in range(B):
+                    row = masked[b]
+                    non_gs_picks = row[row >= 0]
+                    if non_gs_picks.numel() != torch.unique(non_gs_picks).numel():
+                        import sys
+                        print(f"[PointerActor][WARN] duplicate non-GS action indices in batch {b}: "
+                              f"{all_actions[b].tolist()} (actions_idx={'provided' if actions_idx is not None else 'sampled'})",
+                              file=sys.stderr, flush=True)
+                        PointerActor._uniqueness_warned = True
+                        break
+
+        return all_actions, all_log_probs, all_entropy
+
+class Critic(nn.Module):
     def __init__(self, vision_range, drone_count, map_size, time_steps, inputspace=None):
         super().__init__()
-        del vision_range, map_size  # unused
-        self.Inputspace_1 = (
-            Inputspace(drone_count, time_steps=time_steps) if inputspace is None else inputspace
-        )
+        self.Inputspace_1 = Inputspace(drone_count, time_steps=time_steps) if not inputspace else inputspace
+        self.in_features = self.Inputspace_1.out_features
+
+    def forward(self, *args, **kwargs):
+        raise NotImplementedError("Subclasses must implement forward.")
+
+class PointerCritic(nn.Module):
+    def __init__(self, vision_range, drone_count, map_size, time_steps, inputspace=None):
+        super().__init__()
+        self.Inputspace_1 = Inputspace(drone_count, time_steps=time_steps) if not inputspace else inputspace
         hidden_dim = self.Inputspace_1.out_features
+        # Attention pooling: learnable query attends over drone representations
+        self.pool_query = nn.Parameter(torch.randn(1, 1, hidden_dim))
+        self.pool_attn = nn.MultiheadAttention(hidden_dim, num_heads=4, batch_first=True)
         self.value_head = nn.Sequential(
-            nn.Linear(hidden_dim, 128), nn.ReLU(),
-            nn.Linear(128, 1),
+            nn.Linear(hidden_dim, 128),
+            nn.ReLU(),
+            nn.Linear(128, 1)
         )
         self.value_head[-1]._init_gain = 1.0
 
     def forward(self, states, masks=None):
-        drone_emb, _, _ = self.Inputspace_1(states, masks)  # (B, N, H)
-        pooled = drone_emb.mean(dim=1)  # (B, H)
-        return self.value_head(pooled)  # (B, 1)
+        drone_repr, _, _ = self.Inputspace_1(states, masks)  # (B, N, 64)
+        pooled, _ = self.pool_attn(
+            self.pool_query.expand(drone_repr.shape[0], -1, -1),
+            drone_repr, drone_repr
+        )
+        pooled = pooled.squeeze(1)  # (B, 64)
+        return self.value_head(pooled)    # (B, 1)
 
-
-class PointerOffPolicyCritic(nn.Module):
-    """Twin-Q critic for IQL/TD3. cat(pooled drone_emb, action) → 2× MLP heads."""
-
+class PointerOffPolicyCritic(Critic):
     def __init__(self, vision_range, drone_count, map_size, time_steps, action_dim, inputspace=None):
-        super().__init__()
-        del vision_range, map_size  # unused
-        self.Inputspace_1 = (
-            Inputspace(drone_count, time_steps=time_steps) if inputspace is None else inputspace
-        )
-        self.Inputspace_2 = (
-            Inputspace(drone_count, time_steps=time_steps) if inputspace is None else inputspace
-        )
-        hidden_dim = self.Inputspace_1.out_features
+        super().__init__(vision_range, drone_count, map_size, time_steps, inputspace)
+        self.Inputspace_2 = Inputspace(drone_count, time_steps=time_steps) if not inputspace else inputspace
+        hidden_dim = self.in_features
 
-        self.l1 = nn.Linear(hidden_dim + action_dim, 256)
+        # Attention pooling for Q1 and Q2
+        self.pool_query_1 = nn.Parameter(torch.randn(1, 1, hidden_dim))
+        self.pool_attn_1 = nn.MultiheadAttention(hidden_dim, num_heads=4, batch_first=True)
+        self.pool_query_2 = nn.Parameter(torch.randn(1, 1, hidden_dim))
+        self.pool_attn_2 = nn.MultiheadAttention(hidden_dim, num_heads=4, batch_first=True)
+
+        # Q1 architecture
+        self.l1 = nn.Linear(self.in_features + action_dim, 256)
         self.l2 = nn.Linear(256, 256)
         self.l3 = nn.Linear(256, 1)
         self.l3._init_gain = 1.0
 
-        self.l4 = nn.Linear(hidden_dim + action_dim, 256)
+        # Q2 architecture
+        self.l4 = nn.Linear(self.in_features + action_dim, 256)
         self.l5 = nn.Linear(256, 256)
         self.l6 = nn.Linear(256, 1)
         self.l6._init_gain = 1.0
 
-    def _pooled(self, inputspace, state):
-        drone_emb, _, _ = inputspace(state)
-        return drone_emb.mean(dim=1)  # (B, H)
-
     def forward(self, state, action):
-        return self.Q1(state, action), self.Q2(state, action)
+        q1 = self.Q1(state, action)
+        q2 = self.Q2(state, action)
+
+        return q1, q2
 
     def Q1(self, state, action):
-        x = torch.cat([self._pooled(self.Inputspace_1, state), action], dim=1)
-        x = torch.relu(self.l1(x))
-        x = torch.relu(self.l2(x))
-        return self.l3(x)
+        x, _, _ = self.Inputspace_1(state)
+        pooled, _ = self.pool_attn_1(
+            self.pool_query_1.expand(x.shape[0], -1, -1), x, x
+        )
+        x = pooled.squeeze(1)  # (B, D)
+        x = torch.cat([x, action], dim=1)
+
+        q1 = F.relu(self.l1(x))
+        q1 = F.relu(self.l2(q1))
+        q1 = self.l3(q1)
+        return q1
 
     def Q2(self, state, action):
-        x = torch.cat([self._pooled(self.Inputspace_2, state), action], dim=1)
-        x = torch.relu(self.l4(x))
-        x = torch.relu(self.l5(x))
-        return self.l6(x)
+        x, _, _ = self.Inputspace_2(state)
+        pooled, _ = self.pool_attn_2(
+            self.pool_query_2.expand(x.shape[0], -1, -1), x, x
+        )
+        x = pooled.squeeze(1)  # (B, D)
+        x = torch.cat([x, action], dim=1)
 
+        q2 = F.relu(self.l4(x))
+        q2 = F.relu(self.l5(q2))
+        q2 = self.l6(q2)
+        return q2
 
 class PointerValue(nn.Module):
-    """IQL state-value head: mean-pool drone_emb → MLP → scalar."""
-
     def __init__(self, vision_range, drone_count, map_size, time_steps, inputspace):
         super().__init__()
-        del vision_range, map_size  # unused
-        self.Inputspace = (
-            Inputspace(drone_count, time_steps=time_steps) if inputspace is None else inputspace
-        )
-        hidden_dim = self.Inputspace.out_features
-        self.fc1 = nn.Linear(hidden_dim, 256)
+        self.Inputspace = Inputspace(drone_count, time_steps=time_steps) if not inputspace else inputspace
+        self.in_features = self.Inputspace.out_features
+        hidden_dim = self.in_features
+
+        # Attention pooling
+        self.pool_query = nn.Parameter(torch.randn(1, 1, hidden_dim))
+        self.pool_attn = nn.MultiheadAttention(hidden_dim, num_heads=4, batch_first=True)
+
+        # Simple MLP head for value estimation
+        self.fc1 = nn.Linear(self.in_features, 256)
         self.fc2 = nn.Linear(256, 256)
         self.v_value = nn.Linear(256, 1)
         self.v_value._init_gain = 1.0
 
     def forward(self, state):
-        drone_emb, _, _ = self.Inputspace(state)
-        x = drone_emb.mean(dim=1)
+        x, _, _ = self.Inputspace(state)
+        pooled, _ = self.pool_attn(
+            self.pool_query.expand(x.shape[0], -1, -1), x, x
+        )
+        x = pooled.squeeze(1)  # (B, D)
         x = torch.relu(self.fc1(x))
         x = torch.relu(self.fc2(x))
-        return self.v_value(x)
+        v = self.v_value(x)
+        return v

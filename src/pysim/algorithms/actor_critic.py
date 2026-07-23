@@ -270,8 +270,19 @@ class ActorCriticPPO(StochasticActor):
 
         # Compute the entropy of the distributions
         if self.use_tanh_dist:
-            # For Tanh-squashed normal distribution, compute entropy of the base normal distribution (a proxy)
-            dist_entropy = Normal(action_mean, torch.sqrt(action_var)).entropy()
+            # The Tanh-squashed normal has no closed-form entropy. The base-normal
+            # entropy (0.5*log(2*pi*e) + log_std) omits the tanh Jacobian term
+            # E[log(1 - tanh(z)^2)], which becomes increasingly negative as std
+            # grows (samples saturate toward +/-1). Without it, the entropy bonus
+            # gives log_std a constant, never-saturating upward gradient and the
+            # policy parks at an inflated std (bang-bang actions). Estimate the
+            # true entropy via a single reparameterized sample (SAC-style):
+            #   H = -E[log p(x)],  x ~ dist.
+            # dist is the Independent-wrapped TransformedDistribution, so log_prob
+            # already sums over the action dims -> shape (B,), matching the
+            # joint-entropy scale PPO expects (no entropy_coeff rescale needed).
+            sampled_action = dist.rsample()
+            dist_entropy = -dist.log_prob(sampled_action)
         else:
             dist_entropy = dist.entropy()
 

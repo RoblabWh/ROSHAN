@@ -23,6 +23,11 @@ public:
     virtual void Update() = 0;
     virtual StepResult Step(const std::string& agent_type, std::vector<std::shared_ptr<Action>> actions) = 0;
     virtual pybind11::dict GetBatchedObservations(const std::string& agent_type) = 0;
+    // Push a fresh AgentState frame for every agent of agent_type, so the next
+    // GetBatchedObservations reflects the current grid/agent state. Used to refresh the
+    // planner's observation at its decision point (its per-step UpdateStates is otherwise
+    // skipped — see rl_handler Step).
+    virtual void RefreshObservations(const std::string& agent_type) = 0;
     virtual void Render() = 0;
     virtual bool GetEarlyClosing() = 0;
     virtual void HandleEvents(SDL_Event event, ImGuiIO* io) = 0;

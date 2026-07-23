@@ -118,6 +118,9 @@ public:
 
     // Schema-driven generic batch observation API: returns py::dict keyed by group name
     py::dict GetBatchedObservations(const std::string& agent_type);
+    // Push a fresh AgentState frame for every agent of agent_type (used to refresh the
+    // planner's observation at its decision point).
+    void RefreshObservations(const std::string& agent_type);
     void StepDroneManual(int drone_idx, double speed_x, double speed_y, int water_dispense);
     void ResetEnvironment(Mode mode);
     StepResult Step(const std::string& agent_type, std::vector<std::shared_ptr<Action>> actions);
@@ -176,6 +179,13 @@ private:
 
     // Rewards Collection for Debugging!
     int total_env_steps_;
+
+    // SMDP variable-cadence budget accounting: counts low-level (PlannerFlyAgent) steps
+    // elapsed since the last planner decision. When planner_smdp_enabled_, the timeout
+    // budget is debited by this actual count at each decision instead of a fixed
+    // hierarchy_time_steps_, so event-driven (variable-interval) replanning doesn't drain
+    // the budget too fast. Reset to 0 at each decision and at episode init.
+    int planner_window_steps_ = 0;
 
     pybind11::dict rl_status_; // Status of the current episode
 };

@@ -1,0 +1,51 @@
+# PlannerAgent overlay — deltas vs config/base.yaml.
+#
+# Event-driven replanning + SMDP-corrected GAE, entropy decay for argmax-safe policies, and
+# the full-tank groundstation parking tax that fixed GS free-riding drift and produced
+# the first learned-assignment win over the greedy heuristic (TTE med 2366 vs bar 2894,
+# en-route on). Provenance: experiments/planner_smdp/RESULTS.md.
+# For the hard benchmark (fire 0.055, TTE bar 2894) layer config/exp/planner_hard.yaml on top.
+
+settings:
+  mode: 0  # base 2 -> 0: GUI_RL by default for interactive agent runs; exp overlays set 2
+  hierarchy_type: planner_agent
+  auto_train:
+    max_train: 100  # base 300 -> 100: planner updates are macro-steps; 100-120 suffices to converge
+paths:
+  model_directory: models/PlannerAgent  # fresh default target (base points at a fly-agent dir)
+algorithm:
+  PPO:
+    lr: 1.575e-4          # campaign regime (same as base; pinned here since planner runs depend on it)
+    batch_size: 50        # base 500 -> 50: one batch ~ one episode's worth of planner decisions
+    horizon: 2000         # base 10000 -> 2000: planner decisions are sparse (1 per macro-step)
+    k_epochs: 3
+    gamma: 0.99           # base 0.9635 -> 0.99: longer credit horizon for strategic decisions
+    _lambda: 0.98         # base 0.9 -> 0.98: with SMDP GAE, validated in Wave R
+    value_loss_coef: 0.5  # 0.5 >> thesis 0.001 here (ExplVar ~0.9 vs ~0, Wave 0 lesson)
+    entropy_coeff: 0.01       # base 0.0005 -> 0.01: high early exploration...
+    entropy_decay_rate: 0.944 # ...decayed per update (0.01 * 0.944^80 ~ 1e-4) so argmax ~ sampled by end
+    entropy_coeff_min: 1.0e-4 # floor for the decayed entropy coefficient
+environment:
+  fire_behaviour:
+    fire_percentage: 0.045  # base 0.05 -> 0.045: standard planner difficulty; hard benchmark = 0.055
+  agent:
+    use_water_limit: true         # finite tanks + groundstation refuel (planner's core resource tradeoff)
+    water_refuel_threshold: 0.25  # below 25% tank the decoder masks non-GS targets (forced refuel)
+    fly_agent:
+      collision: false  # base true -> false: planner training uses the collision-free fly network
+    planner_agent:
+      num_agents: 5
+      hierarchy_timesteps: 100  # cap on fly-steps per planner decision; event_replan decides earlier
+      # Wave-R validated machinery: replan the moment a drone frees up instead of idling
+      # until the fixed interval, with time-aware (SMDP) discounting in GAE.
+      event_replan: true
+      smdp_gae: true
+      smdp_normalize_k: true
+      min_replan_interval: 5  # min fly-steps between event replans (thrash guard)
+      rewards:
+        # G1 full-tank parking tax (Wave G): per-step penalty for a drone sent to the
+        # groundstation with a >= 95%-full tank while fires remain. Fixes GS free-riding
+        # drift (GS fraction pinned ~0.50 instead of drifting to 0.74); legitimate refuels
+        # pass free — threshold 0.5 variants failed by taxing refuel trips too.
+        FlyingTowardsGroundStation: -0.2
+        FlyingTowardsGroundStation_water_threshold: 0.95

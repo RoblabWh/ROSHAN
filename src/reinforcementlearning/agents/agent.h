@@ -36,6 +36,15 @@ public:
     virtual void
     ExecuteAction(std::shared_ptr<Action> action, std::string hierarchy_type, std::shared_ptr<GridMap> gridMap) = 0;
 
+    // Commit the just-decided action's *effects* (e.g. the planner's new goal assignment)
+    // AFTER the reward for the completed window has been computed. Separating this from
+    // ExecuteAction lets CalculateReward read the goals that governed the window instead of
+    // the freshly-decided ones. No-op for agents whose action has no deferred commit step.
+    virtual void
+    CommitAction(std::shared_ptr<Action> action, std::string hierarchy_type, std::shared_ptr<GridMap> gridMap) {
+        (void)action; (void)hierarchy_type; (void)gridMap;
+    }
+
     virtual AgentTerminal GetTerminalStates(bool eval_mode, const std::shared_ptr<GridMap> &grid_map, int total_env_steps) = 0;
     
     virtual bool GetPerformedHierarchyAction() const { return did_hierarchy_step; };

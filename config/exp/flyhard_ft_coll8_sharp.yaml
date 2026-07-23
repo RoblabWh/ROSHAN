@@ -1,0 +1,27 @@
+# FlyHard Wave-6 scH2 "ft_coll8_sharp": second two-phase fine-tune from scG's 97% best_obj.
+# Same higher collision penalty as scH (Coll -8.0) but ALSO drop entropy 0.01 -> 0.003.
+# Rationale: entropy 0.01 was needed for from-scratch exploration, but it keeps the policy
+# stochastic and caps the DETERMINISTIC eval (the eval uses the mean action). Fine-tuning an
+# already-converged policy with lower entropy sharpens it toward its deterministic optimum,
+# which should lift eval. A/B vs scH (entropy 0.01) isolates the entropy-sharpen effect.
+# Resume scG best_obj (train_step 132); max_train 250 => ~118 fine-tune updates.
+# Launch (direct, model_name=best_obj):
+#   main.py config/agent/fly.yaml config/exp/flyhard_ft_coll8_sharp.yaml settings.rl_mode=train \
+#     settings.mode=2 paths.model_directory=models/FlyHard_scH2 paths.model_name=best_obj \
+#     settings.resume=true settings.seed=13
+settings:
+  auto_train:
+    max_train: 250
+algorithm:
+  PPO:
+    horizon: 66000
+    batch_size: 2000
+    entropy_coeff: 0.003
+    kl_early_stop: false
+environment:
+  agent:
+    fly_agent:
+      rewards:
+        ProximityPenalty: -1.5
+        ProximityThreshold: 0.45
+        Collision: -8.0

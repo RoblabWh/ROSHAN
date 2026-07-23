@@ -1,0 +1,54 @@
+# PlannerAgent SMDP campaign — strong base regime + harder difficulty.
+# Layer ON TOP of config/agent/planner.yaml:
+#   python src/pysim/main.py config/agent/planner.yaml config/exp/planner_smdp_base.yaml <arm-overrides>
+#
+# Restores the thesis champion PPO regime (5-step/horizon-4800/value_loss-0.001 family) that the
+# recent PlannerRun1/2/3 regressed away from, at a harder thesis-like difficulty so the idle-drone
+# waste (where event-driven replanning wins) is pronounced. Per-arm knobs (hierarchy_timesteps,
+# event_replan, smdp_gae, smdp_normalize_k, min_replan_interval) are set as CLI overrides by launch.sh.
+settings:
+  mode: 2                 # headless NoGUI_RL
+  rl_mode: train
+  auto_train:
+    use_auto_train: false
+    max_train: 150        # planner converges fast; a bit above the thesis's 100
+    max_eval: 100         # train-time eval episodes (large-N confirm done separately)
+
+algorithm:
+  PPO:
+    lr: 1.0e-4
+    batch_size: 1200
+    horizon: 4800
+    gamma: 0.99
+    _lambda: 0.98
+    value_loss_coef: 0.001   # thesis P1: 0.5 -> 0.001 stabilized the critic (KEY fix)
+    entropy_coeff: 0.0005
+    # Pin decay OFF: this regime predates the hardfix entropy decay, and
+    # config/agent/planner.yaml (July 2026) now bakes decay in — undo it here.
+    entropy_decay_rate: 1.0
+    entropy_coeff_min: 0.0
+    k_epochs: 3
+
+environment:
+  fire_behaviour:
+    fire_pattern: cluster
+    fire_percentage: 0.15    # harder than recent runs (0.045); thesis-like stress
+    num_fire_clusters: 2
+  agent:
+    use_water_limit: true
+    water_refuel_threshold: 0.25
+    fly_agent:
+      collision: false
+    planner_agent:
+      num_agents: 5
+      # hierarchy_timesteps + event/SMDP flags come from per-arm CLI overrides (launch.sh).
+      # Pinned false here because config/agent/planner.yaml (July 2026) bakes them true —
+      # this overlay must keep the campaign's per-arm CLI contract intact.
+      event_replan: false
+      smdp_gae: false
+      smdp_normalize_k: false
+      rewards:
+        # Pin the pre-Wave-G reward shape (no GS parking tax) for faithful reproduction;
+        # planner.yaml now defaults to the G1 tax (-0.2 @ 0.95).
+        FlyingTowardsGroundStation: 0.0
+        FlyingTowardsGroundStation_water_threshold: 0.5

@@ -52,15 +52,6 @@ public:
         gen_.seed(seed_);
         init_rl_mode_ = config["settings"]["rl_mode"].as<std::string>();
         cia_mode_ = config["settings"]["cia_mode"].as<bool>();
-        // Accept both the new key and the legacy key ('eval_fly_policy') for one release.
-        if (config["settings"]["use_heuristic"]) {
-            use_heuristic_ = config["settings"]["use_heuristic"].as<bool>();
-        } else if (config["settings"]["eval_fly_policy"]) {
-            use_heuristic_ = config["settings"]["eval_fly_policy"].as<bool>();
-            std::cout << "[DEPRECATION] Config key 'eval_fly_policy' is deprecated; rename it to 'use_heuristic'." << std::endl;
-        } else {
-            use_heuristic_ = false;
-        }
 
         // Paths
         auto paths = config["paths"];
@@ -137,6 +128,9 @@ public:
         auto fire_behaviour = environment["fire_behaviour"];
         num_fire_clusters_ = fire_behaviour["num_fire_clusters"].as<int>();
         fire_percentage_ = fire_behaviour["fire_percentage"].as<float>();
+        // Curriculum bounds (optional; default [0.01, 0.05]). Active only when fire_percentage < 0.
+        fire_percentage_min_ = fire_behaviour["fire_percentage_min"] ? fire_behaviour["fire_percentage_min"].as<float>() : 0.01f;
+        fire_percentage_max_ = fire_behaviour["fire_percentage_max"] ? fire_behaviour["fire_percentage_max"].as<float>() : 0.05f;
         fire_spread_prob_ = fire_behaviour["fire_spread_prob"].as<float>();
         fire_noise_ = fire_behaviour["fire_noise"].as<float>();
         if (fire_behaviour["fire_pattern"])
@@ -160,9 +154,18 @@ public:
         FlyBoundaryTerminal_ = fly_reward["BoundaryTerminal"].as<double>();
         FlyExtinguish_ = fly_reward["Extinguish"].as<double>();
         FlyProximityPenalty_ = fly_reward["ProximityPenalty"].as<double>();
+        // view_range-normalized activation band for the proximity repulsion barrier.
+        // Default 0.4 (~4 cells at view_range=10) keeps older configs working.
+        FlyProximityThreshold_ = fly_reward["ProximityThreshold"] ? fly_reward["ProximityThreshold"].as<double>() : 0.4;
         FlyTimeOut_ = fly_reward["TimeOut"].as<double>();
         FlyDistanceImprovement_ = fly_reward["DistanceImprovement"].as<double>();
         FlyCollision_ = fly_reward["Collision"].as<double>();
+        // Potential-based boundary-avoidance shaping (one-sided), mirror of the proximity
+        // PBRS but for the nearest map edge. Default 0.0 => feature OFF (older configs/models
+        // behave exactly as before). BoundaryProximityThreshold is the view_range-normalized
+        // activation band (distance to edge below which approaching the edge is penalized).
+        FlyBoundaryProximityPenalty_ = fly_reward["BoundaryProximityPenalty"] ? fly_reward["BoundaryProximityPenalty"].as<double>() : 0.0;
+        FlyBoundaryProximityThreshold_ = fly_reward["BoundaryProximityThreshold"] ? fly_reward["BoundaryProximityThreshold"].as<double>() : 0.3;
 
 
         auto exploreagent = agent["explore_agent"];
@@ -175,6 +178,17 @@ public:
         auto planneragent = agent["planner_agent"];
         number_of_extinguishers_ = planneragent["num_agents"].as<int>();
         planner_agent_frame_skips_ = planneragent["frame_skips"].as<int>();
+        planner_event_replan_ = planneragent["event_replan"].as<bool>();
+        planner_min_replan_interval_ = planneragent["min_replan_interval"].as<int>();
+        // smdp_gae is enabled iff event_replan or smdp_gae is set — controls the variable-
+        // duration budget accounting (total_env_steps_) on the C++ side. The GAE math itself
+        // is Python-only; we read both flags so the step-budget fix activates whenever cadence
+        // can become variable.
+        planner_smdp_enabled_ = planner_event_replan_ || planneragent["smdp_gae"].as<bool>();
+        // Null-safe: older dumped configs (model-dir snapshots) predate this key.
+        planner_eval_ground_truth_fires_ = planneragent["eval_ground_truth_fires"]
+                                               ? planneragent["eval_ground_truth_fires"].as<bool>()
+                                               : false;
         extinguisher_speed_ = planneragent["max_speed"].as<double>();
         extinguisher_view_range_ = planneragent["view_range"].as<int>();
         planner_agent_time_steps_ = planneragent["time_steps"].as<int>();
@@ -249,6 +263,9 @@ public:
         water_capacity_ = agent["water_capacity"].as<int>();
         use_water_limit_ = agent["use_water_limit"].as<bool>();
         recharge_time_ = agent["recharge_time"].as<double>();
+        extinguish_en_route_ = agent["extinguish_en_route"]
+                ? agent["extinguish_en_route"].as<bool>()
+                : true;
 
         auto agent_behaviour = environment["agent_behaviour"];
         groundstation_start_percentage_ = agent_behaviour["groundstation_start_percentage"].as<float>();
@@ -392,16 +409,23 @@ public:
     int num_fire_clusters_{};
     float fire_goal_percentage_{}; // in percent (%)
     float fire_percentage_{}; // in percent (%)
+    // Curriculum bounds: when fire_percentage_ < 0, each episode samples fire_percentage
+    // uniformly from [min, max] instead of [0,1], giving a bounded difficulty gradient.
+    float fire_percentage_min_{0.01f};
+    float fire_percentage_max_{0.05f};
     float fire_spread_prob_{}; // in percent (%)
     float fire_noise_{};
     int fire_pattern_index_{0};
     FirePattern GetFirePattern() const { return static_cast<FirePattern>(fire_pattern_index_); }
     bool use_water_limit_{};
     double recharge_time_{};
+    // true (default): planner sub-drones dispense over any burning cell they overfly;
+    // false: dispense only at the assigned goal (matches fly_agent/heuristic branches)
+    bool extinguish_en_route_{true};
     bool manual_control_{false};
     int active_drone_{0};
 
-    float SampleFirePercentage() { return std::uniform_real_distribution<float>(0.0, 1.0)(gen_); }
+    float SampleFirePercentage() { return std::uniform_real_distribution<float>(fire_percentage_min_, fire_percentage_max_)(gen_); }
     float SampleFireSpreadProb() { return std::uniform_real_distribution<float>(0.0, 1.0)(gen_); }
     float SampleFireNoise() { return std::uniform_real_distribution<float>(-1.0, 1.0)(gen_); }
 
@@ -416,6 +440,10 @@ public:
     int fly_agent_frame_skips_{};
     int explore_agent_frame_skips_{};
     int planner_agent_frame_skips_{};
+    bool planner_event_replan_{};
+    int planner_min_replan_interval_{};
+    bool planner_smdp_enabled_{};
+    bool planner_eval_ground_truth_fires_{};
     std::string hierarchy_type{};
     int hierarchy_time_steps_{};
     double drone_size_{};
@@ -441,7 +469,12 @@ public:
                                 : hierarchy_type == "explore_agent" ? explore_agent_speed_
                                                                     : extinguisher_speed_;
         const int    T_physical = (int)std::ceil(D / std::max(1e-6, v_max) * k_turn_ / std::max(1e-9, dt_));
-        const int    F          = (int)std::ceil(fire_percentage_ * area_cells);
+        // In curriculum mode (fire_percentage_ < 0) the per-episode fire count is random;
+        // size the step/timeout budget for the worst case (fire_percentage_max_) so the
+        // planner always has enough steps. Using the raw -1 here makes F negative ->
+        // sqrt(F)=NaN -> the budget collapses and episodes time out instantly.
+        const float  fp_budget  = fire_percentage_ < 0 ? fire_percentage_max_ : fire_percentage_;
+        const int    F          = (int)std::ceil(fp_budget * area_cells);
 
         oss << "Grid: " << grid_nx_ << " x " << grid_ny_
             << " cells (" << cell_size_ << " m each)\n"
@@ -458,16 +491,31 @@ public:
                          (int)std::ceil(slack_ * T_physical));
             oss << "Agent: Explore. Coverage steps = " << steps_cover
                 << ", total = max(coverage, slack*physical) = " << T;
-        } else if (hierarchy_type == "planner_agent" || use_heuristic_) {
+        } else if (hierarchy_type == "planner_agent") {
             const double L      = beta_ * std::sqrt(std::max(1e-9, area_m2)) * std::sqrt((double)F);
             const int    t_move = (int)std::ceil(L / std::max(1e-6, v_max) / std::max(1e-9, dt_));
-            T = std::max(t_move + F, (int)std::ceil(slack_ * T_physical));
+            // ponytail: single-effective-drone refill model, matching the single-drone TSP
+            // tour above; divide n_refill by fleet size if the budget proves too generous
+            int t_water = 0;
+            if (use_water_limit_ && water_capacity_ > 0) {
+                const int n_refill   = std::max(0, (F + water_capacity_ - 1) / water_capacity_ - 1); // ceil(F/W)-1, first tank is full
+                const int t_trip     = (int)std::ceil(D / std::max(1e-6, v_max) / std::max(1e-9, dt_)); // GS round trip ~ map diagonal
+                const int t_recharge = (int)std::ceil(recharge_time_ / std::max(1e-9, dt_));
+                t_water = n_refill * (t_trip + t_recharge);
+                oss << "Water limit: capacity W = " << water_capacity_
+                    << ", refills = ceil(F/W)-1 = " << n_refill
+                    << ", trip steps = " << t_trip
+                    << ", recharge steps = " << t_recharge
+                    << ", water steps = " << t_water << "\n";
+            }
+            T = std::max(t_move + F + t_water, (int)std::ceil(slack_ * T_physical));
             oss << "Agent: Planner. Fires F = " << F
                 << ", TSP length L = " << L << " m"
                 << ", move steps = " << t_move
                 << ", service steps = " << F
-                << ", total = max(move+service, slack*physical) = " << T;
-        } else { // fly_agent (non-heuristic) and fallback
+                << ", water steps = " << t_water
+                << ", total = max(move+service+water, slack*physical) = " << T;
+        } else { // fly_agent and fallback
             T = (int)std::ceil(slack_ * T_physical);
             oss << "Agent: Fly. Total = ceil(slack*physical) = " << T;
         }
@@ -482,7 +530,6 @@ public:
     int fly_agent_view_range_{};
     int fly_agent_time_steps_{};
     bool fly_agent_collision_{};
-    bool use_heuristic_{};
     bool use_simple_policy_{};
     // Fly Reward
     double FlyGoalReached_{};
@@ -492,6 +539,9 @@ public:
     double FlyTimeOut_{};
     double FlyDistanceImprovement_{};
     double FlyProximityPenalty_{};
+    double FlyProximityThreshold_{0.4};
+    double FlyBoundaryProximityPenalty_{0.0}; // 0 => boundary PBRS off (back-compat default)
+    double FlyBoundaryProximityThreshold_{0.3};
     bool use_velocity_change_{};
     bool use_vel_bins_{};
     int number_of_explorers_{};

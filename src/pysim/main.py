@@ -3,6 +3,7 @@ import optuna
 import os, shutil
 import sys
 from utils import SimulationBridge, get_project_paths, looks_like_a_notebook
+from config_loader import load_config, split_args, dump_resolved, validate_config
 import logging
 
 module_directory = get_project_paths('module_directory')
@@ -61,39 +62,15 @@ def assert_config(config):
         if not (0 < c_algo["eps_clip"] < 1):
             raise ValueError(f"PPO eps_clip must be in (0, 1), got {c_algo['eps_clip']}.")
 
-    # --- use_heuristic / use_water_limit (independent flags) ---
-    # use_heuristic is the new name for eval_fly_policy. Accept the legacy key with a deprecation warning.
-    _use_heuristic_key = "use_heuristic" if "use_heuristic" in c_settings else (
-        "eval_fly_policy" if "eval_fly_policy" in c_settings else None
-    )
-    if _use_heuristic_key == "eval_fly_policy":
-        logging.warning("Config key 'eval_fly_policy' is deprecated; rename to 'use_heuristic'.")
-    use_heuristic = bool(c_settings[_use_heuristic_key]) if _use_heuristic_key else False
     use_water_limit = bool(config["environment"]["agent"]["use_water_limit"])
 
-    # use_heuristic is only meaningful for FlyAgent in eval mode; warn (don't fail) otherwise so it's
-    # simply ignored. The heuristic FlyPolicy gating in fly_agent.cpp enforces this at runtime.
-    if use_heuristic:
-        if hierarchy_type != "fly_agent":
-            logging.warning(
-                f"use_heuristic=true has no effect when hierarchy_type={hierarchy_type!r}. "
-                "The heuristic FlyPolicy only runs for fly_agent. Ignoring use_heuristic."
-            )
-        elif rl_mode != "eval":
-            logging.warning(
-                "use_heuristic=true but rl_mode is not 'eval'. The heuristic is a no-learning "
-                "controller; it should be used only for evaluation. Ignoring use_heuristic."
-            )
-        elif not c_settings["log_eval"]:
-            raise ValueError("log_eval must be True when running the heuristic (use_heuristic=true).")
-
-    # use_water_limit is independent of use_heuristic — refueling now works for trained planners too.
-    # Warn only when it is likely misconfigured (trainable FlyAgent with water pressure but no learned refuel path).
-    if use_water_limit and hierarchy_type == "fly_agent" and rl_mode == "train" and not use_heuristic:
+    # Warn only when use_water_limit is likely misconfigured (trainable FlyAgent with water
+    # pressure but no learned refuel path).
+    if use_water_limit and hierarchy_type == "fly_agent" and rl_mode == "train":
         logging.warning(
-            "use_water_limit=true with a trainable FlyAgent (rl_mode=train, use_heuristic=false) "
-            "enables water depletion but the learned policy has no explicit refuel incentive. "
-            "Usually use_water_limit is paired with PlannerAgent training or heuristic eval."
+            "use_water_limit=true with a trainable FlyAgent (rl_mode=train) enables water "
+            "depletion but the learned policy has no explicit refuel incentive. "
+            "Usually use_water_limit is paired with PlannerAgent training."
         )
 
     if rl_mode == "train":
@@ -156,14 +133,14 @@ def assert_config(config):
 def sim(config : dict, overrides: dict = None, trial=None):
 
     config = inject_overrides(config, overrides, trial)
-    assert_config(config)
+    validate_config(config)   # structural + type gate (every C++ key present & well-typed)
+    assert_config(config)     # semantic / cross-field rules
 
-    # Always safe the initial config to a dummy file in the root directory
-    # This is not beautiful, but it works for now, the main cause for this is
-    # that the config object can be modified at runtime (e.g. optuna overrides)
+    # Always save the effective (merged + override-applied) config to a dummy file in
+    # the root directory. The C++ engine parses THIS file (yaml-cpp), so it must be
+    # plain, fully-resolved YAML — dump_resolved handles that for both dict and DictConfig.
     dummy_config_path = os.path.join(get_project_paths("root_path"), "used_config.yaml")
-    with open(dummy_config_path, 'w') as f:
-        yaml.dump(config, f)
+    dump_resolved(config, dummy_config_path)
 
     if config["settings"].get("pytorch_detect_anomaly"):
         os.environ["PYTORCH_DETECT_ANOMALY"] = "true"
@@ -316,38 +293,37 @@ def sim(config : dict, overrides: dict = None, trial=None):
         print(f"Error: {e}")
         return -float("inf")
 
-def inject_overrides(config: dict, overrides: dict, trial: optuna.Trial) -> dict:
+def inject_overrides(config, overrides: dict, trial: optuna.Trial):
+    """Apply Optuna trial overrides (a flat dict of dotted paths -> values) onto the
+    config in place via ``OmegaConf.update``, then force the per-trial training settings.
+
+    Using dotted paths makes sweeps first-class and cross-agent: any leaf is reachable
+    (e.g. ``algorithm.PPO.lr``, ``environment.agent.planner_agent.rewards.GoalReached``),
+    not just the active algorithm's hparams. Keys are validated against the merged config
+    so a typo fails loudly instead of being silently dropped.
     """
-    Injects the overrides into the config dictionary.
-    :param config: The config dictionary to inject the overrides into.
-    :param overrides: The overrides dictionary.
-    :param trial: The current Optuna trial.
-    :return: The updated config dictionary.
-    """
+    # Non-Optuna runs pass overrides=None (CLI overrides are already merged at load time).
     if overrides is None:
         return config
 
-    agent_dict = config["environment"]["agent"][config["settings"]["hierarchy_type"]]
-    used_algorithm = agent_dict["algorithm"]
-    algo_dict = config["algorithm"][used_algorithm]
-    reward_dict = agent_dict["rewards"]
-    if "hparams" in overrides:
-        for key, value in overrides["hparams"].items():
-            if key in algo_dict:
-                algo_dict[key] = value
+    from omegaconf import OmegaConf
+    from config_loader import _MISSING
 
-    if "rewards" in overrides:
-        for key, value in overrides["rewards"].items():
-            if key in reward_dict:
-                if key == "BoundaryTerminal" and "Collision" in reward_dict:
-                    reward_dict["Collision"] = value
-                reward_dict[key] = value
+    if overrides:
+        unknown = [k for k in overrides
+                   if OmegaConf.select(config, k, default=_MISSING) is _MISSING]
+        if unknown:
+            raise KeyError(f"Unknown Optuna override path(s): {unknown}. "
+                           f"Use existing dotted config paths.")
+        for key, value in overrides.items():
+            OmegaConf.update(config, key, value)
 
-    config["paths"]["model_directory"] = os.path.join(config["settings"]["optuna"]["study_root"], config["settings"]["optuna"]["study_name"], f"trial_{trial.number}")
+    opt = config["settings"]["optuna"]
+    config["paths"]["model_directory"] = os.path.join(opt["study_root"], opt["study_name"], f"trial_{trial.number}")
 
-    config["settings"]["rl_mode"] = "train" # Force train mode for Optuna runs
-    config["settings"]["auto_train"]["use_auto_train"] = False # Disable auto_train for Optuna runs
-    config["settings"]["auto_train"]["train_episodes"] = 1 # Force 1 full training for Optuna runs, it will prune if not good
+    config["settings"]["rl_mode"] = "train"                      # Force train mode for Optuna runs
+    config["settings"]["auto_train"]["use_auto_train"] = False   # Disable auto_train for Optuna runs
+    config["settings"]["auto_train"]["train_episodes"] = 1       # One full training per trial; prune if poor
 
     return config
 
@@ -366,49 +342,25 @@ def optuna_run(config: dict, direction: str = "maximize"):
 def objective_factory(config: dict):
 
     def objective(trial: optuna.Trial) -> float:
-        # adapt ranges to your PPO implementation or other algos
-        # do this per hand as I won't write this into the config
-        # you should now what you want to test here any ways!
-        # ---- sample your hyperparams here ----
-        batch_size = [2 ** x for x in [11, 12, 13, 14, 15]]
-        horizon = [2 ** x for x in [15, 16, 17, 18, 19]]
-        hparams = {
-            "lr": trial.suggest_float("lr", 1e-5, 1e-3),
-            # "batch_size": trial.suggest_categorical("batch_size", batch_size),
-            # "horizon": trial.suggest_categorical("horizon", horizon),
-            # "k_epochs": trial.suggest_int("k_epochs", 1, 20),
-            # "entropy_coeff": trial.suggest_float("entropy_coeff", 1e-6, 1e-2, log=True),
-            # "separate_optimizers": trial.suggest_categorical("separate_optimizers", [True, False]),
-            # "gamma": trial.suggest_float("gamma", 0.97, 0.999),
-            # "_lambda": trial.suggest_float("_lambda", 0.9, 0.99),
-            # "eps_clip": trial.suggest_float("eps_clip", 0.1, 0.3),
-            # "share_encoder": trial.suggest_categorical("share_encoder", [True, False]),
-        }
-
-        # FlyAgent rewards
-        # rewards = {
-        #     "GoalReached": trial.suggest_float("GoalReached", 0.2, 5, log=True),
-        #     "BoundaryTerminal": trial.suggest_float("BoundaryTerminal", -5, -0.2),
-        #     "Extinguish": trial.suggest_float("Extinguish", 1e-3, 0.2, log=True),
-        #     "TimeOut": trial.suggest_float("TimeOut", -5, -0.2),
-        #     "DistanceImprovement": trial.suggest_float("DistanceImprovement", 1e-3, 0.5, log=True),
-        #     "ProximityPenalty": trial.suggest_float("ProximityPenalty", -0.5, -1e-3),
-        # }
-
-        # PlannerAgent rewards
-        # rewards = {
-        #     "GoalReached": trial.suggest_float("GoalReached", 0.1, 5),
-        #     "MapBurnedTooMuch": trial.suggest_float("MapBurnedTooMuch", -5, -0.1),
-        #     "FlyingTowardsGroundStation": trial.suggest_float("FlyingTowardsGroundStation", -1, -1e-3),
-        #     "SameGoalPenalty": trial.suggest_float("SameGoalPenalty", -2, -1e-4),
-        #     "TimeOut": trial.suggest_float("TimeOut", -5, -0.2),
-        #     "ExtinguishFires": trial.suggest_float("ExtinguishFires", 1e-3, 0.8),
-        #     "FastExtinguish": trial.suggest_float("FastExtinguish", 1e-3, 0.8),
-        # }
+        # Sample hyperparams here. Overrides are a flat dict of DOTTED CONFIG PATHS ->
+        # values, so you can target any leaf in the config (cross-agent), not just the
+        # active algorithm. Compute the relevant base paths from the (merged) config:
+        hierarchy = config["settings"]["hierarchy_type"]
+        algo = config["environment"]["agent"][hierarchy]["algorithm"]
+        A = f"algorithm.{algo}"                                   # e.g. "algorithm.PPO"
+        R = f"environment.agent.{hierarchy}.rewards"             # e.g. planner rewards
 
         overrides = {
-            "hparams": hparams,
-            #"rewards": rewards
+            f"{A}.lr": trial.suggest_float("lr", 1e-5, 1e-3),
+            # f"{A}.batch_size": trial.suggest_categorical("batch_size", [2**x for x in (11,12,13,14,15)]),
+            # f"{A}.horizon": trial.suggest_categorical("horizon", [2**x for x in (15,16,17,18,19)]),
+            # f"{A}.k_epochs": trial.suggest_int("k_epochs", 1, 20),
+            # f"{A}.entropy_coeff": trial.suggest_float("entropy_coeff", 1e-6, 1e-2, log=True),
+            # f"{A}.gamma": trial.suggest_float("gamma", 0.97, 0.999),
+            # f"{A}._lambda": trial.suggest_float("_lambda", 0.9, 0.99),
+            # f"{A}.eps_clip": trial.suggest_float("eps_clip", 0.1, 0.3),
+            # f"{R}.GoalReached": trial.suggest_float("GoalReached", 0.1, 5, log=True),
+            # f"{R}.TimeOut": trial.suggest_float("TimeOut", -5, -0.2),
         }
 
         # run the sim; pass trial to enable pruning reports
@@ -419,13 +371,12 @@ def objective_factory(config: dict):
     return objective
 
 if __name__ == '__main__':
-    config_path = sys.argv[1] if len(sys.argv) > 1 else ""
-    root_path = get_project_paths("root_path")
-    if not config_path or not os.path.exists(config_path):
-        config_path = os.path.join(root_path, 'config.yaml')
-    print(f"Using config file: {config_path}")
-    with open(config_path, 'r') as f:
-        config_ = yaml.safe_load(f)
+    # Layered config: positional *.yaml args are overlays merged (in order) on top of
+    # config/base.yaml; key=value args are dotted-path overrides applied last. A legacy
+    # full config (e.g. config_planner.yaml) still works as an overlay.
+    overlays, dotlist = split_args(sys.argv[1:])
+    print(f"Config: base + overlays={overlays} overrides={dotlist}")
+    config_ = load_config(overlays, dotlist)
     if not config_["settings"]["optuna"]["use_optuna"]:
         metric = sim(config_)
         print(f"Final Objective: {metric}")

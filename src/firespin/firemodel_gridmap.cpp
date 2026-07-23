@@ -178,7 +178,7 @@ void GridMap::RemoveReservation(std::pair<int, int> cell) {
 
 std::pair<double, double> GridMap::GetNextFire(std::pair<int, int> drone_position) {
     pruneReservations();
-    auto possible_fires = parameters_.use_heuristic_ ? this->GetRawFirePositionsFromFireMap() : burning_cells_;
+    auto possible_fires = burning_cells_;
 
     if (possible_fires.empty()) {
         auto st = this->GetGroundstation()->GetGridPositionDouble();
@@ -748,18 +748,6 @@ std::shared_ptr<std::vector<std::pair<double, double>>> GridMap::GetFirePosition
         }
     }
     return std::make_shared<std::vector<std::pair<double, double>>>(fire_positions);
-}
-
-std::unordered_set<Point> GridMap::GetRawFirePositionsFromFireMap() const {
-    std::unordered_set<Point> fire_positions;
-    for (int x = 0; x < rows_; ++x) {
-        for (int y = 0; y < cols_; ++y) {
-            if (fire_map_[x * cols_ + y] == 1) {
-                fire_positions.insert(Point(x, y));
-            }
-        }
-    }
-    return fire_positions;
 }
 
 std::pair<double, double> GridMap::GetFireCentroid() const {

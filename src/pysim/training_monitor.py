@@ -21,8 +21,9 @@ class TrainingMonitor:
         if not is_loading:
             root_model_path = algorithm.model_path
             config_path = os.path.join(root_model_path, "config.yaml")
-            with open(config_path, 'w') as f:
-                yaml.dump(config, f, sort_keys=False, indent=4)
+            # Snapshot the effective config as plain, resolved YAML (handles DictConfig).
+            from config_loader import dump_resolved
+            dump_resolved(config, config_path)
         else:
             self.sim_bridge.set("current_episode", self.tensorboard.episode)
             self.sim_bridge.set("current_objective", self.tensorboard.best_metrics["current_objective"])
@@ -49,6 +50,10 @@ class TrainingMonitor:
         self.no_gui_start_eval = no_gui and (rl_mode == "eval")
         self.train_episodes = at_dict["train_episodes"] if self.use_auto_train else 1
         self.is_planner = config["settings"]["hierarchy_type"] == "planner_agent"
+        # Planner objective is TTE-aware: with the water-aware step budget, plain rolling
+        # success saturates at 1.0 (Wave G0: heuristic hits 100% even at fire 0.08) and the
+        # best_obj latch goes blind. Fly/explore keep the binary objective.
+        self.tensorboard.tte_aware_objective = self.is_planner
 
         max_train = at_dict["max_train"] if algorithm_name != 'IQL' else (
             config["algorithm"]["IQL"]["offline_updates"] + config["algorithm"]["IQL"]["online_updates"]
@@ -57,9 +62,7 @@ class TrainingMonitor:
 
         # Determine metric registry
         hierarchy_type = sim_bridge.get("hierarchy_type")
-        _settings = config["settings"]
-        _use_heuristic_flag = bool(_settings["use_heuristic"]) if "use_heuristic" in _settings else bool(_settings.get("eval_fly_policy", False))
-        use_fly_registry = hierarchy_type == "fly_agent" and not _use_heuristic_flag
+        use_fly_registry = hierarchy_type == "fly_agent"
         registry = METRIC_REGISTRY_FLY_AGENT if use_fly_registry else METRIC_REGISTRY
 
         hierarchy_steps = 1 if not self.is_planner else config["environment"]["agent"]["planner_agent"]["hierarchy_timesteps"]
@@ -121,9 +124,10 @@ class TrainingMonitor:
             return True
         return False
 
-    def evaluate(self, rewards, terminal_result, percent_burned):
+    def evaluate(self, rewards, terminal_result, percent_burned, elapsed_steps=None):
         """Run evaluation and return flags."""
-        result = self.evaluator.evaluate(rewards, terminal_result, percent_burned, is_planner=self.is_planner)
+        result = self.evaluator.evaluate(rewards, terminal_result, percent_burned,
+                                         is_planner=self.is_planner, elapsed_steps=elapsed_steps)
         flags = {"auto_train": self.use_auto_train, "reset": False}
 
         if result.get("done"):

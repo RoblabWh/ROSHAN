@@ -174,6 +174,10 @@ pybind11::dict EngineCore::GetBatchedObservations(const std::string& agent_type)
     return model_->GetBatchedObservations(agent_type);
 }
 
+void EngineCore::RefreshObservations(const std::string& agent_type) {
+    model_->RefreshObservations(agent_type);
+}
+
 bool EngineCore::AgentIsRunning() {
     if(model_ != nullptr && update_simulation_){
         return model_->AgentIsRunning();

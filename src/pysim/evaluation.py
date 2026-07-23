@@ -55,9 +55,9 @@ class Evaluator:
         registry = registry or METRIC_REGISTRY
         self.metrics = [m() for m in registry]
 
-    def evaluate(self, rewards, terminal_result, percent_burned, is_planner=False):
+    def evaluate(self, rewards, terminal_result, percent_burned, is_planner=False, elapsed_steps=None):
         """Process one step. Returns a flag dict with 'done' set when all episodes are complete."""
-        metrics = self._update_metrics(rewards, terminal_result, percent_burned)
+        metrics = self._update_metrics(rewards, terminal_result, percent_burned, elapsed_steps=elapsed_steps)
         result = {"done": False}
 
         if metrics.get("episode_over"):
@@ -134,16 +134,22 @@ class Evaluator:
                                      logger=self.logger)
             plotter.plot_all()
 
-    def _update_metrics(self, rewards, terminal_result, percent_burned):
+    def _update_metrics(self, rewards, terminal_result, percent_burned, elapsed_steps=None):
         step_stats = {
             "rewards": rewards,
             "terminal_result": terminal_result,
             "percent_burned": percent_burned,
         }
 
+        # TTE (TimeMetric) must count the env steps that actually elapsed for this decision.
+        # Under fixed cadence elapsed_steps == hierarchy_steps; under event-driven replanning
+        # the window is variable, so the runtime value (passed by the planner handler) is the
+        # correct one. Falls back to the fixed config value when not provided (fly/explore).
+        steps = elapsed_steps if elapsed_steps is not None else self.hierarchy_steps
+
         metrics: Dict[str, Any] = {"episode": self.current_episode + 1, "episode_over": False}
         for metric in self.metrics:
-            metric.update(step_stats, self.hierarchy_steps)
+            metric.update(step_stats, steps)
             metrics[metric.name] = metric.value
 
         if terminal_result.env_reset:

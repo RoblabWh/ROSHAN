@@ -47,6 +47,10 @@ void FlyAgent::Initialize(int mode,
     norm_scale_ = view_range_ / 2;
 
     this->last_distance_to_goal_ = this->GetDistanceToGoal();
+    this->last_proximity_potential_ = 0.0;
+    this->proximity_initialized_ = false;
+    this->last_boundary_potential_ = 0.0;
+    this->boundary_initialized_ = false;
     this->InitializeFlyAgentStates(grid_map);
 }
 
@@ -96,7 +100,7 @@ void FlyAgent::InitializeFlyAgentStates(const std::shared_ptr<GridMap>& grid_map
 void FlyAgent::PerformFly(FlyAction* action, const std::string& hierarchy_type, const std::shared_ptr<GridMap>& gridMap) {
 
     this->Step(action->GetSpeedX(), action->GetSpeedY(), gridMap);
-    if (hierarchy_type == "fly_agent" && !parameters_.use_simple_policy_ && !is_explorer_ && !parameters_.use_heuristic_) {
+    if (hierarchy_type == "fly_agent" && !parameters_.use_simple_policy_ && !is_explorer_) {
         if (almostEqual(this->GetGoalPosition(), this->GetGridPositionDouble())) {
             this->DispenseWaterCertain(gridMap);
             gridMap->RemoveReservation(this->GetGoalPositionInt());
@@ -104,22 +108,23 @@ void FlyAgent::PerformFly(FlyAction* action, const std::string& hierarchy_type, 
         }
         did_hierarchy_step = true;
     }
-    else if (hierarchy_type == "fly_agent" && parameters_.use_simple_policy_ && !is_explorer_ && !parameters_.use_heuristic_) {
+    else if (hierarchy_type == "fly_agent" && parameters_.use_simple_policy_ && !is_explorer_) {
         if (almostEqual(this->GetGoalPosition(), this->GetGridPositionDouble())) {
             objective_reached_ = true;
         }
-        did_hierarchy_step = true;
-    }
-    else if (hierarchy_type == "fly_agent" && parameters_.use_heuristic_ && !is_explorer_) {
-        FlyPolicy(gridMap);
         did_hierarchy_step = true;
     }
     else {
-        if (almostEqual(this->GetGoalPosition(), this->GetGridPositionDouble())) {
+        // objective_reached_ is sticky until episode reset, so gate dispensing on the
+        // fresh positional check instead
+        const bool at_goal = almostEqual(this->GetGoalPosition(), this->GetGridPositionDouble());
+        if (at_goal) {
             objective_reached_ = true;
         }
         if (is_planner_agent_) {
-            this->DispenseWaterCertain(gridMap);
+            if (parameters_.extinguish_en_route_ || at_goal) {
+                this->DispenseWaterCertain(gridMap);
+            }
             // Passive refuel: fires whenever the drone is co-located with the groundstation
             // and has tank headroom. Independent of the heuristic flag, so trained planners
             // manage water through goal assignments to the groundstation action.
@@ -173,17 +178,67 @@ double FlyAgent::CalculateReward(const std::shared_ptr<GridMap>& grid_map) {
     }
 
     if (parameters_.fly_agent_collision_){
+        // Potential-based collision-avoidance shaping (one-sided). Penalize the per-step
+        // INCREASE in closeness to other drones (i.e. actively approaching), NOT absolute
+        // proximity. An absolute per-step proximity penalty made fleeing the map optimal:
+        // the agent escaped the accumulating cost by triggering a BoundaryExit terminal
+        // (96% boundary exits in testing). Charging only for closing distance gives the
+        // same anticipatory anti-collision gradient, but being near / staying near other
+        // drones costs nothing, so there is no incentive to flee, and there is no refund
+        // that could cancel the terminal Collision penalty.
+        // distances_to_other_agents layout (rl_handler.h findCollisions): index 0 is the
+        // boundary vector; indices 1.. are neighbors {dx/view_range, dy/view_range, dvx,
+        // dvy}; out-of-view neighbors are filled with {0,0,0,0} sentinels.
         auto distances_to_objects = *this->GetLastState().distances_to_other_agents;
-        for (auto & dist : distances_to_objects) {
-            double dx = std::abs(dist[0]);
-            double dy = std::abs(dist[1]);
-            if (dx < 0.1) {
-                reward_components["ProximityPenalty"] += parameters_.FlyProximityPenalty_ * dx;
-            }
-            if (dy < 0.1) {
-                reward_components["ProximityPenalty"] += parameters_.FlyProximityPenalty_ * dy;
+        const double thr = parameters_.FlyProximityThreshold_; // view_range-normalized band
+        double closeness = 0.0; // potential: sum of (thr - d) over neighbors within the band
+        for (size_t k = 1; k < distances_to_objects.size(); ++k) { // skip [0] = boundary
+            const auto & dist = distances_to_objects[k];
+            const double dxn = dist[0];
+            const double dyn = dist[1];
+            if (dxn == 0.0 && dyn == 0.0) continue; // no neighbor in view
+            const double d = std::sqrt(dxn * dxn + dyn * dyn); // Euclidean, normalized
+            if (d < thr) closeness += (thr - d);
+        }
+        if (proximity_initialized_) {
+            const double delta = closeness - last_proximity_potential_; // >0 == approaching
+            if (delta > 0.0) {
+                reward_components["ProximityPenalty"] = parameters_.FlyProximityPenalty_ * delta;
             }
         }
+        last_proximity_potential_ = closeness;
+        proximity_initialized_ = true;
+    }
+
+    // Potential-based boundary-avoidance shaping (one-sided) — mirror of the proximity PBRS
+    // above, but for the nearest map edge. distances_to_other_agents[0] is the boundary vector
+    // (GetDistanceToNearestBoundaryNorm: normalized displacement to the nearest edge; the
+    // sentinel {0,0,0,0} means the edge is NOT in view => far/safe, must NOT be read as d=0).
+    // We charge only the per-step INCREASE in edge-closeness (actively approaching the edge), so
+    // being near the edge costs nothing and there is no flee/over-caution failure mode like the
+    // terminal BoundaryTerminal penalty produced (which capped success by making drones timid).
+    // This gives an anticipatory gradient away from the boundary — the principled fix for the
+    // residual BoundaryExit failures. Gated on a nonzero weight (off by default for back-compat).
+    if (parameters_.FlyBoundaryProximityPenalty_ != 0.0) {
+        const auto & dists = *this->GetLastState().distances_to_other_agents;
+        double boundary_closeness = 0.0; // potential: (thr - d) when the edge is within the band
+        if (!dists.empty()) {
+            const double bdx = dists[0][0];
+            const double bdy = dists[0][1];
+            if (!(bdx == 0.0 && bdy == 0.0)) { // edge in view (else far => closeness stays 0)
+                const double d_b = std::sqrt(bdx * bdx + bdy * bdy); // normalized dist to nearest edge
+                const double thr_b = parameters_.FlyBoundaryProximityThreshold_;
+                if (d_b < thr_b) boundary_closeness = (thr_b - d_b);
+            }
+        }
+        if (boundary_initialized_) {
+            const double delta_b = boundary_closeness - last_boundary_potential_; // >0 == approaching edge
+            if (delta_b > 0.0) {
+                reward_components["BoundaryProximityPenalty"] = parameters_.FlyBoundaryProximityPenalty_ * delta_b;
+            }
+        }
+        last_boundary_potential_ = boundary_closeness;
+        boundary_initialized_ = true;
     }
 
     total_reward = ComputeTotalReward(reward_components);
@@ -202,12 +257,12 @@ AgentTerminal FlyAgent::GetTerminalStates(bool eval_mode, const std::shared_ptr<
 
     if(!is_explorer_){
         // If the agent has flown out of the grid it has reached a terminal state and died
-        if (GetOutOfAreaCounter() > 1 && !parameters_.use_heuristic_) {
+        if (GetOutOfAreaCounter() > 1) {
             t.is_terminal = true;
             t.reason = FailureReason::BoundaryExit;
         }
 
-        if (collision_occurred_ && parameters_.fly_agent_collision_ && !parameters_.use_heuristic_) {
+        if (collision_occurred_ && parameters_.fly_agent_collision_) {
             t.is_terminal = true;
             t.reason = FailureReason::Collision;
         }
@@ -233,9 +288,6 @@ AgentTerminal FlyAgent::GetTerminalStates(bool eval_mode, const std::shared_ptr<
         }
     } else {
         if (objective_reached_) {
-            t.is_terminal = true;
-        }
-        if (parameters_.use_heuristic_ && !grid_map->HasBurningFires()){
             t.is_terminal = true;
         }
     }
@@ -410,52 +462,6 @@ double FlyAgent::GetDistanceToGoal() {
     return sqrt(pow(this->GetGoalPosition().first - this->GetGridPositionDouble().first, 2) +
                 pow(this->GetGoalPosition().second - this->GetGridPositionDouble().second, 2)
     );
-}
-
-void FlyAgent::FlyPolicy(const std::shared_ptr<GridMap>& gridmap){
-    if(this->policy_type_ == EXTINGUISH_FIRE) {
-        // If policy is to extinguish fire and the goal is set to groundstation(start of mission), set new goal to next fire
-        // as soon as some fire is explored
-        if (almostEqual(this->GetGoalPosition(), gridmap->GetGroundstation()->GetGridPositionDouble())) {
-            auto fire_map_empty = gridmap->GetRawFirePositionsFromFireMap().empty();
-            if (!fire_map_empty) {
-                this->SetGoalPosition(gridmap->GetNextFire(this->GetGridPosition()));
-                return;
-            }
-        }
-        // If at goal position, dispense water and set new goal
-        if (almostEqual(this->GetGoalPosition(), this->GetGridPositionDouble())) {
-            this->DispenseWaterCertain(gridmap);
-            gridmap->RemoveReservation(this->GetGoalPositionInt());
-            if (this->water_capacity_ <= 0) {
-                this->SetGoalPosition(gridmap->GetGroundstation()->GetGridPositionDouble());
-                this->policy_type_ = FLY_TO_GROUNDSTATION;
-            } else {
-                this->SetGoalPosition(gridmap->GetNextFire(this->GetGridPosition()));
-            }
-        }
-    }
-    else if (this->policy_type_ == FLY_TO_GROUNDSTATION) {
-        if (this->GetGoalPositionInt() == this->GetGridPosition()) {
-            this->policy_type_ = RECHARGE;
-        }
-    }
-    else if (this->policy_type_ == RECHARGE) {
-        if (parameters_.use_water_limit_) {
-            if (this->water_capacity_ < parameters_.GetWaterCapacity()) {
-                this->water_capacity_ = std::min(
-                    this->water_capacity_ + parameters_.GetWaterRefillDt(),
-                    static_cast<double>(parameters_.GetWaterCapacity()));
-            } else {
-                this->policy_type_ = EXTINGUISH_FIRE;
-                this->SetGoalPosition(gridmap->GetNextFire(this->GetGridPosition()));
-            }
-        } else {
-            this->water_capacity_ = parameters_.GetWaterCapacity();
-            this->policy_type_ = EXTINGUISH_FIRE;
-            this->SetGoalPosition(gridmap->GetNextFire(this->GetGridPosition()));
-        }
-    }
 }
 
 std::pair<double, double> FlyAgent::MovementStep(double netout_x, double netout_y) {

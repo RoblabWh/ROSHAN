@@ -14,37 +14,29 @@ PlannerAgent::PlannerAgent(FireModelParameters &parameters, int total_id, int id
     time_steps_ = time_steps;
     frame_skips_ = parameters_.planner_agent_frame_skips_;
     eval_mode_ = parameters_.init_rl_mode_ == "eval";
+    if (eval_mode_) {
+        std::cout << "PlannerAgent eval fire source: "
+                  << (parameters_.planner_eval_ground_truth_fires_ ? "ground-truth burning cells"
+                                                                   : "explored fire map")
+                  << std::endl;
+    }
     frame_ctrl_ = 0;
 }
 
 void PlannerAgent::PerformPlan(PlanAction *action, const std::string &hierarchy_type,
                                const std::shared_ptr<GridMap> &gridMap) {
+    (void)action; (void)gridMap;
+    // HARVEST ONLY. This runs at the start of a planner decision, BEFORE CalculateReward.
+    // It gathers the outcome of the window that just elapsed under the PREVIOUS goals.
+    // Goal *assignment* is deferred to CommitPlan (invoked via CommitAction AFTER
+    // CalculateReward) so the reward reflects the goals that actually governed this window.
 
-    // Count only fires extinguished in this step
+    // Count only fires extinguished in this window
     extinguished_fires_ = 0;
-
-    // Iterate over all Actions and set a new goal for each FlyAgent.
-    // Water depletion no longer forces a groundstation goal here; the planner's action is
-    // honored directly, and refuel is handled passively when a drone co-locates with the groundstation.
-    for (int i = 0; i < fly_agents_.size(); ++i) {
-        auto fly_agent = fly_agents_[i];
-        // Get the goal from the action (in normalized observation space)
-        std::pair<double, double> goal = action->GetGoalFromAction(i);
-        // Denormalize from observation space back to grid space:
-        // inverse of (2 * grid_pos / norm_map) - 1, where norm_map = max(rows, cols)
-        double norm_map = static_cast<double>(std::max(gridMap->GetRows(), gridMap->GetCols()));
-        goal = {(goal.first + 1.0) * norm_map / 2.0, (goal.second + 1.0) * norm_map / 2.0};
-
-        if (goal == std::make_pair(-1.0, -1.0)) {
-            // If the goal is (-1.0, -1.0) we set the goal to the groundstation
-            // This either happens in fly_policy_eval or if the network picks this goal
-            goal = gridMap->GetGroundstation()->GetGridPositionDouble();
-        }
-
+    for (const auto& fly_agent : fly_agents_) {
         extinguished_fires_ += fly_agent->GetNumExtinguishedFires();
-        fly_agent->SetNumExtinguishedFires(0); // Reset for next step
-        fly_agent->SetGoalPosition(goal);
-        // If any FlyAgent has extinguished the last fire we set the extinguished_last_fire_ to true
+        fly_agent->SetNumExtinguishedFires(0); // Reset for next window
+        // If any FlyAgent has extinguished the last fire we set extinguished_last_fire_ to true
         if (!extinguished_last_fire_){
             extinguished_last_fire_ = fly_agent->GetExtinguishedLastFire();
         }
@@ -54,6 +46,71 @@ void PlannerAgent::PerformPlan(PlanAction *action, const std::string &hierarchy_
     }
     if (extinguished_last_fire_){
         objective_reached_ = true;
+    }
+}
+
+void PlannerAgent::CommitPlan(PlanAction *action, const std::shared_ptr<GridMap> &gridMap) {
+    // Assigns the newly-decided goals to the fly agents. Runs AFTER CalculateReward so the
+    // reward above reads the goals that governed the completed window, not these new ones.
+    // Water depletion no longer forces a groundstation goal here; the planner's action is
+    // honored directly, and refuel is handled passively when a drone co-locates with the groundstation.
+    const double norm_map = static_cast<double>(std::max(gridMap->GetRows(), gridMap->GetCols()));
+    const double water_max = static_cast<double>(parameters_.GetWaterCapacity());
+    const auto gs_grid = gridMap->GetGroundstation()->GetGridPositionDouble();
+    if (prev_drone_distances_.size() != fly_agents_.size()) {
+        prev_drone_distances_.assign(fly_agents_.size(), -1.0);
+    }
+
+    for (int i = 0; i < fly_agents_.size(); ++i) {
+        auto fly_agent = fly_agents_[i];
+        // Get the goal from the action (in normalized observation space)
+        std::pair<double, double> goal = action->GetGoalFromAction(i);
+        // Denormalize from observation space back to grid space:
+        // inverse of (2 * grid_pos / norm_map) - 1, where norm_map = max(rows, cols)
+        goal = {(goal.first + 1.0) * norm_map / 2.0, (goal.second + 1.0) * norm_map / 2.0};
+
+        if (goal == std::make_pair(-1.0, -1.0)) {
+            // If the goal is (-1.0, -1.0) we set the goal to the groundstation
+            // This either happens in fly_policy_eval or if the network picks this goal
+            goal = gs_grid;
+        }
+
+        // Fix C: snap GS-bound goals to the exact groundstation grid position. The
+        // normalize→denormalize round-trip above leaves a ~1 ULP drift, so a GS pick
+        // was not bit-exact equal to GetGroundstation()->GetGridPositionDouble() and the
+        // exact `==` GS tests in CalculateReward (SameGoalPenalty exclusion,
+        // FlyingTowardsGroundstation) misclassified refueling drones as duplicate fire
+        // goals. eps=1e-3 is unambiguous: drift is ~1e-13, nearest fire-cell centre to
+        // the GS is >=0.5 grid units. Only GS needs this — fire-cell round-trips are
+        // deterministic, so two drones on the same fire already compare exactly equal.
+        const double gdx = goal.first - gs_grid.first;
+        const double gdy = goal.second - gs_grid.second;
+        if (gdx * gdx + gdy * gdy < 1e-3 * 1e-3) {
+            goal = gs_grid;
+        }
+
+        fly_agent->SetGoalPosition(goal);
+
+        // Re-baseline DistanceProgress against the NEW goal (start-of-window distance).
+        // CalculateReward reads (but never writes) prev_drone_distances_, so at the next
+        // decision it compares end-vs-start distance to THIS same goal — no cross-goal
+        // fabrication when the planner reassigns. Eligibility mirrors CalculateReward.
+        const bool goal_is_gs = (goal == gs_grid);
+        const double water = fly_agent->GetWaterCapacity();
+        bool eligible;
+        if (goal_is_gs) {
+            eligible = parameters_.use_water_limit_ && (water < water_max);
+        } else {
+            eligible = !parameters_.use_water_limit_ || (water > 0.0);
+        }
+        if (!eligible) {
+            prev_drone_distances_[i] = -1.0;
+            continue;
+        }
+        const auto pos = fly_agent->GetGridPositionDouble();
+        const double dx = goal.first - pos.first;
+        const double dy = goal.second - pos.second;
+        prev_drone_distances_[i] = std::sqrt(dx * dx + dy * dy) / norm_map;
     }
 }
 
@@ -154,7 +211,7 @@ double PlannerAgent::CalculateReward(const std::shared_ptr<GridMap>& grid_map) {
         // PBRS mode, so this independent action-quality penalty would interfere with
         // the policy-invariance guarantee of F = γΦ(s')−Φ(s).
         if (!parameters_.PlannerPbrsEnabled_
-            && goal_position == groundstation_pos && !fire_positions->empty()) {
+            && goal_position == groundstation_pos && fire_positions->size() > 1) {
             // Penalize groundstation goals only when the drone has enough water to make
             // refueling "unnecessary". Below the threshold the trip is legitimate and
             // should carry no penalty (otherwise every refuel step eats -0.29 × N_steps,
@@ -195,6 +252,42 @@ double PlannerAgent::CalculateReward(const std::shared_ptr<GridMap>& grid_map) {
             * static_cast<double>(duplicate_count);
     }
 
+    // ─── Diagnostics-only (underscore prefix → logged to TensorBoard, excluded from
+    // the summed reward by Agent::ComputeTotalReward) ──────────────────────────────
+    // Purpose: determine whether SameGoalPenalty above is firing on groundstation /
+    // refuel drones (a float round-trip in PerformPlan denormalizes the GS pick, so
+    // the exact `g != groundstation_pos` test at line 181 can miss by ~1 ULP and treat
+    // refueling drones as a duplicate non-GS pair) versus genuine non-GS collisions.
+    //   _SameGoalGSDrift  = GS-bound goals (within eps) that the EXACT test failed to
+    //                       exclude. > 0 confirms the round-trip drift hypothesis.
+    //   _SameGoalCountEps = duplicate count recomputed with an eps-based GS exclusion;
+    //                       the "true" non-GS collision count. ~0 means the duplicates
+    //                       counted above are GS misclassifications, not real conflicts.
+    // eps = 1e-3 is far below the >=0.5 grid gap between the GS and any fire-cell centre
+    // (so no distinct cell is ever mistaken for the GS) and far above ULP-scale drift.
+    {
+        constexpr double kGsEps2 = 1e-3 * 1e-3;  // squared epsilon for dist2 comparison
+        auto near_gs = [&](const std::pair<double, double>& g) {
+            const double dx = g.first  - groundstation_pos.first;
+            const double dy = g.second - groundstation_pos.second;
+            return (dx * dx + dy * dy) < kGsEps2;
+        };
+        int gs_eps_count = 0;
+        int gs_exact_count = 0;
+        std::vector<std::pair<double, double>> non_gs_goals_eps;
+        non_gs_goals_eps.reserve(fly_agent_goals.size());
+        for (const auto& g : fly_agent_goals) {
+            if (near_gs(g)) ++gs_eps_count;
+            if (g == groundstation_pos) ++gs_exact_count;
+            if (!near_gs(g)) non_gs_goals_eps.push_back(g);
+        }
+        std::set<std::pair<double, double>> unique_goals_eps(non_gs_goals_eps.begin(), non_gs_goals_eps.end());
+        const int duplicate_count_eps =
+            static_cast<int>(non_gs_goals_eps.size() - unique_goals_eps.size());
+        reward_components["_SameGoalGSDrift"]  = static_cast<double>(gs_eps_count - gs_exact_count);
+        reward_components["_SameGoalCountEps"] = static_cast<double>(duplicate_count_eps);
+    }
+
     // ─── Legacy dense shaping (skipped when PBRS is on; subsumed by F = γΦ(s')−Φ(s)) ───
     if (!parameters_.PlannerPbrsEnabled_) {
     reward_components["ExtinguishedFires"] = extinguished_fires_ * parameters_.PlannerExtinguishFires_;
@@ -225,7 +318,7 @@ double PlannerAgent::CalculateReward(const std::shared_ptr<GridMap>& grid_map) {
             prev_water_levels_[i] = fly_agents_[i]->GetWaterCapacity();
         }
 
-        if (!fire_positions->empty()) {
+        if (fire_positions->size() > 1) {
             // Single pass: EmptyTank counts every empty drone (ambient pressure on the
             // empty state); FireGoalEmpty further counts only those with a non-groundstation
             // goal (targets the assignment decision, so a refueling-bound empty drone
@@ -314,8 +407,11 @@ double PlannerAgent::CalculateReward(const std::shared_ptr<GridMap>& grid_map) {
             // Without use_water_limit, every drone can always extinguish.
             eligible = !parameters_.use_water_limit_ || (water > 0.0);
         }
+        // Read-only here: the per-drone baseline is written once, at goal-assignment time,
+        // in CommitPlan (start-of-window distance to the NEW goal). This loop only measures
+        // the end-of-window distance against that same-goal baseline, so a mid-episode
+        // reassignment can no longer fabricate a distance delta across two different goals.
         if (!eligible) {
-            prev_drone_distances_[i] = -1.0;
             continue;
         }
         auto pos = agent->GetGridPositionDouble();
@@ -326,7 +422,6 @@ double PlannerAgent::CalculateReward(const std::shared_ptr<GridMap>& grid_map) {
             total_improvement += (prev_drone_distances_[i] - dist);
             ++compared_drones;
         }
-        prev_drone_distances_[i] = dist;
     }
     if (compared_drones > 0) {
         const double mean_improvement = total_improvement / static_cast<double>(compared_drones);
@@ -460,7 +555,7 @@ std::shared_ptr<AgentState> PlannerAgent::BuildAgentState(const std::shared_ptr<
     // (centralized information), while at eval time it relies only on
     // explored/discovered fires via the fire map (decentralized observation).
     std::shared_ptr<std::vector<std::pair<double, double>>> raw_fires;
-    if (eval_mode_) {
+    if (eval_mode_ && !parameters_.planner_eval_ground_truth_fires_) {
         raw_fires = grid_map->GetFirePositionsFromFireMap();
     } else {
         raw_fires = grid_map->GetFirePositionsFromBurningCells();

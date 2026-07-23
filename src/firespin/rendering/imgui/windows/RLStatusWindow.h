@@ -126,9 +126,7 @@ private:
             ImGui::PushStyleColor(ImGuiCol_ButtonHovered, ImVec4(0.28f, 0.28f, 0.32f, 1.0f));
         }
         if (ImGui::Button("TRAIN", ImVec2(buttonWidth, buttonHeight)) && !isTrain) {
-            if (!parameters_.use_heuristic_) {
-                ImGui::OpenPopup("Switch Mode");
-            }
+            ImGui::OpenPopup("Switch Mode");
         }
         ImGui::PopStyleColor(2);
 
@@ -143,9 +141,7 @@ private:
             ImGui::PushStyleColor(ImGuiCol_ButtonHovered, ImVec4(0.28f, 0.28f, 0.32f, 1.0f));
         }
         if (ImGui::Button("EVAL", ImVec2(buttonWidth, buttonHeight)) && isTrain) {
-            if (!parameters_.use_heuristic_) {
-                ImGui::OpenPopup("Switch Mode");
-            }
+            ImGui::OpenPopup("Switch Mode");
         }
         ImGui::PopStyleColor(2);
 

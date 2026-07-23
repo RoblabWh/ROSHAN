@@ -90,7 +90,13 @@ cd path/to/build/directory
 ## 2. Simulation + Reinforcement Learning
 Run ROSHAN with the Python RL framework (PPO, hierarchical agents, etc.):
 ```bash
-cd ROSHAN/src/pysim/ 
-python main.py ["optional/path/to/your/own/config.yaml"]
+cd ROSHAN
+# Layered config: config/base.yaml + overlays + dotted CLI overrides
+python src/pysim/main.py config/agent/fly.yaml
+python src/pysim/main.py config/agent/planner.yaml algorithm.PPO.lr=3e-4
 ```
-The Python interface loads your configuration, initializes the C++ simulator, and trains/evaluates agents depending on the settings in the config file.
+Config is layered with OmegaConf: `config/base.yaml` holds shared defaults, while small
+overlays under `config/agent/` and `config/exp/` carry only the deltas. Positional `*.yaml`
+args are overlays (merged in order on top of base); `key=value` args override any dotted
+path. The Python interface merges these, dumps the effective config to `used_config.yaml`
+(which the C++ simulator parses), and trains/evaluates per the resolved settings.

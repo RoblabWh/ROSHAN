@@ -1,0 +1,22 @@
+# FlyHard Wave-2 scC "stable": scB2's moderate shaping (the best-performing recipe — peaked
+# 0.82 training-objective) + the ONE change that matters: re-enable PPO KL early-stopping.
+# base.yaml ships kl_early_stop=false, so scB2 trained with no KL guard and collapsed when
+# approx_kl spiked >1.0 (healthy updates were ~0.01-0.05; target 0.08 is transparent to those
+# but halts the divergence buildup). Train 800 updates since the policy was still improving
+# before it collapsed. Minimal-change arm: isolates whether the KL guard alone fixes it.
+# Compose: main.py config/agent/fly.yaml config/exp/flyhard_sc_stable.yaml \
+#          paths.model_directory=models/FlyHard_scC settings.seed=4
+settings:
+  auto_train:
+    max_train: 800
+algorithm:
+  PPO:
+    kl_early_stop: true
+    kl_target: 0.08
+environment:
+  agent:
+    fly_agent:
+      rewards:
+        ProximityPenalty: -1.5
+        ProximityThreshold: 0.45
+        Collision: -5.0

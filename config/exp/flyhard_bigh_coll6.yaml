@@ -1,0 +1,24 @@
+# FlyHard Wave-5c scG_b "bigh_coll6": scG's winning big-horizon recipe with a MILD collision
+# bump. Coll -5.0 (scG) learns fine (92%); Coll -10.0 (scG3) chokes from scratch. The safe-but-
+# useful zone is in between — try -6.5 to nudge collisions down without killing task acquisition.
+# Single-variable change vs scG (only Collision). If it chokes (Obj stuck 0 by ~upd40), the
+# from-scratch ceiling for Collision is < -6.5 and the residual collisions must come from the
+# two-phase fine-tune (resume a learned scG checkpoint with a higher penalty) or more training.
+# Compose: main.py config/agent/fly.yaml config/exp/flyhard_bigh_coll6.yaml \
+#          paths.model_directory=models/FlyHard_scGb settings.seed=11
+settings:
+  auto_train:
+    max_train: 300
+algorithm:
+  PPO:
+    horizon: 66000
+    batch_size: 2000
+    entropy_coeff: 0.01
+    kl_early_stop: false
+environment:
+  agent:
+    fly_agent:
+      rewards:
+        ProximityPenalty: -1.5
+        ProximityThreshold: 0.45
+        Collision: -6.5

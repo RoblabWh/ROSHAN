@@ -171,6 +171,10 @@ py::dict FireModel::GetBatchedObservations(const std::string& agent_type) {
     return rl_handler_->GetBatchedObservations(agent_type);
 }
 
+void FireModel::RefreshObservations(const std::string& agent_type) {
+    rl_handler_->RefreshObservations(agent_type);
+}
+
 StepResult FireModel::Step(const std::string& agent_type, std::vector<std::shared_ptr<Action>> actions){
 #ifdef SPEEDTEST
     // Construct a new action for each drone with 0, 0

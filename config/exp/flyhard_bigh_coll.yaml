@@ -1,0 +1,25 @@
+# FlyHard Wave-5 scG3 "bigh_coll": scG's winning big-horizon recipe (which hit 92% eval at
+# update 40, failures = 7 Collision + 1 BoundaryExit) with ONLY the terminal Collision penalty
+# raised. Rationale: the choke in scG2 came from the *continuous* ProximityPenalty (-2.0 pushes
+# drones apart everywhere, preventing co-location to clear fires). The *terminal* Collision
+# penalty fires only on actual contact, so raising it should sharpen collision-avoidance WITHOUT
+# choking task acquisition. Keep ProximityPenalty at the proven -1.5/0.45. Direct A/B vs scG on
+# the residual-collision failure mode. Collision -5.0 -> -10.0.
+# Compose: main.py config/agent/fly.yaml config/exp/flyhard_bigh_coll.yaml \
+#          paths.model_directory=models/FlyHard_scG3 settings.seed=10
+settings:
+  auto_train:
+    max_train: 300
+algorithm:
+  PPO:
+    horizon: 66000
+    batch_size: 2000
+    entropy_coeff: 0.01
+    kl_early_stop: false
+environment:
+  agent:
+    fly_agent:
+      rewards:
+        ProximityPenalty: -1.5
+        ProximityThreshold: 0.45
+        Collision: -10.0

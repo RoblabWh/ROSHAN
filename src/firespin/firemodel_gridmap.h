@@ -145,7 +145,6 @@ public:
         int grid_y = static_cast<int>((y + 1) / 2 * cols_);
         return std::make_pair(grid_x, grid_y);
     }
-    std::unordered_set<Point> GetRawFirePositionsFromFireMap() const;
     std::shared_ptr<std::vector<std::pair<double, double>>> GetFirePositionsFromFireMap() const;
 
     // For Rendering Only

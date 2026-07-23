@@ -1,0 +1,20 @@
+# FlyHard FT-B "explore": widen the avoidance band and raise exploration to escape the
+# collision local optimum the 98.5% baseline settled into. Keeps the baseline Collision
+# penalty so this run varies the *avoidance shaping + exploration* axis, not the penalty.
+# Compose: main.py config/agent/fly.yaml config/exp/flyhard_explore.yaml \
+#          settings.resume=true paths.model_directory=models/FlyHard_ftB \
+#          paths.model_name=best_reward settings.seed=2
+# Fine-tune from CollisionFlyAgent (baseline train_step=300) -> max_train=450 (+150 updates).
+settings:
+  auto_train:
+    max_train: 450
+algorithm:
+  PPO:
+    entropy_coeff: 0.001    # base 0.0005 -> more exploration to break out of the optimum
+environment:
+  agent:
+    fly_agent:
+      rewards:
+        ProximityPenalty: -1.5    # base -1.0 (mild strengthening)
+        ProximityThreshold: 0.6   # base 0.4 -> wider early-avoidance band
+        # Collision left at baseline (-4.328) on purpose for this arm.

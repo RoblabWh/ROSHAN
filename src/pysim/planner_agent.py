@@ -1,4 +1,4 @@
-from networks.network_planner_attn import PointerActor, PointerCritic, PointerOffPolicyCritic, PointerValue
+from networks.network_planner import PointerActor, PointerCritic, PointerOffPolicyCritic, PointerValue
 from torch.utils.data.sampler import BatchSampler, SubsetRandomSampler
 import numpy as np
 import torch.nn as nn
@@ -28,10 +28,19 @@ class PlannerAgent(Agent):
         self.MSE_loss = nn.MSELoss()
         self.action_dim = (num_drones, 2)
         self.num_drones = num_drones
+        # Water feasibility threshold (fraction in [0, 1]). When a drone's tank is
+        # below this, the pointer decoder masks all non-groundstation targets and the
+        # commitment lock releases, so the planner is forced to route it to refuel.
+        # 0.0 = disabled (only truly-empty drones affected). Set from config in
+        # agent_builder for planner_agent; gated on use_water_limit.
+        self.water_refuel_threshold = 0.0
         # Per-drone goal-commitment state. False on the very first decision after
         # ResetEnvironment so the planner can actually assign initial goals (FlyAgent
         # spawns are independent of initial goal coordinates — see rl_handler.cpp:225-237).
         self._first_decision_done = False
+        # Eval-only heuristic baseline: greedy nearest-fire assignment instead of the
+        # pointer network. Set from config in agent_builder.
+        self.heuristic_goals = False
 
     def get_num_agents(self, num_agents):
         return 1
@@ -103,9 +112,89 @@ class PlannerAgent(Agent):
 
         locked_mask = (~at_goal) & prev_goal_valid  # (1, N)
 
+        # Water-feasibility release: if a drone is below the refuel threshold and its
+        # previous goal is a *fire* (not the groundstation), free it so the planner —
+        # whose pointer decoder now masks all non-GS targets for low-water drones — can
+        # redirect it to refuel. Without this, the override would re-inject the old fire
+        # coordinate, which the actor's water mask forbids, yielding -inf log-probs /
+        # NaN when PPO re-evaluates the stored action. Drones already headed to the GS
+        # (prev_goal == GS) stay committed so they finish the refuel trip.
+        threshold = float(getattr(self, "water_refuel_threshold", 0.0))
+        if threshold > 0.0 and "drone_water" in state:
+            water = _last(state["drone_water"])              # (1, N, 1) or (1, N)
+            water = np.asarray(water, dtype=np.float32)
+            if water.ndim == 3:
+                water = water[..., 0]                        # (1, N)
+            low_water = water < threshold                    # (1, N)
+            gs_coord = fire_pos[:, 0:1, :]                   # (1, 1, 2) — GS is index 0
+            prev_is_gs = np.linalg.norm(prev_goal - gs_coord, axis=-1) < _LOCK_MATCH_EPS
+            release = low_water & (~prev_is_gs)              # (1, N)
+            locked_mask = locked_mask & (~release)
+
         # Override locked drones' coords with prev_goal. Free drones keep sampled.
         overridden = np.where(locked_mask[..., None], prev_goal, sampled)
         return overridden.astype(np.float32, copy=False), locked_mask
+
+    def greedy_actions(self, state):
+        """Heuristic baseline: greedy nearest-pair goal assignment (eval-only).
+
+        Same machinery as the learned planner everywhere else — FlyAgent network,
+        commitment lock, event replans, water release — only the assignment rule
+        differs: closest (free drone, unassigned fire) pairs are matched first;
+        low-water drones and left-over drones go to the groundstation (index 0).
+        Fires already targeted by committed (locked) drones are excluded, mirroring
+        the pointer decoder's commitment seed. Reads the same observation dict, so
+        eval_ground_truth_fires applies identically.
+
+        Returns coords (1, N, 2) float32 — same contract as act_certain.
+        """
+        def _last(arr):
+            a = np.asarray(arr)
+            while a.ndim > 3:
+                a = a[:, -1]
+            return a
+
+        drone_pos = _last(state["drone_positions"]).astype(np.float32)  # (1, N, 2)
+        fire_pos = _last(state["fire_positions"]).astype(np.float32)    # (1, K, 2)
+        n = drone_pos.shape[1]
+        gs = fire_pos[0, 0]
+
+        valid = np.ones(fire_pos.shape[1], dtype=bool)
+        if "fire_positions_mask" in state:
+            valid = np.asarray(_last(state["fire_positions_mask"])).reshape(-1) > 0.5
+        valid[0] = False  # GS is the fallback, not a fire target
+
+        # Exclude fires a committed drone is already flying to (same lock rule as
+        # apply_commitment: not yet at prev_goal). One-step over-reservation on the
+        # first decision after reset is harmless — mirrors _commitment_seed.
+        prev_goal = _last(state["goal_positions"]).astype(np.float32)   # (1, N, 2)
+        at_goal = np.linalg.norm(drone_pos - prev_goal, axis=-1)[0] < _LOCK_AT_GOAL_EPS
+        for i in range(n):
+            if not at_goal[i]:
+                taken = np.linalg.norm(fire_pos[0] - prev_goal[0, i], axis=-1) < _LOCK_MATCH_EPS
+                valid &= ~taken
+
+        threshold = float(getattr(self, "water_refuel_threshold", 0.0))
+        needs_gs = np.zeros(n, dtype=bool)
+        if threshold > 0.0 and "drone_water" in state:
+            water = _last(state["drone_water"]).astype(np.float32)
+            if water.ndim == 3:
+                water = water[..., 0]
+            needs_gs = water.reshape(-1) < threshold
+
+        actions = np.tile(gs, (n, 1)).astype(np.float32)  # default: groundstation
+        free = [i for i in range(n) if not needs_gs[i]]
+        fires = list(np.flatnonzero(valid))
+        if free and fires:
+            d = np.linalg.norm(
+                drone_pos[0, free][:, None, :] - fire_pos[0, fires][None, :, :], axis=-1)
+            while free and fires:
+                r, c = np.unravel_index(np.argmin(d), d.shape)
+                actions[free[r]] = fire_pos[0, fires[c]]
+                free.pop(r)
+                fires.pop(c)
+                d = np.delete(np.delete(d, r, axis=0), c, axis=1)
+        return actions[None, ...]  # (1, N, 2)
 
     @staticmethod
     def get_network(algorithm : str):

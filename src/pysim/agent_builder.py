@@ -75,6 +75,13 @@ def resolve_model_name(path: str, model_string: str, agent_type: str,
     for model in valid_models:
         if model.split(".")[0].endswith(model_string):
             return model, log_dict
+    # No checkpoint carries the requested suffix (e.g. "best_obj" before the rolling
+    # window ever filled). Fall back to the first valid model instead of returning
+    # None, which crashed callers that unpack the tuple.
+    log_dict["msg"] = (f"No model matching '{model_string}' found in {path}. "
+                       f"Falling back to {valid_models[0]}.")
+    log_dict["level"] = 30
+    return valid_models[0], log_dict
 
 
 class AgentBuilder:
@@ -119,6 +126,7 @@ class AgentBuilder:
 
         save_replay_buffer = config["settings"]["save_replay_buffer"]
         save_size = config["settings"]["save_size"]
+        eval_sampling = bool(config["settings"].get("eval_sampling", False))
 
         if use_intrinsic_reward:
             agent_type_obj.initialize_rnd_model(vision_range, drone_count=num_agents,
@@ -222,8 +230,17 @@ class AgentBuilder:
                              collision=collision,
                              agent_dim=agent_dim,
                              neighbor_dim=neighbor_dim)
+        # Top-level algorithm.* keys are not part of the per-algo override dict
+        # (override_from_dict only sees algorithm.<name>.*), so read them explicitly
+        # like share_encoder/use_tanh_dist above.
+        rl_config.use_torch_compile = bool(config["algorithm"].get("use_torch_compile", False))
+        rl_config.compile_mode = str(config["algorithm"].get("compile_mode", "reduce-overhead"))
 
-        algo_overrides = config["algorithm"].get(algorithm_name, {})
+        # Resolve to a plain dict so DictConfig leaves (when config is OmegaConf) don't
+        # leak into the RLConfig dataclasses / optimizer factory.
+        from omegaconf import OmegaConf as _OC
+        _ov = config["algorithm"].get(algorithm_name, {})
+        algo_overrides = _OC.to_container(_ov, resolve=True) if _OC.is_config(_ov) else dict(_ov)
 
         # --- Load network architecture ---
         if algorithm_name != 'no_algo':
@@ -245,6 +262,43 @@ class AgentBuilder:
             rl_config.use_next_obs = False if not save_replay_buffer else True
             rl_config = override_from_dict(rl_config, algo_overrides)
             algo_instance = PPO(network=network_classes, config=rl_config)
+
+            # EVRP-style water feasibility masking (planner only). Forces the pointer
+            # decoder to route low-water drones to the groundstation and releases the
+            # commitment lock for them. Gated on use_water_limit (otherwise water is
+            # cosmetic and the mask would be a no-op anyway).
+            if agent_type == "planner_agent":
+                env_agent = config["environment"]["agent"]
+                use_water_limit = bool(env_agent.get("use_water_limit", False))
+                threshold = float(env_agent.get("water_refuel_threshold", 0.0)) if use_water_limit else 0.0
+                agent_type_obj.water_refuel_threshold = threshold
+                actor = getattr(getattr(algo_instance, "policy", None), "actor", None)
+                if actor is not None:
+                    actor.water_mask_threshold = threshold
+                logger.info(f"PlannerAgent water feasibility mask threshold = {threshold} "
+                            f"(use_water_limit={use_water_limit})")
+
+                # SMDP variable-duration GAE knobs (planner-only). Read from the planner
+                # config block and override the PPOConfig defaults on the live instance.
+                planner_cfg = env_agent["planner_agent"]
+                algo_instance.smdp_gae = bool(planner_cfg.get("smdp_gae", False))
+                algo_instance.smdp_normalize_k = bool(planner_cfg.get("smdp_normalize_k", False))
+                algo_instance.max_low_level_steps = int(planner_cfg.get("hierarchy_timesteps", 1))
+                logger.info(f"PlannerAgent SMDP GAE = {algo_instance.smdp_gae} "
+                            f"(normalize_k={algo_instance.smdp_normalize_k}, "
+                            f"k_max={algo_instance.max_low_level_steps})")
+
+                penalty_min = float(planner_cfg.get("assignment_penalty_min", -3.0))
+                if actor is not None:
+                    actor.assignment_penalty_min = penalty_min
+                if penalty_min > -3.0:
+                    logger.info(f"PlannerAgent assignment_penalty_min = {penalty_min} "
+                                f"(duplicate penalty floored at exp({penalty_min}))")
+
+                agent_type_obj.heuristic_goals = bool(planner_cfg.get("heuristic_goals", False))
+                if agent_type_obj.heuristic_goals:
+                    logger.info("PlannerAgent heuristic_goals=True — eval uses greedy "
+                                "nearest-fire assignment instead of the pointer network")
         elif algorithm == 'IQL':
             rl_config = IQLConfig(**vars(rl_config))
             rl_config.action_dim = agent_type_obj.action_dim
@@ -279,12 +333,15 @@ class AgentBuilder:
             # locked_mask that PPO masks out of the policy gradient. Other agent types
             # (FlyAgent, ExploreAgent) leave the buffer unallocated.
             use_locked_mask = hasattr(agent_type_obj, "apply_commitment")
+            # SMDP duration buffer: only when the agent commits (planner) AND smdp_gae is on.
+            use_duration = use_locked_mask and bool(getattr(algo_instance, "smdp_gae", False))
             memory = SwarmMemory(max_size=algo_instance.memory_size,
                                  num_agents=num_agents,
                                  action_dim=agent_type_obj.action_dim,
                                  use_intrinsic_reward=use_intrinsic_reward,
                                  use_next_obs=use_next_obs,
-                                 use_locked_mask=use_locked_mask)
+                                 use_locked_mask=use_locked_mask,
+                                 use_duration=use_duration)
 
         # --- Build TrainingMonitor (main agent only) ---
         monitor = None
@@ -318,6 +375,7 @@ class AgentBuilder:
             is_sub_agent=is_sub_agent,
             use_next_obs=use_next_obs,
             save_replay_buffer=save_replay_buffer,
+            eval_sampling=eval_sampling,
             save_size=save_size,
             root_model_path=root_model_path,
             rl_mode=mode,

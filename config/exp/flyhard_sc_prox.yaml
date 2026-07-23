@@ -1,0 +1,17 @@
+# FlyHard SC-B "prox_strong_scratch": from-scratch, stronger collision avoidance to drive
+# the residual collisions toward zero — push drones apart ~1 cell earlier and make the
+# terminal collision costlier. Entropy kept at base 0.0005 (this is a fresh run, not a
+# polish of a converged policy). Watch eval for BoundaryExit reappearing: if it does, the
+# avoidance shaping is too strong (the known flee failure) and should be backed off.
+# Compose: main.py config/agent/fly.yaml config/exp/flyhard_sc_prox.yaml \
+#          paths.model_directory=models/FlyHard_scB settings.seed=2
+settings:
+  auto_train:
+    max_train: 400
+environment:
+  agent:
+    fly_agent:
+      rewards:
+        ProximityPenalty: -2.0    # base -1.0 (one-sided PBRS; safe to strengthen)
+        ProximityThreshold: 0.5   # base 0.4 -> trigger avoidance ~1 cell earlier
+        Collision: -7.0           # base -4.328 -> costlier terminal collision

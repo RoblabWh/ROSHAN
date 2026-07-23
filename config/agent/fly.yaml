@@ -1,0 +1,4 @@
+# FlyAgent overlay — base/base.yaml is already the fly baseline, so this only
+# restates the selector. Add fly-specific experiment deltas here as needed.
+settings:
+  hierarchy_type: fly_agent

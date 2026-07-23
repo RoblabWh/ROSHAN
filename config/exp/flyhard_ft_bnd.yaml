@@ -1,0 +1,28 @@
+# FlyHard Wave-7 scJ "ft_bnd": FAST targeted boundary fix — resume scG's 93.5% best_obj and
+# fine-tune with the new one-sided boundary PBRS turned on. Unlike the Coll-8 fine-tune (which
+# perturbed the policy and brought boundary-fleeing back), the boundary PBRS is gentle and
+# one-sided (only charges for moving toward the edge), so it should teach edge-avoidance to the
+# already-competent policy without disturbing fire-clearing. Reward-only (no arch change), so
+# scG's checkpoint loads directly. scG was at train_step 134; max_train 250 => ~115 fine-tune upd.
+# Launch (direct, model_name=best_obj):
+#   main.py config/agent/fly.yaml config/exp/flyhard_ft_bnd.yaml settings.rl_mode=train \
+#     settings.mode=2 paths.model_directory=models/FlyHard_scJ paths.model_name=best_obj \
+#     settings.resume=true settings.seed=15
+settings:
+  auto_train:
+    max_train: 250
+algorithm:
+  PPO:
+    horizon: 66000
+    batch_size: 2000
+    entropy_coeff: 0.01
+    kl_early_stop: false
+environment:
+  agent:
+    fly_agent:
+      rewards:
+        ProximityPenalty: -1.5
+        ProximityThreshold: 0.45
+        Collision: -5.0
+        BoundaryProximityPenalty: -2.0
+        BoundaryProximityThreshold: 0.5

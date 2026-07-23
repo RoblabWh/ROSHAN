@@ -61,7 +61,9 @@ PYBIND11_MODULE(firesim, m) {
             .def_readonly("any_failed",      &EpisodeSummary::any_failed)
             .def_readonly("any_succeeded",   &EpisodeSummary::any_succeeded)
             .def_readonly("explorers_reached_goal", &EpisodeSummary::explorers_reached_goal)
-            .def_readonly("reason",          &EpisodeSummary::reason);
+            .def_readonly("replan_recommended", &EpisodeSummary::replan_recommended)
+            .def_readonly("reason",          &EpisodeSummary::reason)
+            .def_readonly("time_used_frac", &EpisodeSummary::time_used_frac);
 
     py::class_<StepResult>(m, "StepResult")
             .def_readonly("rewards",           &StepResult::rewards)
@@ -72,13 +74,14 @@ PYBIND11_MODULE(firesim, m) {
 
     py::class_<EngineCore>(m, "EngineCore")
             .def(py::init<>())
-            .def("Init", &EngineCore::Init, py::arg("mode"), py::arg("config_path") = "../config.yaml")
+            .def("Init", &EngineCore::Init, py::arg("mode"), py::arg("config_path") = "../config/base.yaml")
             .def("Clean", &EngineCore::Clean)
             .def("Render", &EngineCore::Render)
             .def("Update", &EngineCore::Update)
             .def("HandleEvents", &EngineCore::HandleEvents)
             .def("IsRunning", &EngineCore::IsRunning)
             .def("GetBatchedObservations", &EngineCore::GetBatchedObservations)
+            .def("RefreshObservations", &EngineCore::RefreshObservations)
             .def("GetUserInput", &EngineCore::GetUserInput)
             .def("SendDataToModel", &EngineCore::SendDataToModel)
             .def("SendRLStatusToModel", &EngineCore::SendRLStatusToModel)

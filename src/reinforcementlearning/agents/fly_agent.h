@@ -123,7 +123,6 @@ public:
     std::vector<bool> GetDistanceMask() const { return distance_mask_; }
 private:
     //Fly Agent specific
-    void FlyPolicy(const std::shared_ptr<GridMap> &gridmap);
     std::pair<double, double> MovementStep(double netout_x, double netout_y);
 
     void CalcMaxDistanceFromMap();
@@ -132,6 +131,10 @@ private:
     }
 
     double last_distance_to_goal_{};
+    double last_proximity_potential_{}; //* Previous-step neighbor-closeness potential (PBRS proximity shaping)
+    bool proximity_initialized_{false}; //* False on the first reward step of an episode (no delta yet)
+    double last_boundary_potential_{}; //* Previous-step boundary-closeness potential (PBRS boundary shaping)
+    bool boundary_initialized_{false}; //* False on the first reward step of an episode (no delta yet)
     bool drone_in_grid_ = true; //* Is the Drone in the Grid?
     int view_range_{}; //* View Range of the Agent in Grid Cells (10m each)
     std::pair<double, double> max_speed_{}; //* Value for the maximum velocity of an Agent in x and y direction
@@ -150,8 +153,6 @@ private:
     double water_capacity_;
     bool extinguished_fire_ = false;
     int num_extinguished_fires_ = 0;
-    enum policy_types {EXTINGUISH_FIRE, FLY_TO_GROUNDSTATION, RECHARGE, EXPLORE};
-    int policy_type_ = EXTINGUISH_FIRE;
     bool extinguished_last_fire_ = false;
     bool active_ = false;
 

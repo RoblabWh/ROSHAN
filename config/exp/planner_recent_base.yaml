@@ -1,0 +1,51 @@
+# PlannerAgent SMDP campaign — ANCHORED on the recent-runs config (PlannerRun2 reached obj 0.50).
+# Layer on config/agent/planner.yaml. Single experimental variable = event-driven flags (set per-arm
+# in launch.sh). At fire 0.045 success clears ~50% so median TTE is measurable (not budget-pinned),
+# and this directly answers "does event-driven beat the previous runs?" at their own config.
+settings:
+  mode: 2
+  rl_mode: train
+  auto_train:
+    use_auto_train: false
+    max_train: 80
+    max_eval: 100
+
+algorithm:
+  PPO:
+    lr: 1.575e-4
+    batch_size: 50
+    horizon: 2000
+    gamma: 0.99
+    _lambda: 0.98
+    value_loss_coef: 0.5     # recent regime (0.5); the thesis's 0.001 gave ExplVar≈0 here
+    entropy_coeff: 0.01      # PlannerRun2 used 0.01 (beat Run1's 0.002)
+    # Pin decay OFF: this anchor predates the hardfix entropy decay, and
+    # config/agent/planner.yaml (July 2026) now bakes decay in — undo it here.
+    entropy_decay_rate: 1.0
+    entropy_coeff_min: 0.0
+    k_epochs: 3
+
+environment:
+  fire_behaviour:
+    fire_pattern: cluster
+    fire_percentage: 0.045
+    num_fire_clusters: 2
+  agent:
+    use_water_limit: true
+    water_refuel_threshold: 0.25
+    fly_agent:
+      collision: false
+    planner_agent:
+      num_agents: 5
+      hierarchy_timesteps: 100
+      # Event flags are the experimental variable (set per-arm in launch.sh). Pinned false
+      # so the A0r "event OFF" baseline reproduces even though config/agent/planner.yaml
+      # (July 2026) now bakes them true.
+      event_replan: false
+      smdp_gae: false
+      smdp_normalize_k: false
+      rewards:
+        # Pin the pre-Wave-G reward shape (no GS parking tax) for faithful reproduction;
+        # planner.yaml now defaults to the G1 tax (-0.2 @ 0.95).
+        FlyingTowardsGroundStation: 0.0
+        FlyingTowardsGroundStation_water_threshold: 0.5

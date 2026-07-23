@@ -1,0 +1,24 @@
+# FlyHard Wave-3 scE "stable_bound": scD's WINNING conservative+stable recipe (lower lr,
+# lower entropy, KL guard — the arm that climbed highest and steadiest) PLUS a stronger
+# boundary penalty to crush the residual BoundaryExit failures (the dominant mode at scB2's
+# 82% peak: 11 BoundaryExit vs 7 Collision, likely from the proximity penalty nudging drones
+# toward map edges). Clean A/B vs scD: identical except BoundaryTerminal -4.328 -> -8.0.
+# Compose: main.py config/agent/fly.yaml config/exp/flyhard_sc_stable_bound.yaml \
+#          paths.model_directory=models/FlyHard_scE settings.seed=6
+settings:
+  auto_train:
+    max_train: 800
+algorithm:
+  PPO:
+    kl_early_stop: true
+    kl_target: 0.05
+    lr: 1.0e-4
+    entropy_coeff: 0.0003
+environment:
+  agent:
+    fly_agent:
+      rewards:
+        ProximityPenalty: -1.5
+        ProximityThreshold: 0.45
+        Collision: -5.0
+        BoundaryTerminal: -8.0    # base -4.328 -> discourage leaving the map

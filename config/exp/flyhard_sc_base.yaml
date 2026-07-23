@@ -1,0 +1,12 @@
+# FlyHard SC-A "base_long": from-scratch reproduction of the proven PBRS regime with the
+# CURRENT (refactored, agent_dim/RELATIONAL) network code. base.yaml already carries the
+# winning shaping (ProximityPenalty -1.0, ProximityThreshold 0.4) that produced the prior
+# 95% run (CollisionAgent_pbrs2); this arm only trains longer to push past it.
+# Why scratch: no saved checkpoint matches the current network arch, so resume/fine-tune
+# is impossible — every existing model has the OLD (pre-agent_dim) StochasticActor.
+# Compose: main.py config/agent/fly.yaml config/exp/flyhard_sc_base.yaml \
+#          paths.model_directory=models/FlyHard_scA settings.seed=1
+settings:
+  auto_train:
+    max_train: 400   # base 300 -> a bit longer to polish toward 100%
+# Rewards/PPO left at base defaults on purpose (this is the control / regime-reproduction arm).
