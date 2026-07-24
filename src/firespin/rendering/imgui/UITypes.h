@@ -129,10 +129,12 @@ namespace window_flags {
 
     constexpr ImGuiWindowFlags kModal =
         ImGuiWindowFlags_NoResize | ImGuiWindowFlags_NoCollapse |
-        ImGuiWindowFlags_NoMove | ImGuiWindowFlags_AlwaysAutoResize;
+        ImGuiWindowFlags_NoMove | ImGuiWindowFlags_AlwaysAutoResize |
+        ImGuiWindowFlags_NoDocking;
 
     constexpr ImGuiWindowFlags kPopup =
-        ImGuiWindowFlags_AlwaysAutoResize | ImGuiWindowFlags_NoTitleBar;
+        ImGuiWindowFlags_AlwaysAutoResize | ImGuiWindowFlags_NoTitleBar |
+        ImGuiWindowFlags_NoDocking | ImGuiWindowFlags_NoSavedSettings;
 }
 
 } // namespace ui

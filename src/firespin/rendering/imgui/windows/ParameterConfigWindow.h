@@ -3,7 +3,7 @@
 //
 // Displays and allows editing of simulation parameters like particle settings,
 // cell properties, and wind configuration.
-// Extracted from ShowParameterConfig method in firemodel_imgui.cpp.
+// Extracted from ShowParameterConfig method.
 //
 
 #ifndef ROSHAN_PARAMETERCONFIGWINDOW_H

@@ -2,7 +2,7 @@
 // FileDialogWindow.h - File dialog handling
 //
 // Manages file dialogs for loading/saving maps and model paths.
-// Extracted from FileHandling method in firemodel_imgui.cpp.
+// Extracted from FileHandling method.
 //
 
 #ifndef ROSHAN_FILEDIALOGWINDOW_H

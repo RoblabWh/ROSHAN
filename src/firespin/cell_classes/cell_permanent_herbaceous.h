@@ -19,7 +19,7 @@ public:
     }
 
     CellPermanentHerbaceous() {
-        color_ = {250, 218, 94, 255};
+        color_ = CellStateColor(CellState::PERMANENT_HERBACEOUS);
         InitMappedColor();
         cell_burning_duration_ = 360;
         ignition_delay_time_ = 100;

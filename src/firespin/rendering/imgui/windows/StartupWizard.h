@@ -2,7 +2,7 @@
 // StartupWizard.h - Startup wizard window
 //
 // Guides user through mode selection, training setup, and map selection.
-// Extracted from ImGuiOnStartup and CheckForModelPathSelection in firemodel_imgui.cpp.
+// Extracted from ImGuiOnStartup and CheckForModelPathSelection.
 //
 
 #ifndef ROSHAN_STARTUPWIZARD_H

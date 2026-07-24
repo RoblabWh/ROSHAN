@@ -75,6 +75,7 @@ public:
     int GetNoiseSize();
 
 private:
+    void JitterBurnParameters();
     FireModelParameters &parameters_;
 
     double burning_duration_;

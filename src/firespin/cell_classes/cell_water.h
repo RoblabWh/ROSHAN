@@ -19,7 +19,7 @@ public:
     }
 
     CellWater() {
-        color_ = {50, 90, 255, 255};
+        color_ = CellStateColor(CellState::WATER);
         InitMappedColor();
         cell_burning_duration_ = 0;
         ignition_delay_time_ = -1;

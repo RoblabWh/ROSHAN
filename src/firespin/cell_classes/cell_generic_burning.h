@@ -19,7 +19,7 @@ public:
     }
 
     explicit CellGenericBurning() {
-        color_ = {255, 0, 0, 255};
+        color_ = CellStateColor(CellState::GENERIC_BURNING);
         InitMappedColor();
         cell_burning_duration_ = 0;
         ignition_delay_time_ = -1;

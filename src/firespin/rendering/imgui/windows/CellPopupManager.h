@@ -2,7 +2,7 @@
 // CellPopupManager.h - Cell popup management
 //
 // Manages popups that appear when clicking on grid cells.
-// Extracted from ShowPopups method in firemodel_imgui.cpp.
+// Extracted from ShowPopups method.
 //
 
 #ifndef ROSHAN_CELLPOPUPMANAGER_H
@@ -82,9 +82,11 @@ private:
                 ImGui::TextColored(colors::kPopupTitle, "Cell %d %d", it->first, it->second);
                 ImGui::SameLine();
 
-                float windowWidth = ImGui::GetWindowContentRegionMax().x - ImGui::GetWindowContentRegionMin().x;
-                float buttonWidth = ImGui::CalcTextSize("X").x + ImGui::GetStyle().FramePadding.x;
-                ImGui::SetCursorPosX(windowWidth - buttonWidth);
+                // Full button width (2x frame padding) so the right-aligned X ends
+                // exactly at the content edge — anything wider makes the
+                // AlwaysAutoResize window grow every frame.
+                float buttonWidth = ImGui::CalcTextSize("X").x + 2.0f * ImGui::GetStyle().FramePadding.x;
+                ImGui::SetCursorPosX(ImGui::GetCursorPosX() + ImGui::GetContentRegionAvail().x - buttonWidth);
 
                 if (ImGui::Button("X")) {
                     state_.popupHasBeenOpened.erase(*it);

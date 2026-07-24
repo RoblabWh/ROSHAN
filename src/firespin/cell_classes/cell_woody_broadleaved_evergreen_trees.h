@@ -19,7 +19,7 @@ public:
     }
 
     CellWoodyBroadleavedEvergreenTrees() {
-        color_ = {0, 255, 0, 255};
+        color_ = CellStateColor(CellState::WOODY_BROADLEAVED_EVERGREEN_TREES);
         InitMappedColor();
         cell_burning_duration_ = 3600;
         ignition_delay_time_ = 330;

@@ -19,7 +19,7 @@ public:
     }
 
     CellSnowAndIce() {
-        color_ = {0, 255, 255, 255};
+        color_ = CellStateColor(CellState::SNOW_AND_ICE);
         InitMappedColor();
         cell_burning_duration_ = 0;
         ignition_delay_time_ = -1;

@@ -1,7 +1,7 @@
 //
 // ControlPanelWindow.h - Merged Control Panel for GUI_RL mode
 //
-// Combines SimulationControlsWindow and RLStatusWindow into a single,
+// Single controls/status window for GUI and GUI_RL modes,
 // unified window with compact header, progress bars, and 5 tabs:
 //   Agents | Environment | Simulation | Log | Settings
 //
@@ -50,18 +50,23 @@ public:
         , mode_(mode) {}
 
     void Render() override {
-        if (!visible_ || mode_ != Mode::GUI_RL || !startupComplete_) return;
+        if (!visible_ || (mode_ != Mode::GUI_RL && mode_ != Mode::GUI) || !startupComplete_) return;
 
         py::dict rlStatus = getRLStatus_();
+        // Pure GUI mode has no Python training loop pushing the full status
+        // dict; RL sections only render when it has been populated.
+        hasRL_ = rlStatus.contains("agent_is_running");
 
         ImGui::SetNextWindowSize(ImVec2(540, 680), ImGuiCond_FirstUseEver);
         ImGui::Begin("Control Panel", &visible_);
 
         RenderHeader(rlStatus);
-        ImGui::Spacing();
-        RenderProgressSection(rlStatus);
-        ImGui::Spacing();
-        RenderMetricsOverview(rlStatus);
+        if (hasRL_) {
+            ImGui::Spacing();
+            RenderProgressSection(rlStatus);
+            ImGui::Spacing();
+            RenderMetricsOverview(rlStatus);
+        }
         ImGui::Spacing();
         ImGui::Separator();
         ImGui::Spacing();
@@ -114,11 +119,15 @@ public:
 private:
     // ===== Compact Header: [TRAIN][EVAL] Status [Start] [Sim][Render][Reset] =====
     void RenderHeader(py::dict& rlStatus) {
+        float buttonHeight = 30.0f;
+        if (hasRL_) RenderRLHeader(rlStatus, buttonHeight);
+        RenderSimButtons(buttonHeight);
+    }
+
+    void RenderRLHeader(py::dict& rlStatus, float buttonHeight) {
         auto rlMode = rlStatus["rl_mode"].cast<std::string>();
         auto agentIsRunning = rlStatus["agent_is_running"].cast<bool>();
         bool isTrain = (rlMode == "train");
-
-        float buttonHeight = 30.0f;
 
         // TRAIN button
         if (isTrain) {
@@ -194,7 +203,9 @@ private:
         }
 
         ImGui::SameLine(0, 16.0f);
+    }
 
+    void RenderSimButtons(float buttonHeight) {
         // Simulation control buttons (compact)
         {
             bool simActive = updateSimulation_ && *updateSimulation_;
@@ -319,7 +330,7 @@ private:
     void RenderTabs(py::dict& rlStatus) {
         if (!ImGui::BeginTabBar("ControlPanelTabs")) return;
 
-        RenderAgentsTab(rlStatus);
+        if (hasRL_) RenderAgentsTab(rlStatus);
         RenderEnvironmentTab();
         RenderSimulationTab();
         RenderLogTab();
@@ -493,7 +504,7 @@ private:
         ImGui::EndTabItem();
     }
 
-    // Tab 3: Simulation (from SimulationControlsWindow tabs)
+    // Tab 3: Simulation
     void RenderSimulationTab() {
         if (!ImGui::BeginTabItem("Simulation")) return;
 
@@ -605,10 +616,10 @@ private:
     void RenderSettingsTab(const py::dict& rlStatus) {
         if (!ImGui::BeginTabItem("Settings")) return;
 
-        auto modelPath = rlStatus["model_path"].cast<std::string>();
-        auto modelName = rlStatus["model_name"].cast<std::string>();
+        if (rlStatus.contains("model_path") && ImGui::CollapsingHeader("Model Configuration")) {
+            auto modelPath = rlStatus["model_path"].cast<std::string>();
+            auto modelName = rlStatus["model_name"].cast<std::string>();
 
-        if (ImGui::CollapsingHeader("Model Configuration")) {
             if (ImGui::Selectable("Model Path")) {
                 if (onOpenFileDialog_) onOpenFileDialog_("model_path");
             }
@@ -667,7 +678,7 @@ private:
         ImGui::Separator();
         ImGui::Spacing();
 
-        if (ImGui::Button("Reset Drones")) {
+        if (hasRL_ && ImGui::Button("Reset Drones")) {
             if (onResetDrones_) onResetDrones_();
         }
 
@@ -821,6 +832,7 @@ private:
 
     bool visible_ = true;
     bool startupComplete_ = false;
+    bool hasRL_ = false;
     double nextReadTime_ = 0.0;
 
     // Speed tracking

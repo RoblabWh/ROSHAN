@@ -17,8 +17,6 @@ namespace ui {
 // Window visibility state - replaces the 15+ boolean flags
 struct WindowVisibility {
     bool demoWindow = false;
-    bool simulationControls = false;
-    bool rlStatus = true;
     bool controlPanel = true;
     bool parameterConfig = false;
     bool noiseConfig = false;
@@ -110,7 +108,6 @@ struct UIState {
     // Called when startup is complete and default mode is selected
     void OnDefaultModeSelected() {
         startup.modelStartupComplete = true;
-        visibility.simulationControls = true;
         visibility.parameterConfig = false;
     }
 

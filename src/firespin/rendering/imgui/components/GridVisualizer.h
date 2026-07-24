@@ -2,7 +2,7 @@
 // GridVisualizer.h - Grid rendering component for ImGui
 //
 // Renders 2D grid data as colored rectangles with various color mapping modes.
-// Extracted from firemodel_imgui.cpp DrawGrid template method.
+// Extracted from the legacy DrawGrid template method.
 //
 
 #ifndef ROSHAN_GRIDVISUALIZER_H

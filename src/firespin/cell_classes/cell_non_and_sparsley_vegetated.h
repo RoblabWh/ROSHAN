@@ -19,7 +19,7 @@ public:
     }
 
     CellNonAndSparsleyVegetated() {
-        color_ = {194, 178, 128, 255};
+        color_ = CellStateColor(CellState::NON_AND_SPARSLEY_VEGETATED);
         InitMappedColor();
         cell_burning_duration_ = 0;
         ignition_delay_time_ = 0;

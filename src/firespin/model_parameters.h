@@ -276,6 +276,10 @@ public:
 
     //Settings
     int seed_{};
+    // Per-episode seeding (common random numbers): bumped and applied at every
+    // FireModel::ResetGridMap so episode i's setup depends only on (seed_, i).
+    int episode_counter_ = 0;
+    int episode_seed_ = 0;
     std::string init_rl_mode_{};
     bool cia_mode_{};
 

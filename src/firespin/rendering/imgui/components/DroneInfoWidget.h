@@ -2,7 +2,7 @@
 // DroneInfoWidget.h - Drone information display component for ImGui
 //
 // Displays drone state information, network inputs, and distances in table format.
-// Extracted from PyConfig method in firemodel_imgui.cpp.
+// Extracted from PyConfig method.
 // Enhanced with status indicators and better visual styling.
 //
 

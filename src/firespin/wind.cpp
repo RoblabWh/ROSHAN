@@ -22,7 +22,8 @@ void Wind::CalculateComponents() {
 }
 
 void Wind::SetRandomAngle() {
-    double wind_angle_ = random() * 2 * M_PI / RAND_MAX;
-    parameters_.SetWindAngle(wind_angle_);
+    // Draw from the seeded engine, not libc random() (which is never seeded)
+    std::uniform_real_distribution<double> dist(0.0, 2.0 * M_PI);
+    parameters_.SetWindAngle(dist(parameters_.gen_));
     this->UpdateWind();
 }

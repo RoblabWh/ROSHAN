@@ -19,7 +19,7 @@ public:
     }
 
     CellPeriodicallyHerbaceous() {
-        color_ = {240, 230, 140, 255};
+        color_ = CellStateColor(CellState::PERIODICALLY_HERBACEOUS);
         InitMappedColor();
         cell_burning_duration_ = 360;
         ignition_delay_time_ = 100;

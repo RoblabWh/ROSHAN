@@ -19,7 +19,7 @@ public:
     }
 
     CellLichensAndMosses() {
-        color_ = {255, 153, 204, 255};
+        color_ = CellStateColor(CellState::LICHENS_AND_MOSSES);
         InitMappedColor();
         cell_burning_duration_ = 240;
         ignition_delay_time_ = 100;

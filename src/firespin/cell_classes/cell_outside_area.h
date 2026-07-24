@@ -19,7 +19,7 @@ public:
     }
 
     CellOutsideArea() {
-        color_ = {25, 25, 25, 255};
+        color_ = CellStateColor(CellState::OUTSIDE_AREA);
         InitMappedColor();
         cell_burning_duration_ = 0;
         ignition_delay_time_ = 0;

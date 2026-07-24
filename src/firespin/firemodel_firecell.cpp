@@ -4,6 +4,8 @@
 
 #include <iostream>
 #include <array>
+#include <atomic>
+#include <mutex>
 #include "firemodel_firecell.h"
 
 // Singleton ICell instances — one per CellState, lazily initialized.
@@ -12,7 +14,10 @@
 // on every SetCellState call during fire propagation.
 static constexpr int kNumCellStates = CELL_STATE_COUNT;  // 17
 static std::array<ICell*, kNumCellStates> cell_singletons_{};
-static bool singletons_valid_ = false;
+// GridMap constructs FireCells from an OpenMP parallel loop, so lazy init
+// must be thread-safe: atomic fast path + mutex-guarded slow path.
+static std::atomic<bool> singletons_valid_{false};
+static std::mutex singletons_mutex_;
 
 static ICell* CreateCellForState(CellState state) {
     switch (state) {
@@ -38,18 +43,34 @@ static ICell* CreateCellForState(CellState state) {
 }
 
 static void EnsureCellSingletons() {
-    if (singletons_valid_) return;
+    if (singletons_valid_.load(std::memory_order_acquire)) return;
+    std::lock_guard<std::mutex> lock(singletons_mutex_);
+    if (singletons_valid_.load(std::memory_order_relaxed)) return;
     for (int i = 0; i < kNumCellStates; ++i) {
         delete cell_singletons_[i];
         cell_singletons_[i] = CreateCellForState(static_cast<CellState>(i));
     }
-    singletons_valid_ = true;
+    singletons_valid_.store(true, std::memory_order_release);
 }
 
 void InvalidateCellSingletons() {
     // Called when noise defaults change (SetCellNoise from UI).
     // Next GetCell() call will recreate them with updated defaults.
-    singletons_valid_ = false;
+    std::lock_guard<std::mutex> lock(singletons_mutex_);
+    singletons_valid_.store(false, std::memory_order_release);
+}
+
+// Jitter burning_duration_/tau_ign_ from a (episode_seed, x, y)-keyed local
+// stream (same pattern as GenerateNoiseMap): deterministic under the OpenMP
+// construction/reset loops and independent of global draw order — required
+// for reproducible maps and paired same-seed evaluation.
+void FireCell::JitterBurnParameters() {
+    std::seed_seq seq{parameters_.episode_seed_, x_, y_};
+    std::mt19937 gen(seq);
+    std::uniform_real_distribution<> dis(0.1, 0.2);
+    std::uniform_int_distribution<> sign_dis(-1, 1);
+    burning_duration_ += sign_dis(gen) * burning_duration_ * dis(gen);
+    tau_ign_ += sign_dis(gen) * tau_ign_ * dis(gen);
 }
 
 FireCell::FireCell(int x, int y, FireModelParameters &parameters, int raster_value)
@@ -80,10 +101,7 @@ FireCell::FireCell(int x, int y, FireModelParameters &parameters, int raster_val
 
     // Initialize random number generator
     real_dis_ = std::uniform_real_distribution<>(0.0, 1.0);
-    std::uniform_real_distribution<> dis(0.1, 0.2);
-    std::uniform_int_distribution<> sign_dis(-1, 1);
-    burning_duration_ += sign_dis(parameters_.gen_) * burning_duration_ * dis(parameters_.gen_);
-    tau_ign_ += sign_dis(parameters_.gen_) * tau_ign_ * dis(parameters_.gen_);
+    JitterBurnParameters();
     tau_ign_start_ = tau_ign_;
 
     convection_particle_emission_threshold_ = (burning_duration_ - 1) / num_convection_particles_;
@@ -306,9 +324,32 @@ void FireCell::ShowInfo(int rows, int cols) {
     ImGui::Text("Noise Size: %d", GetNoiseSize());
 }
 
+// Burn-progress ramp for cell fill, matching the fire particles' look:
+// fresh fire is bright orange-yellow, dying fire fades to dark red.
+// intensity = remaining fuel fraction in [0, 1].
+static Uint32 BurningColorARGB(double intensity) {
+    intensity = std::clamp(intensity, 0.0, 1.0);
+    Uint8 r, g, b = 0;
+    if (intensity <= 0.3) {
+        const double t = intensity / 0.3;
+        r = static_cast<Uint8>(128 + 127 * t);
+        g = static_cast<Uint8>(60 * t);
+    } else {
+        const double t = (intensity - 0.3) / 0.7;
+        r = 255;
+        g = static_cast<Uint8>(60 + 140 * t);
+    }
+    return (static_cast<Uint32>(255) << 24) | (static_cast<Uint32>(r) << 16) |
+           (static_cast<Uint32>(g) << 8) | static_cast<Uint32>(b);
+}
+
 Uint32 FireCell::GetMappedColor() {
     if (has_cached_color_) {
         return cached_mapped_color_;
+    }
+    if (cell_state_ == CellState::GENERIC_BURNING) {
+        const double total = burning_tick_ + burning_duration_;
+        return BurningColorARGB(total > 0 ? burning_duration_ / total : 1.0);
     }
     return cell_->GetMappedColor();
 }
@@ -373,10 +414,7 @@ void FireCell::Reset(int raster_value) {
     }
 
     real_dis_ = std::uniform_real_distribution<>(0.0, 1.0);
-    std::uniform_real_distribution<> dis(0.1, 0.2);
-    std::uniform_int_distribution<> sign_dis(-1, 1);
-    burning_duration_ += sign_dis(parameters_.gen_) * burning_duration_ * dis(parameters_.gen_);
-    tau_ign_ += sign_dis(parameters_.gen_) * tau_ign_ * dis(parameters_.gen_);
+    JitterBurnParameters();
     tau_ign_start_ = tau_ign_;
 
     convection_particle_emission_threshold_ = (burning_duration_ - 1) / num_convection_particles_;

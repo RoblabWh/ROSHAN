@@ -2,7 +2,7 @@
 // RewardPlot.h - Reward buffer visualization component for ImGui
 //
 // Renders a reward history plot with min/max/avg legend and highlighted current position.
-// Extracted from DrawBuffer static method in firemodel_imgui.cpp.
+// Extracted from DrawBuffer static method.
 //
 
 #ifndef ROSHAN_REWARDPLOT_H

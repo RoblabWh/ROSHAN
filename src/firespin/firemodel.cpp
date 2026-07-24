@@ -80,6 +80,18 @@ void FireModel::CheckReset() {
 }
 
 void FireModel::ResetGridMap(std::vector<std::vector<int>>* rasterData, bool full_reset) {
+    // Common random numbers: every episode's setup randomness (cell jitter,
+    // wind, groundstation, fires, drone starts) is a pure function of
+    // (seed_, episode index), so same-seed runs of different policies get
+    // identical initial conditions per episode regardless of how much
+    // randomness earlier episodes consumed.
+    parameters_.episode_counter_++;
+    parameters_.episode_seed_ = static_cast<int>(
+        static_cast<unsigned int>(parameters_.seed_) +
+        0x9e3779b9u * static_cast<unsigned int>(parameters_.episode_counter_));
+    std::seed_seq episode_seq{parameters_.seed_, parameters_.episode_counter_};
+    parameters_.gen_.seed(episode_seq);
+
     if (!gridmap_ || full_reset) {
         gridmap_ = std::make_shared<GridMap>(wind_, parameters_, rasterData);
     } else {
@@ -108,6 +120,16 @@ void FireModel::ResetGridMap(std::vector<std::vector<int>>* rasterData, bool ful
         // Init drones
         rl_handler_->ResetEnvironment(mode_);
     }
+
+    // Order-independent fingerprint of the episode's initial conditions;
+    // grep "\[Episode" and diff two same-seed runs to verify pairing.
+    unsigned int fire_fp = 0;
+    for (const auto& p : gridmap_->GetBurningCells()) {
+        fire_fp += static_cast<unsigned int>(p.x_) * 73856093u ^
+                   static_cast<unsigned int>(p.y_) * 19349663u;
+    }
+    std::cout << "[Episode " << parameters_.episode_counter_ << "] seed=" << parameters_.seed_
+              << " wind=" << parameters_.wind_angle_ << " fire_fp=" << fire_fp << std::endl;
 
     //Reset simulation time
     running_time_ = 0;

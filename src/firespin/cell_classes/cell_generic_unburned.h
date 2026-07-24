@@ -20,7 +20,7 @@ public:
     }
 
     CellGenericUnburned() {
-        color_ = {50, 190, 75, 255};
+        color_ = CellStateColor(CellState::GENERIC_UNBURNED);
         InitMappedColor();
         cell_burning_duration_ = 160; // currently overwritten by model parameters
         ignition_delay_time_ = 10; // currently overwritten by model parameters

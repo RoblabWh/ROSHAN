@@ -61,6 +61,7 @@ else()
     message(FATAL_ERROR "SDL2 or SDL2_image not found")
 endif()
 
+add_definitions(-DIMGUI_DEFINE_MATH_OPERATORS)  # required to include imgui_internal.h (DockBuilder)
 add_subdirectory(externals/pybind11)            # pybind11::module etc.
 add_subdirectory(externals/yaml-cpp)            # yaml-cpp target
 
@@ -70,8 +71,6 @@ file(GLOB IMGUI_SOURCES CONFIGURE_DEPENDS
 )
 add_library(imgui_external ${IMGUI_SOURCES}
         externals/imgui/backends/imgui_impl_sdl2.cpp
-        externals/imgui/backends/imgui_impl_opengl3.cpp
-        externals/imgui/backends/imgui_impl_opengl3.h
         externals/imgui/backends/imgui_impl_sdl2.h
         externals/imgui/backends/imgui_impl_sdlrenderer2.cpp
         externals/ImGuiFileDialog/ImGuiFileDialog.cpp
@@ -195,8 +194,7 @@ set(FIREMODEL_SOURCES
         src/firespin/cell_classes/cell_outside_area.cpp src/firespin/cell_classes/cell_outside_area.h
         src/firespin/cell_classes/cell_generic_burned.cpp src/firespin/cell_classes/cell_generic_burned.h
         src/firespin/rendering/firemodel_pixelbuffer.cpp src/firespin/rendering/firemodel_pixelbuffer.h
-        src/firespin/rendering/firemodel_imgui.cpp src/firespin/rendering/firemodel_imgui.h
-        # New modular ImGui UI
+        # Modular ImGui UI
         src/firespin/rendering/imgui/UITypes.h
         src/firespin/rendering/imgui/UIState.h
         src/firespin/rendering/imgui/UICallbacks.h
@@ -208,12 +206,10 @@ set(FIREMODEL_SOURCES
         src/firespin/rendering/imgui/components/DroneInfoWidget.h
         src/firespin/rendering/imgui/components/RewardPlot.h
         src/firespin/rendering/imgui/windows/IWindow.h
-        src/firespin/rendering/imgui/windows/SimulationControlsWindow.h
         src/firespin/rendering/imgui/windows/ParameterConfigWindow.h
         src/firespin/rendering/imgui/windows/StartupWizard.h
         src/firespin/rendering/imgui/windows/FileDialogWindow.h
         src/firespin/rendering/imgui/windows/CellPopupManager.h
-        src/firespin/rendering/imgui/windows/RLStatusWindow.h
         # New UI enhancements
         src/firespin/rendering/imgui/ThemeManager.h
         src/firespin/rendering/imgui/components/ProgressBar.h

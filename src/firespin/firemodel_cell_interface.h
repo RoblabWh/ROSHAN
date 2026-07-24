@@ -9,6 +9,32 @@
 #include "imgui.h"
 #include "utils.h"
 
+// Single source of truth for terrain colors: cell classes and the ImGui
+// legend/minimap both read from here.
+// Muted-naturalistic palette: terrain stays in a desaturated mid-luminance
+// band so the fire ramp (full saturation, bright) always dominates visually.
+inline SDL_Color CellStateColor(CellState state) {
+    switch (state) {
+        case CellState::GENERIC_UNBURNED:                  return {90, 138, 88, 255};
+        case CellState::SEALED:                            return {108, 108, 112, 255};
+        case CellState::WOODY_NEEDLE_LEAVED_TREES:         return {56, 96, 66, 255};
+        case CellState::WOODY_BROADLEAVED_DECIDUOUS_TREES: return {104, 130, 78, 255};
+        case CellState::WOODY_BROADLEAVED_EVERGREEN_TREES: return {62, 108, 72, 255};
+        case CellState::LOW_GROWING_WOODY_PLANTS:          return {110, 96, 70, 255};
+        case CellState::PERMANENT_HERBACEOUS:              return {156, 148, 104, 255};
+        case CellState::PERIODICALLY_HERBACEOUS:           return {168, 152, 110, 255};
+        case CellState::LICHENS_AND_MOSSES:                return {150, 130, 138, 255};
+        case CellState::NON_AND_SPARSLEY_VEGETATED:        return {170, 158, 136, 255};
+        case CellState::WATER:                             return {58, 90, 130, 255};
+        case CellState::SNOW_AND_ICE:                      return {200, 212, 218, 255};
+        case CellState::GENERIC_BURNING:                   return {255, 0, 0, 255};
+        case CellState::GENERIC_BURNED:                    return {48, 44, 42, 255};
+        case CellState::GENERIC_FLOODED:                   return {70, 130, 150, 255};
+        case CellState::OUTSIDE_AREA:                      return {25, 25, 25, 255};
+        default:                                           return {80, 80, 80, 255};
+    }
+}
+
 class ICell {
 public:
     virtual ~ICell() = default;

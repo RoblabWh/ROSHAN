@@ -19,7 +19,7 @@ public:
     }
 
     CellSealed() {
-        color_ = {100, 100, 100, 255};
+        color_ = CellStateColor(CellState::SEALED);
         InitMappedColor();
         cell_burning_duration_ = 15000;
         ignition_delay_time_ = 750;

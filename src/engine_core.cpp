@@ -3,6 +3,8 @@
 //
 
 #include "engine_core.h"
+#include "firespin/rendering/imgui/ThemeManager.h"
+#include "imgui_internal.h"
 #include <utility>
 
 bool EngineCore::Init(int mode, const std::string& config_path){
@@ -84,6 +86,21 @@ void EngineCore::Render() {
         ImGui_ImplSDL2_NewFrame();
         ImGui::NewFrame();
 
+        // Dockspace host: panels dock into side rails, the passthru central
+        // node stays empty so the SDL fire grid shows through behind it.
+        ImGuiID dockspace_id = ImGui::DockSpaceOverViewport(0, ImGui::GetMainViewport(),
+                                                            ImGuiDockNodeFlags_PassthruCentralNode);
+        if (needs_default_layout_) {
+            needs_default_layout_ = false;
+            ImGui::DockBuilderRemoveNodeChildNodes(dockspace_id);
+            ImGuiID main_id = dockspace_id;
+            ImGuiID right = ImGui::DockBuilderSplitNode(main_id, ImGuiDir_Right, 0.30f, nullptr, &main_id);
+            ImGuiID right_bottom = ImGui::DockBuilderSplitNode(right, ImGuiDir_Down, 0.35f, nullptr, &right);
+            ImGui::DockBuilderDockWindow("Control Panel", right);
+            ImGui::DockBuilderDockWindow("Simulation Parameters", right_bottom);
+            ImGui::DockBuilderFinish(dockspace_id);
+        }
+
         if(model_ != nullptr) {
             model_->ImGuiRendering(update_simulation_, render_simulation_, delay_, io_->Framerate);
         }
@@ -99,7 +116,7 @@ void EngineCore::Render() {
             SDL_SetRenderDrawColor(renderer_, color.r, color.g, color.b, color.a);
             SDL_RenderClear(renderer_);
         }
-        ImGui_ImplSDLRenderer2_RenderDrawData(ImGui::GetDrawData());
+        ImGui_ImplSDLRenderer2_RenderDrawData(ImGui::GetDrawData(), renderer_);
         SDL_RenderPresent(renderer_);
     }
 }
@@ -231,56 +248,6 @@ bool EngineCore::InitialModeSelectionDone() {
     return model_->InitialModeSelectionDone();
 }
 
-void EngineCore::StyleColorsEnemyMouse(ImGuiStyle* dst) {
-
-    ImGuiStyle* style = dst ? dst : &ImGui::GetStyle();
-    ImVec4* colors = style->Colors;
-
-    style->Alpha = 1.0;
-    style->ChildRounding = 3;
-    style->WindowRounding = 3;
-    style->GrabRounding = 1;
-    style->GrabMinSize = 20;
-    style->FrameRounding = 3;
-
-
-    colors[ImGuiCol_Text] = ImVec4(0.00f, 1.00f, 1.00f, 1.00f);
-    colors[ImGuiCol_TextDisabled] = ImVec4(0.00f, 0.40f, 0.41f, 1.00f);
-    colors[ImGuiCol_WindowBg] = ImVec4(0.00f, 0.00f, 0.00f, 1.00f);
-    colors[ImGuiCol_ChildBg] = ImVec4(0.00f, 0.00f, 0.00f, 0.00f);
-    colors[ImGuiCol_Border] = ImVec4(0.00f, 1.00f, 1.00f, 0.65f);
-    colors[ImGuiCol_BorderShadow] = ImVec4(0.00f, 0.00f, 0.00f, 0.00f);
-    colors[ImGuiCol_FrameBg] = ImVec4(0.44f, 0.80f, 0.80f, 0.18f);
-    colors[ImGuiCol_FrameBgHovered] = ImVec4(0.44f, 0.80f, 0.80f, 0.27f);
-    colors[ImGuiCol_FrameBgActive] = ImVec4(0.44f, 0.81f, 0.86f, 0.66f);
-    colors[ImGuiCol_TitleBg] = ImVec4(0.14f, 0.18f, 0.21f, 0.73f);
-    colors[ImGuiCol_TitleBgCollapsed] = ImVec4(0.00f, 0.00f, 0.00f, 0.54f);
-    colors[ImGuiCol_TitleBgActive] = ImVec4(0.00f, 1.00f, 1.00f, 0.27f);
-    colors[ImGuiCol_MenuBarBg] = ImVec4(0.00f, 0.00f, 0.00f, 0.20f);
-    colors[ImGuiCol_ScrollbarBg] = ImVec4(0.22f, 0.29f, 0.30f, 0.71f);
-    colors[ImGuiCol_ScrollbarGrab] = ImVec4(0.00f, 1.00f, 1.00f, 0.44f);
-    colors[ImGuiCol_ScrollbarGrabHovered] = ImVec4(0.00f, 1.00f, 1.00f, 0.74f);
-    colors[ImGuiCol_ScrollbarGrabActive] = ImVec4(0.00f, 1.00f, 1.00f, 1.00f);
-    colors[ImGuiCol_CheckMark] = ImVec4(0.00f, 1.00f, 1.00f, 0.68f);
-    colors[ImGuiCol_SliderGrab] = ImVec4(0.00f, 1.00f, 1.00f, 0.36f);
-    colors[ImGuiCol_SliderGrabActive] = ImVec4(0.00f, 1.00f, 1.00f, 0.76f);
-    colors[ImGuiCol_Button] = ImVec4(0.00f, 0.65f, 0.65f, 0.46f);
-    colors[ImGuiCol_ButtonHovered] = ImVec4(0.01f, 1.00f, 1.00f, 0.43f);
-    colors[ImGuiCol_ButtonActive] = ImVec4(0.00f, 1.00f, 1.00f, 0.62f);
-    colors[ImGuiCol_Header] = ImVec4(0.00f, 1.00f, 1.00f, 0.33f);
-    colors[ImGuiCol_HeaderHovered] = ImVec4(0.00f, 1.00f, 1.00f, 0.42f);
-    colors[ImGuiCol_HeaderActive] = ImVec4(0.00f, 1.00f, 1.00f, 0.54f);
-    colors[ImGuiCol_ResizeGrip] = ImVec4(0.00f, 1.00f, 1.00f, 0.54f);
-    colors[ImGuiCol_ResizeGripHovered] = ImVec4(0.00f, 1.00f, 1.00f, 0.74f);
-    colors[ImGuiCol_ResizeGripActive] = ImVec4(0.00f, 1.00f, 1.00f, 1.00f);
-    colors[ImGuiCol_Button] = ImVec4(0.00f, 0.78f, 0.78f, 0.35f);
-    colors[ImGuiCol_PlotLines] = ImVec4(0.00f, 1.00f, 1.00f, 1.00f);
-    colors[ImGuiCol_PlotLinesHovered] = ImVec4(0.00f, 1.00f, 1.00f, 1.00f);
-    colors[ImGuiCol_PlotHistogram] = ImVec4(0.00f, 1.00f, 1.00f, 1.00f);
-    colors[ImGuiCol_PlotHistogramHovered] = ImVec4(0.00f, 1.00f, 1.00f, 1.00f);
-    colors[ImGuiCol_TextSelectedBg] = ImVec4(0.00f, 1.00f, 1.00f, 0.22f);
-}
-
 bool EngineCore::SDLInit() {
 // Setup SDL
     if (SDL_Init(SDL_INIT_VIDEO | SDL_INIT_TIMER | SDL_INIT_GAMECONTROLLER) != 0)
@@ -327,6 +294,19 @@ bool EngineCore::ImGuiInit() {
     }
     io_->ConfigFlags |= ImGuiConfigFlags_NavEnableKeyboard;     // Enable Keyboard Controls
     io_->ConfigFlags |= ImGuiConfigFlags_NavEnableGamepad;      // Enable Gamepad Controls
+    io_->ConfigFlags |= ImGuiConfigFlags_DockingEnable;         // No viewports: SDLRenderer2 backend can't
+    // Stamp the default dock layout only when no saved layout exists
+    needs_default_layout_ = io_->IniFilename == nullptr || !std::filesystem::exists(io_->IniFilename);
+
+    // HiDPI: scale font and widget sizes by the framebuffer/window ratio
+    float dpi_scale = 1.0f;
+    int win_w = 0, out_w = 0;
+    SDL_GetWindowSize(window_, &win_w, nullptr);
+    SDL_GetRendererOutputSize(renderer_, &out_w, nullptr);
+    if (win_w > 0 && out_w > win_w) {
+        dpi_scale = static_cast<float>(out_w) / static_cast<float>(win_w);
+    }
+    ui::ThemeManager::SetUIScale(dpi_scale);
 
     // Change Font
     try {
@@ -339,7 +319,7 @@ bool EngineCore::ImGuiInit() {
                 0x0370, 0x03FF,   // Greek (includes μ)
                 0
         };
-        ImFont* font = io_->Fonts->AddFontFromFileTTF(path_to_font.c_str(), 13.0f, nullptr, ranges_mono);
+        ImFont* font = io_->Fonts->AddFontFromFileTTF(path_to_font.c_str(), 13.0f * dpi_scale, nullptr, ranges_mono);
         if (font == nullptr) {
             SDL_Log("Failed to load font from path: %s", path_to_font.c_str());
         }
@@ -353,8 +333,6 @@ bool EngineCore::ImGuiInit() {
     ImGuiStyle& style = ImGui::GetStyle();
     style.FrameBorderSize = 1.0f; // Set border size to 1.0f
     style.FrameRounding = 6.0f; // Set rounding to 5.0f
-
-    EngineCore::StyleColorsEnemyMouse(&style);
 
     // Setup Platform/Renderer backends
     if (!ImGui_ImplSDL2_InitForSDLRenderer(window_, renderer_)){

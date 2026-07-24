@@ -34,6 +34,9 @@ public:
 
     static Theme GetCurrentTheme() { return currentTheme_; }
 
+    // HiDPI scale applied on every theme (re)apply; set once at ImGui init.
+    static void SetUIScale(float scale) { uiScale_ = scale; }
+
     static void ApplyDarkTheme() {
         ImGuiStyle& style = ImGui::GetStyle();
         ImVec4* colors = style.Colors;
@@ -266,9 +269,12 @@ private:
         // Anti-aliasing
         style.AntiAliasedLines = true;
         style.AntiAliasedFill = true;
+
+        if (uiScale_ != 1.0f) style.ScaleAllSizes(uiScale_);
     }
 
     inline static Theme currentTheme_ = Theme::Dark;
+    inline static float uiScale_ = 1.0f;
 };
 
 } // namespace ui

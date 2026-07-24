@@ -244,6 +244,31 @@ std::pair<Uint32, int> ModifyColorWithGradient(Uint32 base_color, int x, int y, 
     return { (r << 24) | (g << 16) | (b << 8) | a, phase_offset };
 }
 
+// Deterministic per-cell brightness offset: per-cell hash jitter (breaks up
+// flat fields) + low-frequency sine light map (rolling-landscape shading).
+// Must stay a pure function of (gx, gy, seed) so incremental and full
+// redraws produce identical pixels.
+static int TerrainShadeOffset(int gx, int gy, int seed) {
+    unsigned int h = static_cast<unsigned int>(gx) * 73856093u ^
+                     static_cast<unsigned int>(gy) * 19349663u ^
+                     static_cast<unsigned int>(seed);
+    int jitter = static_cast<int>(h % 13u) - 6;
+    double p1 = static_cast<double>(seed % 628) * 0.01;
+    double p2 = static_cast<double>(seed % 314) * 0.02;
+    int macro = static_cast<int>(8.0 * std::sin(gx * 0.33 + p1) * std::sin(gy * 0.26 + p2));
+    return jitter + macro;
+}
+
+static Uint32 AddBrightnessARGB(Uint32 color, int offset) {
+    if (offset == 0) return color;
+    Uint8 a = (color >> 24) & 0xFF;
+    int r = std::clamp(static_cast<int>((color >> 16) & 0xFF) + offset, 0, 255);
+    int g = std::clamp(static_cast<int>((color >> 8) & 0xFF) + offset, 0, 255);
+    int b = std::clamp(static_cast<int>(color & 0xFF) + offset, 0, 255);
+    return (static_cast<Uint32>(a) << 24) | (static_cast<Uint32>(r) << 16) |
+           (static_cast<Uint32>(g) << 8) | static_cast<Uint32>(b);
+}
+
 SDL_Rect FireModelRenderer::DrawCell(int x, int y) {
     auto [screen_x, screen_y] = camera_.GridToScreenPosition(floor(x), floor(y));
     auto [next_screen_x, next_screen_y] = camera_.GridToScreenPosition(floor(x) + 1, floor(y) + 1);
@@ -262,6 +287,22 @@ SDL_Rect FireModelRenderer::DrawCell(int x, int y) {
             auto res = ModifyColorWithGradient(color, gx, gy, 0);
             color = res.first;
             phase_offset = res.second;
+        } else if (st == CellState::WATER) {
+            // Shoreline shading: lighten shallow water at land boundaries
+            int land_neighbors = 0;
+            const int nx[] = {gx - 1, gx + 1, gx, gx};
+            const int ny[] = {gy, gy, gy - 1, gy + 1};
+            for (int i = 0; i < 4; ++i) {
+                if (gridmap_->IsPointInGrid(nx[i], ny[i])) {
+                    CellState ns = gridmap_->GetCellState(nx[i], ny[i]);
+                    if (ns != CellState::WATER && ns != CellState::GENERIC_FLOODED)
+                        ++land_neighbors;
+                }
+            }
+            color = AddBrightnessARGB(color, std::min(land_neighbors * 7, 21));
+        } else if (st != CellState::GENERIC_FLOODED &&
+                   st != CellState::OUTSIDE_AREA && st != CellState::OUTSIDE_GRID) {
+            color = AddBrightnessARGB(color, TerrainShadeOffset(gx, gy, parameters_.seed_));
         }
         return std::pair<Uint32, int>(color, phase_offset);
     };
@@ -547,44 +588,7 @@ void FireModelRenderer::DrawGroundstation(const std::shared_ptr<Groundstation>& 
 }
 
 ImVec4 FireModelRenderer::GetMappedColor(int cell_type) {
-    SDL_Color color;
-    // Create switch statement for each cell type
-    switch (static_cast<CellState>(cell_type)) {
-        case CellState::GENERIC_UNBURNED:
-            color = {50, 190, 75, 255}; break;
-        case CellState::SEALED:
-            color = {100, 100, 100, 255}; break;
-        case CellState::WOODY_NEEDLE_LEAVED_TREES:
-            color = {0, 230, 0, 255}; break;
-        case CellState::WOODY_BROADLEAVED_DECIDUOUS_TREES:
-            color = {0, 150, 0, 255}; break;
-        case CellState::WOODY_BROADLEAVED_EVERGREEN_TREES:
-            color = {0, 255, 0, 255}; break;
-        case CellState::LOW_GROWING_WOODY_PLANTS:
-            color = {105, 76, 51, 255}; break;
-        case CellState::PERMANENT_HERBACEOUS:
-            color = {250, 218, 94, 255}; break;
-        case CellState::PERIODICALLY_HERBACEOUS:
-            color = {240, 230, 140, 255}; break;
-        case CellState::LICHENS_AND_MOSSES:
-            color = {255, 153, 204, 255}; break;
-        case CellState::NON_AND_SPARSLEY_VEGETATED:
-            color = {194, 178, 128, 255}; break;
-        case CellState::WATER:
-            color = {0, 0, 255, 255}; break;
-        case CellState::SNOW_AND_ICE:
-            color = {0, 255, 255, 255}; break;
-        case CellState::OUTSIDE_AREA:
-            color = {25, 25, 25, 255}; break;
-        case CellState::GENERIC_BURNING:
-            color = {255, 0, 0, 255}; break;
-        case CellState::GENERIC_BURNED:
-            color = { 42, 42, 42, 255 }; break;
-        case CellState::GENERIC_FLOODED:
-            color = {77, 187, 230, 255}; break;
-        default:
-            color = { 80, 80, 80, 255 }; break;
-    }
+    SDL_Color color = CellStateColor(static_cast<CellState>(cell_type));
     return {color.r / 255.0f, color.g / 255.0f, color.b / 255.0f, 1.0f};
 }
 

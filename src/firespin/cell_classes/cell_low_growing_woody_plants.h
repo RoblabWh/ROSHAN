@@ -19,7 +19,7 @@ public:
     }
 
     CellLowGrowingWoodyPlants() {
-        color_ = {105, 76, 51, 255};
+        color_ = CellStateColor(CellState::LOW_GROWING_WOODY_PLANTS);
         InitMappedColor();
         cell_burning_duration_ = 720;
         ignition_delay_time_ = 120;

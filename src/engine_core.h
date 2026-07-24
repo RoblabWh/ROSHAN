@@ -93,8 +93,7 @@ private:
 
     // Flags
     Mode mode_;
-
-    static void StyleColorsEnemyMouse(ImGuiStyle *dst);
+    bool needs_default_layout_ = false;
 
 };
 

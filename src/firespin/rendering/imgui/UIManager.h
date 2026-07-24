@@ -1,8 +1,7 @@
 //
 // UIManager.h - Central UI orchestrator
 //
-// Manages all ImGui windows and replaces ImguiHandler.
-// Provides the same interface as ImguiHandler for easy integration.
+// Manages all ImGui windows.
 //
 
 #ifndef ROSHAN_UIMANAGER_H
@@ -13,12 +12,10 @@
 #include "UICallbacks.h"
 #include "ThemeManager.h"
 #include "MenuBar.h"
-#include "windows/SimulationControlsWindow.h"
 #include "windows/ParameterConfigWindow.h"
 #include "windows/StartupWizard.h"
 #include "windows/FileDialogWindow.h"
 #include "windows/CellPopupManager.h"
-#include "windows/RLStatusWindow.h"
 #include "windows/ControlPanelWindow.h"
 
 #include "firespin/model_parameters.h"
@@ -92,7 +89,7 @@ public:
     // Open browser helper
     static void OpenBrowser(const std::string& url);
 
-    // Callbacks - same interface as ImguiHandler
+    // Callbacks
     std::function<void()> onResetDrones;
     std::function<void()> onSetUniformRasterData;
     std::function<void(std::vector<std::vector<int>>*, bool)> onResetGridMap;
@@ -128,12 +125,10 @@ private:
     std::string* modelOutput_ = nullptr;
 
     // Windows
-    std::unique_ptr<SimulationControlsWindow> simulationControls_;
     std::unique_ptr<ParameterConfigWindow> parameterConfig_;
     std::unique_ptr<StartupWizard> startupWizard_;
     std::unique_ptr<FileDialogWindow> fileDialog_;
     std::unique_ptr<CellPopupManager> cellPopups_;
-    std::unique_ptr<RLStatusWindow> rlStatus_;
     std::unique_ptr<ControlPanelWindow> controlPanel_;
     std::unique_ptr<MenuBar> menuBar_;
 

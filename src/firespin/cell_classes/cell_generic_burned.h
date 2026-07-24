@@ -18,7 +18,7 @@ public:
     }
 
     CellGenericBurned() {
-        color_ = { 42, 42, 42, 255 };
+        color_ = CellStateColor(CellState::GENERIC_BURNED);
         InitMappedColor();
         cell_burning_duration_ = 0;
         ignition_delay_time_ = -1;
