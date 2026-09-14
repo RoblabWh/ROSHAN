@@ -160,6 +160,29 @@ class PercentBurnedMetric(Metric):
         if stats["terminal_result"].env_reset:
             self.value = float(stats["percent_burned"])
 
+class _SummaryIdMetric(Metric):
+    """Per-episode scenario identifier copied from the C++ EpisodeSummary (see utils.h).
+    Written to evaluation_stats.csv so analysis/paired_eval.py can pair episodes across runs."""
+    field = ""
+    def __init__(self, name: str) -> None:
+        super().__init__(name, dtype="int", agg="last")
+    def reset(self) -> None: self.value = 0
+    def update(self, stats: Dict[str, Any], hierarchy_steps=None) -> None:
+        if stats["terminal_result"].env_reset:
+            self.value = int(getattr(stats["terminal_result"], self.field))
+
+class EpisodeIndexMetric(_SummaryIdMetric):
+    field = "episode_index"
+    def __init__(self) -> None: super().__init__("Episode_Index")
+
+class EpisodeSeedMetric(_SummaryIdMetric):
+    field = "episode_seed"
+    def __init__(self) -> None: super().__init__("Episode_Seed")
+
+class FingerprintMetric(_SummaryIdMetric):
+    field = "episode_fingerprint"
+    def __init__(self) -> None: super().__init__("Fire_Fingerprint")
+
 class SuccessMetric(Metric):
     def __init__(self) -> None:
         super().__init__("Success", dtype="percent", agg="rate")

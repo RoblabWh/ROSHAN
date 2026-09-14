@@ -1,6 +1,7 @@
 from networks.network_planner import PointerActor, PointerCritic, PointerOffPolicyCritic, PointerValue
 from torch.utils.data.sampler import BatchSampler, SubsetRandomSampler
 import numpy as np
+from scipy.optimize import linear_sum_assignment
 import torch.nn as nn
 import torch
 import firesim
@@ -38,9 +39,11 @@ class PlannerAgent(Agent):
         # ResetEnvironment so the planner can actually assign initial goals (FlyAgent
         # spawns are independent of initial goal coordinates — see rl_handler.cpp:225-237).
         self._first_decision_done = False
-        # Eval-only heuristic baseline: greedy nearest-fire assignment instead of the
-        # pointer network. Set from config in agent_builder.
+        # Eval-only heuristic baseline instead of the pointer network. Set from config
+        # in agent_builder; heuristic_method picks the assignment rule
+        # ("greedy" | "hungarian", see greedy_actions / hungarian_actions).
         self.heuristic_goals = False
+        self.heuristic_method = "greedy"
 
     def get_num_agents(self, num_agents):
         return 1
@@ -135,18 +138,15 @@ class PlannerAgent(Agent):
         overridden = np.where(locked_mask[..., None], prev_goal, sampled)
         return overridden.astype(np.float32, copy=False), locked_mask
 
-    def greedy_actions(self, state):
-        """Heuristic baseline: greedy nearest-pair goal assignment (eval-only).
+    def _baseline_setup(self, state):
+        """Shared preamble of the heuristic baselines (eval-only).
 
-        Same machinery as the learned planner everywhere else — FlyAgent network,
-        commitment lock, event replans, water release — only the assignment rule
-        differs: closest (free drone, unassigned fire) pairs are matched first;
-        low-water drones and left-over drones go to the groundstation (index 0).
-        Fires already targeted by committed (locked) drones are excluded, mirroring
-        the pointer decoder's commitment seed. Reads the same observation dict, so
-        eval_ground_truth_fires applies identically.
-
-        Returns coords (1, N, 2) float32 — same contract as act_certain.
+        Returns ``(drone_pos (N,2), fire_pos (K,2), free, fires, actions (N,2))``:
+        ``free`` = drones not forced to refuel, ``fires`` = valid, unassigned fire
+        indices (groundstation index 0 and fires held by committed drones excluded,
+        mirroring the pointer decoder's commitment seed), ``actions`` = every drone
+        defaulted to the groundstation. Reads the same observation dict as the
+        network, so eval_ground_truth_fires applies identically.
         """
         def _last(arr):
             a = np.asarray(arr)
@@ -154,12 +154,12 @@ class PlannerAgent(Agent):
                 a = a[:, -1]
             return a
 
-        drone_pos = _last(state["drone_positions"]).astype(np.float32)  # (1, N, 2)
-        fire_pos = _last(state["fire_positions"]).astype(np.float32)    # (1, K, 2)
-        n = drone_pos.shape[1]
-        gs = fire_pos[0, 0]
+        drone_pos = _last(state["drone_positions"]).astype(np.float32)[0]  # (N, 2)
+        fire_pos = _last(state["fire_positions"]).astype(np.float32)[0]    # (K, 2)
+        n = drone_pos.shape[0]
+        gs = fire_pos[0]
 
-        valid = np.ones(fire_pos.shape[1], dtype=bool)
+        valid = np.ones(fire_pos.shape[0], dtype=bool)
         if "fire_positions_mask" in state:
             valid = np.asarray(_last(state["fire_positions_mask"])).reshape(-1) > 0.5
         valid[0] = False  # GS is the fallback, not a fire target
@@ -167,11 +167,11 @@ class PlannerAgent(Agent):
         # Exclude fires a committed drone is already flying to (same lock rule as
         # apply_commitment: not yet at prev_goal). One-step over-reservation on the
         # first decision after reset is harmless — mirrors _commitment_seed.
-        prev_goal = _last(state["goal_positions"]).astype(np.float32)   # (1, N, 2)
-        at_goal = np.linalg.norm(drone_pos - prev_goal, axis=-1)[0] < _LOCK_AT_GOAL_EPS
+        prev_goal = _last(state["goal_positions"]).astype(np.float32)[0]  # (N, 2)
+        at_goal = np.linalg.norm(drone_pos - prev_goal, axis=-1) < _LOCK_AT_GOAL_EPS
         for i in range(n):
             if not at_goal[i]:
-                taken = np.linalg.norm(fire_pos[0] - prev_goal[0, i], axis=-1) < _LOCK_MATCH_EPS
+                taken = np.linalg.norm(fire_pos - prev_goal[i], axis=-1) < _LOCK_MATCH_EPS
                 valid &= ~taken
 
         threshold = float(getattr(self, "water_refuel_threshold", 0.0))
@@ -185,15 +185,43 @@ class PlannerAgent(Agent):
         actions = np.tile(gs, (n, 1)).astype(np.float32)  # default: groundstation
         free = [i for i in range(n) if not needs_gs[i]]
         fires = list(np.flatnonzero(valid))
+        return drone_pos, fire_pos, free, fires, actions
+
+    def greedy_actions(self, state):
+        """Heuristic baseline: greedy nearest-pair goal assignment (eval-only).
+
+        Same machinery as the learned planner everywhere else — FlyAgent network,
+        commitment lock, event replans, water release — only the assignment rule
+        differs: closest (free drone, unassigned fire) pairs are matched first;
+        low-water drones and left-over drones go to the groundstation (index 0).
+
+        Returns coords (1, N, 2) float32 — same contract as act_certain.
+        """
+        drone_pos, fire_pos, free, fires, actions = self._baseline_setup(state)
         if free and fires:
-            d = np.linalg.norm(
-                drone_pos[0, free][:, None, :] - fire_pos[0, fires][None, :, :], axis=-1)
+            d = np.linalg.norm(drone_pos[free][:, None, :] - fire_pos[fires][None, :, :], axis=-1)
             while free and fires:
                 r, c = np.unravel_index(np.argmin(d), d.shape)
-                actions[free[r]] = fire_pos[0, fires[c]]
+                actions[free[r]] = fire_pos[fires[c]]
                 free.pop(r)
                 fires.pop(c)
                 d = np.delete(np.delete(d, r, axis=0), c, axis=1)
+        return actions[None, ...]  # (1, N, 2)
+
+    def hungarian_actions(self, state):
+        """Heuristic baseline: minimum-total-distance assignment (eval-only).
+
+        Same preamble and fallbacks as greedy_actions; the (free drone, fire)
+        matching minimises the summed Euclidean distance with the Hungarian
+        algorithm instead of nearest-pair peeling. Surplus drones (more drones
+        than fires) stay at the groundstation, like greedy.
+        """
+        drone_pos, fire_pos, free, fires, actions = self._baseline_setup(state)
+        if free and fires:
+            d = np.linalg.norm(drone_pos[free][:, None, :] - fire_pos[fires][None, :, :], axis=-1)
+            rows, cols = linear_sum_assignment(d)
+            for r, c in zip(rows, cols):
+                actions[free[r]] = fire_pos[fires[c]]
         return actions[None, ...]  # (1, N, 2)
 
     @staticmethod

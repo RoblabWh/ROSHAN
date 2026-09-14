@@ -118,6 +118,11 @@ public:
     void AppendDistance(const std::vector<double> &dist) {distance_to_other_agents_.push_back(dist);}
     void AppendMask(bool mask) {distance_mask_.push_back(mask);}
     double GetWaterCapacity() const { return water_capacity_; }
+    // Live tank fill fraction in [0, 1]; same normalization as PlannerAgent::BuildAgentState.
+    double GetWaterCapacityNorm() const {
+        const auto max = static_cast<double>(parameters_.GetWaterCapacity());
+        return max > 0.0 ? std::min(std::max(water_capacity_ / max, 0.0), 1.0) : 1.0;
+    }
     double GetNormScale() const { return norm_scale_; }
     std::vector<std::vector<double>> GetDistancesToOtherAgents() const { return distance_to_other_agents_; }
     std::vector<bool> GetDistanceMask() const { return distance_mask_; }

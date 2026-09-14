@@ -541,6 +541,9 @@ StepResult ReinforcementLearningHandler::Step(const std::string& agent_type, std
             // (e.g. PlannerAgent -> Environment Reset doesn't trigger when FlyAgents reach their GoalPos)
             result.summary.env_reset = result.summary.env_reset || terminal_state.is_terminal;
             result.summary.any_failed |= terminal_state.kind == TerminationKind::Failed;
+            result.summary.episode_index = parameters_.episode_counter_;
+            result.summary.episode_seed = parameters_.seed_;
+            result.summary.episode_fingerprint = parameters_.episode_fingerprint_;
             if (terminal_state.is_terminal) {
                 result.summary.reason = terminal_state.reason;
                 result.summary.time_used_frac = parameters_.total_env_steps_ > 0

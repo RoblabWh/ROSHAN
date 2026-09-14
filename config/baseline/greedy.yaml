@@ -1,0 +1,6 @@
+# Greedy nearest-pair assignment instead of the pointer network (eval only). `--baseline greedy`.
+environment:
+  agent:
+    planner_agent:
+      heuristic_goals: true
+      heuristic_method: greedy

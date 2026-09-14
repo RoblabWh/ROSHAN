@@ -18,13 +18,14 @@ class TrainingMonitor:
 
         self.tensorboard = TensorboardLogger(log_dir=logging_path, resume=is_loading)
 
-        if not is_loading:
-            root_model_path = algorithm.model_path
-            config_path = os.path.join(root_model_path, "config.yaml")
-            # Snapshot the effective config as plain, resolved YAML (handles DictConfig).
+        # Snapshot the effective config as plain, resolved YAML (handles DictConfig) into the
+        # write dir — also for eval arms with paths.run_dir set, so every arm is reproducible.
+        # Skipped only when loading in place (it would clobber the trained run's snapshot).
+        in_place = is_loading and os.path.abspath(str(algorithm.model_path)) == os.path.abspath(str(algorithm.loading_path))
+        if not in_place:
             from config_loader import dump_resolved
-            dump_resolved(config, config_path)
-        else:
+            dump_resolved(config, os.path.join(algorithm.model_path, "config.yaml"))
+        if is_loading:
             self.sim_bridge.set("current_episode", self.tensorboard.episode)
             self.sim_bridge.set("current_objective", self.tensorboard.best_metrics["current_objective"])
             self.sim_bridge.set("best_objective", self.tensorboard.best_metrics["best_objective"])

@@ -59,6 +59,58 @@ def split_args(argv: List[str]) -> Tuple[List[str], List[str]]:
     return overlays, dotlist
 
 
+def expand_flags(argv: List[str]) -> Tuple[List[str], Optional[dict]]:
+    """Expand short run-mode flags into overlays / dotted overrides, appended AFTER the
+    positional ones so they win (config/exp/* overlays re-pin rl_mode: train, mode: 2).
+
+    --eval / --watch            -> config/mode/{eval,watch}.yaml
+    --baseline greedy|hungarian -> config/baseline/<x>.yaml
+    --model-dir DIR             -> paths.model_directory=DIR (load-from) AND, when DIR/config.yaml
+                                   exists, that trained snapshot is returned as a base overlay
+                                   (architecture + env of the checkpoint; run-specific settings
+                                   and paths stripped) so a bare `--watch --model-dir X` works.
+    --model-name                -> paths.model_name
+    --run-dir                   -> paths.run_dir                              (write-to)
+    --n / --seed                -> settings.auto_train.max_eval / settings.seed
+
+    Returns (argv, snapshot) — merge ``snapshot`` right after base, before the argv overlays.
+    """
+    import argparse
+    p = argparse.ArgumentParser(add_help=False)
+    p.add_argument("--eval", action="store_true")
+    p.add_argument("--watch", action="store_true")
+    p.add_argument("--baseline", choices=("greedy", "hungarian"))
+    p.add_argument("--model-dir")
+    p.add_argument("--model-name")
+    p.add_argument("--run-dir")
+    p.add_argument("--n", type=int)
+    p.add_argument("--seed", type=int)
+    a, rest = p.parse_known_args(argv)
+    overlays = [f"config/mode/{m}.yaml" for m in ("eval", "watch") if getattr(a, m)]
+    if a.baseline:
+        overlays.append(f"config/baseline/{a.baseline}.yaml")
+    dotted = {"paths.model_directory": a.model_dir, "paths.model_name": a.model_name,
+              "paths.run_dir": a.run_dir, "settings.auto_train.max_eval": a.n, "settings.seed": a.seed}
+    snapshot = model_snapshot(a.model_dir) if a.model_dir else None
+    return rest + overlays + [f"{k}={v}" for k, v in dotted.items() if v is not None], snapshot
+
+
+def model_snapshot(model_dir: str) -> Optional[dict]:
+    """``<model_dir>/config.yaml`` as a dict overlay, or None if absent. Keeps what the
+    checkpoint depends on (algorithm, environment, fire_model, hierarchy_type, init_map);
+    drops everything run-specific (the rest of settings, model/run paths) so mode overlays,
+    --seed, --n and --run-dir behave as if the snapshot were base."""
+    path = os.path.join(get_project_paths("root_path"), model_dir, "config.yaml")
+    if not os.path.exists(path):
+        return None
+    with open(path) as f:
+        snap = yaml.safe_load(f) or {}
+    snap["settings"] = {"hierarchy_type": snap.get("settings", {}).get("hierarchy_type")}
+    for k in ("model_directory", "model_name", "run_dir"):
+        snap.get("paths", {}).pop(k, None)
+    return snap
+
+
 def _validate_dotlist_keys(cfg, dotlist: List[str]) -> None:
     """Reject CLI override keys that don't already exist in the merged config —
     this catches typos (the most common override mistake) with a clear error
@@ -87,8 +139,8 @@ def load_config(overlay_paths: Optional[List[str]] = None,
     dotlist = list(dotlist or [])
 
     cfg = OmegaConf.load(_resolve(base_path))
-    for p in overlay_paths:
-        cfg = OmegaConf.merge(cfg, OmegaConf.load(_resolve(p)))
+    for p in overlay_paths:  # a path, or an already-loaded dict (e.g. a model snapshot)
+        cfg = OmegaConf.merge(cfg, p if isinstance(p, dict) else OmegaConf.load(_resolve(p)))
     if dotlist:
         _validate_dotlist_keys(cfg, dotlist)
         cfg = OmegaConf.merge(cfg, OmegaConf.from_dotlist(dotlist))

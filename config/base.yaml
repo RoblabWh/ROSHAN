@@ -63,6 +63,11 @@ paths:
   # You can fast load models with suffixes ["latest", "best_reward", "best_obj"]
   # If you want to load a specific model, set the model_name to the name of the model file
   model_name: "latest"
+  # Where THIS run writes (logs/, evaluation_stats.csv, tensorboard_logs/, config.yaml, networks/,
+  # checkpoints). Empty = model_directory (in-place, the old behaviour). Set it for eval / baseline
+  # arms so the trained model dir is never touched: model_directory is then load-from only.
+  # Not supported together with skip_gui_init: false (GUI-chosen paths override it).
+  run_dir: ""
   # Name of the CORINE dataset-file, Path to the Corine dataset file must be set in project_paths.json (generated default paths at compile time)
   corine_dataset_name: CLMS_CLCplus_RASTER_2021_010m_eu_03035_V1_1.tif
   # This map is used in NoGUI & skip_gui_init setup, if left empty("") the default map (uniform map) will be used.
@@ -438,6 +443,10 @@ environment:
       # left-over drones -> groundstation). Everything else — FlyAgent network, commitment
       # lock, event replans, water release — is identical to the learned planner.
       heuristic_goals: false
+      # Assignment rule for that baseline (only used when heuristic_goals is true):
+      # "greedy" = nearest free-drone/fire pairs first; "hungarian" = minimum-total-distance
+      # matching (scipy linear_sum_assignment). Same preamble and fallbacks either way.
+      heuristic_method: greedy
       # Lower clamp bound for the learned log_assignment_penalty in the pointer decoder.
       # -3.0 = legacy symmetric bound (penalty can decay to exp(-3) ~ 0.05). 0.0 floors the
       # duplicate penalty at exp(0) = 1 so PPO can strengthen but not erase it (counters

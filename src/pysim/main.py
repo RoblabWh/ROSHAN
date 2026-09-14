@@ -1,9 +1,10 @@
 import yaml
+import tempfile
 import optuna
 import os, shutil
 import sys
 from utils import SimulationBridge, get_project_paths, looks_like_a_notebook
-from config_loader import load_config, split_args, dump_resolved, validate_config
+from config_loader import load_config, split_args, expand_flags, dump_resolved, validate_config
 import logging
 
 module_directory = get_project_paths('module_directory')
@@ -136,10 +137,14 @@ def sim(config : dict, overrides: dict = None, trial=None):
     validate_config(config)   # structural + type gate (every C++ key present & well-typed)
     assert_config(config)     # semantic / cross-field rules
 
-    # Always save the effective (merged + override-applied) config to a dummy file in
-    # the root directory. The C++ engine parses THIS file (yaml-cpp), so it must be
-    # plain, fully-resolved YAML — dump_resolved handles that for both dict and DictConfig.
-    dummy_config_path = os.path.join(get_project_paths("root_path"), "used_config.yaml")
+    # Save the effective (merged + override-applied) config twice, as plain fully-resolved
+    # YAML (dump_resolved): once to <root>/used_config.yaml as a human-readable "last run"
+    # copy (informational only — concurrent launches overwrite each other here), and once to
+    # a per-process temp file that the C++ engine (yaml-cpp) actually parses in Init, so
+    # parallel launches with different overrides never read each other's config.
+    dump_resolved(config, os.path.join(get_project_paths("root_path"), "used_config.yaml"))
+    with tempfile.NamedTemporaryFile(prefix="roshan_used_config_", suffix=".yaml", delete=False) as tf:
+        dummy_config_path = tf.name
     dump_resolved(config, dummy_config_path)
 
     if config["settings"].get("pytorch_detect_anomaly"):
@@ -166,7 +171,10 @@ def sim(config : dict, overrides: dict = None, trial=None):
 
     # Initialize the EngineCore and send the RL_Status
     engine = firesim.EngineCore()
-    engine.Init(config["settings"]["mode"], dummy_config_path)
+    try:
+        engine.Init(config["settings"]["mode"], dummy_config_path)
+    finally:
+        os.remove(dummy_config_path)  # the engine reads it exactly once, inside Init
     engine.SendRLStatusToModel(sim_bridge.get_status())
     engine.InitializeMap()
 
@@ -200,26 +208,29 @@ def sim(config : dict, overrides: dict = None, trial=None):
     # Check if the model_folder is empty, if not, ask the user if they want to proceed (and delete the contents in the folder)
     # The content only needs to be deleted if the resume parameter is set to False
     engine.HandleEvents()
-    if os.path.exists(sim_bridge.get("model_path")) and engine.IsRunning():
-        if os.listdir(sim_bridge.get("model_path")) and not (sim_bridge.get("resume") or (sim_bridge.get("rl_mode") == "eval")):
-            # Ask the user here if they want to delete the contents of the model path
+    # A fresh training run writes to paths.run_dir (or model_directory when empty).
+    run_dir = config["paths"].get("run_dir", "") or ""
+    write_dir = os.path.join(get_project_paths("root_path"), run_dir) if run_dir else sim_bridge.get("model_path")
+    if os.path.exists(write_dir) and engine.IsRunning():
+        if os.listdir(write_dir) and not (sim_bridge.get("resume") or (sim_bridge.get("rl_mode") == "eval")):
+            # Ask the user here if they want to delete the contents of the write dir
             # If the user does not want to delete the contents, we will exit the program
             if config["settings"]["mode"] != 0:  # GUI Mode only ask in non-GUI mode
                 if not looks_like_a_notebook():
-                    user_input = input(f"Do you want to delete the contents of {sim_bridge.get('model_path')}? (y/n): ")
+                    user_input = input(f"Do you want to delete the contents of {write_dir}? (y/n): ")
                     if user_input.lower() != 'y':
                         print("Exiting program.")
                         engine.Clean()
                         return
                 else:
                     print(f"\033[31mNotebook environment detected. For safety reasons, exiting program to avoid accidental data loss."
-                          f"\nIf you want to overwrite your training session, please delete the contents of {sim_bridge.get('model_path')} manually and restart\033[0m")
+                          f"\nIf you want to overwrite your training session, please delete the contents of {write_dir} manually and restart\033[0m")
                     engine.Clean()
                     return
-            # Go through all files and directories in the model path and delete them
-            print(f"Deleting contents of {sim_bridge.get('model_path')}...")
-            for filename in os.listdir(sim_bridge.get("model_path")):
-                file_path = os.path.join(sim_bridge.get("model_path"), filename)
+            # Go through all files and directories in the write dir and delete them
+            print(f"Deleting contents of {write_dir}...")
+            for filename in os.listdir(write_dir):
+                file_path = os.path.join(write_dir, filename)
                 try:
                     if os.path.isfile(file_path) or os.path.islink(file_path):
                         os.unlink(file_path)
@@ -374,9 +385,12 @@ if __name__ == '__main__':
     # Layered config: positional *.yaml args are overlays merged (in order) on top of
     # config/base.yaml; key=value args are dotted-path overrides applied last. A legacy
     # full config (e.g. config_planner.yaml) still works as an overlay.
-    overlays, dotlist = split_args(sys.argv[1:])
-    print(f"Config: base + overlays={overlays} overrides={dotlist}")
-    config_ = load_config(overlays, dotlist)
+    # Short flags (--eval, --watch, --baseline X, --model-dir, --run-dir, --n, --seed) expand
+    # to overlays / overrides appended after the positional ones (see config_loader.expand_flags).
+    argv, snapshot = expand_flags(sys.argv[1:])
+    overlays, dotlist = split_args(argv)
+    print(f"Config: base + {'model config.yaml + ' if snapshot else ''}overlays={overlays} overrides={dotlist}")
+    config_ = load_config(([snapshot] if snapshot else []) + overlays, dotlist)
     if not config_["settings"]["optuna"]["use_optuna"]:
         metric = sim(config_)
         print(f"Final Objective: {metric}")

@@ -114,9 +114,11 @@ class AgentHandler:
                 log += (f"Load model from checkpoint: {os.path.join(self.algorithm.loading_path, self.algorithm.loading_name)}"
                         f" - Model set to evaluation mode")
             else:
-                self.algorithm.set_train()
-                self.rl_mode = "train"
-                log +=  "No checkpoint found to evaluate model, start training from scratch"
+                # Never silently train in eval mode: a baseline/eval arm that trains from
+                # scratch would write garbage into the run dir and go unnoticed.
+                raise RuntimeError(
+                    f"Eval mode but checkpoint could not be loaded from "
+                    f"{os.path.join(self.algorithm.loading_path, self.algorithm.loading_name)} (see warning above)")
         elif self.resume:
             if self.algorithm.load():
                 self.algorithm.set_train()
@@ -304,9 +306,11 @@ class AgentHandler:
             elif self.current_obs is None:
                 self.current_obs = self._get_obs(engine)
             if getattr(self.agent_type, "heuristic_goals", False):
-                # Greedy nearest-fire assignment baseline (planner-only); the loaded
-                # pointer network is bypassed, everything else stays identical.
-                actions = self.agent_type.greedy_actions(self.current_obs)
+                # Assignment-rule baseline (planner-only): greedy_actions or
+                # hungarian_actions per heuristic_method (validated in agent_builder);
+                # the loaded pointer network is bypassed, everything else stays identical.
+                method = getattr(self.agent_type, "heuristic_method", "greedy")
+                actions = getattr(self.agent_type, f"{method}_actions")(self.current_obs)
             elif self.eval_sampling and hasattr(self.agent_type, "apply_commitment"):
                 # Diagnostic: evaluate the stochastic policy (sample like training
                 # rollouts) instead of argmax. Planner-only; sub-agents stay certain.

@@ -9,6 +9,9 @@ from metrics import (
     PercentBurnedMetric,
     SuccessMetric,
     FailureReason,
+    EpisodeIndexMetric,
+    EpisodeSeedMetric,
+    FingerprintMetric,
 )
 from metrics_plotter import MetricsPlotter
 from tensorboard_logger import TensorboardLogger
@@ -20,6 +23,9 @@ METRIC_REGISTRY: List[Type[Metric]] = [
     PercentBurnedMetric,
     SuccessMetric,
     FailureReason,
+    EpisodeIndexMetric,
+    EpisodeSeedMetric,
+    FingerprintMetric,
 ]
 
 METRIC_REGISTRY_FLY_AGENT: List[Type[Metric]] = [
@@ -27,6 +33,9 @@ METRIC_REGISTRY_FLY_AGENT: List[Type[Metric]] = [
     TimeMetric,
     SuccessMetric,
     FailureReason,
+    EpisodeIndexMetric,
+    EpisodeSeedMetric,
+    FingerprintMetric,
 ]
 
 
@@ -167,7 +176,8 @@ class Evaluator:
             if self.tb_logger is not None and self.log_eval:
                 tb_metrics = {k: v for k, v in metrics.items()
                               if k not in ("episode", "episode_over", "Failure_Reason",
-                                           "Failure_Reason_counts", "Failure_Reason_perc", "Failure_Reason_n")}
+                                           "Failure_Reason_counts", "Failure_Reason_perc", "Failure_Reason_n",
+                                           "Episode_Index_last", "Episode_Seed_last", "Fire_Fingerprint_last")}
                 self.tb_logger.add_metric(tb_metrics)
                 self.tb_logger.summarize(eval_mode=True)
 

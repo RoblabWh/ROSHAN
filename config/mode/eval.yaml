@@ -1,0 +1,4 @@
+# Headless evaluation. Layer LAST (exp overlays re-pin rl_mode: train). `--eval` expands to this.
+settings:
+  rl_mode: eval
+  mode: 2

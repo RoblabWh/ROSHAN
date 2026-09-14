@@ -63,7 +63,10 @@ PYBIND11_MODULE(firesim, m) {
             .def_readonly("explorers_reached_goal", &EpisodeSummary::explorers_reached_goal)
             .def_readonly("replan_recommended", &EpisodeSummary::replan_recommended)
             .def_readonly("reason",          &EpisodeSummary::reason)
-            .def_readonly("time_used_frac", &EpisodeSummary::time_used_frac);
+            .def_readonly("time_used_frac", &EpisodeSummary::time_used_frac)
+            .def_readonly("episode_index", &EpisodeSummary::episode_index)
+            .def_readonly("episode_seed", &EpisodeSummary::episode_seed)
+            .def_readonly("episode_fingerprint", &EpisodeSummary::episode_fingerprint);
 
     py::class_<StepResult>(m, "StepResult")
             .def_readonly("rewards",           &StepResult::rewards)

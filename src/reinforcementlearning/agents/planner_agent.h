@@ -52,6 +52,7 @@ public:
 
     AgentTerminal GetTerminalStates(bool eval_mode, const std::shared_ptr<GridMap>& grid_map, int total_env_steps) override;
     void SetEvalMode(bool eval_mode) { eval_mode_ = eval_mode; }
+    const std::vector<std::shared_ptr<FlyAgent>>& GetFlyAgents() const { return fly_agents_; }
 private:
     void InitializePlannerAgentStates(const std::shared_ptr<GridMap> &grid_map);
     // Computes Φ(s) = w_f·Φ_fire + w_w·Φ_water + w_d·Φ_dist for the current grid state.

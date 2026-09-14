@@ -1,0 +1,5 @@
+# Inference with the GUI, nothing logged (no CSV/plots/TB scalars). `--watch` expands to this.
+settings:
+  rl_mode: eval
+  mode: 0
+  log_eval: false

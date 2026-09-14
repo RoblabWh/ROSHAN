@@ -121,6 +121,13 @@ struct EpisodeSummary {
     // saturates at 1.0 once the budget is generous enough (success is no longer the
     // discriminator; time-to-extinguish is).
     double time_used_frac{0.0};
+    // Scenario identifiers of the episode this step belongs to: (episode_seed,
+    // episode_index) fully determines the setup (CRN reseed in FireModel::ResetGridMap)
+    // and episode_fingerprint hashes the initial burning cells. Written to the
+    // evaluation CSV so paired comparisons can verify identical scenarios.
+    int episode_index{0};
+    int episode_seed{0};
+    unsigned int episode_fingerprint{0};
     // These two are no longer needed, but this would be the place to add them when you would change the behavior
     // from ONE agent fails/succeeds to ALL agents must fail/succeed -> but this requires huge changes in alot of
     // places. Python-side we deal with irregular tensor-shapes which is a hassle and I don't want to deal with that

@@ -163,10 +163,13 @@ class AgentBuilder:
             model_name = model_string if not is_loading else remove_suffix(model_string)
             loading_path = model_path if is_loading else None
             loading_name = model_string if is_loading else None
-            if not is_loading and not os.path.exists(model_path):
-                os.makedirs(model_path)
+            # Load from model_directory; write to run_dir (or model_directory when empty).
+            run_dir = config["paths"].get("run_dir", "") or ""
+            out_path = os.path.join(root_path, run_dir) if run_dir else model_path
+            os.makedirs(out_path, exist_ok=True)
 
-        root_model_path = model_path
+        # Sub-agents never write; their "out" dir is their load dir.
+        root_model_path = model_path if is_sub_agent else out_path
 
         # --- Logging setup ---
         logging_file = ""
@@ -176,7 +179,7 @@ class AgentBuilder:
                 if isinstance(handler, logging.FileHandler):
                     logger_root.removeHandler(handler)
                     handler.close()
-            mp = str(model_path) if not use_auto_train else os.path.join(str(model_path), "training_1")
+            mp = str(root_model_path) if not use_auto_train else os.path.join(str(root_model_path), "training_1")
             logging_dir = os.path.join(mp, "logs")
             if not os.path.exists(logging_dir):
                 os.makedirs(logging_dir, exist_ok=True)
@@ -217,7 +220,7 @@ class AgentBuilder:
         # --- Build RL config ---
         rl_config = RLConfig(algorithm=algorithm,
                              use_auto_train=use_auto_train,
-                             model_path=str(model_path),
+                             model_path=str(root_model_path),
                              model_name=model_name,
                              loading_path=str(loading_path),
                              loading_name=loading_name,
@@ -245,7 +248,8 @@ class AgentBuilder:
         # --- Load network architecture ---
         if algorithm_name != 'no_algo':
             try:
-                network_classes = self._load_network_arch(root_model_path, agent_type_obj, algorithm_name)
+                # Network sources come from the checkpoint dir (load-from), not the run dir.
+                network_classes = self._load_network_arch(model_path, agent_type_obj, algorithm_name)
             except FileNotFoundError as e:
                 logger.warning(f"{e}. Falling back to default network classes")
                 network_classes = agent_type_obj.get_network(algorithm=algorithm_name)
@@ -296,9 +300,13 @@ class AgentBuilder:
                                 f"(duplicate penalty floored at exp({penalty_min}))")
 
                 agent_type_obj.heuristic_goals = bool(planner_cfg.get("heuristic_goals", False))
+                agent_type_obj.heuristic_method = str(planner_cfg.get("heuristic_method", "greedy"))
+                if agent_type_obj.heuristic_method not in ("greedy", "hungarian"):
+                    raise ValueError(f"planner_agent.heuristic_method must be 'greedy' or 'hungarian', "
+                                     f"got '{agent_type_obj.heuristic_method}'")
                 if agent_type_obj.heuristic_goals:
-                    logger.info("PlannerAgent heuristic_goals=True — eval uses greedy "
-                                "nearest-fire assignment instead of the pointer network")
+                    logger.info(f"PlannerAgent heuristic_goals=True — eval uses the "
+                                f"'{agent_type_obj.heuristic_method}' assignment rule instead of the pointer network")
         elif algorithm == 'IQL':
             rl_config = IQLConfig(**vars(rl_config))
             rl_config.action_dim = agent_type_obj.action_dim

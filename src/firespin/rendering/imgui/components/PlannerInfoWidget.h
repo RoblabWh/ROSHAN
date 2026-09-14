@@ -88,12 +88,15 @@ private:
         return c.first <= -1.5 && c.second <= -1.5;
     }
 
+    // Live tank levels straight from the fly agents — the planner's observation
+    // snapshot (shown in the Network Input table) only refreshes at decision points
+    // and lags the sim by up to a planner window.
     static void DrawWaterLevels(const std::shared_ptr<PlannerAgent>& planner) {
-        const AgentState s = planner->GetLastState();
-        if (!s.drone_water_levels || s.drone_water_levels->empty()) return;
+        const auto& fly_agents = planner->GetFlyAgents();
+        if (fly_agents.empty()) return;
 
         ImGui::Spacing();
-        if (!ImGui::CollapsingHeader("Drone Water Levels", ImGuiTreeNodeFlags_DefaultOpen)) {
+        if (!ImGui::CollapsingHeader("Drone Water Levels (live)", ImGuiTreeNodeFlags_DefaultOpen)) {
             return;
         }
 
@@ -104,9 +107,8 @@ private:
         ImGui::TableSetupColumn("Bar", ImGuiTableColumnFlags_WidthStretch);
         ImGui::TableHeadersRow();
 
-        const auto& levels = *s.drone_water_levels;
-        for (size_t i = 0; i < levels.size(); ++i) {
-            const float v = static_cast<float>(levels[i]);
+        for (size_t i = 0; i < fly_agents.size(); ++i) {
+            const float v = static_cast<float>(fly_agents[i]->GetWaterCapacityNorm());
             ImGui::TableNextRow();
             ImGui::TableNextColumn(); ImGui::Text("%zu", i);
             ImGui::TableNextColumn(); ImGui::Text("%.3f", v);

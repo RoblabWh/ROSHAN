@@ -280,6 +280,10 @@ public:
     // FireModel::ResetGridMap so episode i's setup depends only on (seed_, i).
     int episode_counter_ = 0;
     int episode_seed_ = 0;
+    // Order-independent hash of the episode's initial burning cells (set in
+    // FireModel::ResetGridMap); exported on EpisodeSummary so evaluation CSVs can
+    // prove two runs saw identical scenarios.
+    unsigned int episode_fingerprint_ = 0;
     std::string init_rl_mode_{};
     bool cia_mode_{};
 

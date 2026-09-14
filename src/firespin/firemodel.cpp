@@ -128,6 +128,7 @@ void FireModel::ResetGridMap(std::vector<std::vector<int>>* rasterData, bool ful
         fire_fp += static_cast<unsigned int>(p.x_) * 73856093u ^
                    static_cast<unsigned int>(p.y_) * 19349663u;
     }
+    parameters_.episode_fingerprint_ = fire_fp;
     std::cout << "[Episode " << parameters_.episode_counter_ << "] seed=" << parameters_.seed_
               << " wind=" << parameters_.wind_angle_ << " fire_fp=" << fire_fp << std::endl;
 

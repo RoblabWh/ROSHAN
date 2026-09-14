@@ -84,8 +84,7 @@ ROSHAN can be launched in two main modes and through a testing notebook:
 ## 1. C++ Simulation Only
 For running the simulator without reinforcement learning:
 ```bash
-cd path/to/build/directory
-./ROSHAN
+./build/ROSHAN   # works from any directory (resolves paths via project_paths.json)
 ```
 ## 2. Simulation + Reinforcement Learning
 Run ROSHAN with the Python RL framework (PPO, hierarchical agents, etc.):
@@ -100,3 +99,43 @@ overlays under `config/agent/` and `config/exp/` carry only the deltas. Position
 args are overlays (merged in order on top of base); `key=value` args override any dotted
 path. The Python interface merges these, dumps the effective config to `used_config.yaml`
 (which the C++ simulator parses), and trains/evaluates per the resolved settings.
+
+## 3. Evaluation, inference and baselines
+Two path keys govern where a run reads and writes:
+
+- `paths.model_directory` — **load from** here (checkpoint, `networks/`, trained `config.yaml`).
+- `paths.run_dir` — **write to** here (`config.yaml` snapshot, `logs/evaluation_stats.csv`, plots,
+  `tensorboard_logs/`, checkpoints). Empty = write into `model_directory` (in place).
+
+Short flags expand to overlays under `config/mode/` and `config/baseline/` plus dotted overrides.
+They are appended after the positional args, so they win over experiment overlays:
+
+| flag | effect |
+|---|---|
+| `--eval` | headless evaluation (`config/mode/eval.yaml`) |
+| `--watch` | GUI inference, nothing logged (`config/mode/watch.yaml`) |
+| `--baseline greedy\|hungarian` | heuristic assignment instead of the planner network |
+| `--model-dir DIR` | load from `DIR`; also merges `DIR/config.yaml` (architecture, environment, hierarchy) after base, so no agent overlay is needed |
+| `--model-name NAME` | `latest`, `best_reward`, `best_obj` or an explicit `*.pt` |
+| `--run-dir DIR` | write outputs to `DIR` |
+| `--n N`, `--seed S` | evaluation episodes, seed |
+
+```bash
+# Watch what a trained planner does (model directory untouched)
+python src/pysim/main.py --watch --model-dir models/PlannerSMDP_G2_s2
+
+# Paired evaluation arms for one scenario: each arm gets its own config.yaml + CSV under run_dir
+python src/pysim/main.py config/agent/planner.yaml config/exp/planner_hard.yaml \
+  --eval --n 100 --seed 100 --model-dir models/PlannerSMDP_G2_s2 --model-name best_obj \
+  --run-dir experiments/A1/runs/learned
+python src/pysim/main.py config/agent/planner.yaml config/exp/planner_hard.yaml \
+  --eval --n 100 --seed 100 --model-dir models/PlannerSMDP_G2_s2 --baseline hungarian \
+  --run-dir experiments/A1/runs/hungarian
+
+# Compare arms (paired by episode fingerprint; refuses runs that were not seeded identically)
+python src/pysim/analysis/paired_eval.py \
+  --arm hungarian experiments/A1/runs/hungarian/logs/evaluation_stats.csv \
+  --arm learned   experiments/A1/runs/learned/logs/evaluation_stats.csv
+```
+A complete multi-arm recipe lives in `experiments/planner_static_A1/launch.sh`. In eval mode a
+checkpoint that fails to load is an error, never a silent fall-back to training.

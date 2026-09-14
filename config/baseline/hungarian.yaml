@@ -1,0 +1,6 @@
+# Hungarian (linear_sum_assignment) instead of the pointer network (eval only). `--baseline hungarian`.
+environment:
+  agent:
+    planner_agent:
+      heuristic_goals: true
+      heuristic_method: hungarian
