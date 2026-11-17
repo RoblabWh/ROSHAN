@@ -1,0 +1,38 @@
+[project]
+name = "roshan"
+version = "0.1.0"
+description = "ROSHAN2: wildfire simulation and multi-UAV reinforcement learning platform"
+requires-python = ">=3.11"
+dependencies = [
+    "numpy",
+    "torch>=2.6",
+    "tensorboard",
+    "rasterio>=1.4.4",
+    "scipy>=1.17.1",
+]
+
+[dependency-groups]
+dev = ["pytest"]
+
+[build-system]
+requires = ["maturin>=1.16,<2"]
+build-backend = "maturin"
+
+[tool.maturin]
+manifest-path = "crates/roshan-py/Cargo.toml"
+module-name = "roshan._core"
+python-source = "python"
+profile = "release"
+
+[tool.uv]
+# Rebuild the extension whenever Rust sources change, so `uv run ...` never uses a stale build.
+cache-keys = [
+    { file = "pyproject.toml" },
+    { file = "Cargo.toml" },
+    { file = "Cargo.lock" },
+    { file = "crates/**/Cargo.toml" },
+    { file = "crates/**/*.rs" },
+]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]

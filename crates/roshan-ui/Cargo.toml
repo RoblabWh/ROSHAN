@@ -1,0 +1,20 @@
+[package]
+name = "roshan-ui"
+version.workspace = true
+edition.workspace = true
+description = "ROSHAN2 viewer and scenario editor (egui). Knows nothing about Python."
+
+[dependencies]
+roshan-core = { path = "../roshan-core" }
+eframe.workspace = true
+# Only for the feature: the bundled emoji font draws the toolbar symbols.
+egui = { version = "0.37", default-features = false, features = ["monochrome_emoji_fonts"] }
+walkers = { version = "0.65", optional = true }
+rfd = "0.18"
+serde_json = "1"
+serde = { version = "1", features = ["derive"] }
+image = { version = "0.25", default-features = false, features = ["png"] }
+
+[features]
+# The OpenStreetMap picker. Optional because it brings an HTTP client into the build.
+map = ["dep:walkers"]

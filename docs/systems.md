@@ -1,0 +1,1122 @@
+# ROSHAN2: how the systems work
+
+The reference for what the system implements **today**. For running things, see the
+[README](../README.md). For the plan this follows and where the implementation departs from
+it, see [design.md](design.md).
+
+1. [Architecture](#architecture)
+2. [World, clock and randomness](#world-clock-and-randomness)
+3. [Configuration](#configuration)
+4. [The fire boundary](#the-fire-boundary)
+5. [Rothermel fire model](#rothermel-fire-model)
+6. [FireSPIN fire model](#firespin-fire-model)
+7. [Water](#water)
+8. [Scenarios](#scenarios)
+9. [Real terrain](#real-terrain)
+10. [The navigate task](#the-navigate-task)
+11. [The allocate task](#the-allocate-task)
+12. [Planners](#planners)
+13. [Training](#training)
+14. [Evaluation](#evaluation)
+15. [Viewer and scenario editor](#viewer-and-scenario-editor)
+16. [Tests](#tests)
+17. [Results](#results)
+18. [Not implemented yet](#not-implemented-yet)
+19. [Known limits](#known-limits)
+
+## Architecture
+
+Three Rust crates and one Python package. Cargo enforces the direction of dependencies: the
+core cannot see the UI or Python.
+
+```
+crates/roshan-core/   simulation. Pure Rust: no Python, no UI, no file or network access
+  fuel.rs             the 40 Scott & Burgan fuel models
+  rothermel.rs        Rothermel surface fire spread
+  fire.rs             the fire boundary (state every model writes), Rothermel spread, water layer
+  spin.rs             FireSPIN, the particle fire model of the thesis
+  terrain.rs          grid, fuel, slope and land cover per cell
+  world.rs            one environment: terrain, weather, fire, water, drones, clock
+  scenario.rs         a map plus what is placed on it
+  navigate.rs         the navigate task and its batched environment
+  allocate.rs         the allocate (planner) task: tanks, drops, scripted flight, targets,
+                      greedy and rollout planners
+  rng.rs              counter-based random numbers
+  examples/           bench.rs (fire timings, shape accuracy), spin_curve.rs (FireSPIN curve)
+  tests/              behaviour tests: fire.rs, spin.rs, navigate.rs, allocate.rs
+crates/roshan-ui/     viewer and scenario editor (egui); depends on roshan-core only
+crates/roshan-py/     Python bindings, module roshan._core
+python/roshan/
+  env.py              NavigateEnv and AllocateEnv: batched environments with torch buffers
+  baselines.py        idle, greedy, Hungarian and rollout planners
+  eval/run.py         run a planner on fixed seeds, one CSV row per episode
+  eval/paired.py      paired statistics on two such runs
+  scenario.py         scenario files (.npz)
+  geo.py              land cover and elevation download, land cover -> fuel table
+  ui.py               viewer entry point
+  bench.py            simulator throughput
+  rl/ppo.py           PPO (advantage estimation, squashed Gaussian policy, update)
+  rl/nets.py          FlyNet and PlannerNet
+  rl/train.py         training and evaluation of the fly policy
+  rl/train_planner.py imitation and PPO for the planner
+tests/                Python tests
+spikes/               ui_spike.py (viewer check), firespin_reference.cpp (old FireSPIN loop)
+scenarios/            scenario files
+splits/               frozen validation and test seed lists (500 seeds each)
+runs/                 training and evaluation output (ignored by git)
+```
+
+**The Python/Rust boundary.** The Python environment classes own every buffer as a torch
+tensor on the CPU (pinned when CUDA is available). On each call Rust borrows the matching
+NumPy views, writes in place and keeps no pointer afterwards. Arrays of the wrong type, shape
+or memory layout are rejected, never copied silently. The environments of a batch are stepped
+in parallel by a Rust thread pool (`threads`, 0 = all cores) with the interpreter lock
+released.
+
+**Names instead of positions.** Every environment exports `env.spec`: the names of the
+observation columns, reward terms and summary fields, plus the full task and simulation
+configuration. Rust writes reward *terms*; Python weights them. A checkpoint stores the spec
+it was trained with.
+
+## World, clock and randomness
+
+- **World** (`world.rs`): terrain, weather, fire, water, drones and a tick counter. Cloning a
+  world shares terrain and weather and copies only the dynamic state (about 60 µs for a
+  100 x 100 map). The rollout planner relies on this.
+- **Clock**: time is a whole number of ticks of `dt_s` (0.1 s). Drones move every tick; the
+  fire advances every `fire_every` ticks (20, so every 2 s).
+- **One fire step**: look up the wind for that time (and recompute everything that depends on
+  it if it changed), let the water decay, then advance the fire model in as many sub-steps as
+  it asks for.
+- **Weather**: five fuel moistures for the episode and a wind schedule of (start time, speed,
+  direction). Wind is uniform over the map.
+- **Coordinates**: x grows with the column, y with the row; row 0 is north. Cell index is
+  `y * nx + x`. Wind and slope vectors use the same axes.
+- **Random numbers** (`rng.rs`): Philox4x32-10. A draw is a function of (seed, stream, counter,
+  entity) and nothing else, so results do not depend on thread count or on what happened
+  elsewhere on the map. Streams: spread noise, spawn, goal, weather, ignition, FireSPIN.
+  Episode `e` of environment `i` is a function of (base seed, i, e).
+
+## Configuration
+
+Defaults live in Rust only. Python passes just the values that differ, as JSON; an unknown key
+is an error. `env.spec["config"]` and `env.spec["sim"]` return the full values in use.
+
+```python
+AllocateEnv(64, scenario, config={"random_ignitions": 6}, sim={"fire_model": "firespin"})
+```
+
+**Simulation** (`sim=`, `SimConfig` in `world.rs`):
+
+| Key | Default | Meaning |
+|---|---|---|
+| `dt_s` | 0.1 | length of a tick, seconds |
+| `fire_every` | 20 | the fire advances every this many ticks |
+| `water_crit_l_m2` | 0.4 | lowest water load (L/m²) that stops fire: what a weak front needs |
+| `water_per_mw_grass_l_m2` | 0.35 | water (L/m²) per MW/m of fireline intensity that stops a front in grass |
+| `water_per_mw_l_m2` | 0.6 | the same in every other fuel |
+| `water_tau_s` | 600 | time constant of water decay (an assumption, see [Calibration](#calibration)) |
+| `ember_s` | 60 | how long a blocked burning cell keeps the ability to resume (a model parameter) |
+| `sheltered_waf` | 0.2 | share of the 20-ft wind that reaches fuel under trees (timber models TU, TL) |
+| `ros_noise` | 0.0 | log-normal noise on the Rothermel spread rate, per cell, fixed per episode |
+| `fire_model` | `"rothermel"` | or `"firespin"` |
+| `spin` | see [FireSPIN](#firespin-fire-model) | settings of the particle model |
+
+**Allocate task** (`config=` of `AllocateEnv`, `AllocConfig` in `allocate.rs`):
+
+| Key | Default | Meaning |
+|---|---|---|
+| `max_speed_ms` | 10 | drone speed |
+| `tank_l` | 300 | tank size, litres |
+| `drop_l` | 150 | water per drop, litres |
+| `refill_s` | 10 | time to fill an empty tank |
+| `arrive_m` | 5 | distance at which a drone has reached a fire cell |
+| `station_m` | 12 | distance at which a drone refills at a station |
+| `safe_m` | 3 | distance the scripted controller keeps between drones |
+| `block_cells` | 5 | side of a target block in cells |
+| `max_targets` | 32 | fire targets offered at most |
+| `max_interval_s` | 10 | longest time between two decisions |
+| `time_limit_s` | 1800 | episode length |
+| `random_ignitions` | 0 | if above 0: this many random fires instead of the scenario's |
+| `random_wind` | false | random wind direction per episode |
+
+**Navigate task** (`config=` of `NavigateEnv`, `NavConfig` in `navigate.rs`):
+
+| Key | Default | Meaning |
+|---|---|---|
+| `drones` | 4 | team size |
+| `max_speed_ms` | 10 | drone speed |
+| `view_m` | 50 | view range; observations are divided by it |
+| `collide_m` | 2 | two drones closer than this collide |
+| `arrive_m` | 2.5 | distance at which a waypoint is reached |
+| `goals` | 3 | waypoints per drone |
+| `station_start` | 0.5 | probability that all drones start around a ground station |
+| `time_factor` | 2.5 | time limit = `goals` x map diagonal / speed x this |
+| `near_drone` | 0.4 | width of the band around other drones, in view lengths, for `approach_drone` |
+| `near_edge` | 0.5 | the same for the map edge and `approach_edge` |
+
+Training options are plain command-line flags and Python constants (see [Training](#training)).
+
+## The fire boundary
+
+Both fire models sit behind `fire::FireState`. Tasks, planners and the viewer use nothing
+else, so a model can be swapped without touching them.
+
+What every model writes:
+
+| Layer | Meaning |
+|---|---|
+| `state` | per cell: unburned, burning or burned |
+| `t_ignite` | per cell: the time it caught fire |
+| `n_ignited` | number of cells that are burning or burned |
+
+What every model provides: `ignite(cell)`, `step(ctx, water, now, dt, ember_s)`,
+`substeps(...)` (how finely a fire step must be divided), `refresh_rates` (the wind changed),
+`burning()`, `n_burning()`, `is_out()`, `digest()` (for state hashes), and `particles()` for
+the viewer (empty for Rothermel).
+
+A step reads `Ctx`: terrain, the per-fuel spread parameters under the current weather, the
+episode seed, the configuration and the wind vector. The model is an `enum` with two
+variants, not a trait object; `sim.fire_model` chooses it when the world is built.
+
+## Rothermel fire model
+
+The default. It answers two questions separately: how fast fire spreads in a given fuel
+(`rothermel.rs`), and how that turns into cells igniting (`fire.rs`).
+
+### Rate of spread
+
+Rothermel (1972) with the Albini (1976) refinements, written to match the US Forest Service
+Behave library step by step:
+
+- All 40 Scott & Burgan (2005) fuel models; dynamic models move live herbaceous load to dead
+  fuel as the herbs cure.
+- Inputs: fuel model, five fuel moistures (1-h, 10-h, 100-h dead, live herbaceous, live woody),
+  wind and slope.
+- Wind is given at 10 m, divided by 1.15 to the 20-ft wind and reduced to midflame height with
+  the unsheltered wind adjustment factor of the fuel bed. The timber models (TU, TL) describe
+  fuel under trees and get the sheltered factor `sheltered_waf` instead (Andrews 2012: 0.1 in
+  dense stands, 0.2 in open ones).
+- Wind and slope combine as vectors into a fire ellipse: head rate `R`, direction and
+  eccentricity `e` from the length-to-breadth ratio (Anderson 1983, capped at 8). The rate in
+  a direction at angle θ from the head is `R (1 - e) / (1 - e cos θ)`.
+- Also available: reaction intensity, fireline intensity, flame length, residence time.
+- No wind-speed limit is applied (off by default in Behave too).
+- Fuel that is wetter than its moisture of extinction does not burn.
+
+The ellipse of a fuel on flat ground is computed once per wind change and cached; cells with
+slope compute their own.
+
+### Spread on the grid
+
+Every burning cell is a *source* that carries the fire along 16 fixed directions: the 8
+neighbours and the 8 knight moves. Each direction is an edge with progress from 0 to 1.
+
+- **Edge rate.** One over the travel time between the two cell centres:
+  `rate = 1 / (mean slowness x length)`, where slowness is seconds per metre in the edge's
+  direction (one over the ellipse rate above) and the mean is taken over the cells the path
+  crosses: source and target for a neighbour, source, target and the two cells in between for
+  a knight move. If any of those cells cannot burn, the edge does not exist.
+- **Diagonals** squeeze through a corner. They are blocked only if both cells beside the
+  corner cannot burn. So a one-cell road, straight or diagonal, is not crossed; a one-cell gap
+  in it is.
+- **Ignition.** A cell ignites when the first edge reaches it, at the interpolated arrival
+  time; its own edges start with the progress they would have made since then. If several
+  edges arrive in one step, the earliest wins, whatever the order of processing. Only the
+  target of a knight move ignites, not the cells it passes between.
+- **Burning out.** A cell's fuel is used up at ignition time + residence time + the time the
+  head needs to cross the cell. A source stays active while it has an edge left to complete;
+  it becomes burned once no edge is left and its fuel is used up.
+- **Sub-steps.** A fire step is divided so that no edge advances more than half its length
+  per sub-step. The bound is the fastest head rate any fuel on the map can reach (wind blowing
+  straight up the steepest slope), recomputed when the wind changes.
+- **Wind changes** (wind schedule): all edge rates are recomputed, progress is kept.
+- **Noise** (`ros_noise`): an optional mean-one log-normal factor on the head rate per cell,
+  fixed for the episode.
+
+Why 16 directions: the simulated fire is the polygon spanned by the edge directions inside the
+true ellipse, so too few directions make a wind-driven fire too narrow. See
+[Known limits](#known-limits) for the measured accuracy.
+
+Nothing depends on the order in which sources are stored, so a difference in one place on the
+map never changes the fire somewhere else.
+
+## FireSPIN fire model
+
+`spin.rs` is a port of the particle model of the thesis (old ROSHAN, `src/firespin`). Choose
+it with `sim={"fire_model": "firespin"}` or `--fire-model firespin` in the viewer.
+
+### How it works
+
+A burning cell emits two kinds of heat-carrying particles. Each step, an unburned cell with
+at least one particle in it is heated for the length of the step. It ignites once its heating
+time reaches the ignition delay of its class, and then burns for the burning duration of its
+class.
+
+**Convection particles** are carried and scattered by the wind. With wind vector `U`,
+fluctuation `u' = wind_a x |U|`, turbulent length `Lt` and Kolmogorov constant `C0`, the
+velocity follows a Langevin equation:
+
+```
+v   += -(2 + 3 C0) / 4 x u' / Lt x (v - U) x dt  +  sqrt(C0 x u'^3 / Lt x dt) x N(0, 1)
+pos += conv_fl x v x dt
+heat -= heat / conv_tau_mem_s x dt
+```
+
+A particle starts at rest at a random point of its cell with heat `conv_y_st` and vanishes
+when its heat falls below `conv_y_lim`, which with the defaults is after about 16 s. In calm
+air `u'` is zero, so convection particles do not move at all.
+
+**Radiation particles** sit on a slowly growing ring around the point they were emitted from:
+
+```
+angle  = random each step
+radius += Sf_mean x dt + Sf_std x sqrt(dt) x N(0, 1)
+heat  -= heat / tau x dt          tau = Lr / |Sf_mean + Sf_std x N(0, 1)|, drawn once
+```
+
+`Lr` is drawn uniformly from the class's range; very slow particles get the old code's cap of
+`tau` = 2703 s. A radiation particle vanishes below `rad_y_lim`. A particle of either kind
+that leaves the map is lost.
+
+**Emission.** With the interval `(burning duration - 1) / particle count of the class`, cut to
+whole seconds (at least 1), a burning cell emits one particle of a kind whenever the whole
+seconds it has burned reach a multiple of that interval.
+
+### Classes
+
+Burning duration, ignition delay, particle counts and radiation constants per CLC+ land-cover
+class are the old ones (`spin::CLASSES`):
+
+| CLC+ class | Burns for | Ignites after | Convection | Radiation |
+|---|---|---|---|---|
+| generic (no land cover) | 120 s | 100 s | 10 | 4 |
+| 1 sealed | 15000 s | 750 s | 1000 | 55 |
+| 2 needle-leaved trees | 3600 s | 300 s | 80 | 6 |
+| 3 broadleaved deciduous trees | 3600 s | 270 s | 60 | 6 |
+| 4 broadleaved evergreen trees | 3600 s | 330 s | 100 | 6 |
+| 5 low-growing woody plants | 720 s | 120 s | 40 | 4 |
+| 6 permanent herbaceous | 360 s | 100 s | 20 | 2 |
+| 7 periodically herbaceous | 360 s | 100 s | 20 | 2 |
+| 8 lichens and mosses | 240 s | 100 s | 10 | 3 |
+| 9 sparsely vegetated, 10 water, 11 snow and ice | does not burn | | | |
+
+- Radiation: `Lr` 9 to 10 m and front speed 0.1 ± 0.025 m/s for every class, except generic
+  (`Lr` 5 to 50 m) and sealed (0.1 ± 0.0075 m/s).
+- Per cell, burning duration and ignition delay each stay as they are or change by 10 to 20 %
+  up or down, as in the old code. The jitter follows from the seed and the cell alone.
+- A scenario without land cover uses the generic class everywhere, with durations from
+  `spin.generic_burn_s` and `spin.generic_ignite_s`.
+- Which cells can burn at all is decided by the fuel map, as for Rothermel. So sealed ground,
+  which burned slowly in the old model, does not burn here although it has a class.
+
+### Settings (`sim.spin`)
+
+| Key | Default | Meaning |
+|---|---|---|
+| `dt_s` | 0.5 | step of the particle model (old ROSHAN: 0.1) |
+| `emit_convective`, `emit_radiation` | true | switch a particle kind off |
+| `conv_y_st`, `conv_y_lim` | 1.0, 0.2 | start heat and vanishing limit, convection |
+| `conv_tau_mem_s` | 10 | heat-loss time constant, convection |
+| `conv_fl` | 0.15 | scale between particle velocity and movement |
+| `conv_c0` | 1.98 | Kolmogorov constant |
+| `lt_m` | 80 | turbulent length scale |
+| `wind_a` | 0.314 | turbulence intensity |
+| `rad_y_st`, `rad_y_lim` | 1.0, 0.165 | start heat and vanishing limit, radiation |
+| `generic_burn_s`, `generic_ignite_s` | 120, 100 | the generic class |
+
+All are the old configuration's values except `dt_s`.
+
+### What differs from the old code, on purpose
+
+- **Bugs fixed, not ported.** Convection particles were spawned at positions cut to whole
+  metres; classes without particles divided by zero; a land-cover value outside the table
+  indexed past it; the random numbers depended on earlier episodes.
+- **Randomness** is counter-based per cell and per particle. An episode depends on its seed
+  alone, and putting out one fire leaves a distant fire bit-identical.
+- **Water** is the shared [water layer](#water) instead of a "flooded" cell state: a wet cell
+  heats more slowly (heating time counts times the water multiplier), a soaked one not at all;
+  particles in a soaked cell are lost; a soaked burning cell emits nothing, goes out after
+  `ember_s` and can burn again later. It then burns its full duration again.
+- **Step size** is a setting; burning and heating are counted in seconds, not steps.
+
+### Behaviour to know
+
+- It ignores slope and fuel moisture.
+- Wind matters little: on the uniform map 10 m/s wind burns 4 % more cells than calm air.
+- A single burning cell often dies out (3 of 5 seeds on the uniform map), as in the old
+  model. A 3 x 3 block spreads reliably.
+- With the land-cover classes fire spreads slowly: grass about 200 cells in 4000 s at 10 m/s
+  wind, forest hardly at all.
+
+### Checked against the old code
+
+`spikes/firespin_reference.cpp` is a standalone transcription of the old C++ loop (same
+equations, quirks and random generator) for the old uniform 50 x 50 map. The old program
+itself could not be run without its window and Python stack. Ignited cells from a 3 x 3
+ignition, mean of 20 seeds (standard deviation in brackets):
+
+| 10 m/s wind | 1000 s | 2000 s | 3000 s | Time per run |
+|---|---|---|---|---|
+| old C++ loop, step 0.1 s | 191.2 (5.1) | 785.5 (12.4) | 1799.5 (22.2) | 1.5 s |
+| port, step 0.1 s | 191.1 (4.1) | 782.9 (11.2) | 1791.5 (16.2) | 2.9 s |
+| port, step 0.5 s (default) | 193.4 (4.9) | 787.1 (10.5) | 1801.7 (18.7) | 0.57 s |
+| port, step 2 s | 196.7 (3.7) | 795.9 (10.0) | 1818.2 (13.7) | 0.30 s |
+
+At 0 and 5 m/s the agreement is the same (within 1 % for steps of 0.1 and 0.5 s). Timings are
+from a 16-thread desktop with one thread in use, November 2026. The port is slower per step
+than the old loop because every particle draws fresh random numbers instead of reading a
+recycled table; the default step of 0.5 s makes it faster overall.
+
+Reproduce with:
+
+```
+g++ -O2 spikes/firespin_reference.cpp -o old && ./old <wind_ms> <seed> <end_s> <block>
+cargo run --release -p roshan-core --example spin_curve -- <step> <wind_ms> <seed> <end_s> <block>
+```
+
+## Water
+
+A layer of water load per cell in litres per square metre (`fire.rs`, `Water`), owned by the
+world and read by both fire models.
+
+- The load decays exponentially with time constant `water_tau_s`.
+- A cell's multiplier is `1 - load / critical load`, clamped to 0..1.
+
+Under **Rothermel** the critical load depends on how intense the fire is:
+
+- Critical load = `max(water_crit_l_m2, k · I)`. `I` is Byram's fireline intensity in MW/m of
+  the front that set the burning cell alight; `k` is `water_per_mw_grass_l_m2` for the grass
+  models (GR) and `water_per_mw_l_m2` for all others.
+- `I` = heat per unit area of the cell's fuel × the speed of the front when it arrived. That
+  speed is the slowest apparent speed from any of the eight neighbours that burned before, so
+  a flank counts as a flank even though grid edges run obliquely to it. A cell lit by hand
+  counts as a head. It is fixed when the cell ignites.
+- The result: flanks and backing fire are stopped by little water, a wind-driven head in
+  heavy fuel is only slowed. See the table in [Calibration](#calibration).
+- An edge's rate is multiplied by the multiplier of the wettest cell on its path.
+- A burning cell whose every remaining edge is blocked for `ember_s` seconds dies. If it was
+  held down by water on itself before its fuel was used up, it returns to unburned, and its
+  burning neighbours get their edge towards it back, so they can set it alight again once the
+  water is gone. Otherwise it is burned.
+- Covered by tests: a wet strip holds a front and releases it when dry; a lasting strip
+  contains the fire; a knocked-down cell at the edge of a live fire re-ignites; a load that
+  holds the flank does not hold the head.
+
+Under **FireSPIN** there is no intensity, so the critical load is always `water_crit_l_m2`;
+see [the differences above](#what-differs-from-the-old-code-on-purpose).
+
+A drone's drop adds `drop_l / cell area` to one cell: 150 L on a 10 m cell is 1.5 L/m². On
+grass in moderate wind that is almost four times the critical load and holds for about 13
+minutes; a shrub head at 5 m/s wind needs 3.7 L/m² and is only slowed.
+
+## Scenarios
+
+A scenario (`scenario.rs`, `python/roshan/scenario.py`) is a map and what is placed on it:
+
+| Field | Meaning |
+|---|---|
+| `fuel` | fuel id per cell: 0 non-burnable, 1..40 = position in `roshan._core.fuel_models()` + 1 |
+| `elevation` | metres per cell, or none for a flat map; slopes are derived from it |
+| `landcover` | CLC+ class per cell, or none. FireSPIN takes its burning classes from it; Rothermel ignores it; the viewer colours the map by it |
+| `ignitions`, `drones`, `stations` | lists of (x, y) cells |
+| `moisture` | five fractions |
+| `wind` | list of (start s, speed m/s at 10 m, to_x, to_y) |
+| `meta` | name, georeference (`crs`, `origin`), data sources |
+
+Files are `.npz` (arrays plus one JSON string) with a schema version. `Scenario.fingerprint()`
+is a digest of the whole content. `roshan._core.check_scenario(dict)` validates a scenario the
+way the simulator will: array shapes, fuel ids, placements inside the map, non-empty wind.
+
+Shipped scenarios:
+
+| File | What |
+|---|---|
+| `scenarios/demo.npz` | 160 x 120 cells (1.6 x 1.2 km), 4 drones, 1 station: the dynamic planner task |
+| `scenarios/demo_static.npz` | the same map with fuel almost too moist to burn |
+| `scenarios/haard.npz` | fetched real terrain |
+| `scenarios/baggersee.npz` | fetched real terrain |
+
+## Real terrain
+
+`python/roshan/geo.py`. Nothing is stored locally and no account is needed.
+
+- **Land cover**: Copernicus **CLC+ Backbone 2021**, 10 m, requested per area from the EEA
+  image server. This is the successor of CORINE Land Cover with eleven classes; it is fetched
+  on demand, not imported as a database. Europe only.
+- **Elevation**: Copernicus DEM GLO-30 from its public AWS bucket, resampled bilinearly.
+- Both are put on one grid in EPSG:3035, snapped to the 10 m pixels of the land-cover raster.
+  Up to 15000 x 4100 cells per request.
+- **Land cover to fuel**: the `CROSSWALK` table in `geo.py`, from the European fuel
+  classification of Aragoneses et al. 2023 (see [Calibration](#calibration)):
+
+| CLC+ class | Fuel model |
+|---|---|
+| 1 sealed, 9 sparsely vegetated, 10 water, 11 snow and ice | non-burnable |
+| 2 needle-leaved trees | TU2 |
+| 3 broadleaved deciduous trees | TU3 |
+| 4 broadleaved evergreen trees | TU2 |
+| 5 low-growing woody plants | SH8 |
+| 6 permanent herbaceous | GR6 |
+| 7 periodically herbaceous | GR6 |
+| 8 lichens and mosses | GR1 (not in the classification) |
+
+- `refuel <file.npz>` rebuilds the fuel of a saved scenario from its stored land cover after
+  the table changed.
+- `import-tif` converts a GeoTIFF of CLC+ classes (the map format of the old ROSHAN).
+
+## The navigate task
+
+`navigate.rs`, used from Python as `roshan.NavigateEnv`. Every drone flies to a sequence of
+waypoints without hitting another drone or leaving the map. One step is one tick. This is the
+task the low-level fly policy is trained on.
+
+**Episode**
+
+- Start: with probability `station_start` all drones on a small circle around a ground
+  station in a map corner, otherwise at random places.
+- Each drone gets `goals` random waypoints in sequence; a waypoint is reached within
+  `arrive_m`. A drone that has finished keeps its last waypoint.
+- Success: every drone finished. Failure: two drones closer than `collide_m`, or a drone
+  outside the map. Cut off at the time limit.
+- The step after an episode ended resets that environment and ignores its action, so the
+  final observation is visible once. With `autoreset = False` finished environments stay
+  frozen (evaluation: every seed runs once).
+
+**Action**: per drone, wanted velocity as a fraction of `max_speed_ms`, two numbers; longer
+vectors are scaled back to the maximum.
+
+**Observation** (names in `env.spec`), distances divided by `view_m`. A single frame; velocity
+is an explicit feature.
+
+- `agent` [8]: `vx`, `vy`; `goal_dx`, `goal_dy` (vector to the waypoint, clipped to the
+  view); `goal_cos`, `goal_sin` (angle between heading and waypoint); `speed`; `goal_dist`.
+- `neighbors` [drones, 4]: slot 0 is the nearest map edge, the others the other drones; each
+  is `dx`, `dy`, `dvx`, `dvy`. `mask` marks slots in view.
+
+**Reward terms** per drone. Rust writes the terms; the trainer weights them.
+
+| Term | Meaning | Weight in `rl/train.py` |
+|---|---|---|
+| `goal` | reached a waypoint | 1.0 |
+| `success` | the episode succeeded (all drones) | 2.0 |
+| `collision` | hit another drone | -3.0 |
+| `out_of_bounds` | left the map | -3.0 |
+| `timeout` | time ran out before this drone finished | -1.0 |
+| `progress` | distance gained towards the waypoint, signed, in view lengths | 1.0 |
+| `approach_drone` | increase in closeness to other drones inside a band | -0.5 |
+| `approach_edge` | increase in closeness to the map edge inside a band | -0.5 |
+
+`progress` must outweigh `approach_drone`: with the opposite balance the policy learns to
+hover, which avoids every penalty and never reaches a waypoint.
+
+**Buffers** of `NavigateEnv`, E environments of D drones:
+
+| Buffer | Shape | Content |
+|---|---|---|
+| `actions` | [E, D, 2] | read by `step` |
+| `agent` | [E, D, 8] | own state |
+| `neighbors` | [E, D, D, 4] | map edge, then drones |
+| `mask` | [E, D, D] | 1 where a neighbour slot is in view |
+| `terms` | [E, D, 8] | reward terms |
+| `terminated`, `truncated` | [E] | ended for good; cut off by the time limit |
+| `info` | [E, 4] | `success`, `reason`, `seconds`, `goals`; valid where an episode ended |
+
+## The allocate task
+
+`allocate.rs`, used from Python as `roshan.AllocateEnv(num_envs, scenario)`. A planner gives
+every drone a target; a scripted controller flies it there. Map, drones and ground stations
+come from the scenario. This is the task planners are compared and trained on.
+
+**Targets.** A table of slots: the scenario's ground stations first, then fire targets. The
+map is divided into blocks of `block_cells` x `block_cells` cells (50 m with the defaults).
+Each block with at least one burning cell is one target, placed on the burning cell nearest
+to the centre of the block's burning cells. The `max_targets` blocks with the most burning
+cells are offered, largest first. The table is rebuilt whenever a decision is due, so
+decisions are made on the current fire. A drone commits to a cell, not to a slot index.
+
+**Action**: per drone a slot, or -1 to keep its current task. Only drones whose `decide` flag
+is set are listened to. `action_mask` says what a drone may choose: a fire only with water
+for a full drop, a station only if its tank is not full (otherwise refilling would be a way
+to do nothing forever).
+
+**What a drone does**
+
+- Fire target: fly within `arrive_m` of the cell, release `drop_l` onto it, be free again. If
+  the cell stops burning on the way, the drone is free at once.
+- Ground station: fly within `station_m`, fill the tank at `tank_l / refill_s` per second, be
+  free when it is full.
+- No task: hover.
+
+**Scripted flight.** Straight at the target at `max_speed_ms`. Drones move in index order;
+each takes the straight step, a step turned by 45 or 90 degrees to either side, or stays,
+whichever first keeps `safe_m` from the new positions of the drones before it and the current
+positions of those after it. Staying always qualifies, so the distance holds by induction.
+
+**Decision events.** One step runs the simulation tick by tick until a drone becomes free
+(dropped, refilled, target gone) or `max_interval_s` passed since the last decision, in which
+case every drone may decide again. The step returns `elapsed_s`, so a trainer can discount by
+real time.
+
+**Episode.** Starts with the scenario's fires, or `random_ignitions` random ones, and
+optionally a random wind direction (`random_wind`). Ends when the fire is out (`terminated`)
+or at `time_limit_s` (`truncated`). An episode is a function of its seed alone, and
+`fingerprint` (burning cells and wind at the start) identifies the fire it started with.
+`reset(seeds)` runs chosen seeds; `autoreset = False` freezes finished environments.
+
+**Observation** (names in `env.spec`). Positions are fractions of the map size.
+
+| Table | Columns |
+|---|---|
+| `drones` [D, 6] | `x`, `y`, `water` (tank fraction), `task_x`, `task_y` (where it is going; its own position if idle), `task_kind` (0 none, 1 fire, 2 station, 3 point) |
+| `targets` [S, 4] | `x`, `y`, `is_station`, `cells` (burning cells in the block / cells per block) |
+| `globals` [5] | `wind_x`, `wind_y` (wind vector / 20 m/s), `time` (fraction of the time limit), `burning` (share of all cells), `burned` (share of burnable cells that are burning or burned) |
+| `target_mask` [S] | 1 where the slot holds a target |
+| `action_mask` [D, S] | 1 where that drone may choose that slot |
+| `decide` [D] | 1 where the drone needs a decision now |
+
+Task kind 3 (a point) only occurs when a drone is sent somewhere by hand in the viewer.
+
+**Reward terms** per drone and step:
+
+| Term | Meaning |
+|---|---|
+| `drop` | drops this drone made during the step |
+| `refill` | tank fractions this drone took on |
+| `burned` | cells that caught fire during the step, as a share of the burnable cells (same for every drone) |
+| `fire_out` | 1 when the fire went out (same for every drone) |
+| `timeout` | 1 when the time limit was reached (same for every drone) |
+
+**Episode summary** (`info`): `fire_out`, `seconds`, `burned_cells`, `burned_fraction`,
+`water_l`, `drops`, `min_separation_m` (smallest distance between two drones).
+
+**Other buffers**: `elapsed_s` [E], `terminated`, `truncated` [E], `seed`, `fingerprint` [E].
+
+**Learned flight.** `AllocateEnv.fly_tick(velocity, actions=None, view_m=50)` advances one
+tick with an outside pilot instead of the scripted controller. Afterwards `env.pilot` holds
+what a fly policy sees next, in the format of the navigate task with each drone's task point
+as its waypoint. Nothing keeps drones apart or on the map in this mode; the summary reports
+the smallest distance.
+
+## Planners
+
+A planner maps the allocate observation to one slot per drone.
+
+**Rules shared by greedy and hungarian** (`baselines.py`): only drones asked to decide get a
+new target; a fire another drone is already flying to is left alone; a drone that cannot drop
+goes to the nearest station; a drone left without a fire refills if its tank is not full and
+otherwise waits.
+
+| Planner | How it decides |
+|---|---|
+| `none` | drones never act: the reference for how much a planner saves |
+| `greedy` | repeatedly pairs the closest free drone and free fire |
+| `hungarian` | the pairing with the smallest total distance (`scipy.optimize.linear_sum_assignment`) |
+| `rollout` | greedy improved by simulating ahead (below) |
+| learned | `PlannerNet`, trained by imitation of rollout (see [Training](#training)) |
+
+**Rollout planner** (in the Rust core, `AllocateEnv.plan("rollout", horizon_s, candidates)`):
+multiagent rollout with greedy as the base policy. It starts from the greedy assignment. The
+drones that have to decide are then taken one at a time. For each, these alternatives are
+tried: its greedy choice, waiting, the `candidates` (4) nearest fires it may take, and the
+nearest station if its tank is not full. Each is simulated `horizon_s` (120 s) ahead on a
+copy of the world, with greedy deciding everything later. The alternative with the fewest
+cells burned, then the fewest still burning, wins; ties keep greedy's choice. By construction
+it does at least as well as greedy on the simulated horizon. It needs the simulator at
+decision time, so it is a reference and a teacher, not a deployable policy.
+
+`AllocateEnv.plan("greedy")` is the same greedy rule implemented in Rust, used inside
+rollouts and by the viewer.
+
+## Training
+
+### PPO (`rl/ppo.py`)
+
+One file for both tasks.
+
+- Clipped objective, advantages normalised per minibatch, gradient clipping, Adam with
+  `eps` 1e-5, linear learning-rate decay to zero.
+- **Discount per simulated second.** A step that takes `s` seconds is discounted by
+  `gamma_per_s ** s`, so changing the step length does not change the objective. The navigate
+  task has a fixed step; the allocate task passes each step's `elapsed_s`.
+- **Episode ends.** A true ending (`terminated`) drops the bootstrap; a cut-off episode
+  (`truncated`) bootstraps from the value of its final observation. The step that only
+  resets an environment is not used as data.
+- `update(..., value_only=True)` trains only the value function, which lets a critic catch up
+  with a policy that was trained some other way.
+- Diagnostics: policy loss, value loss, entropy, clip fraction, approximate KL, explained
+  variance.
+
+| Setting | Fly policy | Planner |
+|---|---|---|
+| learning rate | 3e-4 | 3e-4 |
+| `gamma_per_s` | 0.90 | 0.999 |
+| GAE lambda | 0.95 | 0.95 |
+| clip | 0.2 | 0.2 |
+| epochs x minibatches | 4 x 8 | 4 x 4 |
+| value coefficient | 0.5 | 0.5 |
+| entropy coefficient | 0.003 | 0.01 |
+| gradient norm | 0.5 | 0.5 |
+| rollout length | 64 ticks | 64 decisions |
+| environments | 1024 x 4 drones | 512 |
+
+### Fly policy (`rl/train.py`, `FlyNet`)
+
+- **Network.** Own features and each neighbour slot go through their own two-layer encoder
+  (128 units). The neighbour slots are pooled by attention with the drone's own encoding as
+  the query; slots out of view are masked. Own encoding, pooled neighbours and a flag "anyone
+  in view" feed a two-layer trunk with a policy head (mean of two actions) and a value head.
+  The weights work for any number of drones. The mean starts near zero ("hover").
+- **Policy.** Gaussian with a learned, state-independent standard deviation, squashed by
+  tanh. Log-probability and entropy bonus are those of the squashed action; scoring the
+  unsquashed Gaussian lets its standard deviation grow without bound.
+- **Training.** Every drone is one sample. Prints and logs to TensorBoard the share of
+  episodes per outcome, PPO diagnostics and throughput.
+- **Evaluation.** `evaluate(net, device, episodes, seed, config)` runs the deterministic
+  policy on 1000 fresh episodes, each exactly once, from a seed far from the training seeds.
+- **Output.** `runs/<name>/fly.pt`, `evaluation.json`, `tensorboard/`.
+
+### Planner (`rl/train_planner.py`, `PlannerNet`)
+
+- **Network.** Every (drone, target) pair is scored by one small network from the drone's
+  encoding, the target's features, the vector and distance between them, and two flags:
+  *taken* (a drone that is not deciding now is already flying there) and *claimed* (a drone
+  earlier in this decision just chose it). A separate score stands for "keep". Drones are
+  decided one after the other, which lets the policy spread the team. Slots a drone may not
+  choose are masked. The value is one number per environment, from the mean drone encoding, a
+  mean over the encoded targets and the globals. The weights do not depend on the number of
+  drones or targets. Hidden size 128.
+- **Probabilities.** The log-probability of a joint decision is the sum over the drones that
+  were asked; drones that were not asked contribute nothing to it or to the entropy.
+- **Reward.** `-100 x burned + 1 x fire_out`: one point per percent of the burnable area
+  burned, so the reward is the objective itself. Per environment, not per drone.
+- **Imitation** (`--teacher rollout --imitation-steps N`). Cross-entropy against the teacher's
+  choice on every decision, on 128 environments. For the first half of the steps the
+  teacher's actions drive the environments; from then on the network's own do, while the
+  teacher keeps labelling every state. So the network also sees, and learns to recover from,
+  the situations its own mistakes lead to (DAgger). Writes `imitation.pt`.
+- **PPO** runs for `--updates` afterwards (0 = imitation only). `--critic-updates N` trains
+  only the value function for the first N updates; `--init` starts from saved weights.
+- **Task.** Trained with `{"random_ignitions": 6, "random_wind": true}` on
+  `scenarios/demo.npz` unless `--config` says otherwise.
+- **Output.** `runs/<name>/planner.pt`, `imitation.pt`, `tensorboard/`.
+
+**State of things:** imitation works; PPO does not improve on it and fine-tuning makes it
+worse (see [Results](#learned-planner)).
+
+### Checkpoints
+
+A `.pt` file is a dict: `model` (weights), `net` (import path of the network class), `spec`
+(the environment spec, including both configurations), `ppo` (settings), `reward` (weights),
+`schema_version`, and for the fly policy `evaluation`. `imitation.pt` holds `model`, `spec`
+and `schema_version` only. No source files are copied.
+
+## Evaluation
+
+**Runner** (`eval/run.py`, `python -m roshan.eval`). Runs a planner on the seeds of
+`splits/val.txt` or `splits/test.txt` (500 each, frozen; training never uses them), every
+seed exactly once, and writes one CSV row per episode. The same seeds are also run with idle
+drones. Results do not depend on batch size or thread count.
+
+| Flag | Meaning |
+|---|---|
+| `--policy` | `none`, `greedy`, `hungarian`, `rollout`, or a planner checkpoint (`.pt`) |
+| `--split`, `--n` | `val` or `test`; only the first N seeds |
+| `--config`, `--sim` | JSON overrides of the allocate and the simulation configuration |
+| `--horizon` | lookahead of the rollout planner, seconds |
+| `--sample` | sample from a learned planner instead of taking its best guess |
+| `--fly CHECKPOINT` | fly the drones with a trained fly policy instead of the scripted controller |
+
+| CSV column | Meaning |
+|---|---|
+| `Episode_Index`, `Episode_Seed` | position in the split, seed |
+| `Fire_Fingerprint` | identifies the fire the episode started with |
+| `Success`, `Failure_Reason` | 1 if the fire went out; otherwise `Timeout` |
+| `Time` | seconds until the episode ended |
+| `Percent_Burned`, `Burned_Cells` | burned share of the burnable area; cells |
+| `Burned_NoAction` | cells burned on the same seed with idle drones |
+| `Area_Saved` | 1 - `Burned_Cells` / `Burned_NoAction` |
+| `Water_L`, `Drops` | water used |
+| `Min_Separation` | smallest distance between two drones, metres |
+
+**A trained planner** is evaluated like any other: `--policy runs/planner/planner.pt` (or
+`imitation.pt`). It takes its best guess per decision unless `--sample` is given. From Python,
+`roshan.rl.train_planner.load(path)` returns the network and `planner_policy(net, device)`
+wraps it as `env -> actions`, the form `roshan.eval.run.evaluate` takes.
+
+The runner refuses to continue if the fire of a seed differs between the policy and the idle
+run.
+
+**Paired statistics** (`eval/paired.py`, ported from the old ROSHAN). Per arm: success with
+Wilson interval, time and burned area with bootstrap intervals. Between two arms: McNemar on
+success, paired bootstrap and Wilcoxon on time and burned area. It refuses to pair runs whose
+fires differ. Flags: `--arm NAME CSV` (repeat), `--pair A B`, `--ci`, `--boot`, `--seed`.
+
+## Viewer and scenario editor
+
+`uv run python -m roshan.ui`. A native window (egui) inside the Python process. The window
+runs on the Python main thread with the interpreter lock released; the simulation runs on its
+own thread behind a lock that the window takes once per frame to draw. Policies are called
+from the simulation thread. What it runs depends on how it is started:
+
+| Start | Runs |
+|---|---|
+| `python -m roshan.ui [--scenario x.npz]` | The scenario. With drones in it: the allocate task (drones fly, drop water, refill). Without: the fire alone |
+| `... --planner off\|greedy\|rollout` | Who hands out targets (default greedy); can be switched in the window |
+| `... --planner runs/planner/planner.pt` | A trained planner hands out targets (its best guess, no sampling); works with `planner.pt` and `imitation.pt` |
+| `... --fire-model firespin` | The particle fire model; particles are drawn as dots (pale = convection, orange = radiation) |
+| `python -m roshan.ui --fly runs/navigate/fly.pt` | The navigate task flown by that trained policy |
+| `python -m roshan.ui --fly none --drones 2` | The navigate task without a policy, to steer by hand |
+| `roshan.ui.run(scenario, policy=f, planner="policy")` | The allocate task with your own planner `f(obs) -> slot per drone` |
+
+The window has a menu bar, a toolbar, a side panel, the map, and a status bar. Everything
+below can be done while it runs.
+
+- **Map**: one colour per land-cover class when the scenario has land cover (fetched and
+  imported maps), otherwise one per fuel model, shaded by the relief; a legend lists what
+  occurs on the map. Burning cells go from white-hot over yellow to red by age and light up
+  their neighbours, burned cells glow as embers and cool to ash, dropped water is cyan.
+  Drones are quadcopters with their nose towards where they fly, a number, a bar for the
+  water on board, and a fading trail; a drone waiting for a decision is orange, the selected
+  one yellow. Ground stations are helipads, fire targets on offer are reticles numbered with
+  their slot, and the line from a drone to its target is orange (fire), blue (station) or
+  white (a point). A ring splashes where water is dropped. Drag to pan, scroll to zoom.
+  Hovering a cell shows land cover, fuel model, head spread rate, slope, water and height.
+- **View menu**: colour the ground by land cover, elevation, spread rate or flame length
+  (the last two for the wind at the start); switch relief shading, elevation contours, fire
+  arrival lines every 5 minutes, the cell grid, the wind arrow, trails, target lines and
+  numbers; show the whole map; keep the selected drone in view.
+- **Toolbar**: pause, single fire step, restart, speed from 0.25x to 600x, and the left-click
+  tools: select a drone; send the selected drone; ignite now; drop water now; toggle a
+  starting fire, a drone or a ground station; erase placements. The last four edit the
+  scenario and restart it. Ignite and water reach `brush` cells around the click. Right click
+  always drops water.
+- **File menu**: open a scenario (`.npz`) or a land-cover GeoTIFF, open a recent file, fetch
+  the terrain of a real place, go back to the built-in demo, save (to the file the scenario
+  came from, or to a new `scenarios/<name>-<date>-<time>.npz`), save as, and take a
+  screenshot (to `docs/img/`). "Open this scenario at every start" makes the current file
+  the one shown when the viewer is started without `--scenario`.
+- **Simulation menu**: switch between the scenario and the fly task, switch the fire model,
+  choose whether Restart moves on to the next seed (the default) or replays the same one,
+  jump to the first validation or test seed, and open Settings.
+- **Settings window**: every parameter of the simulation (`SimConfig`, with the FireSPIN
+  block), the allocate task (`AllocConfig`) and the fly task (`NavConfig`), under its own
+  name. Changed values are bold and can be put back one by one. "Apply and restart" takes
+  them over; values the simulation rejects change nothing. This is where the dynamic task
+  (`random_ignitions`, `random_wind`), the time limit and the spread-rate noise are set.
+- **Policy menu**: load a checkpoint. A planner checkpoint then hands out the targets, a fly
+  checkpoint flies the drones; the task is set up the way the checkpoint was trained. Both
+  can be attached at once, which shows the planner with learned flight (nothing then keeps
+  drones apart, as in the evaluation with `--fly`). Either can be detached again.
+- **Side panel**: the seed; the planner (off, greedy, rollout with its look-ahead, or the
+  attached policy); the weather at the start (wind speed and direction, dead-fuel, live-herb
+  and live-woody moisture) and later wind changes (after how many minutes, speed, direction).
+- **Status bar**: time, burning cells, burned share, current wind, map size, seed, policy
+  calls, and the last message.
+- **Inspector**: "select" and click a drone. A panel shows every observation column of
+  that drone by name, its neighbour slots (navigate), and every reward term for the last
+  tick and summed over the episode. In the navigate task the view range and the collision
+  distance are drawn around it.
+- **By hand**: in the allocate task, "send" flies the selected drone to the clicked
+  cell: to refill on a station, to drop water on a burning cell, otherwise just there. With
+  the planner off nothing else moves. In the navigate task, "steer it myself" flies the
+  selected drone with W A S D or the arrow keys while the policy flies the others.
+- **Episodes**: when an episode of the allocate task ends the simulation pauses and shows the
+  summary; the navigate task starts the next episode by itself and shows how the last one
+  ended.
+- **Keyboard**: Space pause, `.` step, R restart, F whole map, 1-8 tools, `[` `]` half or
+  double speed, Esc close the inspector, Ctrl+O open, Ctrl+S save, Ctrl+Shift+S save as, F12
+  screenshot. Help > Keyboard and mouse lists them.
+- **Remembered between runs** (in the user's data directory, `roshan2/app.ron`): the default
+  scenario, recent files, the view settings, the speed, the brush, the last fetch area, and
+  the window's place and size. Runs with `auto_close_s` neither read nor write it.
+- **Terrain of a real place** (File menu): latitude, longitude and size in km, or "choose on
+  the street map": an OpenStreetMap view with the rectangle to fetch in its centre; drag the
+  map under it. "Fetch" downloads in the background and replaces the map.
+- **Policies** get a dict of named arrays and return a flat list: a planner one target slot
+  per drone (-1 keeps), asked only when drones need a decision; a pilot two velocity
+  fractions per drone, every tick. A policy that raises pauses the simulation and its
+  traceback is shown. Ctrl+C in the terminal closes the window, also while it is hidden.
+- **Without Python**: `cargo run --release -p roshan-ui --example viewer [navigate|firespin]`
+  (no files, no fetch, no learned policy).
+- **Cost**: the map picture is repainted and uploaded once per fire step, not per frame, and
+  not at all while paused. On a 2000 x 2000 map a repaint takes about 20 ms; the unchanging
+  part (land cover, relief, contours) is computed once per restart (about 0.2 s there, 1.3 s
+  when colouring by spread rate or flame length).
+
+## Tests
+
+`cargo test --workspace --exclude roshan-py --release` and `uv run pytest`.
+
+- **Rothermel kernel** (`rothermel.rs`, `fuel.rs`): Behave's own regression values (rate of
+  spread, flame length, fireline intensity, live moisture of extinction, characteristic
+  surface-to-volume ratio, length-to-width ratio, a high-wind case) and sanity checks on all
+  40 fuel models.
+- **Fire on the grid** (`tests/fire.rs`): head rate, round shape without wind, ellipse shape,
+  thread-count independence, clone independence, a distant fire unaffected by suppression,
+  wet strips, knock-down and re-ignition, barriers, wind shift.
+- **FireSPIN** (`tests/spin.rs`): spread and reproducibility, clone independence, step size,
+  a distant fire unaffected by suppression, soaked strip and bare ground, land-cover classes,
+  configuration.
+- **Navigate** (`tests/navigate.rs`): episode logic, reset semantics, time limit,
+  thread-count independence, normalised and masked observations.
+- **Allocate** (`tests/allocate.rs`): separation with 16 drones over 10,000 drops, episodes
+  that depend only on their seed, water saving area, decision, mask and tank rules.
+- **Python** (`tests/`): baselines, the allocate environment, the evaluation runner and paired
+  statistics, environment buffers and validation, advantage estimation, the squashed policy,
+  a PPO update, a short end-to-end training run, the planner network and imitation, both
+  tasks on FireSPIN, scenario files, the terrain pipeline with the two downloads replaced,
+  import of old maps.
+- **Viewer** (`spikes/ui_spike.py --auto`): policy threading, Ctrl+C, every planner. Opens
+  windows briefly.
+
+## Results
+
+All planner numbers use the Rothermel model. The planner comparison below was made on
+2026-11-17 with the calibrated water constants and the current demo map. **The learned-planner
+and learned-flight numbers further down are older**: they were made on the previous demo map
+with the placeholder water constants (critical load 1.0 L/m² for every fire) and have not been
+redone. Evaluation results do not depend on the machine; timings do.
+
+### Performance
+
+On a 24-core Intel Core Ultra 9 275HX with an RTX 5090 Laptop GPU, 2026-11-12.
+
+| What | Result |
+|---|---|
+| Navigate, simulator only | 18 M drone-steps/s on 1 thread, 160 M on 24 |
+| Navigate, PPO end to end | about 1.0 M drone-steps/s |
+| 60-minute fire on a 100 x 100 map, one thread | 3.5 ms |
+| Fire step | 14 ns per burning cell |
+| Clone of a 100 x 100 world | about 60 µs |
+| Terrain fetch, 2 km x 1.5 km | about 2 s |
+| Allocate, simulator only, 256 environments, random actions | about 50k decisions/s, 38 simulated hours per second |
+| 200 rollout-planner episodes | about 45 s |
+
+### Fly policy
+
+| What | Result |
+|---|---|
+| After 450 updates (about 2 minutes), 1000 unseen episodes, 4 drones | 99.4 % success, 0.6 % collision (one training seed) |
+| The same policy with 8 drones, untrained for that | 86.2 % success |
+| Straight-line pilot without avoidance, 4 drones | 50.6 % success |
+| Scripted flight in the allocate task, 16 drones, 10,008 water drops | closest approach 3.00 m (the safety distance) |
+
+### Planner comparison
+
+200 validation seeds, 4 drones, 6 random ignitions, random wind, 30 minutes.
+`scenarios/demo.npz` is the dynamic task; `scenarios/demo_static.npz` is the same map with
+fuel almost too moist to burn, so the fires hardly spread (the situation of the old ROSHAN
+benchmark).
+
+| Dynamic task | Burned area | Area saved | Fire out |
+|---|---|---|---|
+| none | 9.97 % | 0 % | 0 % |
+| greedy | 6.55 % | 35.8 % | 0.5 % |
+| hungarian | 6.45 % | 36.9 % | 0.5 % |
+| rollout | 5.29 % | 48.7 % | 1.5 % |
+
+| Near-static task | Area saved | Fire out | Time to fire out, median |
+|---|---|---|---|
+| none | 0 % | 0 % | - |
+| greedy | 97.0 % | 100 % | 463 s |
+| hungarian | 97.5 % | 100 % | 53 s less than greedy (paired median) |
+| rollout | 97.6 % | 100 % | 378 s |
+
+Paired against greedy:
+
+- Dynamic, rollout: burned area -1.26 points, interval [-1.45, -1.07], Wilcoxon p = 4e-29;
+  fire out in 2 episodes where greedy failed and never the reverse (McNemar p = 0.5).
+- Dynamic, hungarian: burned area -0.10 points, interval [-0.21, 0.00], Wilcoxon p = 0.56.
+- Near-static: every planner puts every fire out and saves 97 % of the area. Rollout is
+  70 s faster than greedy (paired median, interval [-92, -58]); hungarian 53 s ([-64, -24]).
+
+So lookahead buys a fifth less burned area on the dynamic task, where one-step matching
+(greedy, hungarian) is tied; on the near-static task nothing but a minute of time is at stake.
+Planners save less than in the earlier version of this table (greedy saved 47.8 % then). Two
+things changed at once, the demo map and the water model, and their effects were not
+measured separately.
+
+### Learned planner
+
+**Made before the calibration and on the previous demo map; not comparable with the table
+above.** All runs use `--config '{"random_ignitions":6,"random_wind":true}'`, 4 drones, one trained
+network (one seed). "Learned" is the imitation of the rollout planner, 4000 steps
+(`runs/planner_bc_long/imitation.pt`).
+
+Dynamic task, area saved:
+
+| Planner | First 200 validation seeds | 500 test seeds |
+|---|---|---|
+| greedy | 47.8 % | 47.4 % |
+| hungarian | 48.6 % | 48.0 % |
+| learned (imitation, 4000 steps) | 52.1 % | 51.8 % |
+| rollout | 59.9 % | 57.7 % |
+| imitation, 1200 steps | 51.4 % | - |
+| imitation + PPO fine-tuning | 43.6 % | - |
+| PPO from scratch | 43.1 % | - |
+
+Paired on the test seeds, burned area: learned is 0.36 points below hungarian (interval
+[0.28, 0.45], Wilcoxon p = 2e-31) and 0.60 points above rollout ([0.49, 0.71], p = 1e-32).
+So the learned planner beats one-step matching and recovers roughly 40 % of the gap to the
+lookahead planner it imitates. **PPO does not improve on imitation; fine-tuning degrades it.**
+That is the open RL problem.
+
+Near-static task (200 validation seeds): learned saves 99.3 % of the area (greedy 99.2 %) and
+is 18 s faster than greedy in the paired median (interval [8, 30]); it puts the fire out in
+199 of 200 episodes, greedy in all 200.
+
+### Learned flight under a planner
+
+**Made before the calibration and on the previous demo map.**
+`runs/navigate/fly.pt` instead of the scripted controller, 500 validation seeds. The fly
+policy was trained on the navigate task only, never under a planner:
+
+| Planner | Flight | Area saved | Episodes with drones closer than 2 m | Closest approach |
+|---|---|---|---|---|
+| greedy | scripted | 46.4 % | 0 % | 3.00 m |
+| greedy | learned | 39.0 % | 0.6 % | 0.70 m |
+| learned | scripted | 50.5 % | 0 % | 3.00 m |
+| learned | learned | 43.3 % | 2.6 % | 0.61 m |
+
+Learned flight costs 0.73 to 0.75 points of burned area (paired, both intervals exclude 0)
+and lets drones come close in a few episodes of 30 minutes; the scripted controller stays
+the default. Per-tick learned flight is slow to evaluate (Python is called every tick).
+
+The FireSPIN validation table is in [its own section](#checked-against-the-old-code).
+
+## Calibration
+
+Where the numbers that decide fire behaviour and the effect of water come from. Reproduce the
+tables with `cargo run --release -p roshan-core --example calibrate`.
+
+### Water
+
+| Constant | Value | Source |
+|---|---|---|
+| `water_per_mw_l_m2` | 0.6 | Loane & Gould 1986, *Aerial suppression of bushfires* (CSIRO): depth of water that holds a fire, against fireline intensity, eucalypt forest. Read from the curves as reproduced in Plucinski et al. 2007 (Bushfire CRC Technical Report A0701, Fig. 2): about 0.6, 1.1, 2.0, 3.1 mm at 1, 2, 4, 6 MW/m. Read by eye, about ±20 %. |
+| `water_per_mw_grass_l_m2` | 0.35 | The same curves for grass: about 0.35, 0.65, 1.2, 1.75 mm. |
+| `water_crit_l_m2` | 0.4 | Stechishen & Little 1971 (Canadian Forestry Service FF-X-29), as tabulated in Hansen 2012 (Int. J. Wildland Fire 21: 525-536): 0.2-0.6 mm put out fires in pine needles below about 360 kW/m. |
+| `sheltered_waf` | 0.2 | Andrews 2012 (USDA RMRS-GTR-266): fully sheltered fuel 0.1 in dense stands, 0.2 in open ones. |
+| `water_tau_s` | 600 | **Assumed.** No measured holding time of plain water was found. Water-enhancing gels are reported to last 30-45 minutes at most, and plain water less; with 600 s a drop at twice the critical load holds for 7 minutes. |
+| `ember_s` | 60 | **Assumed.** A parameter of this model without a measured counterpart. |
+| drop footprint | one cell | **Assumed.** No measured ground pattern of a drone drop of this size was found. |
+
+Checks that were not used as inputs:
+
+- US Forest Service retardant coverage levels (George & Johnson 1990, GTR INT-268) run from
+  0.41 L/m² for grass to 2.46 L/m² for brush; long-term retardant is taken to be two to three
+  times as effective as water.
+- Fires are held to be beyond control at the head above about 4 MW/m (Alexander 2000, NZ
+  Forest Research Bulletin 197). At that intensity the model asks for 2.4 L/m² in forest.
+- One source disagrees: Alexander (2000) quotes 5.3 mm of water for pine-needle litter at
+  2 MW/m, five times the curve used here.
+
+What the simulator does with it: head fire on flat ground, dead fuel 6 %, live 60/90 %. Per
+wind speed at 10 m: rate of spread (m/min), fireline intensity (kW/m), water that stops it
+(L/m²).
+
+| Fuel | 2 m/s | 5 m/s | 10 m/s |
+|---|---|---|---|
+| GR2 | 2.2 / 103 / 0.40 | 7.2 / 330 / 0.40 | 18.9 / 867 / 0.40 |
+| GR6 | 5.0 / 1107 / 0.40 | 16.4 / 3632 / 1.27 | 45.1 / 9971 / 3.49 |
+| GS2 | 1.7 / 144 / 0.40 | 5.3 / 461 / 0.40 | 13.9 / 1210 / 0.73 |
+| SH5 | 7.4 / 2215 / 1.33 | 20.6 / 6154 / 3.69 | 46.1 / 13750 / 8.25 |
+| SH8 | 2.4 / 996 / 0.60 | 6.7 / 2755 / 1.65 | 15.3 / 6328 / 3.80 |
+| TU2 | 0.5 / 41 / 0.40 | 1.3 / 97 / 0.40 | 3.0 / 227 / 0.40 |
+| TU3 | 1.1 / 182 / 0.40 | 2.8 / 449 / 0.40 | 6.4 / 1037 / 0.62 |
+| TL3 | 0.1 / 4 / 0.40 | 0.2 / 8 / 0.40 | 0.4 / 16 / 0.40 |
+
+A 150 L drop on a 10 m cell is 1.5 L/m².
+
+### Land cover
+
+The table follows Aragoneses et al. 2023 (*Classification and mapping of European fuels using
+a hierarchical, multipurpose fuel classification system*, Earth Syst. Sci. Data 15:
+1287-1315), Table 5, column for the humid regime. CLC+ carries no canopy cover, so forest is
+taken as closed, and no vegetation height, so grass is taken as low. Two classes were checked
+against observed fires:
+
+**Scots pine** (Tanskanen et al. 2007, Int. J. Wildland Fire 16: 414-425; experimental fires
+in Finnish stands). Rate of spread in m/min against the wind inside the stand:
+
+| Dead fuel 9 % | 0 m/s | 0.2 | 0.4 | 0.6 | RMSE |
+|---|---|---|---|---|---|
+| observed | 0.66 | 1.05 | 1.65 | 2.61 | |
+| TL3 | 0.05 | 0.07 | 0.10 | 0.13 | 1.57 |
+| TL8 (the old table) | 0.20 | 0.25 | 0.33 | 0.42 | 1.36 |
+| TU1 | 0.02 | 0.03 | 0.04 | 0.05 | 1.63 |
+| **TU2** | 0.21 | 0.30 | 0.46 | 0.66 | 1.23 |
+| TU5 | 0.23 | 0.35 | 0.51 | 0.68 | 1.20 |
+
+At 14 % dead fuel moisture the picture is the same (TU2 0.37, TU5 0.34, TL8 0.50). TU2 and
+TU5 are equally close; TU2 is kept because the published table names it. Every standard model
+is a factor of two to four too slow here.
+
+**Heath** (Davies et al. 2009, J. Appl. Ecol. 46: 1054-1063; 27 fires in Calluna). Heather
+0.3 m high, dead fuel 20 %, live 75 %, wind at 10 m:
+
+| | 2 m/s | 4 | 6 | 8 | RMSE |
+|---|---|---|---|---|---|
+| observed | 2.22 | 3.64 | 5.07 | 6.49 | |
+| SH2 (the old table) | 0 | 0 | 0 | 0 | 4.64 |
+| SH3 (low shrub in the published table) | 0.35 | 0.74 | 1.18 | 1.66 | 3.55 |
+| **SH8** (medium shrub) | 2.07 | 4.43 | 7.12 | 10.05 | 2.09 |
+| SH9 | 4.42 | 9.52 | 15.34 | 21.68 | 9.69 |
+
+SH8 is used. SH2 and SH5 do not burn at all at this moisture.
+
+Not used: the fuel loads Heisig et al. (2022, Fire 5: 29) measured in the Haard forest itself.
+Their spread rates are simulated, not observed, and adding custom fuel models is a separate
+step.
+
+## Not implemented yet
+
+From the plan in [design.md](design.md):
+
+- Fitting the water constants and the land-cover table to measured fires; they are set from
+  published values (see [Calibration](#calibration)).
+- Retraining the learned planner on the calibrated simulator.
+- Sensing, belief maps and the scripted explorer.
+- Layered YAML configs; training options are plain command-line flags today.
+
+## Known limits
+
+- **Fire shape in strong wind.** The length-to-breadth ratio is within 7 % of the ellipse up
+  to a ratio of 3.2 (16 m/s wind on grass). Along a grid axis the fire is 25 % too narrow at
+  4.5 and 70 % at 6.8.
+- **Forest still burns slower than observed.** With the calibrated table, pine forest (TU2)
+  spreads at a quarter to a half of the rates measured in Scots pine stands
+  (see [Calibration](#calibration)).
+- **Meadows and cropland are probably too flammable.** The published table puts both on GR6,
+  which carries a 3.6 MW/m head at 5 m/s wind in dry weather; managed green grassland rarely
+  burns like that.
+- **Sheltering from wind is all or nothing**: timber models get one sheltered factor, every
+  other fuel the open-ground one. There is no canopy-cover layer.
+- **The Rothermel kernel is checked on two fuel models** against Behave, and the fuel table on
+  all forty. A reference table over all forty models has not been generated.
+- **Water**: the critical load follows published values, but how long water lasts
+  (`water_tau_s`), `ember_s` and the footprint of a drone's drop (all of it on one cell) are
+  assumptions. A cell's intensity is fixed when it ignites and does not follow a later wind
+  change. Along an edge the wettest cell decides, which is slightly too cautious for partly
+  wet paths.
+- **FireSPIN is not calibrated either**: its constants are the old ones, and no planner
+  comparison has been run on it yet. A knocked-down FireSPIN cell forgets how much of its
+  fuel had burned. The cell inspector's spread rate is always Rothermel's.
+- **PPO on the planner task makes an imitated policy worse**, and from scratch stays below
+  greedy. Only imitation of the rollout planner works so far; one network, one seed.
+- **One training seed** stands behind the fly-policy numbers.
+- **The planner sees the true fire**; there is no sensing yet.
+- **The scripted controller has no deadlock handling** beyond sidestepping; none occurred in
+  the tests.
+- **Random ignitions use rejection sampling**: a map that is almost all non-burnable gets
+  fewer fires than asked for.
+- **The viewer's mouse and keyboard actions, menus, file dialogs and Settings window were not
+  tested automatically.** Window captures confirm that the fire view, the allocate view with
+  the inspector, the fly-task view and real terrain with relief render; unit tests cover the
+  map painting, the settings form, learned flight under a planner and the switch to the fly
+  task; the check script confirms that policies are called and every planner runs.
+- **Colouring by spread rate or flame length shows the start**: it is not updated when the
+  wind schedule moves on, and it uses the Rothermel rate also under FireSPIN.
+- **The rollout planner in the viewer computes under the simulation lock** and can stall the
+  picture for a moment at each decision.

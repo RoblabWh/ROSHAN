@@ -1,0 +1,18 @@
+[workspace]
+resolver = "3"
+members = ["crates/*"]
+
+[workspace.package]
+version = "0.1.0"
+edition = "2024"
+
+[workspace.dependencies]
+rayon = "1.12"
+pyo3 = "0.30"
+numpy = "0.30"
+# glow (OpenGL) rather than wgpu: smaller build and no Vulkan adapter selection next to CUDA
+eframe = { version = "0.37", default-features = false, features = ["glow", "x11", "wayland", "default_fonts", "persistence"] }
+
+# Dependencies (egui, rayon) at full speed even in debug builds; our own code stays debuggable.
+[profile.dev.package."*"]
+opt-level = 3
