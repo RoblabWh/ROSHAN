@@ -3,14 +3,18 @@
 //! The Settings window is one form for every configuration struct: a struct is turned into
 //! JSON, each number and switch gets a field named after it, and the result is read back. A new
 //! parameter in the core therefore shows up here without anybody writing a widget for it.
+//!
+//! The window loads and saves experiment files (the `[sim]`, `[allocate]` and `[navigate]`
+//! sections that training and evaluation read), so a setup tried here can be trained on and
+//! the world of a finished run can be looked at.
 
 use crate::draw::Layers;
-use crate::{Area, Viewer};
+use crate::{Area, Outcome, Viewer};
 use eframe::egui;
 use roshan_core::allocate::AllocConfig;
 use roshan_core::navigate::NavConfig;
 use roshan_core::world::SimConfig;
-use serde_json::Value;
+use serde_json::{Value, json as json_value};
 use std::path::{Path, PathBuf};
 
 /// Remembered between runs (stored by eframe in the user's data directory).
@@ -73,6 +77,40 @@ pub struct Forms {
     draft: Option<[Value; 3]>,
 }
 
+impl Forms {
+    /// Shows the settings of an experiment file (JSON of its sections) in the window. Sections
+    /// and values the file does not have are the defaults, as they are for training.
+    pub(crate) fn load(&mut self, text: &str) -> Result<(), String> {
+        let file: Value = serde_json::from_str(text).map_err(|e| e.to_string())?;
+        let section = |i: usize| {
+            file.get(SECTIONS[i])
+                .cloned()
+                .unwrap_or_else(|| json_value!({}))
+        };
+        let read = || -> Result<[Value; 3], serde_json::Error> {
+            Ok([
+                json(&serde_json::from_value::<SimConfig>(section(0))?),
+                json(&serde_json::from_value::<AllocConfig>(section(1))?),
+                json(&serde_json::from_value::<NavConfig>(section(2))?),
+            ])
+        };
+        self.draft = Some(read().map_err(|e| e.to_string())?);
+        self.open = true;
+        Ok(())
+    }
+}
+
+/// A file dialog for experiment files, starting in `experiments/` when there is one.
+fn dialog() -> rfd::FileDialog {
+    let dialog = rfd::FileDialog::new().add_filter("experiment files", &["toml"]);
+    match std::path::absolute("experiments") {
+        Ok(dir) if dir.is_dir() => dialog.set_directory(dir),
+        _ => dialog,
+    }
+}
+
+/// The tabs' sections in an experiment file.
+const SECTIONS: [&str; 3] = ["sim", "allocate", "navigate"];
 const TABS: [&str; 3] = ["Simulation", "Drones and planner", "Fly task"];
 const TAB_HINTS: [&str; 3] = [
     "time step, water and the fire models",
@@ -133,7 +171,15 @@ fn hint(name: &str, salt: &str) -> &'static str {
         ("max_interval_s", _) => "everyone may decide again after this long, seconds",
         ("time_limit_s", _) => "an episode ends after this long, seconds",
         ("random_ignitions", _) => "above zero: this many random fires replace the scenario's",
-        ("random_wind", _) => "draw the wind direction per episode instead of using the scenario's",
+        ("random_wind", _) => {
+            "turn the scenario's wind by a random angle per episode; its wind changes turn along"
+        }
+        ("preburn_s", _) => {
+            "the fire burns unattended this long before the episode starts, seconds"
+        }
+        ("preburn_cells", _) => {
+            "... or until this many cells have caught fire, whichever comes first; 0 = no cap"
+        }
         ("drones", _) => "number of drones",
         ("view_m", _) => "how far a drone sees other drones and the map edge, metres",
         ("collide_m", _) => "two drones closer than this have collided, metres",
@@ -232,6 +278,9 @@ impl Viewer<'_> {
         });
         let tab = &mut self.forms.tab;
         let (mut open, mut apply) = (true, false);
+        let (can_load, can_save) = (self.load_settings.is_some(), self.save_settings.is_some());
+        // Set by the buttons: read a file; write these sections (JSON).
+        let (mut load, mut save) = (false, None);
         egui::Window::new("Settings")
             .open(&mut open)
             .default_width(340.0)
@@ -261,6 +310,25 @@ impl Viewer<'_> {
                     {
                         draft[*tab] = defaults[*tab].clone();
                     }
+                    load = ui
+                        .add_enabled(can_load, egui::Button::new("Load ..."))
+                        .on_hover_text(
+                            "show the [sim], [allocate] and [navigate] of an experiment file \
+                             (one written by hand, by this window, or the experiment.toml of a run)",
+                        )
+                        .clicked();
+                    if ui
+                        .add_enabled(can_save, egui::Button::new("Save ..."))
+                        .on_hover_text(
+                            "write every value of all three tabs as the [sim], [allocate] and \
+                             [navigate] of an experiment file",
+                        )
+                        .clicked()
+                    {
+                        let sections = SECTIONS.iter().zip(draft.iter());
+                        let all = sections.map(|(name, values)| (name.to_string(), values.clone()));
+                        save = Some(Value::Object(all.collect()).to_string());
+                    }
                 });
                 ui.small(
                     "Names are the parameters' own: _s seconds, _m metres, _l litres, _ms m/s.",
@@ -269,6 +337,22 @@ impl Viewer<'_> {
         self.forms.open = open;
         if apply {
             self.apply_settings();
+        }
+        if let (true, Some(read)) = (load, self.load_settings.clone()) {
+            self.spawn("choose an experiment file ...", move || {
+                let Some(path) = dialog().pick_file() else {
+                    return Ok(Outcome::Cancelled);
+                };
+                Ok(Outcome::Settings(read(&path)?, path))
+            });
+        }
+        if let (Some(text), Some(write)) = (save, self.save_settings.clone()) {
+            self.spawn("choose where to save ...", move || {
+                let Some(path) = dialog().set_file_name("settings.toml").save_file() else {
+                    return Ok(Outcome::Cancelled);
+                };
+                write(&path, &text).map(Outcome::Message)
+            });
         }
     }
 
@@ -345,6 +429,22 @@ mod tests {
         check(&json(&SimConfig::default()), TABS[0]);
         check(&json(&AllocConfig::default()), TABS[1]);
         check(&json(&NavConfig::default()), TABS[2]);
+    }
+
+    /// A loaded file shows as defaults plus its values, and a name the simulation does not
+    /// know is refused instead of dropped.
+    #[test]
+    fn experiment_files_survive_the_window() {
+        let file = json_value!({"allocate": {"tank_l": 250.0}, "sim": {"spin": {"lt_m": 90.0}}});
+        let mut forms = Forms::default();
+        forms.load(&file.to_string()).unwrap();
+        let draft = forms.draft.clone().unwrap();
+        assert_eq!(draft[1]["drop_l"], json(&AllocConfig::default())["drop_l"]);
+        assert_eq!(draft[1]["tank_l"], 250.0);
+        assert_eq!(draft[0]["spin"]["lt_m"], 90.0);
+        assert_eq!(draft[2], json(&NavConfig::default()));
+        assert!(forms.load(r#"{"allocate": {"tank": 1}}"#).is_err());
+        assert_eq!(forms.draft, Some(draft));
     }
 
     #[test]

@@ -1,0 +1,90 @@
+# The untrained planners on the dynamic task of the demo map, on the same validation episodes.
+# A trained planner is one more arm: copy a section and set policy = "runs/planner/planner.pt".
+#   uv run python -m roshan.eval experiments/eval_demo.toml     -> runs/eval_demo/
+# Every setting is listed with the value this run uses. Copy the file to make a variant.
+
+# split is "val" or "test"; n = 0 runs all its seeds; pair = ["a", "b"] adds paired statistics of two arms
+[eval]
+scenario = "scenarios/demo.npz"
+split = "val"
+n = 0
+pair = ["greedy", "hungarian"]
+
+# the simulation; names carry their units: _s seconds, _m metres, _l litres
+[sim]
+dt_s = 0.1
+fire_every = 20
+water_crit_l_m2 = 0.4
+water_per_mw_grass_l_m2 = 0.35
+water_per_mw_l_m2 = 0.6
+water_tau_s = 600.0
+ember_s = 60.0
+sheltered_waf = 0.2
+ros_noise = 0.0
+fire_model = "rothermel"
+
+# the FireSPIN particle model, used when fire_model is firespin
+[sim.spin]
+dt_s = 0.5
+emit_convective = true
+emit_radiation = true
+conv_y_st = 1.0
+conv_y_lim = 0.2
+conv_tau_mem_s = 10.0
+conv_fl = 0.15
+conv_c0 = 1.98
+lt_m = 80.0
+wind_a = 0.314
+rad_y_st = 1.0
+rad_y_lim = 0.165
+generic_burn_s = 120.0
+generic_ignite_s = 100.0
+
+# the planner's task: drones are sent to fires
+[allocate]
+max_speed_ms = 10.0
+tank_l = 300.0
+drop_l = 150.0
+refill_s = 10.0
+arrive_m = 5.0
+station_m = 12.0
+safe_m = 3.0
+block_cells = 5
+max_targets = 32
+max_interval_s = 10.0
+time_limit_s = 1800.0
+random_ignitions = 6
+random_wind = true
+preburn_s = 0.0
+preburn_cells = 0
+
+# one section per planner to compare: policy is none, greedy, hungarian, rollout or a checkpoint (.pt);
+# horizon (seconds) and candidates belong to rollout, sample to a checkpoint;
+# fly is a fly checkpoint, "decentral", or "" for the scripted controller
+[arms.none]
+policy = "none"
+sample = false
+horizon = 120.0
+candidates = 4
+fly = ""
+
+[arms.greedy]
+policy = "greedy"
+sample = false
+horizon = 120.0
+candidates = 4
+fly = ""
+
+[arms.hungarian]
+policy = "hungarian"
+sample = false
+horizon = 120.0
+candidates = 4
+fly = ""
+
+[arms.rollout]
+policy = "rollout"
+sample = false
+horizon = 120.0
+candidates = 4
+fly = ""

@@ -49,15 +49,21 @@ pub struct Obs(pub Vec<(&'static str, Vec<usize>, Vec<f32>)>);
 /// Maps an observation to an action. `Err` carries a printable traceback.
 /// planner: one target slot per drone (or -1). pilot: two velocity fractions per drone.
 pub type Policy = Box<dyn FnMut(&Obs) -> Result<Vec<f32>, String> + Send>;
-/// Stores a scenario, at the given path or under a new name of its own choosing; returns a
-/// line to show the user (for example the file name).
-pub type Save = Arc<dyn Fn(&Scenario, Option<&Path>) -> Result<String, String> + Send + Sync>;
+/// Stores a scenario, at the given path or under a new name of its own choosing; returns the
+/// file it wrote. It may refuse, for example to overwrite a map that experiments are run on.
+pub type Save = Arc<dyn Fn(&Scenario, Option<&Path>) -> Result<PathBuf, String> + Send + Sync>;
 /// Builds a scenario with real terrain for an area.
 pub type Fetch = Arc<dyn Fn(Area) -> Result<Scenario, String> + Send + Sync>;
 /// Reads a scenario (or anything that can become one, such as a land-cover GeoTIFF) from disk.
 pub type Open = Arc<dyn Fn(&Path) -> Result<Scenario, String> + Send + Sync>;
 /// Reads a trained policy from a checkpoint file.
 pub type LoadPolicy = Arc<dyn Fn(&Path) -> Result<Loaded, String> + Send + Sync>;
+
+/// Reads the `sim`, `allocate` and `navigate` sections of an experiment file as one JSON object;
+/// a section that is missing keeps its defaults.
+pub type LoadSettings = Arc<dyn Fn(&Path) -> Result<String, String> + Send + Sync>;
+/// Writes such a JSON object as an experiment file; returns a line to show the user.
+pub type SaveSettings = Arc<dyn Fn(&Path, &str) -> Result<String, String> + Send + Sync>;
 
 /// A policy read from a checkpoint.
 pub struct Loaded {
@@ -67,6 +73,8 @@ pub struct Loaded {
     /// The task it was trained on, as JSON: an `AllocConfig` for a planner, a `NavConfig` for
     /// a pilot. Missing fields keep their defaults.
     pub config: String,
+    /// The simulation it was trained on, as JSON of a `SimConfig`.
+    pub sim: String,
 }
 
 /// A rectangle on the globe: centre in degrees, size in kilometres.
@@ -84,6 +92,21 @@ pub enum Session {
     Scenario(Scenario),
     /// The navigate task on an empty map.
     Navigate { grid: Grid, cfg: NavConfig },
+}
+
+/// Who flies the drones in the fly task.
+#[derive(Clone, Copy, PartialEq, Debug)]
+pub enum Flight {
+    /// Nobody: drones stand still unless steered by hand.
+    Off,
+    /// Straight at the waypoint, no avoidance.
+    Straight,
+    /// Straight at the waypoint, sidestepping other drones. Centralised, sees everything.
+    Scripted,
+    /// Each drone alone, from the observation a fly policy gets.
+    Decentral,
+    /// The attached fly policy.
+    Policy,
 }
 
 /// Who hands out targets in the allocate task.
@@ -106,6 +129,8 @@ pub struct Hooks {
     pub fetch: Option<Fetch>,
     pub open: Option<Open>,
     pub load_policy: Option<LoadPolicy>,
+    pub load_settings: Option<LoadSettings>,
+    pub save_settings: Option<SaveSettings>,
 }
 
 #[derive(Default)]
@@ -119,9 +144,20 @@ pub struct Options {
     /// Open with this drone in the inspector.
     pub select: Option<usize>,
     pub fire_model: FireModel,
+    /// The fires burn this long before the drones start (`AllocConfig::preburn_s`).
+    pub preburn_s: f32,
     /// The caller chose what to show. Otherwise the user's default scenario, if one is set,
     /// replaces the session's.
     pub explicit: bool,
+    /// The file the session's scenario came from, which Save writes back to.
+    pub path: Option<PathBuf>,
+    /// The world of an experiment: JSON with `sim`, `allocate` and `navigate` objects (any may
+    /// be missing). A section that is given is used as training and evaluation would use it,
+    /// defaults included, instead of the viewer's own defaults; `fire_model` and `preburn_s`
+    /// above then do not apply to it.
+    pub settings: Option<String>,
+    /// The episode to start on; Restart then replays it instead of moving to the next seed.
+    pub seed: Option<u64>,
 }
 
 #[derive(Debug, Default, Clone, Copy)]
@@ -182,6 +218,7 @@ struct Shared {
     /// Rollout planner: how far it looks ahead (s) and how many alternatives it tries.
     rollout: (f32, usize),
     planner: Planner,
+    flight: Flight,
     has_planner: bool,
     has_fly: bool,
     /// Policies on their way to the sim thread: (is the pilot, the policy or None to detach).
@@ -361,7 +398,7 @@ fn asks(s: &mut Shared) -> (Option<Obs>, Option<Obs>) {
             });
             (planner, pilot)
         }
-        Sim::Navigate(env, b) if s.has_fly => {
+        Sim::Navigate(env, b) if s.has_fly && s.flight == Flight::Policy => {
             let n = env.config().drones;
             let obs = pilot_obs(n, b.agent.clone(), b.neighbors.clone(), &b.mask);
             (None, Some(obs))
@@ -412,9 +449,15 @@ fn tick(s: &mut Shared, planned: Option<Vec<f32>>, flown: Option<Vec<f32>>) {
         }
         Sim::Navigate(env, b) => {
             let n = env.config().drones;
-            let mut actions = flown
-                .filter(|a| a.len() == 2 * n)
-                .unwrap_or_else(|| vec![0.0; 2 * n]);
+            let mut actions = match s.flight {
+                Flight::Off => vec![0.0; 2 * n],
+                Flight::Straight => env.pilot(navigate::Pilot::Straight),
+                Flight::Scripted => env.pilot(navigate::Pilot::Scripted),
+                Flight::Decentral => env.pilot(navigate::Pilot::Decentral),
+                Flight::Policy => flown
+                    .filter(|a| a.len() == 2 * n)
+                    .unwrap_or_else(|| vec![0.0; 2 * n]),
+            };
             if let (Some(i), Some(v)) = (s.selected, s.manual) {
                 actions[2 * i..2 * i + 2].copy_from_slice(&v);
             }
@@ -527,8 +570,10 @@ enum Outcome {
     /// A scenario to show, the file it came from (if any), and what to tell the user.
     Scenario(Scenario, Option<PathBuf>, String),
     Policy(Loaded, PathBuf),
+    /// Settings read from an experiment file (JSON), for the Settings window.
+    Settings(String, PathBuf),
     /// The scenario was written to this file.
-    Saved(PathBuf, String),
+    Saved(PathBuf),
     Message(String),
     /// The user closed the file dialog.
     Cancelled,
@@ -560,8 +605,18 @@ struct Viewer<'a> {
     fetch: Option<Fetch>,
     open: Option<Open>,
     load_policy: Option<LoadPolicy>,
+    load_settings: Option<LoadSettings>,
+    save_settings: Option<SaveSettings>,
     /// The file the scenario was opened from or saved to.
     path: Option<PathBuf>,
+    /// The scenario was edited since it was opened or saved.
+    dirty: bool,
+    /// The window was asked to close with unsaved edits and waits for an answer; then the
+    /// answer "close anyway".
+    closing: bool,
+    close_anyway: bool,
+    /// The window title as last set.
+    title: String,
     /// Names of the attached policies: planner, pilot.
     policy_names: [Option<String>; 2],
     prefs: settings::Prefs,
@@ -619,6 +674,8 @@ struct Snapshot {
     /// FireSPIN particles in flight: position in cells, and whether it is a radiation particle.
     particles: Vec<([f32; 2], bool)>,
     burned: f32,
+    /// allocate: what identifies the fire the episode started with.
+    fingerprint: Option<u64>,
     wind: Wind,
     paused: bool,
     speed: f32,
@@ -627,6 +684,7 @@ struct Snapshot {
     rollout: (f32, usize),
     fire_model: FireModel,
     planner: Planner,
+    flight: Flight,
     has_planner: bool,
     has_fly: bool,
     policy_calls: u64,
@@ -758,6 +816,10 @@ fn snapshot(s: &mut Shared) -> Snapshot {
             .map(|(p, radiation)| ([p[0] / grid.cell_m, p[1] / grid.cell_m], radiation))
             .collect(),
         burned: world.burned_fraction(),
+        fingerprint: match &s.sim {
+            Sim::Allocate(env, _) => Some(env.fingerprint()),
+            _ => None,
+        },
         wind: world.wind(),
         paused: s.paused,
         speed: s.speed,
@@ -766,6 +828,7 @@ fn snapshot(s: &mut Shared) -> Snapshot {
         rollout: s.rollout,
         fire_model: s.cfg.fire_model,
         planner: s.planner,
+        flight: s.flight,
         has_planner: s.has_planner,
         has_fly: s.has_fly,
         policy_calls: s.policy_calls,
@@ -796,6 +859,7 @@ impl eframe::App for Viewer<'_> {
             .auto_close
             .is_some_and(|d| self.started.elapsed() >= d);
         if timed_out || !(self.on_frame)() {
+            self.close_anyway = true; // an automated run or Ctrl+C is not asked about edits
             ctx.send_viewport_cmd(egui::ViewportCommand::Close);
         }
         ctx.request_repaint_after(Duration::from_millis(100));
@@ -805,6 +869,7 @@ impl eframe::App for Viewer<'_> {
         *self.frames += 1;
         let ctx = ui.ctx().clone();
         self.poll_job();
+        self.title_and_closing(&ctx);
 
         // navigate: W A S D or the arrow keys steer the selected drone.
         let steer = self.steering.then(|| {
@@ -905,12 +970,62 @@ impl Viewer<'_> {
         let before = s.scenario.clone();
         change(&mut s.scenario);
         match s.restart() {
-            Ok(()) => s.paused = true,
+            Ok(()) => (s.paused, self.dirty) = (true, true),
             Err(why) => {
                 s.scenario = before;
                 self.message = format!("not applied: {why}");
             }
         }
+    }
+
+    /// Notes that the scenario now is what `path` holds.
+    fn saved(&mut self, path: PathBuf) {
+        self.prefs.remember(&path);
+        self.message = format!("saved {}", path.display());
+        (self.path, self.dirty) = (Some(path), false);
+    }
+
+    /// Shows the scenario's file in the window title, with a star while it has unsaved edits,
+    /// and asks before such edits are lost by closing the window.
+    fn title_and_closing(&mut self, ctx: &egui::Context) {
+        let name = self.path.as_ref().and_then(|p| p.file_name());
+        let name = name.map_or("not saved yet".into(), |n| n.to_string_lossy());
+        let title = format!("ROSHAN2 - {name}{}", if self.dirty { " *" } else { "" });
+        if title != self.title {
+            ctx.send_viewport_cmd(egui::ViewportCommand::Title(title.clone()));
+            self.title = title;
+        }
+        if ctx.input(|i| i.viewport().close_requested()) && self.dirty && !self.close_anyway {
+            ctx.send_viewport_cmd(egui::ViewportCommand::CancelClose);
+            self.closing = true;
+        }
+        if !self.closing {
+            return;
+        }
+        egui::Window::new("Unsaved changes")
+            .collapsible(false)
+            .resizable(false)
+            .anchor(egui::Align2::CENTER_CENTER, egui::Vec2::ZERO)
+            .show(ctx, |ui| {
+                ui.label("The scenario was edited and not saved.");
+                ui.horizontal(|ui| {
+                    if ui
+                        .button("Keep editing")
+                        .on_hover_text("go back; save with Ctrl+S or File > Save as")
+                        .clicked()
+                    {
+                        self.closing = false;
+                    }
+                    if ui
+                        .button("Close without saving")
+                        .on_hover_text("close the viewer and lose the edits")
+                        .clicked()
+                    {
+                        self.close_anyway = true;
+                        ctx.send_viewport_cmd(egui::ViewportCommand::Close);
+                    }
+                });
+            });
     }
 
     /// Replaces what the window shows by this scenario, paused. False if it is not valid.
@@ -966,13 +1081,17 @@ impl Viewer<'_> {
                     }
                     // Only a scenario file can be saved back to where it came from.
                     self.path = path.filter(|p| p.extension().is_some_and(|e| e == "npz"));
+                    self.dirty = false;
                 }
             }
             Ok(Outcome::Policy(loaded, path)) => self.attach(loaded, &path),
-            Ok(Outcome::Saved(path, line)) => {
-                self.prefs.remember(&path);
-                (self.path, self.message) = (Some(path), line);
+            Ok(Outcome::Settings(text, path)) => {
+                self.message = match self.forms.load(&text) {
+                    Ok(()) => format!("{} loaded: Apply and restart to use it", path.display()),
+                    Err(why) => format!("{}: {why}", path.display()),
+                };
             }
+            Ok(Outcome::Saved(path)) => self.saved(path),
             Ok(Outcome::Message(line)) => self.message = line,
             Ok(Outcome::Cancelled) => self.message.clear(),
             Err(why) => self.message = format!("failed: {why}"),
@@ -983,26 +1102,37 @@ impl Viewer<'_> {
     fn attach(&mut self, loaded: Loaded, path: &Path) {
         let name = (path.file_name()).map_or_else(String::new, |n| n.to_string_lossy().into());
         let mut s = self.shared.lock().unwrap();
-        let before = (s.alloc, s.nav);
+        let before = (s.alloc, s.nav, s.cfg);
         let parsed = if loaded.fly {
             serde_json::from_str(&loaded.config).map(|nav| s.nav = nav)
         } else {
             serde_json::from_str(&loaded.config).map(|alloc| s.alloc = alloc)
         };
+        // A checkpoint from an older simulator names settings that no longer exist: the
+        // simulation then stays as it is, and the message says so.
+        let trained_sim = serde_json::from_str(&loaded.sim).map(|cfg| s.cfg = cfg);
         if let Err(why) = parsed.map_err(|e| e.to_string()).and_then(|()| s.restart()) {
-            (s.alloc, s.nav) = before;
+            (s.alloc, s.nav, s.cfg) = before;
             self.message = format!("{name} does not fit: {why}");
             return;
         }
         s.incoming.push((loaded.fly, Some(loaded.policy)));
         if loaded.fly {
-            s.has_fly = true;
+            (s.has_fly, s.flight) = (true, Flight::Policy);
         } else {
             (s.has_planner, s.planner) = (true, Planner::Policy);
         }
         s.paused = true;
         let role = if loaded.fly { "pilot" } else { "planner" };
-        self.message = format!("{name} is now the {role}; the task is set up as it was trained");
+        self.message = match trained_sim {
+            Ok(()) => format!(
+                "{name} is now the {role}; task and simulation are set up as it was trained"
+            ),
+            Err(why) => format!(
+                "{name} is now the {role}; the task is set up as it was trained, but not the \
+                 simulation, whose settings have changed since ({why})"
+            ),
+        };
         self.policy_names[loaded.fly as usize] = Some(name);
     }
 }
@@ -1010,18 +1140,32 @@ impl Viewer<'_> {
 impl Shared {
     /// The simulation at time zero, running.
     fn new(session: Session, policy: Option<Policy>, opts: &Options) -> Result<Self, String> {
+        let given: serde_json::Value = match &opts.settings {
+            Some(text) => serde_json::from_str(text).map_err(|e| e.to_string())?,
+            None => serde_json::Value::Null,
+        };
+        fn section<T: serde::de::DeserializeOwned>(
+            given: &serde_json::Value,
+            name: &str,
+        ) -> Result<Option<T>, String> {
+            let read = |v: &serde_json::Value| serde_json::from_value(v.clone());
+            (given.get(name).map(read).transpose()).map_err(|e| format!("[{name}]: {e}"))
+        }
         // ponytail: some spread-rate noise by default so fires do not look drawn with a ruler;
-        // Simulation > Settings changes it.
-        let cfg = SimConfig {
+        // Simulation > Settings changes it. An experiment's settings come without it.
+        let cfg = section(&given, "sim")?.unwrap_or(SimConfig {
             ros_noise: 0.25,
             fire_model: opts.fire_model,
             ..SimConfig::default()
-        };
-        // The viewer has no time limit worth the name: a day. A loaded planner brings its own.
-        let alloc = AllocConfig {
+        });
+        // The viewer has no time limit worth the name: a day. An experiment or a loaded
+        // planner brings its own.
+        let alloc = section(&given, "allocate")?.unwrap_or(AllocConfig {
             time_limit_s: 86_400.0,
+            preburn_s: opts.preburn_s,
             ..AllocConfig::default()
-        };
+        });
+        let seed = opts.seed.unwrap_or(1);
         let (scenario, navigating, nav, nav_grid) = match session {
             Session::Scenario(scenario) => {
                 let grid = Grid {
@@ -1029,12 +1173,13 @@ impl Shared {
                     ny: 36,
                     cell_m: 10.0,
                 };
-                (scenario, false, NavConfig::default(), grid)
+                let nav = section(&given, "navigate")?.unwrap_or_default();
+                (scenario, false, nav, grid)
             }
             // An empty map of the right size stands in for the scenario.
             Session::Navigate { grid, cfg } => (empty_scenario(grid), true, cfg, grid),
         };
-        let sim = build(&scenario, navigating.then_some(nav), cfg, alloc, 1)?;
+        let sim = build(&scenario, navigating.then_some(nav), cfg, alloc, seed)?;
         let n = sim.world().drones.pos.len() * sim.term_names().len();
         let n_drones = sim.world().drones.pos.len();
         let has_policy = policy.is_some();
@@ -1047,10 +1192,15 @@ impl Shared {
             alloc,
             sim,
             cfg,
-            seed: 1,
-            advance_seed: true,
+            seed,
+            advance_seed: opts.seed.is_none(),
             rollout: (120.0, 4),
             planner: opts.planner,
+            flight: if has_policy && navigating {
+                Flight::Policy
+            } else {
+                Flight::Scripted
+            },
             has_planner: has_policy && !navigating,
             has_fly: has_policy && navigating,
             incoming: vec![(navigating, policy)],
@@ -1132,7 +1282,13 @@ pub fn run(
                 fetch: hooks.fetch,
                 open: hooks.open,
                 load_policy: hooks.load_policy,
-                path: None,
+                load_settings: hooks.load_settings,
+                save_settings: hooks.save_settings,
+                path: opts.path.clone(),
+                dirty: false,
+                closing: false,
+                close_anyway: false,
+                title: String::new(),
                 policy_names: [
                     (has_policy && !navigating).then(|| "given at start".to_string()),
                     (has_policy && navigating).then(|| "given at start".to_string()),
@@ -1210,6 +1366,16 @@ mod tests {
         let cells = s.scenario.grid.len();
         s.set_navigating(true).unwrap();
         assert!(matches!(s.sim, Sim::Navigate(..)));
+        // Without a policy the scripted pilot flies, and "off" leaves the drones where they are.
+        assert_eq!(s.flight, Flight::Scripted);
+        let moved = |s: &mut Shared| {
+            let start = s.sim.world().drones.pos.clone();
+            (0..50).for_each(|_| tick(s, None, None));
+            start != s.sim.world().drones.pos
+        };
+        assert!(moved(&mut s), "the scripted pilot flies");
+        s.flight = Flight::Off;
+        assert!(!moved(&mut s), "nobody flies");
         s.set_navigating(false).unwrap();
         assert!(matches!(s.sim, Sim::Allocate(..)));
         assert_eq!(s.scenario.grid.len(), cells);

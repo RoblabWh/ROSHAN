@@ -113,6 +113,9 @@ pub struct Ctx<'a> {
     pub wind: [f32; 2],
 }
 
+/// The ellipses of the 5x5 cells around a source, filled in as edges ask for them.
+type Near = [Option<Spread>; 25];
+
 impl Ctx<'_> {
     /// The fire ellipse at a cell.
     pub fn spread(&self, cell: usize) -> Spread {
@@ -136,31 +139,41 @@ impl Ctx<'_> {
     }
 
     /// Target cell and rate (1/s, dry) of edge `k` out of `cell`, or None if the edge leaves
-    /// the grid or crosses something that cannot burn.
-    fn edge(&self, cell: usize, k: usize) -> Option<(usize, f32)> {
+    /// the grid or crosses something that cannot burn. `near` holds the ellipses already
+    /// computed around `cell`: the 16 edges of a source cross the same 17 cells, and on a
+    /// slope an ellipse costs about 40 times what it does on flat ground.
+    fn edge(&self, cell: usize, k: usize, near: &mut Near) -> Option<(usize, f32)> {
         let grid = self.terrain.grid;
         let (dx, dy) = DIRS[k];
         let target = grid.offset(cell, dx, dy)?;
         let length = ((dx * dx + dy * dy) as f32).sqrt();
         let (ux, uy) = (dx as f32 / length, dy as f32 / length);
-        let slowness = |c: usize| {
-            let r = self.spread(c).rate(ux, uy);
+        // `c` is the cell at offset (ox, oy) from `cell`.
+        let mut slowness = |(ox, oy): (i32, i32), c: usize| {
+            let spread =
+                *near[((oy + 2) * 5 + ox + 2) as usize].get_or_insert_with(|| self.spread(c));
+            let r = spread.rate(ux, uy);
             (r > 0.0).then_some(1.0 / r)
         };
+        let sides = via(k);
         let beside =
-            via(k).map(|(ox, oy)| grid.offset(cell, ox, oy).expect("between two grid cells"));
+            sides.map(|(ox, oy)| grid.offset(cell, ox, oy).expect("between two grid cells"));
+        let (here, there) = ((0, 0), (dx, dy));
         // Seconds per metre, averaged over the cells the path crosses.
         let mean_slowness = match kind(k) {
-            Kind::Axis => (slowness(cell)? + slowness(target)?) / 2.0,
+            Kind::Axis => (slowness(here, cell)? + slowness(there, target)?) / 2.0,
             Kind::Diagonal => {
                 // Fire squeezes through a corner unless both cells beside it cannot burn.
                 if beside.iter().all(|&c| !self.terrain.burnable(c)) {
                     return None;
                 }
-                (slowness(cell)? + slowness(target)?) / 2.0
+                (slowness(here, cell)? + slowness(there, target)?) / 2.0
             }
             Kind::Knight => {
-                (slowness(cell)? + slowness(beside[0])? + slowness(beside[1])? + slowness(target)?)
+                (slowness(here, cell)?
+                    + slowness(sides[0], beside[0])?
+                    + slowness(sides[1], beside[1])?
+                    + slowness(there, target)?)
                     / 4.0
             }
         };
@@ -236,12 +249,15 @@ impl Water {
     /// cautious for partly wet paths and exact for dry or soaked ones.
     fn along(&self, terrain: &Terrain, cell: usize, k: usize, target: usize, crit: f32) -> f32 {
         let mult = |c: usize| self.mult_at(c, crit);
-        let beside = via(k).map(|(ox, oy)| {
-            terrain
-                .grid
-                .offset(cell, ox, oy)
-                .expect("between two grid cells")
-        });
+        // The edge exists, so the cells beside its path are on the grid.
+        let nx = terrain.grid.nx as i64;
+        let beside = via(k).map(|(ox, oy)| (cell as i64 + ox as i64 + oy as i64 * nx) as usize);
+        // Most paths are dry even while water lies somewhere on the map: nothing to slow.
+        let dry = |c: usize| self.load[c] == 0.0;
+        let axis = matches!(kind(k), Kind::Axis);
+        if dry(cell) && dry(target) && (axis || (dry(beside[0]) && dry(beside[1]))) {
+            return 1.0;
+        }
         let m = mult(cell).min(mult(target));
         match kind(k) {
             Kind::Axis => m,
@@ -331,8 +347,10 @@ impl Edges {
             progress: [0.0; 16],
             rate: [0.0; 16],
         };
+        let mut near: Near = [None; 25];
+        near[12] = Some(spread);
         for k in 0..16 {
-            if let Some((target, rate)) = ctx.edge(cell, k)
+            if let Some((target, rate)) = ctx.edge(cell, k, &mut near)
                 && out.state[target] == UNBURNED
             {
                 source.alive |= 1 << k;
@@ -353,9 +371,12 @@ impl Edges {
     /// Recomputes edge rates after the weather changed.
     fn refresh_rates(&mut self, ctx: &Ctx) {
         for s in &mut self.sources {
+            let mut near: Near = [None; 25];
             for k in 0..16 {
                 if s.alive & (1 << k) != 0 {
-                    s.rate[k] = ctx.edge(s.cell as usize, k).map_or(0.0, |(_, rate)| rate);
+                    s.rate[k] = ctx
+                        .edge(s.cell as usize, k, &mut near)
+                        .map_or(0.0, |(_, rate)| rate);
                 }
             }
         }
@@ -452,7 +473,7 @@ impl Edges {
                 if slot == NO_SLOT {
                     continue;
                 }
-                if let Some((_, rate)) = ctx.edge(from, k) {
+                if let Some((_, rate)) = ctx.edge(from, k, &mut [None; 25]) {
                     let s = &mut self.sources[slot as usize];
                     s.alive |= 1 << k;
                     s.rate[k] = rate;

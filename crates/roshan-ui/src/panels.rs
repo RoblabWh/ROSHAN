@@ -2,7 +2,7 @@
 //! Everything a click or a key can ask for goes through `Viewer::act`.
 
 use crate::draw::{ColorBy, ISOCHRONE_S};
-use crate::{Mode, Outcome, Planner, Snapshot, Tool, Viewer, demo_scenario};
+use crate::{Flight, Mode, Outcome, Planner, Snapshot, Tool, Viewer, demo_scenario};
 use eframe::egui::{self, Key, Modifiers};
 use roshan_core::fire::FireModel;
 use roshan_core::world::Wind;
@@ -223,10 +223,10 @@ impl Viewer<'_> {
                     return;
                 };
                 let scenario = self.shared.lock().unwrap().scenario.clone();
-                self.message = match save(&scenario, self.path.as_deref()) {
-                    Ok(line) => line,
-                    Err(why) => format!("save failed: {why}"),
-                };
+                match save(&scenario, self.path.as_deref()) {
+                    Ok(path) => self.saved(path),
+                    Err(why) => self.message = format!("save failed: {why}"),
+                }
             }
             Action::SaveAs => {
                 let Some(save) = self.save.clone() else {
@@ -244,14 +244,13 @@ impl Viewer<'_> {
                     let Some(path) = dialog.save_file() else {
                         return Ok(Outcome::Cancelled);
                     };
-                    let path = path.with_extension("npz");
-                    let line = save(&scenario, Some(&path))?;
-                    Ok(Outcome::Saved(path, line))
+                    save(&scenario, Some(&path.with_extension("npz"))).map(Outcome::Saved)
                 });
             }
             Action::Demo => {
                 if self.show_scenario(demo_scenario()) {
                     (self.path, self.message) = (None, "the built-in demo".to_string());
+                    self.dirty = false;
                 }
             }
             Action::Screenshot => {
@@ -287,6 +286,9 @@ impl Viewer<'_> {
                 s.incoming.push((pilot, None));
                 if pilot {
                     s.has_fly = false;
+                    if s.flight == Flight::Policy {
+                        s.flight = Flight::Scripted;
+                    }
                 } else {
                     s.has_planner = false;
                     if s.planner == Planner::Policy {
@@ -341,7 +343,7 @@ impl Viewer<'_> {
                     action = Some(Action::Demo);
                 }
                 ui.separator();
-                if ui.add_enabled(can_save, egui::Button::new("Save   Ctrl+S")).on_hover_text("save the scenario with everything placed on it to its file").clicked() {
+                if ui.add_enabled(can_save, egui::Button::new("Save   Ctrl+S")).on_hover_text("save the scenario with everything placed on it to its file (a new file if it has none); refused for a map that experiment files use").clicked() {
                     action = Some(Action::Save);
                 }
                 let save_as = egui::Button::new("Save as ...   Ctrl+Shift+S");
@@ -586,6 +588,12 @@ impl Viewer<'_> {
             ui.separator();
             ui.label(format!("seed {}", snap.seed))
                 .on_hover_text("the random seed of this episode");
+            if let Some(fingerprint) = snap.fingerprint {
+                ui.label(format!("fire #{fingerprint}")).on_hover_text(
+                    "identifies the fire this episode started with: equal to Fire_Fingerprint \
+                     in an evaluation CSV when seed, scenario and settings are the evaluation's",
+                );
+            }
             if snap.has_planner || snap.has_fly {
                 ui.separator();
                 ui.label(format!("{} policy calls", snap.policy_calls))
@@ -670,6 +678,26 @@ impl Viewer<'_> {
             ui.small(format!("pilot: {name}"));
         }
         if snap.mode == Mode::Navigate {
+            ui.separator();
+            ui.strong("Pilot");
+            let mut flight = snap.flight;
+            ui.horizontal_wrapped(|ui| {
+                ui.radio_value(&mut flight, Flight::Off, "off")
+                    .on_hover_text("nobody flies: drones stand still unless you steer one");
+                ui.radio_value(&mut flight, Flight::Straight, "straight")
+                    .on_hover_text("straight at the waypoint, without avoiding other drones");
+                ui.radio_value(&mut flight, Flight::Scripted, "scripted")
+                    .on_hover_text("sidesteps other drones; centralised: it sees every drone and moves them in turn");
+                ui.radio_value(&mut flight, Flight::Decentral, "decentral")
+                    .on_hover_text("each drone avoids on its own, seeing only what a fly policy sees");
+                if snap.has_fly {
+                    ui.radio_value(&mut flight, Flight::Policy, "policy")
+                        .on_hover_text("the attached fly checkpoint steers");
+                }
+            });
+            if flight != snap.flight {
+                self.shared.lock().unwrap().flight = flight;
+            }
             return self.footer(ui, snap);
         }
 

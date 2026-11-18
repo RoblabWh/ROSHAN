@@ -53,6 +53,8 @@ pub struct Terrain {
     pub present: [bool; SB40.len() + 1],
     /// CLC+ Backbone class per cell where known; only the FireSPIN model reads it.
     pub landcover: Option<Vec<u8>>,
+    /// Number of cells that can burn, counted once: burned shares divide by it at every step.
+    pub burnable_cells: usize,
 }
 
 impl Terrain {
@@ -106,6 +108,7 @@ impl Terrain {
             .fold(0.0, f32::max);
         Ok(Self {
             grid,
+            burnable_cells: fuel.iter().filter(|&&f| f != 0).count(),
             fuel,
             slope,
             max_tan,

@@ -34,8 +34,9 @@ uv run pytest                                       # Python tests
 The point of the project, start to end:
 
 ```
-# 1. train: imitate the rollout planner (writes runs/planner/imitation.pt and planner.pt)
-uv run python -m roshan.rl.train_planner --teacher rollout --imitation-steps 4000 --updates 0 --out runs/planner
+# 1. train: imitate the rollout planner (writes runs/planner/imitation.pt, planner.pt and
+#    experiment.toml, the record of every setting used)
+uv run python -m roshan.rl.train_planner experiments/planner.toml
 
 # 2. watch it assign targets in the viewer
 uv run python -m roshan.ui --planner runs/planner/planner.pt
@@ -45,7 +46,14 @@ TASK='{"random_ignitions":6,"random_wind":true}'
 uv run python -m roshan.eval --scenario scenarios/demo.npz --config "$TASK" --policy runs/planner/planner.pt --out learned.csv
 uv run python -m roshan.eval --scenario scenarios/demo.npz --config "$TASK" --policy hungarian --out hungarian.csv
 uv run python -m roshan.eval.paired --arm learned learned.csv --arm hungarian hungarian.csv
+
+# 3, from one file: add the planner as an arm to experiments/eval_demo.toml, then
+uv run python -m roshan.eval experiments/eval_demo.toml      # writes runs/eval_demo/
 ```
+
+What a run does is written in an experiment file in `experiments/`
+([details](docs/systems.md#experiment-files)); every run writes the full settings it used
+into its output directory.
 
 Wherever a planner name is accepted (`--policy` in the evaluation, `--planner` in the viewer),
 a checkpoint path works too. Add `--updates N` in step 1 to continue with PPO after the
@@ -62,8 +70,10 @@ imitation.
 | `... --planner off\|greedy\|rollout` | Who assigns targets to the drones |
 | `... --planner runs/planner/planner.pt` | A trained planner assigns the targets |
 | `... --fire-model rothermel\|firespin` | Which fire model runs |
+| `... --preburn 600` | Let the fires burn 10 minutes before the drones start |
+| `uv run python -m roshan.ui --experiment runs/eval_demo/evaluation.toml --seed 1000001` | An episode exactly as an experiment ran it: its scenario, settings and seed (`fire #` in the status bar equals the CSV's `Fire_Fingerprint`) |
 | `uv run python -m roshan.ui --fly runs/navigate/fly.pt` | Watch a trained fly policy |
-| `uv run python -m roshan.ui --fly none --drones 2` | Steer a drone by hand |
+| `uv run python -m roshan.ui --fly none --drones 2` | The fly task without a policy: pick a pilot in the side panel or steer a drone by hand |
 
 In the window you can pause, change speed, ignite, drop water, place fires, drones and
 stations, and inspect a drone's observation and reward terms. The menus open and save
@@ -82,20 +92,29 @@ map shows (relief, contours, fire arrival lines, spread rate). Help lists the sh
 
 | Command | What it does |
 |---|---|
-| `uv run python -m roshan.rl.train --updates 450` | Train the fly policy (minutes), writes `runs/navigate/` |
+| `uv run python -m roshan.rl.train experiments/fly.toml` | Train the fly policy as the file says (minutes), writes `runs/fly/` |
+| `uv run python -m roshan.rl.train_planner experiments/planner.toml` | Train the planner as the file says (imitating the rollout planner), writes `runs/planner/` |
+| `uv run python -m roshan.experiment planner` | Print an experiment file with every setting at its default (`planner`, `fly` or `eval`) |
+| `... experiments/planner.toml --updates 5 --out runs/try` | Flags override the file, for a quick try |
+| `... --force` | Write over a run that is already in the output directory (refused otherwise); also for `roshan.eval` with a file |
+| `uv run python -m roshan.rl.train --updates 450` | Train the fly policy without a file, writes `runs/navigate/` |
 | `uv run python -m roshan.rl.train_planner --teacher rollout --imitation-steps 4000 --updates 0 --out runs/planner` | Train the planner by imitating the rollout planner, writes `imitation.pt` |
 | `uv run python -m roshan.rl.train_planner --updates 300` | Train the planner with PPO, writes `planner.pt` |
+| `uv run python -m roshan.rl.train --evaluate decentral` | Fly 1000 unseen episodes with an untrained pilot (`straight`, `scripted`, `decentral`) or a `fly.pt` |
 | `uv run tensorboard --logdir runs` | Training curves |
 
 **Evaluation** ([details](docs/systems.md#evaluation))
 
 | Command | What it does |
 |---|---|
+| `uv run python -m roshan.eval experiments/eval_demo.toml` | Run every planner of the file on the same seeds, writes CSVs, `summary.md` and `evaluation.toml` to `runs/eval_demo/` |
 | `uv run python -m roshan.eval --scenario scenarios/demo.npz --policy greedy --out greedy.csv` | Run a planner on the validation seeds: `none`, `greedy`, `hungarian`, `rollout`, or a checkpoint `.pt` |
 | `... --config '{"random_ignitions":6,"random_wind":true}'` | The dynamic task all planner results use |
+| `... --config '{..., "preburn_s":120}'` | Start with fires that have already spread for two minutes (`preburn_cells` caps their size) |
 | `... --split test`, `... --n 200` | The test seeds; only the first 200 seeds |
 | `... --sim '{"fire_model":"firespin"}'` | Change simulation settings |
 | `... --fly runs/navigate/fly.pt` | Let the trained fly policy steer instead of the scripted controller |
+| `... --fly decentral` | Let the hand-written decentralised pilot steer (it sees what the fly policy sees) |
 | `uv run python -m roshan.eval.paired --arm greedy greedy.csv --arm hungarian hungarian.csv` | Paired statistics on two runs |
 
 **Tests and benchmarks**

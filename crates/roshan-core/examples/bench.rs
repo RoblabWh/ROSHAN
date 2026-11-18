@@ -1,14 +1,18 @@
-//! Rough single-thread timings of the fire model.
+//! Rough single-thread timings of the fire model and of the allocate task.
 //!     cargo run --release -p roshan-core --example bench
+//! The first lines are a flat, dry grass map. The "hills" lines are what training runs on:
+//! every cell on a slope, several fuels, water on the ground, drones and a planner.
 //! ponytail: wall-clock means, no statistics. Switch to criterion if regressions need tracking.
 
 use std::sync::Arc;
 use std::time::Instant;
 
+use roshan_core::allocate::{AllocConfig, AllocVec, Bufs, DRONE, GLOBAL, INFO, TARGET, TERMS};
 use roshan_core::fuel;
 use roshan_core::rothermel::Moisture;
+use roshan_core::scenario::Scenario;
 use roshan_core::terrain::{Grid, Terrain};
-use roshan_core::world::{SimConfig, Weather, World};
+use roshan_core::world::{SimConfig, Weather, Wind, World};
 
 const DRY: Moisture = Moisture {
     d1: 0.06,
@@ -35,7 +39,137 @@ fn grass(nx: u32, ny: u32, cfg: SimConfig) -> World {
     )
 }
 
+/// 1.6 km x 1.2 km of rolling hills with grass, shrub and timber in bands, a road that does
+/// not burn, four drones and one station: the size and kind of map the planner trains on.
+fn hills() -> Scenario {
+    let grid = Grid {
+        nx: 160,
+        ny: 120,
+        cell_m: 10.0,
+    };
+    let fuels = ["GR2", "GS2", "TU1", "TL3"].map(|name| fuel::id(name).unwrap());
+    let (mut fuel, mut elevation) = (vec![0u8; grid.len()], vec![0.0f32; grid.len()]);
+    for i in 0..grid.len() {
+        let (x, y) = grid.xy(i);
+        let (fx, fy) = (x as f32, y as f32);
+        elevation[i] =
+            40.0 * (fx / 23.0).sin() * (fy / 17.0).cos() + 15.0 * ((fx + fy) / 9.0).sin();
+        fuel[i] = if x == 100 {
+            0
+        } else {
+            fuels[((x / 20 + y / 15) % 4) as usize]
+        };
+    }
+    Scenario {
+        grid,
+        fuel,
+        elevation: Some(elevation),
+        landcover: None,
+        ignitions: vec![[40, 60]],
+        drones: (0..4).map(|i| [4 + 2 * i, 4]).collect(),
+        stations: vec![[5, 8]],
+        moisture: DRY,
+        wind: vec![Wind {
+            t_s: 0.0,
+            speed_ms: 5.0,
+            to: [1.0, 0.0],
+        }],
+        meta: String::new(),
+    }
+}
+
+/// Timings on the hilly map: the fire alone, dry and with water lying on the map, then the
+/// allocate task with the greedy and the rollout planner.
+fn hills_bench() {
+    let scenario = hills();
+    for wet in [false, true] {
+        let mut w = scenario.world(SimConfig::default(), 1).unwrap();
+        for (x, y) in [
+            (20, 20),
+            (80, 30),
+            (130, 50),
+            (60, 90),
+            (120, 100),
+            (30, 70),
+        ] {
+            w.ignite(x, y);
+        }
+        if wet {
+            w.add_water(150, 110, 1.5); // one drop, far from every fire
+        }
+        let start = Instant::now();
+        w.run(1800.0);
+        println!(
+            "30-minute fire, 160x120 hills, {}: {:.1} ms, {:.0}% burned",
+            if wet { "one wet cell" } else { "dry" },
+            start.elapsed().as_secs_f64() * 1e3,
+            w.burned_fraction() * 100.0
+        );
+    }
+
+    let cfg = AllocConfig {
+        random_ignitions: 6,
+        random_wind: true,
+        ..AllocConfig::default()
+    };
+    for planner in ["greedy", "rollout"] {
+        let mut v = AllocVec::new(16, scenario.clone(), SimConfig::default(), cfg, 0, 1).unwrap();
+        let (e, n, slots) = (v.envs.len(), v.drones, v.slots);
+        let (mut drones, mut targets) = (
+            vec![0.0; e * n * DRONE.len()],
+            vec![0.0; e * slots * TARGET.len()],
+        );
+        let (mut target_mask, mut action_mask) = (vec![0; e * slots], vec![0; e * n * slots]);
+        let (mut globals, mut decide) = (vec![0.0; e * GLOBAL.len()], vec![0; e * n]);
+        let (mut terms, mut elapsed_s) = (vec![0.0; e * n * TERMS.len()], vec![0.0; e]);
+        let (mut terminated, mut truncated) = (vec![0; e], vec![0; e]);
+        let (mut info, mut seed, mut fingerprint) =
+            (vec![0.0; e * INFO.len()], vec![0; e], vec![0; e]);
+        let mut actions = vec![-1; e * n];
+        let steps = if planner == "greedy" { 400 } else { 20 };
+        let (mut decisions, mut planning, start) = (0usize, 0.0, Instant::now());
+        for step in 0..=steps {
+            let bufs = Bufs {
+                drones: &mut drones,
+                targets: &mut targets,
+                target_mask: &mut target_mask,
+                action_mask: &mut action_mask,
+                globals: &mut globals,
+                decide: &mut decide,
+                terms: &mut terms,
+                elapsed_s: &mut elapsed_s,
+                terminated: &mut terminated,
+                truncated: &mut truncated,
+                info: &mut info,
+                seed: &mut seed,
+                fingerprint: &mut fingerprint,
+            };
+            if step == 0 {
+                v.reset(None, bufs);
+                continue;
+            }
+            let plan = Instant::now();
+            if planner == "greedy" {
+                v.greedy(&mut actions);
+            } else {
+                v.rollout(120.0, 4, &mut actions);
+            }
+            planning += plan.elapsed().as_secs_f64();
+            v.step(&actions, bufs);
+            decisions += e;
+        }
+        let total = start.elapsed().as_secs_f64();
+        println!(
+            "allocate, 160x120 hills, {planner}: {:.1}k decisions/s on one thread, {:.2} ms planning per decision",
+            decisions as f64 / total / 1e3,
+            planning * 1e3 / decisions as f64
+        );
+    }
+}
+
 fn main() {
+    hills_bench();
+
     // Cost of one fire step with a large front: many small fires on a 200x200 map.
     let mut w = grass(
         200,

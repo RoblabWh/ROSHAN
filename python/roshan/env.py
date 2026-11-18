@@ -65,6 +65,12 @@ class NavigateEnv:
         """Start a fresh episode in every environment."""
         self._env.reset(*self._obs)
 
+    def pilot(self, kind):
+        """Actions [E, D, 2] of an untrained pilot for the current state: "straight" (at the
+        waypoint, no avoidance), "scripted" (centralised, sees everything: an upper bound) or
+        "decentral" (each drone alone from its observation row, like a fly policy)."""
+        return torch.from_numpy(self._env.pilot(kind))
+
     def step(self, actions=None):
         """Advance one tick. `actions` (any device) is copied into `self.actions` first."""
         if actions is not None:

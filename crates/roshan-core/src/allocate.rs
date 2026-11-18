@@ -50,8 +50,15 @@ pub struct AllocConfig {
     pub time_limit_s: f32,
     /// If above zero, the scenario's starting fires are replaced by this many random ones.
     pub random_ignitions: u32,
-    /// Draw the wind direction per episode instead of using the scenario's.
+    /// Turn the scenario's wind schedule by one random angle per episode.
     pub random_wind: bool,
+    /// The fire burns unattended this long before the episode starts, seconds, so the drones
+    /// meet a front the fire model itself produced. 0 starts with the bare ignitions.
+    pub preburn_s: f32,
+    /// ... or until this many cells have caught fire, whichever comes first (0 = no cap).
+    /// Keeps fires comparable across fuels: a fixed time gives a huge fire on windy grass
+    /// and a tiny one in forest.
+    pub preburn_cells: u32,
 }
 
 impl Default for AllocConfig {
@@ -70,6 +77,8 @@ impl Default for AllocConfig {
             time_limit_s: 1800.0,
             random_ignitions: 0,
             random_wind: false,
+            preburn_s: 0.0,
+            preburn_cells: 0,
         }
     }
 }
@@ -88,14 +97,15 @@ pub const TERMS: [&str; 5] = [
     "timeout",  // the time limit was reached (all drones)
 ];
 /// Episode summary, valid on the step an episode ends.
-pub const INFO: [&str; 7] = [
+pub const INFO: [&str; 8] = [
     "fire_out",
-    "seconds",
+    "seconds", // since the episode started, not counting the pre-burn
     "burned_cells",
     "burned_fraction",
     "water_l",
     "drops",
     "min_separation_m",
+    "start_cells", // cells that had caught fire when the episode started
 ];
 pub const TASK_NONE: f32 = 0.0;
 pub const TASK_FIRE: f32 = 1.0;
@@ -156,6 +166,10 @@ pub struct AllocEnv {
     needs_reset: bool,
     /// Ticks since tasks were last handed out.
     since_decision: u32,
+    /// The world's tick at which the episode started, and the cells alight by then: both
+    /// zero-ish without a pre-burn. The world's own clock counts from the ignition.
+    start_tick: u64,
+    start_cells: u32,
 }
 
 fn dist(a: [f32; 2], b: [f32; 2]) -> f32 {
@@ -195,6 +209,8 @@ impl AllocEnv {
             min_separation: f32::INFINITY,
             needs_reset: true,
             since_decision: 0,
+            start_tick: 0,
+            start_cells: 0,
         }
     }
 
@@ -237,6 +253,12 @@ impl AllocEnv {
         self.min_separation
     }
 
+    /// Identifies the fire this episode started with (burning cells and wind): the same
+    /// number for every planner on the same seed, scenario and settings.
+    pub fn fingerprint(&self) -> u64 {
+        self.fingerprint
+    }
+
     /// Tasks finished so far in this episode (drops made).
     pub fn drops(&self) -> u32 {
         self.drops
@@ -247,9 +269,12 @@ impl AllocEnv {
         let (grid, s) = (self.terrain.grid, &self.scenario);
         let mut wind = s.wind.clone();
         if self.cfg.random_wind {
+            // The whole schedule turns by one angle, so the scenario's wind shifts survive.
             let angle = std::f32::consts::TAU * rng::uniform(seed, Stream::Weather, 0, 0);
-            wind.iter_mut()
-                .for_each(|w| w.to = [angle.cos(), angle.sin()]);
+            let (cos, sin) = (angle.cos(), angle.sin());
+            wind.iter_mut().for_each(|w| {
+                w.to = [w.to[0] * cos - w.to[1] * sin, w.to[0] * sin + w.to[1] * cos]
+            });
         }
         let weather = Weather {
             moisture: s.moisture,
@@ -270,6 +295,19 @@ impl AllocEnv {
                 self.world.ignite(c[0], c[1]);
             }
         }
+        // Pre-burn: the fire alone, exactly as an idle episode would have it at that time.
+        // There are no drones and no water in the world yet.
+        let end = (self.cfg.preburn_s / self.sim.dt_s).round() as u64;
+        let cap = match self.cfg.preburn_cells {
+            0 => u32::MAX,
+            cells => cells,
+        };
+        while self.world.tick < end && self.world.fire.n_ignited < cap && !self.world.fire.is_out()
+        {
+            self.world.tick();
+        }
+        (self.start_tick, self.start_cells) = (self.world.tick, self.world.fire.n_ignited);
+
         let n = s.drones.len();
         self.world.drones.pos = s.drones.iter().map(|c| self.cell_centre(*c)).collect();
         self.world.drones.vel = vec![[0.0; 2]; n];
@@ -285,6 +323,13 @@ impl AllocEnv {
         [w.speed_ms, w.to[0], w.to[1]]
             .iter()
             .for_each(|v| mix(v.to_bits() as u64));
+        // Later wind changes belong to the fire as well. A steady wind adds nothing here, so
+        // its fingerprints are what they were before schedules were hashed.
+        for w in &self.world.weather.wind[1..] {
+            [w.t_s, w.speed_ms, w.to[0], w.to[1]]
+                .iter()
+                .for_each(|v| mix(v.to_bits() as u64));
+        }
         self.fingerprint = h >> 33; // 31 bits: exact in a CSV float column
 
         self.seed = seed;
@@ -327,45 +372,22 @@ impl AllocEnv {
     }
 
     /// One tick of the scripted controller: every drone moves towards its task, never closer
-    /// than `safe_m` to another drone.
-    ///
-    /// Drones are handled in index order. Each tries the straight move, then moves turned by
-    /// 45 and 90 degrees, then staying put, and takes the first that keeps its distance from
-    /// the new positions of the drones before it and the current positions of those after
-    /// it. Staying put always qualifies, so the separation holds by induction.
-    /// ponytail: no deadlock handling beyond the sidesteps; none was seen in 10,000 tasks.
+    /// than `safe_m` to another drone (`navigate::scripted_step`).
     fn fly(&mut self) {
         let (dt, safe) = (self.sim.dt_s, self.cfg.safe_m);
         let g = self.terrain.grid;
-        let (w, h) = (g.nx as f32 * g.cell_m, g.ny as f32 * g.cell_m);
-        let n = self.task.len();
-        let mut next = self.world.drones.pos.clone();
-        for i in 0..n {
+        let size = (g.nx as f32 * g.cell_m, g.ny as f32 * g.cell_m);
+        let pos = &self.world.drones.pos;
+        let goal = |i: usize| match self.task[i] {
+            // Hold position inside a station's ring while refilling.
+            Task::Station(_) if self.arrived(i) => pos[i],
+            task => self.task_point(task).unwrap_or(pos[i]),
+        };
+        let next =
+            crate::navigate::scripted_step(pos, goal, self.cfg.max_speed_ms * dt, safe, size);
+        for (i, q) in next.iter().enumerate() {
             let p = self.world.drones.pos[i];
-            let goal = match self.task[i] {
-                // Hold position inside a station's ring while refilling.
-                Task::Station(_) if self.arrived(i) => p,
-                task => self.task_point(task).unwrap_or(p),
-            };
-            let (dx, dy) = (goal[0] - p[0], goal[1] - p[1]);
-            let range = dx.hypot(dy);
-            let stride = (self.cfg.max_speed_ms * dt).min(range);
-            if stride > 0.0 {
-                let (ux, uy) = (dx / range, dy / range);
-                for turn in [0.0f32, 45.0, -45.0, 90.0, -90.0] {
-                    let (sin, cos) = turn.to_radians().sin_cos();
-                    let q = [
-                        p[0] + stride * (ux * cos - uy * sin),
-                        p[1] + stride * (ux * sin + uy * cos),
-                    ];
-                    let inside = q[0] >= 0.0 && q[1] >= 0.0 && q[0] <= w && q[1] <= h;
-                    if inside && (0..n).all(|j| j == i || dist(q, next[j]) >= safe) {
-                        next[i] = q;
-                        break;
-                    }
-                }
-            }
-            self.world.drones.vel[i] = [(next[i][0] - p[0]) / dt, (next[i][1] - p[1]) / dt];
+            self.world.drones.vel[i] = [(q[0] - p[0]) / dt, (q[1] - p[1]) / dt];
         }
     }
 
@@ -405,7 +427,7 @@ impl AllocEnv {
         };
 
         let n = self.task.len();
-        let burnable = self.terrain.fuel.iter().filter(|&&f| f != 0).count().max(1) as f32;
+        let burnable = self.terrain.burnable_cells.max(1) as f32;
         let burned = self.world.fire.n_ignited.saturating_sub(ignited_before) as f32 / burnable;
         for i in 0..n {
             out.terms[i * TERMS.len() + 2] = burned;
@@ -534,7 +556,8 @@ impl AllocEnv {
             self.decide.fill(true); // a regular look at the situation
         }
         let fire_out = self.world.fire.is_out();
-        let timeout = !fire_out && self.world.tick >= (self.cfg.time_limit_s / dt).ceil() as u64;
+        let limit = (self.cfg.time_limit_s / dt).ceil() as u64;
+        let timeout = !fire_out && self.world.tick - self.start_tick >= limit;
         if fire_out || timeout {
             self.needs_reset = true;
         }
@@ -545,16 +568,22 @@ impl AllocEnv {
     }
 
     /// The episode summary in the order of `INFO`.
-    pub fn summary(&self) -> [f32; 7] {
+    pub fn summary(&self) -> [f32; 8] {
         [
             self.world.fire.is_out() as u8 as f32,
-            self.world.time_s(),
+            self.episode_s(),
             self.world.fire.n_ignited as f32,
             self.world.burned_fraction(),
             self.water_l,
             self.drops as f32,
             self.min_separation,
+            self.start_cells as f32,
         ]
+    }
+
+    /// Seconds since the episode started; the pre-burn does not count.
+    pub fn episode_s(&self) -> f32 {
+        (self.world.tick - self.start_tick) as f32 * self.sim.dt_s
     }
 
     /// Is the episode over (fire out or time limit reached)?
@@ -669,7 +698,7 @@ impl AllocEnv {
         out.globals.copy_from_slice(&[
             wind.to[0] * wind.speed_ms / 20.0,
             wind.to[1] * wind.speed_ms / 20.0,
-            self.world.time_s() / self.cfg.time_limit_s,
+            self.episode_s() / self.cfg.time_limit_s,
             self.world.fire.n_burning() as f32 / g.len() as f32,
             self.world.burned_fraction(),
         ]);

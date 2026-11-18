@@ -1,6 +1,11 @@
 """Train the low-level fly policy on the navigate task.
 
+    uv run python -m roshan.rl.train experiments/fly.toml          # writes runs/fly/
     uv run python -m roshan.rl.train --updates 300 --out runs/navigate
+    uv run python -m roshan.rl.train --evaluate decentral          # or straight, scripted, a fly.pt
+
+The experiment file (see roshan.experiment) has [run], [net], [sim], [navigate], [reward] and [ppo];
+flags override it. Without a file the defaults below run.
 """
 
 import argparse
@@ -12,7 +17,7 @@ from pathlib import Path
 import torch
 from torch.utils.tensorboard import SummaryWriter
 
-from roshan import NavigateEnv
+from roshan import NavigateEnv, experiment
 from roshan.rl.nets import FlyNet
 from roshan.rl.ppo import PPOConfig, gae, squash, update
 
@@ -30,6 +35,18 @@ REWARD = {
     "approach_edge": -0.5,
 }
 REASONS = ["success", "collision", "out_of_bounds", "timeout"]
+# [run] of an experiment file. The map is empty: nx x ny cells of cell_m metres.
+RUN = {"kind": "fly", "envs": 1024, "updates": 300, "seed": 0, "nx": 35, "ny": 36, "cell_m": 10.0}
+# [net] of an experiment file: the arguments of FlyNet besides the observation sizes.
+NET = {"hidden": 128}
+
+
+def load(checkpoint, device):
+    """The fly network of a checkpoint written by `train`."""
+    saved = torch.load(checkpoint, weights_only=True)
+    net = FlyNet(hidden=saved.get("hidden", 128)).to(device)  # checkpoints from before [net] have 128
+    net.load_state_dict(saved["model"])
+    return net
 
 
 def observe(env, device):
@@ -43,40 +60,58 @@ def observe(env, device):
 
 
 @torch.no_grad()
-def evaluate(net, device, episodes=1000, seed=10_000_019, config=None, threads=0):
+def evaluate(net, device, episodes=1000, seed=10_000_019, config=None, threads=0, sim=None, nx=35, ny=36, cell_m=10.0):
     """Deterministic policy on `episodes` fresh episodes, each run exactly once.
 
-    The seed is far from the training seeds, so these episodes were never trained on.
-    Returns the share of episodes per outcome.
+    `net` is a fly network or the name of an untrained pilot (see NavigateEnv.pilot); all of
+    them fly the same episodes. The seed is far from the training seeds, so these episodes
+    were never trained on. Returns the share of episodes per outcome.
     """
-    env = NavigateEnv(episodes, seed=seed, threads=threads, config=config)
+    env = NavigateEnv(episodes, seed=seed, threads=threads, nx=nx, ny=ny, cell_m=cell_m, config=config, sim=sim)
     env.autoreset = False
     e, d = env.agent.shape[:2]
     running = torch.ones(e, dtype=torch.bool)
     outcome = torch.zeros(e, dtype=torch.long)
     while running.any():
-        mean, _, _ = net(*observe(env, device))
-        env.step(torch.tanh(mean).view(e, d, 2))
+        if isinstance(net, str):
+            env.step(env.pilot(net))
+        else:
+            mean, _, _ = net(*observe(env, device))
+            env.step(torch.tanh(mean).view(e, d, 2))
         ended = running & ((env.terminated | env.truncated) > 0)
         outcome[ended] = env.info[ended, 1].long()
         running &= ~ended
     return {name: (outcome == i).float().mean().item() for i, name in enumerate(REASONS)}
 
 
-def train(num_envs=1024, updates=300, seed=0, out="runs/navigate", cfg=PPOConfig(), reward=None, config=None, log_every=10):
+def train(num_envs=1024, updates=300, seed=0, out="runs/navigate", cfg=PPOConfig(), reward=None, config=None, log_every=10,
+          sim=None, hidden=128, nx=35, ny=36, cell_m=10.0):
+    """Trains the fly policy with PPO. What ran is written to `out`/experiment.toml before training starts."""
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     torch.manual_seed(seed)
-    env = NavigateEnv(num_envs, seed=seed, config=config)
+    began = time.perf_counter()
+    reward = reward or REWARD
+    env = NavigateEnv(num_envs, seed=seed, nx=nx, ny=ny, cell_m=cell_m, config=config, sim=sim)
     e, d = env.agent.shape[:2]
     b, t_len = e * d, cfg.rollout
-    weights = torch.tensor([(reward or REWARD)[name] for name in env.spec["terms"]], device=device)
+    weights = torch.tensor([reward[name] for name in env.spec["terms"]], device=device)
     step_s = env.spec["sim"]["dt_s"]
     discount = cfg.gamma_per_s**step_s
 
-    net = FlyNet(len(env.spec["agent"]), len(env.spec["neighbor"])).to(device)
+    net = FlyNet(len(env.spec["agent"]), len(env.spec["neighbor"]), hidden).to(device)
     optimizer = torch.optim.Adam(net.parameters(), lr=cfg.lr, eps=1e-5)
     out = Path(out)
     out.mkdir(parents=True, exist_ok=True)
+    tables = {
+        "run": {"kind": "fly", "envs": num_envs, "updates": updates, "seed": seed, "nx": nx, "ny": ny, "cell_m": cell_m},
+        "net": {"hidden": hidden},
+        "sim": env.spec["sim"],
+        "navigate": env.spec["config"],
+        "reward": reward,
+        "ppo": dataclasses.asdict(cfg),
+        "record": experiment.record(out),
+    }
+    experiment.write(out / "experiment.toml", tables)
     writer = SummaryWriter(out / "tensorboard")
 
     first = observe(env, device)
@@ -138,32 +173,53 @@ def train(num_envs=1024, updates=300, seed=0, out="runs/navigate", cfg=PPOConfig
             writer.add_scalar("charts/drone_steps_per_s", rate, steps_done)
             outcomes.zero_()
 
-    result = evaluate(net, device, config=config)
+    result = evaluate(net, device, config=config, sim=sim, nx=nx, ny=ny, cell_m=cell_m)
     torch.save(
         {
             "model": net.state_dict(),
             "net": "roshan.rl.nets.FlyNet",
+            "hidden": hidden,
             "spec": env.spec,
             "ppo": dataclasses.asdict(cfg),
-            "reward": reward or REWARD,
+            "reward": reward,
             "evaluation": result,
             "schema_version": 1,
         },
         out / "fly.pt",
     )
     (out / "evaluation.json").write_text(json.dumps(result, indent=2))
+    experiment.finish(out / "experiment.toml", tables, time.perf_counter() - began, result)
     print("evaluation on unseen episodes:", "  ".join(f"{k} {v:.3f}" for k, v in result.items()))
     writer.close()
     return net, result
 
 
 if __name__ == "__main__":
-    # ponytail: plain flags. Layered YAML configs (OmegaConf) come with the experiment
-    # harness in M4, when there is more than one thing to configure.
-    parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--envs", type=int, default=1024)
-    parser.add_argument("--updates", type=int, default=300)
-    parser.add_argument("--seed", type=int, default=0)
-    parser.add_argument("--out", default="runs/navigate")
+    parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
+    parser.add_argument("experiment", nargs="?", help="an experiment file (.toml); flags override it")
+    parser.add_argument("--envs", type=int)
+    parser.add_argument("--updates", type=int)
+    parser.add_argument("--seed", type=int)
+    parser.add_argument("--out", help="default: runs/<name of the experiment file>, or runs/navigate")
+    parser.add_argument("--force", action="store_true", help="write over a run that is already in --out")
+    parser.add_argument("--evaluate", metavar="PILOT", help="no training: fly 1000 unseen episodes with "
+                        "'straight', 'scripted', 'decentral' or a fly checkpoint (.pt)")
+    parser.add_argument("--drones", type=int, help="with --evaluate: number of drones (default 4)")
     args = parser.parse_args()
-    train(args.envs, args.updates, args.seed, args.out)
+    if args.evaluate:
+        pilot, device = args.evaluate, "cuda" if torch.cuda.is_available() else "cpu"
+        if pilot.endswith(".pt"):
+            pilot = load(pilot, device)
+        result = evaluate(pilot, device, config={"drones": args.drones} if args.drones else None)
+        print(f"{args.evaluate}:", "  ".join(f"{k} {v:.3f}" for k, v in result.items()))
+    else:
+        exp = experiment.training(args.experiment, "fly", "navigate") if args.experiment else {}
+        given = {k: v for k, v in vars(args).items() if v is not None}
+        run = experiment.merged(RUN, exp.get("run", {}), "run") | {k: given[k] for k in RUN if k in given}
+        train(
+            run["envs"], run["updates"], run["seed"],
+            out=experiment.claim(args.out or f"runs/{Path(args.experiment).stem if args.experiment else 'navigate'}", args.force),
+            cfg=PPOConfig(**experiment.merged(dataclasses.asdict(PPOConfig()), exp.get("ppo", {}), "ppo")),
+            reward=experiment.merged(REWARD, exp.get("reward", {}), "reward"), config=exp.get("navigate"), sim=exp.get("sim"),
+            hidden=experiment.merged(NET, exp.get("net", {}), "net")["hidden"], nx=run["nx"], ny=run["ny"], cell_m=run["cell_m"],
+        )

@@ -1,0 +1,84 @@
+# The fly policy on the navigate task.
+#   uv run python -m roshan.rl.train experiments/fly.toml     -> runs/fly/
+# Every setting is listed with the value this run uses. Copy the file to make a variant.
+
+# what the trainer does; kind is "planner" or "fly"; "" means none
+[run]
+kind = "fly"
+envs = 1024
+updates = 450
+seed = 0
+nx = 35
+ny = 36
+cell_m = 10.0
+
+# network size
+[net]
+hidden = 128
+
+# the simulation; names carry their units: _s seconds, _m metres, _l litres
+[sim]
+dt_s = 0.1
+fire_every = 20
+water_crit_l_m2 = 0.4
+water_per_mw_grass_l_m2 = 0.35
+water_per_mw_l_m2 = 0.6
+water_tau_s = 600.0
+ember_s = 60.0
+sheltered_waf = 0.2
+ros_noise = 0.0
+fire_model = "rothermel"
+
+# the FireSPIN particle model, used when fire_model is firespin
+[sim.spin]
+dt_s = 0.5
+emit_convective = true
+emit_radiation = true
+conv_y_st = 1.0
+conv_y_lim = 0.2
+conv_tau_mem_s = 10.0
+conv_fl = 0.15
+conv_c0 = 1.98
+lt_m = 80.0
+wind_a = 0.314
+rad_y_st = 1.0
+rad_y_lim = 0.165
+generic_burn_s = 120.0
+generic_ignite_s = 100.0
+
+# the fly task: drones fly to waypoints
+[navigate]
+drones = 4
+max_speed_ms = 10.0
+view_m = 50.0
+collide_m = 2.0
+arrive_m = 2.5
+goals = 3
+station_start = 0.5
+time_factor = 2.5
+near_drone = 0.4
+near_edge = 0.5
+
+# weight of each reward term
+[reward]
+goal = 1.0
+success = 2.0
+collision = -3.0
+out_of_bounds = -3.0
+timeout = -1.0
+progress = 1.0
+approach_drone = -0.5
+approach_edge = -0.5
+
+# PPO settings
+[ppo]
+lr = 0.0003
+gamma_per_s = 0.9
+lam = 0.95
+clip = 0.2
+epochs = 4
+minibatches = 8
+vf_coef = 0.5
+ent_coef = 0.003
+max_grad_norm = 0.5
+rollout = 64

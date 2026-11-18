@@ -190,25 +190,129 @@ fn sixteen_drones_never_get_closer_than_the_safe_distance() {
     );
 }
 
+/// The task with fires that have already burned for five minutes when the episode starts.
+fn preburned() -> AllocConfig {
+    AllocConfig {
+        preburn_s: 300.0,
+        ..cfg()
+    }
+}
+
 #[test]
 fn an_episode_depends_only_on_its_seed() {
-    let seeds: Vec<u64> = (100..164).collect();
-    let all = run(&seeds, 0, cfg(), true);
-    assert_eq!(all, run(&seeds, 1, cfg(), true), "1 thread vs all threads");
-    for k in [0, 7, 63] {
-        assert_eq!(
-            run(&seeds[k..=k], 1, cfg(), true)[0],
-            all[k],
-            "seed {} alone vs in a batch of 64",
-            seeds[k]
+    for cfg in [cfg(), preburned()] {
+        let seeds: Vec<u64> = (100..164).collect();
+        let all = run(&seeds, 0, cfg, true);
+        assert_eq!(all, run(&seeds, 1, cfg, true), "1 thread vs all threads");
+        for k in [0, 7, 63] {
+            assert_eq!(
+                run(&seeds[k..=k], 1, cfg, true)[0],
+                all[k],
+                "seed {} alone vs in a batch of 64",
+                seeds[k]
+            );
+        }
+        // Different seeds are different fires; the same seed is the same fire whatever the
+        // policy.
+        assert_ne!(all[0].1, all[1].1);
+        let idle = run(&seeds, 0, cfg, false);
+        assert!(
+            all.iter().zip(&idle).all(|(a, b)| a.1 == b.1),
+            "fingerprints must not depend on the policy"
         );
     }
-    // Different seeds are different fires; the same seed is the same fire whatever the policy.
-    assert_ne!(all[0].1, all[1].1);
-    let idle = run(&seeds, 0, cfg(), false);
+}
+
+#[test]
+fn a_preburn_is_the_fire_left_alone() {
+    let seeds: Vec<u64> = (200..208).collect();
+    let make = |config| {
+        let mut v =
+            AllocVec::new(seeds.len(), scenario(4), SimConfig::default(), config, 0, 1).unwrap();
+        let mut b = Buffers::new(&v);
+        v.reset(Some(&seeds), b.all());
+        (v, b)
+    };
+    let (burned, b) = make(preburned());
+    let (mut plain, _) = make(cfg());
+    let time = GLOBAL.iter().position(|&g| g == "time").unwrap();
+    for (e, (a, p)) in burned.envs.iter().zip(&mut plain.envs).enumerate() {
+        // 300 s of the default 0.1 s ticks.
+        (0..3000).for_each(|_| p.world.tick());
+        assert_eq!(
+            a.world.state_hash(),
+            p.world.state_hash(),
+            "seed {}",
+            seeds[e]
+        );
+        assert!(
+            a.world.fire.n_ignited > 4,
+            "the fires spread before the start"
+        );
+        assert_eq!(a.episode_s(), 0.0);
+        assert_eq!(
+            b.globals[e * GLOBAL.len() + time],
+            0.0,
+            "the episode's clock starts at 0"
+        );
+    }
+}
+
+#[test]
+fn the_time_limit_and_the_summary_count_from_the_start_of_the_episode() {
+    let seeds: Vec<u64> = (300..316).collect();
+    let (seconds, start) = (INFO.len() - 7, INFO.len() - 1);
+    assert_eq!((INFO[seconds], INFO[start]), ("seconds", "start_cells"));
+    let plain = run(&seeds, 0, cfg(), false);
+    for (k, (info, _)) in run(&seeds, 0, preburned(), false).iter().enumerate() {
+        assert_eq!(
+            info[seconds], 600.0,
+            "an idle episode lasts the whole time limit"
+        );
+        assert!(info[start] > plain[k].0[start] && info[start] < info[2]);
+    }
+    assert!(plain.iter().all(|(info, _)| info[start] <= 4.0));
+
+    // A cap on the cells cuts the pre-burn short; the overshoot is at most one fire step.
+    let capped = AllocConfig {
+        preburn_s: 3000.0,
+        preburn_cells: 30,
+        ..cfg()
+    };
+    for (info, _) in run(&seeds, 0, capped, false) {
+        assert!(
+            (30.0..60.0).contains(&info[start]),
+            "started with {} cells",
+            info[start]
+        );
+    }
+}
+
+#[test]
+fn a_fire_that_dies_in_the_preburn_ends_the_episode_at_once() {
+    // One burnable cell in bare ground: it burns out long before the pre-burn is over.
+    let mut lonely = scenario(4);
+    lonely.fuel.fill(0);
+    let cell = lonely.grid.idx(30, 20);
+    lonely.fuel[cell] = fuel::id("GR2").unwrap();
+    let config = AllocConfig {
+        preburn_s: 600.0,
+        ..AllocConfig::default()
+    };
+    let mut v = AllocVec::new(1, lonely, SimConfig::default(), config, 0, 1).unwrap();
+    v.autoreset = false;
+    let mut b = Buffers::new(&v);
+    v.reset(Some(&[1]), b.all());
     assert!(
-        all.iter().zip(&idle).all(|(a, b)| a.1 == b.1),
-        "fingerprints must not depend on the policy"
+        v.envs[0].world.time_s() < 600.0,
+        "the pre-burn stops when the fire is out"
+    );
+    v.step(&[-1; 4], b.all());
+    assert_eq!((b.terminated[0], b.truncated[0]), (1, 0));
+    assert_eq!(
+        b.info[..3],
+        [1.0, 0.1, 1.0],
+        "fire out after one tick, one cell burned"
     );
 }
 
@@ -356,5 +460,36 @@ fn rollout_is_never_worse_than_greedy_on_its_own_horizon_and_is_repeatable() {
     assert!(
         differed,
         "lookahead should sometimes prefer something other than greedy"
+    );
+}
+
+/// A random wind turns the whole schedule: the scenario's wind shift keeps its size, its time
+/// and its speed, and a steady wind gets the direction it always got.
+#[test]
+fn a_random_wind_keeps_the_scenarios_wind_shifts() {
+    let mut shifting = scenario(2);
+    shifting.wind.push(Wind {
+        t_s: 300.0,
+        speed_ms: 8.0,
+        to: [0.0, 1.0],
+    });
+    let build = |s: Scenario| {
+        let mut v = AllocVec::new(1, s, SimConfig::default(), cfg(), 7, 1).unwrap();
+        let mut b = Buffers::new(&v);
+        v.reset(None, b.all());
+        v.envs[0].world.weather.wind.clone()
+    };
+    let (steady, turned) = (build(scenario(2)), build(shifting));
+    assert_eq!(turned[0], steady[0], "the first entry is drawn as before");
+    assert_ne!(steady[0].to, [1.0, 0.0], "the wind was turned");
+    assert_eq!((turned[1].t_s, turned[1].speed_ms), (300.0, 8.0));
+    let (a, b) = (turned[0].to, turned[1].to);
+    assert!(
+        (a[0] * b[0] + a[1] * b[1]).abs() < 1e-6,
+        "still a quarter turn apart"
+    );
+    assert!(
+        (a[0] * b[1] - a[1] * b[0] - 1.0).abs() < 1e-6,
+        "and in the same sense"
     );
 }

@@ -4,8 +4,9 @@
 //! stores a pointer to them. Wrong dtype, shape or memory layout is an error, never a silent copy.
 
 use numpy::{
-    PyReadonlyArray2, PyReadonlyArray3, PyReadwriteArray1, PyReadwriteArray2, PyReadwriteArray3,
-    PyReadwriteArray4, PyUntypedArrayMethods,
+    PyArray1, PyArray3, PyArrayMethods, PyReadonlyArray2, PyReadonlyArray3, PyReadonlyArray4,
+    PyReadwriteArray1, PyReadwriteArray2, PyReadwriteArray3, PyReadwriteArray4,
+    PyUntypedArrayMethods,
 };
 use pyo3::exceptions::PyValueError;
 use pyo3::prelude::*;
@@ -117,6 +118,15 @@ impl NavigateEnv {
     #[setter]
     fn set_autoreset(&mut self, on: bool) {
         self.inner.autoreset = on;
+    }
+
+    /// The actions an untrained pilot takes now, [envs, drones, 2]: "straight" (at the
+    /// waypoint, no avoidance), "scripted" (centralised sidestepping, full information) or
+    /// "decentral" (each drone alone, from the observation a fly policy gets).
+    fn pilot<'py>(&self, py: Python<'py>, kind: &str) -> PyResult<Bound<'py, PyArray3<f32>>> {
+        let pilot = navigate::Pilot::named(kind).ok_or_else(|| invalid("pilot", kind))?;
+        let shape = [self.inner.envs.len(), self.inner.cfg.drones, 2];
+        PyArray1::from_vec(py, self.inner.pilot(pilot)).reshape(shape)
     }
 
     /// Starts a fresh episode everywhere and writes the first observations.
@@ -235,6 +245,50 @@ fn check_scenario<'py>(
     scenario: &Bound<'py, PyDict>,
 ) -> PyResult<Bound<'py, PyDict>> {
     convert::to_py(py, &convert::from_py(scenario)?)
+}
+
+/// The decentralised hand-written pilot (roshan_core::navigate::decentral) on a batch of
+/// pilot observations: `agent` [envs, drones, 8], `neighbors` [envs, drones, drones, 4] and
+/// `mask` [envs, drones, drones] in, velocity fractions [envs, drones, 2] out.
+#[pyfunction]
+fn decentral_pilot<'py>(
+    py: Python<'py>,
+    agent: PyReadonlyArray3<'py, f32>,
+    neighbors: PyReadonlyArray4<'py, f32>,
+    mask: PyReadonlyArray3<'py, u8>,
+    view_m: f32,
+    max_speed_ms: f32,
+    safe_m: f32,
+) -> PyResult<Bound<'py, PyArray3<f32>>> {
+    let (e, n) = (mask.shape()[0], mask.shape()[1]);
+    check(
+        "agent",
+        agent.shape(),
+        &[e, n, navigate::AGENT.len()],
+        agent.is_c_contiguous(),
+    )?;
+    check(
+        "neighbors",
+        neighbors.shape(),
+        &[e, n, n, 4],
+        neighbors.is_c_contiguous(),
+    )?;
+    check("mask", mask.shape(), &[e, n, n], mask.is_c_contiguous())?;
+    let (agent, neighbors, mask) = (agent.as_slice()?, neighbors.as_slice()?, mask.as_slice()?);
+    let width = navigate::AGENT.len();
+    let actions: Vec<f32> = (0..e)
+        .flat_map(|i| {
+            navigate::decentral(
+                &agent[i * n * width..][..n * width],
+                &neighbors[i * n * n * 4..][..n * n * 4],
+                &mask[i * n * n..][..n * n],
+                view_m,
+                max_speed_ms,
+                safe_m,
+            )
+        })
+        .collect();
+    PyArray1::from_vec(py, actions).reshape([e, n, 2])
 }
 
 /// What `AllocateEnv.advance` needs for a tick flown by an outside pilot.
@@ -756,17 +810,28 @@ mod ui {
     ///     scenario with drones: one target slot per drone (-1 keeps), asked when drones need a
     ///     decision and `planner` is "policy"; navigate: two velocity fractions per drone, every tick
     /// planner: "off", "greedy", "rollout" or "policy"         who assigns targets in a scenario
-    /// save(scenario: dict, path: str | None) -> str            File > Save (path None: pick a new name) and Save as
+    /// save(scenario: dict, path: str | None) -> str            File > Save (path None: pick a new name) and Save as;
+    ///     returns the file written
+    /// path: the file `scenario` came from, which Save writes back to
     /// open(path: str) -> dict                                  File > Open: a scenario from a file
-    /// load_policy(path: str) -> (is_pilot, policy, config)     Policy > Load a checkpoint; `config` is the JSON of
-    ///     the task it was trained on (an allocate config for a planner, a navigate config for a pilot)
+    /// load_policy(path: str) -> (is_pilot, policy, config, sim)   Policy > Load a checkpoint; `config` is the JSON of
+    ///     the task it was trained on (an allocate config for a planner, a navigate config for a pilot), `sim` that
+    ///     of its simulation settings
+    /// settings: JSON with `sim`, `allocate`, `navigate` objects: the world of an experiment, used as training and
+    ///     evaluation use it instead of the viewer's own defaults
+    /// seed: the episode to start on
     /// fetch(lat, lon, width_km, height_km) -> dict             called on a worker thread by "Fetch terrain"
+    /// load_settings(path: str) -> str                          Settings > Load: JSON of an experiment file's
+    ///     sim, allocate and navigate sections
+    /// save_settings(path: str, json: str) -> str               Settings > Save: writes such sections as a file
     /// select: index of a drone to open the inspector on
     /// fire_model: "rothermel" or "firespin"
+    /// preburn_s: the fires burn this long before the drones start
     #[pyfunction]
     #[pyo3(signature = (scenario=None, policy=None, auto_close_s=None, save=None, fetch=None, start_on_map=false,
                         planner="greedy", navigate=None, nx=35, ny=36, cell_m=10.0, select=None,
-                        fire_model="rothermel", open=None, load_policy=None))]
+                        fire_model="rothermel", open=None, load_policy=None, preburn_s=0.0,
+                        load_settings=None, save_settings=None, path=None, settings=None, seed=None))]
     #[allow(clippy::too_many_arguments)]
     pub fn run_ui(
         py: Python<'_>,
@@ -785,6 +850,12 @@ mod ui {
         fire_model: &str,
         open: Option<Py<PyAny>>,
         load_policy: Option<Py<PyAny>>,
+        preburn_s: f32,
+        load_settings: Option<Py<PyAny>>,
+        save_settings: Option<Py<PyAny>>,
+        path: Option<std::path::PathBuf>,
+        settings: Option<String>,
+        seed: Option<u64>,
     ) -> PyResult<(u64, u64, u64)> {
         // Without a scenario or task from the caller, the user's default scenario may be shown.
         let explicit = scenario.is_some() || navigate.is_some();
@@ -829,7 +900,7 @@ mod ui {
                     Python::attach(|py| {
                         to_py(py, scenario)
                             .and_then(|d| callable.call1(py, (d, path)))
-                            .and_then(|out| out.extract::<String>(py))
+                            .and_then(|out| out.extract::<std::path::PathBuf>(py))
                             .map_err(|err| err.to_string())
                     })
                 })
@@ -847,12 +918,31 @@ mod ui {
                 Arc::new(move |path: &Path| {
                     Python::attach(|py| {
                         let out = callable.call1(py, (path,));
-                        out.and_then(|out| out.extract::<(bool, Py<PyAny>, String)>(py))
-                            .map(|(fly, policy, config)| roshan_ui::Loaded {
+                        out.and_then(|out| out.extract::<(bool, Py<PyAny>, String, String)>(py))
+                            .map(|(fly, policy, config, sim)| roshan_ui::Loaded {
                                 fly,
                                 policy: as_policy(policy),
                                 config,
+                                sim,
                             })
+                            .map_err(|err| err.to_string())
+                    })
+                })
+            }),
+            load_settings: load_settings.map(|callable| -> roshan_ui::LoadSettings {
+                Arc::new(move |path: &Path| {
+                    Python::attach(|py| {
+                        let out = callable.call1(py, (path,));
+                        out.and_then(|out| out.extract::<String>(py))
+                            .map_err(|err| err.to_string())
+                    })
+                })
+            }),
+            save_settings: save_settings.map(|callable| -> roshan_ui::SaveSettings {
+                Arc::new(move |path: &Path, text: &str| {
+                    Python::attach(|py| {
+                        let out = callable.call1(py, (path, text));
+                        out.and_then(|out| out.extract::<String>(py))
                             .map_err(|err| err.to_string())
                     })
                 })
@@ -873,7 +963,11 @@ mod ui {
             planner,
             select,
             fire_model,
+            preburn_s,
             explicit,
+            path,
+            settings,
+            seed,
         };
 
         // The window loop runs with the interpreter lock released. Each frame takes it briefly
@@ -902,6 +996,7 @@ fn _core(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_class::<AllocateEnv>()?;
     m.add_function(wrap_pyfunction!(check_scenario, m)?)?;
     m.add_function(wrap_pyfunction!(fuel_models, m)?)?;
+    m.add_function(wrap_pyfunction!(decentral_pilot, m)?)?;
     #[cfg(feature = "ui")]
     {
         m.add_function(wrap_pyfunction!(ui::run_ui, m)?)?;

@@ -1,8 +1,8 @@
 //! M2 checks for the navigate task: episode logic, reset semantics and determinism.
 
 use roshan_core::navigate::{
-    AGENT, Bufs, INFO, NavConfig, NavVec, REASON_COLLISION, REASON_OUT_OF_BOUNDS, REASON_TIMEOUT,
-    TERMS,
+    AGENT, Bufs, INFO, NavConfig, NavVec, Pilot, REASON_COLLISION, REASON_OUT_OF_BOUNDS,
+    REASON_TIMEOUT, TERMS,
 };
 use roshan_core::terrain::Grid;
 use roshan_core::world::SimConfig;
@@ -56,31 +56,15 @@ fn make(envs: usize, cfg: NavConfig, threads: usize) -> (NavVec, Buffers) {
     (vec, b)
 }
 
-/// Full speed straight at the waypoint, easing off within 10 m. No avoidance at all.
-fn straight_to_goal(vec: &NavVec) -> Vec<f32> {
-    vec.envs
-        .iter()
-        .flat_map(|env| {
-            env.world
-                .drones
-                .pos
-                .iter()
-                .zip(env.goals())
-                .flat_map(|(p, g)| {
-                    let (dx, dy) = (g[0] - p[0], g[1] - p[1]);
-                    let range = dx.hypot(dy).max(1e-6);
-                    let speed = (range / 10.0).min(1.0);
-                    [dx / range * speed, dy / range * speed]
-                })
-        })
-        .collect()
-}
-
 /// Runs `steps` steps with the straight-line pilot and returns (episodes, successes, reasons).
 fn fly(vec: &mut NavVec, b: &mut Buffers, steps: usize) -> (u32, u32, [u32; 4]) {
+    fly_with(vec, b, steps, Pilot::Straight)
+}
+
+fn fly_with(vec: &mut NavVec, b: &mut Buffers, steps: usize, by: Pilot) -> (u32, u32, [u32; 4]) {
     let (mut episodes, mut successes, mut reasons) = (0, 0, [0; 4]);
     for _ in 0..steps {
-        let actions = straight_to_goal(vec);
+        let actions = vec.pilot(by);
         vec.step(&actions, b.all());
         for e in 0..vec.envs.len() {
             if b.terminated[e] + b.truncated[e] > 0 {
@@ -112,6 +96,38 @@ fn a_lone_drone_flying_straight_always_succeeds() {
         successes, episodes,
         "one drone cannot collide and has ample time"
     );
+}
+
+#[test]
+fn the_scripted_pilot_never_collides() {
+    let (mut vec, mut b) = make(256, NavConfig::default(), 4);
+    let (episodes, successes, reasons) = fly_with(&mut vec, &mut b, 4000, Pilot::Scripted);
+    let rate = successes as f32 / episodes as f32;
+    println!(
+        "scripted pilot, 4 drones: {rate:.3} success over {episodes} episodes, reasons {reasons:?}"
+    );
+    assert!(episodes > 300, "only {episodes} episodes finished");
+    assert_eq!(reasons[REASON_COLLISION as usize], 0);
+    assert_eq!(reasons[REASON_OUT_OF_BOUNDS as usize], 0);
+    assert!(rate > 0.95, "success rate {rate}");
+}
+
+#[test]
+fn the_decentral_pilot_rarely_collides() {
+    for drones in [4, 8] {
+        let cfg = NavConfig {
+            drones,
+            ..NavConfig::default()
+        };
+        let (mut vec, mut b) = make(256, cfg, 4);
+        let (episodes, successes, reasons) = fly_with(&mut vec, &mut b, 4000, Pilot::Decentral);
+        let rate = successes as f32 / episodes as f32;
+        println!(
+            "decentral pilot, {drones} drones: {rate:.3} success over {episodes} episodes, reasons {reasons:?}"
+        );
+        assert!(episodes > 300, "only {episodes} episodes finished");
+        assert!(rate > 0.95, "success rate {rate}");
+    }
 }
 
 #[test]
@@ -210,7 +226,7 @@ fn results_do_not_depend_on_the_thread_count() {
         let (mut vec, mut b) = make(200, NavConfig::default(), threads);
         let mut trace = Vec::new();
         for _ in 0..600 {
-            let actions = straight_to_goal(&vec);
+            let actions = vec.pilot(Pilot::Straight);
             vec.step(&actions, b.all());
             trace.extend_from_slice(&b.terms);
             trace.extend_from_slice(&b.info);
@@ -224,7 +240,7 @@ fn results_do_not_depend_on_the_thread_count() {
 fn observations_are_normalised_and_masked() {
     let (mut vec, mut b) = make(64, NavConfig::default(), 2);
     for _ in 0..300 {
-        let actions = straight_to_goal(&vec);
+        let actions = vec.pilot(Pilot::Straight);
         vec.step(&actions, b.all());
         assert!(
             b.agent

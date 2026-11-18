@@ -213,8 +213,7 @@ impl World {
 
     /// Share of the burnable cells that are burning or burned.
     pub fn burned_fraction(&self) -> f32 {
-        let burnable = self.terrain.fuel.iter().filter(|&&f| f != 0).count();
-        self.fire.n_ignited as f32 / burnable.max(1) as f32
+        self.fire.n_ignited as f32 / self.terrain.burnable_cells.max(1) as f32
     }
 
     /// Digest of the whole dynamic state. Equal hashes mean bit-identical worlds.

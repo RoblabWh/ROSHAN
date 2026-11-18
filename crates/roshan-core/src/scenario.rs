@@ -46,6 +46,27 @@ impl Scenario {
         if self.wind.is_empty() {
             return Err("the wind schedule is empty".into());
         }
+        // A direction that is not a unit vector would silently scale the speed, and an entry
+        // out of order would hide the ones before it.
+        for (k, w) in self.wind.iter().enumerate() {
+            let length = (w.to[0] * w.to[0] + w.to[1] * w.to[1]).sqrt();
+            if !(w.speed_ms >= 0.0 && w.speed_ms.is_finite()) {
+                return Err(format!("wind {k}: speed {} m/s", w.speed_ms));
+            }
+            let unit = length.is_finite() && (length - 1.0).abs() < 1e-3;
+            if !unit {
+                return Err(format!(
+                    "wind {k}: direction {:?} is not a unit vector",
+                    w.to
+                ));
+            }
+            if !(w.t_s.is_finite() && (k == 0 || w.t_s >= self.wind[k - 1].t_s)) {
+                return Err(format!(
+                    "wind {k}: starts at {} s, the schedule must be sorted by time",
+                    w.t_s
+                ));
+            }
+        }
         let placed = [
             ("ignition", &self.ignitions),
             ("drone", &self.drones),
@@ -134,6 +155,22 @@ mod tests {
         let mut windless = scenario();
         windless.wind.clear();
         assert!(windless.world(SimConfig::default(), 1).is_err());
+        let later = |t_s, speed_ms, to| Wind { t_s, speed_ms, to };
+        for (bad, why) in [
+            (later(60.0, 5.0, [1.0, 1.0]), "unit vector"),
+            (later(60.0, 5.0, [0.0, 0.0]), "unit vector"),
+            (later(60.0, -1.0, [0.0, 1.0]), "speed"),
+            (later(60.0, f32::NAN, [0.0, 1.0]), "speed"),
+            (later(-5.0, 5.0, [0.0, 1.0]), "sorted"),
+        ] {
+            let mut s = scenario();
+            s.wind.push(bad);
+            let error = s.world(SimConfig::default(), 1).err().unwrap();
+            assert!(error.contains(why), "{error}");
+        }
+        let mut turning = scenario();
+        turning.wind.push(later(60.0, 0.0, [0.0, -1.0]));
+        assert!(turning.world(SimConfig::default(), 1).is_ok());
         let mut short = scenario();
         short.fuel.pop();
         assert!(short.world(SimConfig::default(), 1).is_err());

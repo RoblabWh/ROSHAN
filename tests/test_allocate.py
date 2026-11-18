@@ -103,6 +103,21 @@ def test_evaluation_is_the_same_for_any_batch_size_and_thread_count():
     assert set(seeds_of("val")).isdisjoint(seeds_of("test"))
 
 
+def test_a_preburn_starts_episodes_with_a_spread_fire_that_does_not_count_against_the_planner():
+    seeds = seeds_of("val")[:12]
+    config = {**CONFIG, "preburn_s": 300.0}
+    idle, greedy = (evaluate(grassland(), name, seeds, config) for name in ("none", "greedy"))
+    assert greedy == evaluate(grassland(), "greedy", seeds, config, batch=1, threads=1)
+    plain = evaluate(grassland(), "none", seeds, CONFIG)
+    for i, g, p in zip(idle, greedy, plain):
+        assert i["Burned_Start"] == g["Burned_Start"] > p["Burned_Start"] == 4
+        assert i["Time"] == 600.0 and i["Area_Saved"] == 0.0, "an idle episode saves nothing and runs full length"
+        # Saved area is measured on what caught fire after the start, so it can reach 1.
+        new, new_idle = g["Burned_Cells"] - g["Burned_Start"], g["Burned_NoAction"] - g["Burned_Start"]
+        assert g["Area_Saved"] == 1.0 - new / new_idle
+    assert all(0.0 < g["Area_Saved"] < 1.0 for g in greedy), "a head start makes the fire harder, not hopeless"
+
+
 def test_planners_save_area_and_the_paired_table_accepts_the_files(tmp_path):
     seeds = seeds_of("val")[:24]
     arms = {name: evaluate(grassland(), name, seeds, CONFIG) for name in ("none", "greedy", "hungarian")}

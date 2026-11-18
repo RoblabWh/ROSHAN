@@ -29,6 +29,9 @@ def test_allocate_runs_on_firespin_and_drones_save_area():
     assert sum(r["Burned_Cells"] for r in greedy) < sum(r["Burned_NoAction"] for r in greedy)
     rothermel = evaluate(scenario(), "none", seeds, CONFIG)
     assert [r["Burned_Cells"] for r in rothermel] != [r["Burned_NoAction"] for r in greedy]
+    # A pre-burn works on the particle model too: the episode starts with more cells alight.
+    burned = evaluate(scenario(), "none", seeds, {**CONFIG, "preburn_s": 600.0}, SPIN)
+    assert all(r["Burned_Start"] > 9 and r["Time"] == 900.0 for r in burned)
 
 
 def test_navigate_runs_on_firespin():

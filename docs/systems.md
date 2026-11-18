@@ -42,7 +42,7 @@ crates/roshan-core/   simulation. Pure Rust: no Python, no UI, no file or networ
   allocate.rs         the allocate (planner) task: tanks, drops, scripted flight, targets,
                       greedy and rollout planners
   rng.rs              counter-based random numbers
-  examples/           bench.rs (fire timings, shape accuracy), spin_curve.rs (FireSPIN curve)
+  examples/           bench.rs (fire and allocate timings, shape accuracy), spin_curve.rs (FireSPIN curve)
   tests/              behaviour tests: fire.rs, spin.rs, navigate.rs, allocate.rs
 crates/roshan-ui/     viewer and scenario editor (egui); depends on roshan-core only
 crates/roshan-py/     Python bindings, module roshan._core
@@ -59,6 +59,8 @@ python/roshan/
   rl/nets.py          FlyNet and PlannerNet
   rl/train.py         training and evaluation of the fly policy
   rl/train_planner.py imitation and PPO for the planner
+  experiment.py       experiment files: reading, and the record every run writes
+experiments/          experiment files (.toml) for training and evaluation
 tests/                Python tests
 spikes/               ui_spike.py (viewer check), firespin_reference.cpp (old FireSPIN loop)
 scenarios/            scenario files
@@ -84,12 +86,17 @@ it was trained with.
   world shares terrain and weather and copies only the dynamic state (about 60 µs for a
   100 x 100 map). The rollout planner relies on this.
 - **Clock**: time is a whole number of ticks of `dt_s` (0.1 s). Drones move every tick; the
-  fire advances every `fire_every` ticks (20, so every 2 s).
+  fire advances every `fire_every` ticks (20, so every 2 s). The world's clock counts from
+  the ignition. With a pre-burn the allocate task's episode starts later: its time limit,
+  the `time` observation and the reported episode time count from that start, while the
+  wind schedule, fire arrival times and the viewer's clock stay on the world's clock.
 - **One fire step**: look up the wind for that time (and recompute everything that depends on
   it if it changed), let the water decay, then advance the fire model in as many sub-steps as
   it asks for.
 - **Weather**: five fuel moistures for the episode and a wind schedule of (start time, speed,
-  direction). Wind is uniform over the map.
+  direction). Wind is uniform over the map. A scenario is refused when a wind entry has a
+  negative or non-finite speed, a direction that is not a unit vector (it would silently
+  scale the speed), or a start time before the entry in front of it.
 - **Coordinates**: x grows with the column, y with the row; row 0 is north. Cell index is
   `y * nx + x`. Wind and slope vectors use the same axes.
 - **Random numbers** (`rng.rs`): Philox4x32-10. A draw is a function of (seed, stream, counter,
@@ -105,6 +112,88 @@ is an error. `env.spec["config"]` and `env.spec["sim"]` return the full values i
 ```python
 AllocateEnv(64, scenario, config={"random_ignitions": 6}, sim={"fire_model": "firespin"})
 ```
+
+### Experiment files
+
+One TOML file in `experiments/` says what a training or an evaluation run does
+(`python/roshan/experiment.py`). The files there list **every setting** with the value the
+run uses, so what can be set is what the file shows; a test fails when a setting is missing
+from one of them. `python -m roshan.experiment planner|fly|eval` prints a fresh file with
+every default. The start of `experiments/planner.toml`
+(`uv run python -m roshan.rl.train_planner experiments/planner.toml`):
+
+```toml
+[run]
+kind = "planner"
+scenario = "scenarios/demo.npz"
+envs = 512
+updates = 0
+seed = 0
+teacher = "rollout"
+imitation_steps = 4000
+imitation_envs = 128
+init = ""
+critic_updates = 0
+
+[net]
+hidden = 128
+
+[sim]
+dt_s = 0.1
+...
+```
+
+A value left out of a file is the default (for `[sim]`, `[allocate]` and `[navigate]` the
+simulator's). TOML has no "none": `""` stands for it in `teacher`, `init` and `fly`, `n = 0`
+means all seeds, `pair = []` no paired statistics.
+
+| Section | Holds | Read by |
+|---|---|---|
+| `[run]` | `kind` (`"planner"` or `"fly"`, required), `envs`, `updates`, `seed`; planner also `scenario`, `teacher`, `imitation_steps`, `imitation_envs`, `init`, `critic_updates`; fly also the empty map `nx`, `ny` (cells), `cell_m` | trainers |
+| `[net]` | `hidden`, the width of the network's layers | trainers |
+| `[sim]` | `SimConfig` values, the FireSPIN block as `[sim.spin]` | trainers, evaluation, viewer |
+| `[allocate]` | `AllocConfig` values | planner trainer, evaluation, viewer |
+| `[navigate]` | `NavConfig` values | fly trainer, viewer |
+| `[reward]` | reward weights by term name | trainers |
+| `[ppo]` | fields of `PPOConfig` (`rl/ppo.py`) | trainers |
+| `[eval]`, `[arms.<name>]` | an evaluation, see [Evaluation](#evaluation) | evaluation |
+
+- **Nothing is silently unused.** A section the reader does not take, a key it does not know,
+  or a `kind` that is another trainer's is an error. The viewer is the exception: it reads the
+  three world sections of any file.
+- **The record.** Before it starts, every run writes the file back into its output directory
+  with every value filled in (`runs/<name>/experiment.toml`, `evaluation.toml` for an
+  evaluation), plus a `[record]` section: date, git commit, whether there were uncommitted
+  changes, the command line, the scenario's fingerprint, the digest of every checkpoint
+  used, and `finished = false`. This file is what ran; it does not change when a default
+  changes later. It is itself a valid experiment file (`[record]` and `[result]` are ignored
+  when read), so a run can be repeated from it.
+- **When the run is done** the record gets `finished = true`, `wall_time_s` and a `[result]`
+  section. Planner: `teacher_agreement` of the imitation and the training episodes of the
+  last log line (`train_burned_fraction`, ...; sampled policy, not an evaluation). Fly
+  policy: its closing evaluation. Evaluation: fire out, burned, area saved and drops per arm.
+  A record with `finished = false` is a run that crashed or was stopped.
+- **Uncommitted code** is saved next to the record as `code.patch` (`git diff HEAD`, plus new
+  files while they are text under 1 MB), so the commit and the patch together are the code
+  that ran.
+- **`simulator`** in the record is a digest of how the simulator behaves: what the greedy
+  planner does on 8 fixed episodes of the dynamic task on `scenarios/demo.npz`
+  (`experiment.simulator_digest()`, about a second per process). It changes when the fire,
+  the water model, the drones or the demo map change, which is exactly when earlier results
+  and checkpoints stop being comparable. The evaluation uses it to warn about stale
+  checkpoints (see [Evaluation](#evaluation)).
+- **Output directory.** `runs/<name of the file>` unless `--out` says otherwise. A directory
+  that already holds something is refused, so a second run cannot overwrite checkpoints or
+  mix its TensorBoard curves into the first's; `--force` writes over it anyway.
+- **Flags** of the trainers (`--updates`, `--envs`, `--seed`, ...) override the file, for a
+  quick try; the record shows the values that were used.
+- **No inheritance and no sweeps.** A variant is a copied file.
+- **Not in a file.** The scenario is its own `.npz`; the record holds its path and
+  fingerprint. Fixed in code: the optimiser (Adam, eps 1e-5, learning rate decaying linearly
+  to zero), the imitation schedule (the teacher drives the first half of the steps), the fly
+  policy's closing evaluation (1000 episodes), the 50 m view of a fly policy steering in the
+  evaluation, the paired statistics (95 % intervals, 2000 bootstrap draws), and the fuel and
+  calibration constants of the simulator ([Calibration](#calibration)).
 
 **Simulation** (`sim=`, `SimConfig` in `world.rs`):
 
@@ -138,7 +227,9 @@ AllocateEnv(64, scenario, config={"random_ignitions": 6}, sim={"fire_model": "fi
 | `max_interval_s` | 10 | longest time between two decisions |
 | `time_limit_s` | 1800 | episode length |
 | `random_ignitions` | 0 | if above 0: this many random fires instead of the scenario's |
-| `random_wind` | false | random wind direction per episode |
+| `random_wind` | false | the scenario's wind schedule is turned by one random angle per episode; its wind changes keep their time, speed and size |
+| `preburn_s` | 0 | the fires burn unattended this long before the episode starts, seconds |
+| `preburn_cells` | 0 | ... or until this many cells have caught fire, whichever comes first (0 = no cap) |
 
 **Navigate task** (`config=` of `NavigateEnv`, `NavConfig` in `navigate.rs`):
 
@@ -212,6 +303,11 @@ slope compute their own.
 Every burning cell is a *source* that carries the fire along 16 fixed directions: the 8
 neighbours and the 8 knight moves. Each direction is an edge with progress from 0 to 1.
 
+- **Cost.** The 16 edges of a source cross the same 17 cells, so their ellipses are computed
+  once per ignition and kept for its edges (on a slope an ellipse costs about 40 times what
+  it does on flat ground). Water only slows an edge whose path is wet: a dry path returns at
+  once, so a drop somewhere on the map does not slow the rest of the fire. The number of
+  burnable cells is counted once per terrain.
 - **Edge rate.** One over the travel time between the two cell centres:
   `rate = 1 / (mean slowness x length)`, where slowness is seconds per metre in the edge's
   direction (one over the ellipse rate above) and the mean is taken over the cells the path
@@ -471,6 +567,24 @@ Shipped scenarios:
 waypoints without hitting another drone or leaving the map. One step is one tick. This is the
 task the low-level fly policy is trained on.
 
+Three pilots need no training (`NavEnv::pilot`, `NavigateEnv.pilot(kind)` in Python):
+
+| Pilot | What it knows | What it does |
+|---|---|---|
+| `straight` | its own waypoint | full speed at the waypoint, easing off within 10 m; no avoidance |
+| `scripted` | every drone's exact position, and where the drones before it will be next | the sidestepping rule of the allocate task's controller (`scripted_step`), safety distance `collide_m` + 1 m. Centralised: an upper bound, not a fair opponent for a fly policy |
+| `decentral` | its own row of the observation, exactly what a fly policy gets | reciprocal velocity obstacles (van den Berg, Lin & Manocha 2008), `navigate::decentral` |
+
+`decentral` is the fair baseline for a fly policy: every drone decides alone and at the same
+moment, sees other drones only inside `view_m`, and assumes each neighbour keeps its velocity
+and does half of the avoiding. Of 36 candidate velocities it takes the one closest to
+"straight at the waypoint" that brings nothing closer than the safety distance within 5 s; a
+near miss costs more the sooner it comes. It is a sampled version, not the exact ORCA linear
+program. All three are selectable in the viewer's fly task; `python -m roshan.rl.train
+--evaluate <pilot or fly.pt>` flies the 1000 evaluation episodes with any of them, and
+`python -m roshan.eval --fly decentral` uses it under a planner
+(`_core.decentral_pilot` on the pilot observation).
+
 **Episode**
 
 - Start: with probability `station_start` all drones on a small circle around a ground
@@ -559,7 +673,14 @@ case every drone may decide again. The step returns `elapsed_s`, so a trainer ca
 real time.
 
 **Episode.** Starts with the scenario's fires, or `random_ignitions` random ones, and
-optionally a random wind direction (`random_wind`). Ends when the fire is out (`terminated`)
+optionally a randomly turned wind (`random_wind`: the whole schedule turns by one angle). With a **pre-burn** (`preburn_s`,
+`preburn_cells`) the fire model then runs on its own, before the drones are placed, until the
+time is up, the cell count is reached or the fire is out. The drones meet a front the model
+itself produced, with a burned interior, shaped by wind, slope, fuel and barriers; it is
+bit-identical to what an idle episode has at that time. A fire that dies during the pre-burn
+ends the episode on its first step (under FireSPIN a single burning cell often dies). The
+episode's fingerprint is taken after the pre-burn. How long to pre-burn is a choice about
+the task, not a calibrated value; see [Pre-burn](#pre-burn) for what it does to it. Ends when the fire is out (`terminated`)
 or at `time_limit_s` (`truncated`). An episode is a function of its seed alone, and
 `fingerprint` (burning cells and wind at the start) identifies the fire it started with.
 `reset(seeds)` runs chosen seeds; `autoreset = False` freezes finished environments.
@@ -591,6 +712,9 @@ Task kind 3 (a point) only occurs when a drone is sent somewhere by hand in the 
 `water_l`, `drops`, `min_separation_m` (smallest distance between two drones).
 
 **Other buffers**: `elapsed_s` [E], `terminated`, `truncated` [E], `seed`, `fingerprint` [E].
+The fingerprint is a digest of the cells burning at the start of the episode and of the wind,
+later wind changes included; a steady wind gives the value it gave before schedules were
+part of it.
 
 **Learned flight.** `AllocateEnv.fly_tick(velocity, actions=None, view_m=50)` advances one
 tick with an outside pilot instead of the scripted controller. Afterwards `env.pilot` holds
@@ -674,7 +798,10 @@ One file for both tasks.
   episodes per outcome, PPO diagnostics and throughput.
 - **Evaluation.** `evaluate(net, device, episodes, seed, config)` runs the deterministic
   policy on 1000 fresh episodes, each exactly once, from a seed far from the training seeds.
-- **Output.** `runs/<name>/fly.pt`, `evaluation.json`, `tensorboard/`.
+- **Settings.** `python -m roshan.rl.train experiments/fly.toml`: `[run]`, `[sim]`,
+  `[navigate]`, `[reward]`, `[ppo]` (see [Experiment files](#experiment-files)). Without a
+  file the defaults in `rl/train.py` run.
+- **Output.** `runs/<name>/fly.pt`, `evaluation.json`, `experiment.toml`, `tensorboard/`.
 
 ### Planner (`rl/train_planner.py`, `PlannerNet`)
 
@@ -690,6 +817,9 @@ One file for both tasks.
   were asked; drones that were not asked contribute nothing to it or to the entropy.
 - **Reward.** `-100 x burned + 1 x fire_out`: one point per percent of the burnable area
   burned, so the reward is the objective itself. Per environment, not per drone.
+- **Settings.** `python -m roshan.rl.train_planner experiments/planner.toml`: `[run]`,
+  `[sim]`, `[allocate]`, `[reward]`, `[ppo]` (see [Experiment files](#experiment-files)). The
+  flags named below are the keys of `[run]` with the same names.
 - **Imitation** (`--teacher rollout --imitation-steps N`). Cross-entropy against the teacher's
   choice on every decision, on 128 environments. For the first half of the steps the
   teacher's actions drive the environments; from then on the network's own do, while the
@@ -697,9 +827,10 @@ One file for both tasks.
   the situations its own mistakes lead to (DAgger). Writes `imitation.pt`.
 - **PPO** runs for `--updates` afterwards (0 = imitation only). `--critic-updates N` trains
   only the value function for the first N updates; `--init` starts from saved weights.
-- **Task.** Trained with `{"random_ignitions": 6, "random_wind": true}` on
-  `scenarios/demo.npz` unless `--config` says otherwise.
-- **Output.** `runs/<name>/planner.pt`, `imitation.pt`, `tensorboard/`.
+- **Task.** With an experiment file: its `[allocate]` on top of the simulator's defaults.
+  Without one: `{"random_ignitions": 6, "random_wind": true}` on `scenarios/demo.npz` unless
+  `--config` says otherwise.
+- **Output.** `runs/<name>/planner.pt`, `imitation.pt`, `experiment.toml`, `tensorboard/`.
 
 **State of things:** imitation works; PPO does not improve on it and fine-tuning makes it
 worse (see [Results](#learned-planner)).
@@ -708,8 +839,10 @@ worse (see [Results](#learned-planner)).
 
 A `.pt` file is a dict: `model` (weights), `net` (import path of the network class), `spec`
 (the environment spec, including both configurations), `ppo` (settings), `reward` (weights),
-`schema_version`, and for the fly policy `evaluation`. `imitation.pt` holds `model`, `spec`
-and `schema_version` only. No source files are copied.
+`hidden` (the network width; 128 where it is missing), `schema_version`, and for the fly policy `evaluation`. `imitation.pt` holds `model`, `spec`
+and `schema_version` only. No source files are copied. The readable form of the same
+settings, with the rest of the run (scenario, seed, updates, teacher, commit), is the
+`experiment.toml` next to the checkpoint.
 
 ## Evaluation
 
@@ -717,6 +850,40 @@ and `schema_version` only. No source files are copied.
 `splits/val.txt` or `splits/test.txt` (500 each, frozen; training never uses them), every
 seed exactly once, and writes one CSV row per episode. The same seeds are also run with idle
 drones. Results do not depend on batch size or thread count.
+
+**An evaluation file** compares several planners on the same episodes in one run:
+`python -m roshan.eval experiments/eval_demo.toml` writes `runs/eval_demo/` with one CSV per
+arm, `summary.md` (a row per arm, and the paired statistics of `pair`) and `evaluation.toml`
+(the [record](#experiment-files)). The idle run is made once for all arms.
+
+```toml
+[eval]
+scenario = "scenarios/demo.npz"
+split = "val"                    # or "test"; n = 100: only the first 100 seeds
+pair = ["greedy", "learned"]     # optional
+
+[allocate]                       # and [sim]: the task, on top of the simulator's defaults
+random_ignitions = 6
+random_wind = true
+
+[arms.greedy]
+policy = "greedy"
+
+[arms.learned]
+policy = "runs/planner/planner.pt"
+sample = false                   # also: horizon, candidates, fly
+```
+
+`candidates` is the number of alternatives the rollout planner simulates per drone (4); the
+other arm settings are the flags of the table below. **Stale checkpoints.** For every checkpoint among the arms the evaluation prints, and writes
+into `summary.md` and the record (`warnings`), a WARNING line when the run that made it
+recorded another `simulator` digest than the current one, when it has no record at all (made
+before 2026-11-18), or when the settings stored in the checkpoint differ from the
+evaluation's. It still runs: a different time limit is often meant, a different water model
+rarely is.
+
+A single run without a file takes flags
+and writes the same record next to its CSV (`--out greedy.csv` gives `greedy.evaluation.toml`):
 
 | Flag | Meaning |
 |---|---|
@@ -726,18 +893,20 @@ drones. Results do not depend on batch size or thread count.
 | `--horizon` | lookahead of the rollout planner, seconds |
 | `--sample` | sample from a learned planner instead of taking its best guess |
 | `--fly CHECKPOINT` | fly the drones with a trained fly policy instead of the scripted controller |
+| `--fly decentral` | fly them with the hand-written decentralised pilot, which sees what a fly policy sees |
 
 | CSV column | Meaning |
 |---|---|
 | `Episode_Index`, `Episode_Seed` | position in the split, seed |
 | `Fire_Fingerprint` | identifies the fire the episode started with |
 | `Success`, `Failure_Reason` | 1 if the fire went out; otherwise `Timeout` |
-| `Time` | seconds until the episode ended |
+| `Time` | seconds from the start of the episode (after any pre-burn) until it ended |
 | `Percent_Burned`, `Burned_Cells` | burned share of the burnable area; cells |
 | `Burned_NoAction` | cells burned on the same seed with idle drones |
-| `Area_Saved` | 1 - `Burned_Cells` / `Burned_NoAction` |
+| `Area_Saved` | share saved of what caught fire after the episode started: 1 - (`Burned_Cells` - `Burned_Start`) / (`Burned_NoAction` - `Burned_Start`) |
 | `Water_L`, `Drops` | water used |
 | `Min_Separation` | smallest distance between two drones, metres |
+| `Burned_Start` | cells that had caught fire when the episode started (the ignitions, or the pre-burn) |
 
 **A trained planner** is evaluated like any other: `--policy runs/planner/planner.pt` (or
 `imitation.pt`). It takes its best guess per decision unless `--sample` is given. From Python,
@@ -762,12 +931,27 @@ from the simulation thread. What it runs depends on how it is started:
 | Start | Runs |
 |---|---|
 | `python -m roshan.ui [--scenario x.npz]` | The scenario. With drones in it: the allocate task (drones fly, drop water, refill). Without: the fire alone |
+| `... --experiment FILE [--seed N]` | The scenario and world of an experiment file or of a run's `experiment.toml` / `evaluation.toml`, on episode N |
 | `... --planner off\|greedy\|rollout` | Who hands out targets (default greedy); can be switched in the window |
 | `... --planner runs/planner/planner.pt` | A trained planner hands out targets (its best guess, no sampling); works with `planner.pt` and `imitation.pt` |
 | `... --fire-model firespin` | The particle fire model; particles are drawn as dots (pale = convection, orange = radiation) |
+| `... --preburn 600` | The fires burn that many seconds before the drones start; also `preburn_s` and `preburn_cells` in Settings |
 | `python -m roshan.ui --fly runs/navigate/fly.pt` | The navigate task flown by that trained policy |
-| `python -m roshan.ui --fly none --drones 2` | The navigate task without a policy, to steer by hand |
+| `python -m roshan.ui --fly none --drones 2` | The navigate task without a policy: the scripted pilot flies, or steer by hand |
 | `roshan.ui.run(scenario, policy=f, planner="policy")` | The allocate task with your own planner `f(obs) -> slot per drone` |
+
+**Whose settings.** Started plainly, the viewer runs with settings of its own: spread-rate
+noise 0.25 (so fires do not look drawn with a ruler) and a time limit of one day, where
+training and evaluation use 0 and 1800 s. The fire of a seed is then not the fire an
+evaluation saw. With `--experiment` every section the file has (`[sim]`, `[allocate]`,
+`[navigate]`) is used exactly as training and evaluation use it, the scenario is the file's
+unless `--scenario` names another, and `--seed` picks the episode, which Restart then
+replays. A planner checkpoint given with `--planner` brings the task and the simulation it
+was trained on. The status bar shows `fire #N` in the allocate task: the episode's
+fingerprint, equal to `Fire_Fingerprint` in an evaluation's CSV when it is the same episode
+(checked 2026-11-18: seed 1000001 of the dynamic task shows the fingerprint, burned share,
+drops and water of its CSV row). Igniting, watering or sending by hand changes the episode
+but not that number.
 
 The window has a menu bar, a toolbar, a side panel, the map, and a status bar. Everything
 below can be done while it runs.
@@ -804,15 +988,30 @@ below can be done while it runs.
   name. Changed values are bold and can be put back one by one. "Apply and restart" takes
   them over; values the simulation rejects change nothing. This is where the dynamic task
   (`random_ignitions`, `random_wind`), the time limit and the spread-rate noise are set.
+  "Load ..." shows the `[sim]`, `[allocate]` and `[navigate]` of an
+  [experiment file](#experiment-files) (missing values are the defaults, as in training),
+  including the `experiment.toml` of a finished run; "Save ..." writes every value of all
+  three tabs as such a file. To train on it, copy its `[sim]` and the task section into a
+  training file (one with `[run]`).
+- **Saving.** The window title names the scenario's file, with a star while it has unsaved
+  edits; closing the window with unsaved edits asks first. Save writes to the file the
+  scenario came from (also one given with `--scenario`), or to a new time-stamped file when
+  it has none, and from then on to that file. A map that a file in `experiments/` runs on is
+  never overwritten from the viewer, by Save or by Save as: every result made on it would
+  stop matching it. Save it under another name.
 - **Policy menu**: load a checkpoint. A planner checkpoint then hands out the targets, a fly
-  checkpoint flies the drones; the task is set up the way the checkpoint was trained. Both
+  checkpoint flies the drones; the task and the simulation settings are set up the way the
+  checkpoint was trained (a checkpoint from an older simulator, whose settings no longer
+  exist, keeps the viewer's simulation settings and the message says so). Both
   can be attached at once, which shows the planner with learned flight (nothing then keeps
   drones apart, as in the evaluation with `--fly`). Either can be detached again.
 - **Side panel**: the seed; the planner (off, greedy, rollout with its look-ahead, or the
-  attached policy); the weather at the start (wind speed and direction, dead-fuel, live-herb
-  and live-woody moisture) and later wind changes (after how many minutes, speed, direction).
-- **Status bar**: time, burning cells, burned share, current wind, map size, seed, policy
-  calls, and the last message.
+  attached policy); in the fly task the pilot (off, straight, scripted, decentral, or the
+  attached fly policy; scripted is the default without a policy); the weather at the start
+  (wind speed and direction, dead-fuel, live-herb and live-woody moisture) and later wind
+  changes (after how many minutes, speed, direction).
+- **Status bar**: time, burning cells, burned share, current wind, map size, seed, the
+  fire's fingerprint (allocate task), policy calls, and the last message.
 - **Inspector**: "select" and click a drone. A panel shows every observation column of
   that drone by name, its neighbour slots (navigate), and every reward term for the last
   tick and summed over the episode. In the navigate task the view range and the collision
@@ -859,9 +1058,11 @@ below can be done while it runs.
   a distant fire unaffected by suppression, soaked strip and bare ground, land-cover classes,
   configuration.
 - **Navigate** (`tests/navigate.rs`): episode logic, reset semantics, time limit,
-  thread-count independence, normalised and masked observations.
+  thread-count independence, normalised and masked observations, the three untrained pilots.
 - **Allocate** (`tests/allocate.rs`): separation with 16 drones over 10,000 drops, episodes
-  that depend only on their seed, water saving area, decision, mask and tank rules.
+  that depend only on their seed (with and without a pre-burn), water saving area, decision,
+  mask and tank rules, the pre-burn (equals the fire left alone, episode clock, cell cap, a
+  fire that dies in it).
 - **Python** (`tests/`): baselines, the allocate environment, the evaluation runner and paired
   statistics, environment buffers and validation, advantage estimation, the squashed policy,
   a PPO update, a short end-to-end training run, the planner network and imitation, both
@@ -880,7 +1081,23 @@ redone. Evaluation results do not depend on the machine; timings do.
 
 ### Performance
 
-On a 24-core Intel Core Ultra 9 275HX with an RTX 5090 Laptop GPU, 2026-11-12.
+`cargo run --release -p roshan-core --example bench`, one thread, on an AMD Ryzen 9 9950X3D,
+2026-11-18. The "hills" lines are the path training runs on (every cell on a slope, four
+fuels, drones, a planner); "before" is the same bench without the ellipse cache, the dry-path
+exit and the one-time burnable count. Evaluation CSVs of all four planners (32 seeds, with
+and without spread-rate noise and a pre-burn) are byte-identical before and after.
+
+| What | Before | Now |
+|---|---|---|
+| 30-minute fire, 160 x 120 hills, 6 ignitions | 8.2 ms | 4.0 ms |
+| The same with one wet cell on the map | 12.0 ms | 6.1 ms |
+| Allocate with the greedy planner, 16 environments | 27.7k decisions/s | 48.6k decisions/s |
+| Rollout planner, per decision | 4.28 ms | 2.33 ms |
+| Fire step, flat 200 x 200 grass | 10 ns per burning cell | 9 ns |
+| 60-minute fire, flat 100 x 100 | 2.4 ms | 2.2 ms |
+
+The older figures below are from a 24-core Intel Core Ultra 9 275HX with an RTX 5090 Laptop
+GPU, 2026-11-12, before that change; the two machines are not comparable.
 
 | What | Result |
 |---|---|
@@ -895,12 +1112,23 @@ On a 24-core Intel Core Ultra 9 275HX with an RTX 5090 Laptop GPU, 2026-11-12.
 
 ### Fly policy
 
-| What | Result |
-|---|---|
-| After 450 updates (about 2 minutes), 1000 unseen episodes, 4 drones | 99.4 % success, 0.6 % collision (one training seed) |
-| The same policy with 8 drones, untrained for that | 86.2 % success |
-| Straight-line pilot without avoidance, 4 drones | 50.6 % success |
-| Scripted flight in the allocate task, 16 drones, 10,008 water drops | closest approach 3.00 m (the safety distance) |
+The same 1000 unseen episodes for every pilot (`python -m roshan.rl.train --evaluate`,
+2026-11-17). Success means every drone reached all its waypoints; every failure was a
+collision.
+
+| Pilot | Decides from | 4 drones | 8 drones |
+|---|---|---|---|
+| straight | own waypoint only | 55.2 % | 23.0 % |
+| fly policy (450 updates, about 2 minutes, one training seed; trained with 4 drones) | own observation | 99.4 % | 86.1 % |
+| decentral (hand-written) | own observation | 100 % | 99.9 % |
+| scripted (centralised, full information) | everything | 100 % | 100 % |
+
+The hand-written decentralised pilot, which sees exactly what the fly policy sees, is at
+least as safe as the trained policy with four drones and clearly safer with eight. Flight
+time per waypoint was not compared.
+
+Scripted flight in the allocate task, 16 drones, 10,008 water drops: closest approach 3.00 m
+(the safety distance).
 
 ### Planner comparison
 
@@ -937,6 +1165,30 @@ Planners save less than in the earlier version of this table (greedy saved 47.8 
 things changed at once, the demo map and the water model, and their effects were not
 measured separately.
 
+### Pre-burn
+
+Greedy planner on the dynamic task, first 100 validation seeds, 4 drones, 2026-11-17. "Cells
+at the start" is the median number of cells alight or burned when the drones start.
+
+| Pre-burn | Cells at the start | Burned, idle | Burned, greedy | Area saved | Drops per episode |
+|---|---|---|---|---|---|
+| none | 6 | 10.1 % | 6.7 % | 34.8 % | 70 |
+| 120 s | 17 | - | 10.0 % | 13.1 % | 102 |
+| until 30 cells | 30 | - | 11.3 % | 5.9 % | 135 |
+| until 60 cells | 60 | - | 12.5 % | 2.7 % | 154 |
+| 300 s | 73 | 13.1 % | 12.9 % | 2.1 % | 163 |
+| 600 s | 261 | 16.3 % | 16.2 % | 0.8 % | 178 |
+
+Four drones that put out one cell per 150 L drop cannot contain a fire that has had a head
+start: after two minutes they save a third of what they save from the bare ignitions, after
+five minutes almost nothing, although they drop more than twice as much water. A pre-burn
+therefore needs a stronger team (more drones, larger or wider drops) to make a task worth
+comparing planners on; which is a decision about the benchmark that has not been made.
+
+The pre-burn itself costs about 5 ms per episode for ten simulated minutes on the demo map.
+What costs is the larger fire afterwards: the greedy evaluation above takes about three
+times as long with a five-minute pre-burn as without.
+
 ### Learned planner
 
 **Made before the calibration and on the previous demo map; not comparable with the table
@@ -968,7 +1220,24 @@ is 18 s faster than greedy in the paired median (interval [8, 30]); it puts the 
 
 ### Learned flight under a planner
 
-**Made before the calibration and on the previous demo map.**
+Current simulator (2026-11-17), greedy planner, dynamic task, first 200 validation seeds, the
+same fires for every row:
+
+| Flight | Decides from | Area saved | Closest approach | Episodes below 2 m | Episodes below 3 m |
+|---|---|---|---|---|---|
+| scripted (centralised) | everything | 35.8 % | 3.00 m | 0 | 0 |
+| decentral (hand-written) | own observation | 33.6 % | 1.77 m | 1 | 160 |
+| fly policy (`runs/navigate/fly.pt`) | own observation | 30.4 % | 2.39 m | 0 | 5 |
+
+Paired, burned area: decentral is 0.23 points above scripted (interval [0.13, 0.34]) and the
+fly policy 0.32 points above decentral ([0.18, 0.44]). So of the two pilots that see the same
+thing, the hand-written one loses less area and the trained one keeps its distance better:
+decentral drops below its own 3 m safety distance in most episodes, where drones head for
+the same fire or station, and once below the 2 m collision distance. Neither was built or
+trained for flying under a planner. Each of the two flown runs takes about 45 minutes,
+because the pilot is called from Python every tick.
+
+The older table below was **made before the calibration and on the previous demo map.**
 `runs/navigate/fly.pt` instead of the scripted controller, 500 validation seeds. The fly
 policy was trained on the navigate task only, never under a planner:
 
@@ -1078,7 +1347,7 @@ From the plan in [design.md](design.md):
   published values (see [Calibration](#calibration)).
 - Retraining the learned planner on the calibrated simulator.
 - Sensing, belief maps and the scripted explorer.
-- Layered YAML configs; training options are plain command-line flags today.
+- Sweeps over experiment files and inheritance between them; a variant is a copied file.
 
 ## Known limits
 

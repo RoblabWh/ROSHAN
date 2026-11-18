@@ -137,6 +137,179 @@ fn dist(a: [f32; 2], b: [f32; 2]) -> f32 {
     (a[0] - b[0]).hypot(a[1] - b[1])
 }
 
+/// A pilot that needs no training.
+#[derive(Clone, Copy, PartialEq, Debug)]
+pub enum Pilot {
+    /// Full speed straight at the waypoint, easing off within 10 m. No avoidance at all.
+    Straight,
+    /// Straight at the waypoint, sidestepping other drones (`scripted_step`). Centralised: it
+    /// knows every drone's exact position and moves them one after the other, so it is an
+    /// upper bound with full information, not a fair opponent for a fly policy.
+    Scripted,
+    /// Each drone decides alone from the observation a fly policy gets (`decentral`).
+    Decentral,
+}
+
+impl Pilot {
+    /// "straight", "scripted" or "decentral".
+    pub fn named(name: &str) -> Option<Self> {
+        match name {
+            "straight" => Some(Self::Straight),
+            "scripted" => Some(Self::Scripted),
+            "decentral" => Some(Self::Decentral),
+            _ => None,
+        }
+    }
+}
+
+/// A hand-written pilot under the conditions of a fly policy: every drone decides alone and at
+/// the same moment, from its own row of the observation (`observe_flight`) and nothing else.
+/// `agent` [drones, 8], `neighbors` [drones, drones, 4], `mask` [drones, drones] in, two
+/// velocity fractions per drone out. `view` and `vmax` undo the observation's scaling; drones
+/// keep `safe` metres apart.
+///
+/// Reciprocal velocity obstacles (van den Berg, Lin & Manocha 2008): of a fixed set of
+/// candidate velocities the drone takes the one closest to "straight at the waypoint" that
+/// does not lead to a near miss within `HORIZON_S`, assuming every neighbour keeps its
+/// velocity and does half of the avoiding. Near misses cost more the sooner they come.
+/// ponytail: sampled candidates, not the exact ORCA linear program; enough for a baseline.
+pub fn decentral(
+    agent: &[f32],
+    neighbors: &[f32],
+    mask: &[u8],
+    view: f32,
+    vmax: f32,
+    safe: f32,
+) -> Vec<f32> {
+    const HORIZON_S: f32 = 5.0;
+    /// How much a near miss in one second outweighs flying at full speed the wrong way.
+    const CAUTION: f32 = 4.0;
+    let n = mask.len().isqrt();
+    let mut actions = Vec::with_capacity(2 * n);
+    for i in 0..n {
+        let a = &agent[i * AGENT.len()..][..AGENT.len()];
+        let (v, speed) = ([a[0], a[1]], a[6]); // own velocity as a fraction of the maximum
+        // Where the waypoint is: the turn from the own heading is exact at any distance, the
+        // offset is clipped at the view range and only used when standing still.
+        let to_goal = if speed > 1e-6 {
+            let (hx, hy) = (v[0] / speed, v[1] / speed);
+            [a[4] * hx - a[5] * hy, a[4] * hy + a[5] * hx]
+        } else {
+            let range = a[2].hypot(a[3]).max(1e-6);
+            [a[2] / range, a[3] / range]
+        };
+        // Full speed, easing off within 10 m of the waypoint.
+        let wanted = (a[7] * view / 10.0).min(1.0);
+        let prefer = [to_goal[0] * wanted, to_goal[1] * wanted];
+
+        let slots = &neighbors[i * n * 4..][..n * 4];
+        let seen = &mask[i * n..][..n];
+        // Seconds until `candidate` brings something closer than `safe`, if within the horizon.
+        let near_miss = |candidate: [f32; 2]| {
+            let mut soonest = f32::INFINITY;
+            for (slot, _) in seen.iter().enumerate().filter(|(_, m)| **m != 0) {
+                let s = &slots[slot * 4..][..4];
+                let d = [s[0] * view, s[1] * view];
+                // Velocity relative to the other, in m/s. A wall (slot 0) does not move and
+                // does not share the avoiding; a drone is assumed to do half of it.
+                let rel = if slot == 0 {
+                    [candidate[0] * vmax, candidate[1] * vmax]
+                } else {
+                    let share = |k: usize| (2.0 * (candidate[k] - v[k]) - 2.0 * s[2 + k]) * vmax;
+                    [share(0), share(1)]
+                };
+                let limit = if slot == 0 { 0.5 * safe } else { safe };
+                // Smallest t >= 0 with |d - rel t| = limit.
+                let (dd, dr, rr) = (
+                    d[0] * d[0] + d[1] * d[1] - limit * limit,
+                    d[0] * rel[0] + d[1] * rel[1],
+                    rel[0] * rel[0] + rel[1] * rel[1],
+                );
+                let t = if dd <= 0.0 {
+                    // Already too close: only moving apart is free.
+                    if dr < 0.0 { f32::INFINITY } else { 0.0 }
+                } else if dr <= 0.0 || dr * dr < rr * dd {
+                    f32::INFINITY
+                } else {
+                    (dr - (dr * dr - rr * dd).sqrt()) / rr
+                };
+                soonest = soonest.min(t);
+            }
+            soonest
+        };
+
+        let mut best = ([0.0, 0.0], f32::INFINITY);
+        for turn in [
+            0.0f32, 15.0, -15.0, 30.0, -30.0, 50.0, -50.0, 75.0, -75.0, 110.0, -110.0, 180.0,
+        ] {
+            let (sin, cos) = turn.to_radians().sin_cos();
+            let dir = [
+                to_goal[0] * cos - to_goal[1] * sin,
+                to_goal[0] * sin + to_goal[1] * cos,
+            ];
+            for pace in [1.0f32, 0.5, 0.0] {
+                // Sidesteps may be faster than the eased approach speed.
+                let pace = if turn == 0.0 { pace * wanted } else { pace };
+                let candidate = [dir[0] * pace, dir[1] * pace];
+                let t = near_miss(candidate);
+                let risk = if t < HORIZON_S {
+                    CAUTION / t.max(1e-3)
+                } else {
+                    0.0
+                };
+                let cost = risk + (candidate[0] - prefer[0]).hypot(candidate[1] - prefer[1]);
+                if cost < best.1 {
+                    best = (candidate, cost);
+                }
+            }
+        }
+        actions.extend(best.0);
+    }
+    actions
+}
+
+/// One tick of scripted flight: where every drone is next, moving at most `stride` metres
+/// towards its goal and never closer than `safe` to another drone or outside the map of
+/// `size` metres.
+///
+/// Drones are handled in index order. Each tries the straight move, then moves turned by
+/// 45 and 90 degrees, then staying put, and takes the first that keeps its distance from
+/// the new positions of the drones before it and the current positions of those after
+/// it. Staying put always qualifies, so the separation holds by induction.
+/// ponytail: no deadlock handling beyond the sidesteps; none was seen in 10,000 tasks.
+pub fn scripted_step(
+    pos: &[[f32; 2]],
+    goal: impl Fn(usize) -> [f32; 2],
+    stride: f32,
+    safe: f32,
+    (w, h): (f32, f32),
+) -> Vec<[f32; 2]> {
+    let n = pos.len();
+    let mut next = pos.to_vec();
+    for i in 0..n {
+        let (p, goal) = (pos[i], goal(i));
+        let (dx, dy) = (goal[0] - p[0], goal[1] - p[1]);
+        let range = dx.hypot(dy);
+        let stride = stride.min(range);
+        if stride > 0.0 {
+            let (ux, uy) = (dx / range, dy / range);
+            for turn in [0.0f32, 45.0, -45.0, 90.0, -90.0] {
+                let (sin, cos) = turn.to_radians().sin_cos();
+                let q = [
+                    p[0] + stride * (ux * cos - uy * sin),
+                    p[1] + stride * (ux * sin + uy * cos),
+                ];
+                let inside = q[0] >= 0.0 && q[1] >= 0.0 && q[0] <= w && q[1] <= h;
+                if inside && (0..n).all(|j| j == i || dist(q, next[j]) >= safe) {
+                    next[i] = q;
+                    break;
+                }
+            }
+        }
+    }
+    next
+}
+
 impl NavEnv {
     fn new(terrain: Arc<Terrain>, sim: SimConfig, cfg: NavConfig, seed: u64, index: u64) -> Self {
         let dry = Moisture {
@@ -388,6 +561,51 @@ impl NavEnv {
         );
     }
 
+    /// The actions an untrained pilot takes now: two velocity fractions per drone.
+    pub fn pilot(&self, pilot: Pilot) -> Vec<f32> {
+        let (pos, max, dt) = (
+            &self.world.drones.pos,
+            self.cfg.max_speed_ms,
+            self.world.cfg.dt_s,
+        );
+        match pilot {
+            Pilot::Straight => (pos.iter().zip(&self.goal))
+                .flat_map(|(p, g)| {
+                    let (dx, dy) = (g[0] - p[0], g[1] - p[1]);
+                    let range = dx.hypot(dy).max(1e-6);
+                    let speed = (range / 10.0).min(1.0);
+                    [dx / range * speed, dy / range * speed]
+                })
+                .collect(),
+            Pilot::Decentral => {
+                // ponytail: observes afresh on every call; reuse buffers if this gets hot.
+                let n = pos.len();
+                let (mut agent, mut neighbors, mut mask) = (
+                    vec![0.0; n * AGENT.len()],
+                    vec![0.0; n * n * 4],
+                    vec![0; n * n],
+                );
+                self.observe(&mut agent, &mut neighbors, &mut mask);
+                let safe = self.cfg.collide_m + 1.0;
+                decentral(&agent, &neighbors, &mask, self.cfg.view_m, max, safe)
+            }
+            Pilot::Scripted => {
+                // A metre more than a collision, so rounding never turns a near miss into one.
+                let safe = self.cfg.collide_m + 1.0;
+                let next = scripted_step(
+                    pos,
+                    |i| self.goal[i],
+                    max * dt,
+                    safe,
+                    Self::size(&self.world),
+                );
+                (pos.iter().zip(&next))
+                    .flat_map(|(p, q)| [(q[0] - p[0]) / (max * dt), (q[1] - p[1]) / (max * dt)])
+                    .collect()
+            }
+        }
+    }
+
     pub fn goals(&self) -> &[[f32; 2]] {
         &self.goal
     }
@@ -561,6 +779,11 @@ pub struct NavVec {
 }
 
 impl NavVec {
+    /// The actions an untrained pilot takes now in every environment: [envs, drones, 2].
+    pub fn pilot(&self, pilot: Pilot) -> Vec<f32> {
+        self.envs.iter().flat_map(|env| env.pilot(pilot)).collect()
+    }
+
     /// `threads == 0` uses every core.
     pub fn new(
         num_envs: usize,
