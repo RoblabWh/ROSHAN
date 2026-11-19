@@ -1091,7 +1091,8 @@ below can be done while it runs.
   attached fly policy; scripted is the default without a policy); the weather at the start
   (wind speed and direction, dead-fuel, live-herb and live-woody moisture) and later wind
   changes (after how many minutes, speed, direction).
-- **Status bar**: time, burning cells, burned share, current wind, map size, seed, the
+- **Status bar**: time, burning cells, burned share, current wind, drones flying / ready /
+  in service (allocate task), map size, seed, the
   fire's fingerprint (allocate task), policy calls, and the last message.
 - **Inspector**: "select" and click a drone. A panel shows every observation column of
   that drone by name, its neighbour slots (navigate), and every reward term for the last

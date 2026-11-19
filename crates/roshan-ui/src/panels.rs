@@ -581,6 +581,20 @@ impl Viewer<'_> {
                     .on_hover_text("0° is right (+x), 90° is down (+y)");
                 ui.separator();
             }
+            if snap.mode == Mode::Allocate {
+                let docked = snap.drones.iter().filter(|d| d.docked).count();
+                let ready = snap.drones.iter().filter(|d| d.ready).count();
+                ui.label(format!(
+                    "{} flying, {ready} ready, {} in service",
+                    snap.drones.len() - docked,
+                    docked - ready
+                ))
+                .on_hover_text(
+                    "drones in the air, docked and free to be sent, docked and waiting for \
+                     or on a pad",
+                );
+                ui.separator();
+            }
             if !snap.particles.is_empty() {
                 ui.label(format!("{} particles", snap.particles.len()))
                     .on_hover_text("FireSPIN particles in flight");

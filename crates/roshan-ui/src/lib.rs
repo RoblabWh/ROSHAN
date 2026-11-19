@@ -1364,6 +1364,47 @@ mod tests {
         assert!((0..n).any(|i| moved(i) > 10.0), "nobody flew anywhere");
     }
 
+    /// Drones start docked: a planner sends them out, without one they stay where they are
+    /// until sent by hand, and a drone in service cannot be sent.
+    #[test]
+    fn docked_drones_leave_with_a_planner_and_stay_without() {
+        let flying = |s: &Shared| match &s.sim {
+            Sim::Allocate(env, _) => (0..env.world.drones.pos.len())
+                .filter(|&i| !env.docked(i))
+                .count(),
+            _ => panic!("the demo runs the allocate task"),
+        };
+        let session = || Session::Scenario(demo_scenario());
+        let mut s = Shared::new(session(), None, &Options::default()).unwrap();
+        assert_eq!((s.planner, flying(&s)), (Planner::Greedy, 0));
+        (0..20).for_each(|_| tick(&mut s, None, None));
+        // One burning cell needs two drops; nobody else is sent.
+        assert_eq!(flying(&s), 2);
+        let snap = snapshot(&mut s);
+        assert_eq!(
+            snap.fleet,
+            [(38, 38)],
+            "ready and docked at the one station"
+        );
+        assert_eq!(snap.drones.iter().filter(|d| d.docked).count(), 38);
+
+        let mut s = Shared::new(session(), None, &Options::default()).unwrap();
+        s.planner = Planner::Off;
+        (0..20).for_each(|_| tick(&mut s, None, None));
+        assert_eq!(flying(&s), 0);
+        let Sim::Allocate(env, _) = &mut s.sim else {
+            unreachable!()
+        };
+        env.send(5, [20, 60]).unwrap(); // the demo's fire, a minute's flight away
+        (0..1500).for_each(|_| tick(&mut s, None, None));
+        let Sim::Allocate(env, _) = &mut s.sim else {
+            unreachable!()
+        };
+        assert_eq!(env.drops(), 1, "it flew there and dropped");
+        assert!(env.docked(5) && !env.ready(5), "home again and in service");
+        assert!(env.send(5, [20, 60]).is_err());
+    }
+
     #[test]
     fn switching_to_the_fly_task_and_back_keeps_the_scenario() {
         let session = Session::Scenario(demo_scenario());
