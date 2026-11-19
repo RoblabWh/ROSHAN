@@ -1,4 +1,6 @@
-# The untrained planners on the dynamic task of the demo map, on the same validation episodes.
+# The initial-attack benchmark: the untrained planners on the demo map, on the same validation
+# episodes. Two random fires that the drones reach when 20 cells (0.2 ha) have caught fire,
+# 40 drones of 40 L at one station, the map's wind of 5 m/s from a random direction.
 # A trained planner is one more arm: copy a section and set policy = "runs/planner/planner.pt".
 #   uv run python -m roshan.eval experiments/eval_demo.toml     -> runs/eval_demo/
 # Every setting is listed with the value this run uses. Copy the file to make a variant.

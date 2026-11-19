@@ -158,7 +158,7 @@ pub const TERMS: [&str; 5] = [
     "timeout",  // the time limit was reached (all drones)
 ];
 /// Episode summary, valid on the step an episode ends.
-pub const INFO: [&str; 15] = [
+pub const INFO: [&str; 16] = [
     "fire_out",
     "seconds", // since the episode started, not counting the pre-burn
     "burned_cells",
@@ -171,6 +171,7 @@ pub const INFO: [&str; 15] = [
     "stopped_kw_mean",  // fireline intensity of those cells, kW/m (Rothermel only)
     "stopped_kw_max",
     "peak_kw",      // highest fireline intensity of the fire, kW/m (Rothermel only)
+    "start_kw",     // ... of the fire as the drones find it, when the episode starts
     "first_drop_s", // NaN if there was none
     "queue_s",      // drone-seconds spent waiting for a free pad
     "max_sortie_s", // longest time a drone was in the air between two services
@@ -292,6 +293,8 @@ pub struct AllocEnv {
     /// zero-ish without a pre-burn. The world's own clock counts from the ignition.
     start_tick: u64,
     start_cells: u32,
+    /// Highest fireline intensity (kW/m) the fire had reached by then.
+    start_kw: f32,
 }
 
 fn dist(a: [f32; 2], b: [f32; 2]) -> f32 {
@@ -340,6 +343,7 @@ impl AllocEnv {
             needs_reset: true,
             start_tick: 0,
             start_cells: 0,
+            start_kw: 0.0,
         }
     }
 
@@ -526,6 +530,7 @@ impl AllocEnv {
             self.world.tick();
         }
         (self.start_tick, self.start_cells) = (self.world.tick, self.world.fire.n_ignited);
+        self.start_kw = self.world.fire.stats.peak_kw;
 
         // Every drone starts docked at its station, serviced and ready.
         let (n, per) = (self.task.len(), self.cfg.drones_per_station as usize);
@@ -949,7 +954,7 @@ impl AllocEnv {
     }
 
     /// The episode summary in the order of `INFO`.
-    pub fn summary(&self) -> [f32; 15] {
+    pub fn summary(&self) -> [f32; 16] {
         let (stats, dt) = (self.world.fire.stats, self.sim.dt_s);
         let or_nan = |x: f32| if x.is_finite() { x } else { f32::NAN };
         [
@@ -965,6 +970,7 @@ impl AllocEnv {
             (stats.stopped_kw_sum / stats.stopped.max(1) as f64) as f32,
             stats.stopped_kw_max,
             stats.peak_kw,
+            self.start_kw,
             self.first_drop
                 .map_or(f32::NAN, |t| (t - self.start_tick) as f32 * dt),
             self.queue_ticks as f32 * dt,

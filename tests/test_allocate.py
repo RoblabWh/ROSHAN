@@ -33,7 +33,7 @@ def test_environment_buffers_and_seeds():
     spec = env.spec
     assert (spec["drones"], spec["stations"], spec["slots"]) == (16, 2, 2 + spec["config"]["max_targets"])
     assert spec["size_m"] == (600.0, 400.0)
-    assert env.targets.shape[-1] == len(spec["target"]) == 7 and env.info.shape[-1] == len(spec["info"]) == 15
+    assert env.targets.shape[-1] == len(spec["target"]) == 7 and env.info.shape[-1] == len(spec["info"]) == 16
     assert env.decide.all(), "every drone decides at the start"
     assert (env.drones[..., 5] == DOCKED).all() and (env.drones[..., 2] == 1).all(), "docked with a full tank"
     assert env.target_mask[:, :2].all() and env.targets[:, :2, 2].all(), "stations fill the first slots"
@@ -123,6 +123,7 @@ def test_a_preburn_starts_episodes_with_a_spread_fire_that_does_not_count_agains
         new, new_idle = g["Burned_Cells"] - g["Burned_Start"], g["Burned_NoAction"] - g["Burned_Start"]
         assert g["Area_Saved"] == 1.0 - new / new_idle
         assert g["Peak_kW_NoAction"] == i["Peak_kW"] >= g["Stopped_kW_Max"] > 0
+        assert 0 < g["Peak_kW_Start"] == i["Peak_kW_Start"] <= g["Peak_kW"]
     assert all(0.0 < g["Area_Saved"] < 1.0 for g in greedy), "a head start makes the fire harder, not hopeless"
 
 

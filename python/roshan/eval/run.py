@@ -29,8 +29,9 @@ record is written next to the CSV (`greedy.evaluation.toml`).
 
 Every seed runs exactly once. The same seeds are also run with idle drones, which gives
 `Burned_NoAction`, `Area_Saved` = 1 - burned / burned without action, and `Peak_kW_NoAction`,
-the highest fireline intensity of the fire left alone: the summary shows the results by that
-intensity, because small drones can only stop weak fronts. The episode of a seed is the same
+the highest fireline intensity of the fire left alone. The summary shows the results by
+`Peak_kW_Start`, the intensity of the fire as the drones find it, because small drones can
+only stop weak fronts. The episode of a seed is the same
 fire for every policy (checked through `Fire_Fingerprint`).
 
 With a file, `--config`, `--sim`, `--split` and `--n` change it for this run (the record
@@ -56,10 +57,10 @@ from roshan.scenario import Scenario
 SPLITS = Path(__file__).resolve().parents[3] / "splits"
 FIELDS = ["Episode_Index", "Episode_Seed", "Fire_Fingerprint", "Success", "Failure_Reason", "Time",
           "Percent_Burned", "Burned_Cells", "Burned_NoAction", "Area_Saved", "Water_L", "Drops", "Min_Separation",
-          "Burned_Start", "Stopped_Cells", "Stopped_kW_Mean", "Stopped_kW_Max", "Peak_kW", "Peak_kW_NoAction",
+          "Burned_Start", "Stopped_Cells", "Stopped_kW_Mean", "Stopped_kW_Max", "Peak_kW", "Peak_kW_NoAction", "Peak_kW_Start",
           "First_Drop_s", "Queue_s", "Max_Sortie_s"]
-# Classes of the unattended fire's peak fireline intensity, kW/m: what drones can plausibly
-# stop, what aircraft are credited with, and beyond (see docs/systems.md, "Calibration").
+# Classes of the fire's peak fireline intensity when the drones start, kW/m: what drones can
+# plausibly stop, what aircraft are credited with, and beyond (docs/systems.md, "Calibration").
 CLASSES = [("up to 500 kW/m", 0.0, 500.0), ("500 - 2000 kW/m", 500.0, 2000.0), ("above 2000 kW/m", 2000.0, float("inf"))]
 
 
@@ -172,6 +173,7 @@ def evaluate(scenario, policy, seeds, config=None, sim=None, threads=0, batch=25
             "Stopped_kW_Max": a["stopped_kw_max"],
             "Peak_kW": a["peak_kw"],
             "Peak_kW_NoAction": i["peak_kw"],
+            "Peak_kW_Start": a["start_kw"],
             "First_Drop_s": a["first_drop_s"],
             "Queue_s": a["queue_s"],
             "Max_Sortie_s": a["max_sortie_s"],
@@ -294,12 +296,12 @@ def run_experiment(exp, out, record="evaluation.toml"):
         result[name] = {"fire_out": mean("Success"), "burned": mean("Percent_Burned"), "area_saved": mean("Area_Saved"),
                         "drops": mean("Drops"), "stopped_cells": mean("Stopped_Cells"), "stopped_kw_mean": stopped_kw}
         for label, low, high in CLASSES:
-            part = [r for r in rows if low <= r["Peak_kW_NoAction"] < high]
+            part = [r for r in rows if low <= r["Peak_kW_Start"] < high]
             by_class.append(f"| {name} | {label} | {len(part)} | {mean('Success', part):.1%} | "
                             f"{mean('Area_Saved', part):.1%} | {mean('Stopped_Cells', part):.1f} |" if part else
                             f"| {name} | {label} | 0 | - | - | - |")
-    lines += ["", "By the peak fireline intensity of the same fire left alone:", "",
-              "| arm | unattended fire | episodes | fire out | area saved | fronts stopped |", "|---|---|---|---|---|---|",
+    lines += ["", "By the peak fireline intensity of the fire when the drones start:", "",
+              "| arm | fire at the start | episodes | fire out | area saved | fronts stopped |", "|---|---|---|---|---|---|",
               *by_class]
     experiment.finish(out / record, tables, time.perf_counter() - began, result)
     text = "\n".join(lines) + "\n"

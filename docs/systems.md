@@ -763,7 +763,7 @@ Task kind 3 (a point) only occurs when a drone is sent somewhere by hand in the 
 | `start_cells` | cells that had caught fire when the episode started |
 | `stopped_cells` | burning cells that water kept from spreading until their flames died |
 | `stopped_kw_mean`, `stopped_kw_max` | fireline intensity of those cells, kW/m (0 under FireSPIN) |
-| `peak_kw` | highest fireline intensity any cell of the fire was lit with, kW/m |
+| `peak_kw`, `start_kw` | highest fireline intensity any cell of the fire was lit with, kW/m: over the whole episode, and when the episode started |
 | `first_drop_s` | time of the first drop, NaN if there was none |
 | `queue_s` | drone-seconds spent waiting for a free pad |
 | `max_sortie_s` | longest time a drone was in the air between two services |
@@ -943,8 +943,8 @@ before 2026-11-18), or when the settings stored in the checkpoint differ from th
 evaluation's. It still runs: a different time limit is often meant, a different water model
 rarely is.
 
-`summary.md` also splits every arm's result by the peak fireline intensity of the same fire
-left alone (up to 500 kW/m, 500 to 2000, above), because small drones can only stop weak
+`summary.md` also splits every arm's result by the peak fireline intensity of the fire when
+the drones start (up to 500 kW/m, 500 to 2000, above), because small drones can only stop weak
 fronts and a mean over all fires hides that.
 
 With a file, `--config`, `--sim`, `--split` and `--n` change it for this run, and the record
@@ -982,7 +982,7 @@ and writes the same record next to its CSV (`--out greedy.csv` gives `greedy.eva
 | `Burned_Start` | cells that had caught fire when the episode started (the ignitions, or the pre-burn) |
 | `Stopped_Cells` | burning cells that water kept from spreading until their flames died |
 | `Stopped_kW_Mean`, `Stopped_kW_Max` | fireline intensity of those cells, kW/m: what the drones actually stopped |
-| `Peak_kW`, `Peak_kW_NoAction` | highest fireline intensity of the fire, with the planner and left alone |
+| `Peak_kW`, `Peak_kW_NoAction`, `Peak_kW_Start` | highest fireline intensity of the fire: with the planner, left alone, and when the drones started |
 | `First_Drop_s` | time of the first drop |
 | `Queue_s` | drone-seconds spent waiting for a free pad |
 | `Max_Sortie_s` | longest time a drone was in the air between two services |

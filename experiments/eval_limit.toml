@@ -1,0 +1,104 @@
+# The limit study: the same drones as in eval_demo.toml against fires beyond their reach.
+# Three random fires that the drones reach when 40 cells (0.4 ha) have caught fire, and one
+# and a half times the map's wind (7.5 m/s).
+#   uv run python -m roshan.eval experiments/eval_limit.toml    -> runs/eval_limit/
+# Every setting is listed with the value this run uses. Copy the file to make a variant.
+
+# split is "val" or "test"; n = 0 runs all its seeds; pair = ["a", "b"] adds paired statistics of two arms
+[eval]
+scenario = "scenarios/demo.npz"
+split = "val"
+n = 0
+pair = ["greedy", "rollout"]
+
+# the simulation; names carry their units: _s seconds, _m metres, _l litres
+[sim]
+dt_s = 0.1
+fire_every = 20
+water_crit_l_m2 = 0.4
+water_per_mw_grass_l_m2 = 0.35
+water_per_mw_l_m2 = 0.6
+water_per_mw_timber_l_m2 = 2.65
+water_tau_s = 600.0
+ember_s = 60.0
+sheltered_waf = 0.2
+ros_noise = 0.0
+fire_model = "rothermel"
+
+# the FireSPIN particle model, used when fire_model is firespin
+[sim.spin]
+dt_s = 0.5
+emit_convective = true
+emit_radiation = true
+conv_y_st = 1.0
+conv_y_lim = 0.2
+conv_tau_mem_s = 10.0
+conv_fl = 0.15
+conv_c0 = 1.98
+lt_m = 80.0
+wind_a = 0.314
+rad_y_st = 1.0
+rad_y_lim = 0.165
+generic_burn_s = 120.0
+generic_ignite_s = 100.0
+
+# the planner's task: drones are sent to fires
+[allocate]
+max_speed_ms = 10.0
+tank_l = 40.0
+drop_l = 40.0
+drop_efficiency = 0.7
+service_s = 60.0
+pads = 8
+endurance_s = 900.0
+drones_per_station = 40
+arrive_m = 5.0
+station_m = 12.0
+safe_m = 0.0
+block_cells = 2
+max_targets = 64
+max_interval_s = 10.0
+time_limit_s = 1800.0
+random_ignitions = 3
+random_wind = true
+wind_scale = 1.5
+preburn_s = 1800.0
+preburn_cells = 40
+
+# one section per planner to compare: policy is none, greedy, head, flank, rollout or a checkpoint (.pt);
+# horizon (seconds) and candidates belong to rollout, sample to a checkpoint;
+# fly is a fly checkpoint, "decentral", or "" for the scripted controller
+[arms.none]
+policy = "none"
+sample = false
+horizon = 300.0
+candidates = 4
+fly = ""
+
+[arms.greedy]
+policy = "greedy"
+sample = false
+horizon = 300.0
+candidates = 4
+fly = ""
+
+[arms.head]
+policy = "head"
+sample = false
+horizon = 300.0
+candidates = 4
+fly = ""
+
+[arms.flank]
+policy = "flank"
+sample = false
+horizon = 300.0
+candidates = 4
+fly = ""
+
+[arms.rollout]
+policy = "rollout"
+sample = false
+horizon = 300.0
+candidates = 4
+fly = ""
