@@ -677,6 +677,17 @@ impl FireState {
         }
     }
 
+    /// Fireline intensity (kW/m) of the most intense front burning now; 0 without a fire and
+    /// under FireSPIN. One pass over the burning cells: for display, not for every tick.
+    pub fn strongest_front_kw(&self) -> f32 {
+        match &self.model {
+            Model::Rothermel(m) => (m.sources.iter())
+                .filter(|s| s.alive != 0)
+                .fold(0.0, |kw, s| kw.max(s.kw)),
+            Model::Spin(_) => 0.0,
+        }
+    }
+
     pub fn n_burning(&self) -> usize {
         match &self.model {
             Model::Rothermel(m) => m.sources.len(),

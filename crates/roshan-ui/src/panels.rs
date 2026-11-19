@@ -572,6 +572,15 @@ impl Viewer<'_> {
                 ui.label(format!("{:.1} % burned", snap.burned * 100.0))
                     .on_hover_text("share of the burnable cells that burned or are burning");
                 ui.separator();
+                if snap.fire_model == FireModel::Rothermel {
+                    ui.label(format!("fronts up to {:.0} kW/m", snap.front_kw))
+                        .on_hover_text(
+                            "fireline intensity of the most intense front burning now. Small \
+                             drones plausibly stop up to about 500 kW/m; above 4000 kW/m \
+                             (water_limit_kw_m) water does nothing",
+                        );
+                    ui.separator();
+                }
                 let wind = format!(
                     "wind {:.1} m/s to {:.0}°",
                     snap.wind.speed_ms,

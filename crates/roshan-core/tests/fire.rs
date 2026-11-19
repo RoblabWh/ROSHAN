@@ -571,6 +571,8 @@ fn stopped_fronts_count_with_their_intensity() {
     idle.ignite(40, 50);
     idle.run(900.0);
     assert_eq!(idle.fire.stats.stopped, 0);
+    let strongest = idle.fire.strongest_front_kw();
+    assert!(strongest > 100.0 && strongest <= idle.fire.stats.peak_kw);
     assert!(
         (250.0..450.0).contains(&idle.fire.stats.peak_kw),
         "GR2 head at 5 m/s is about 330 kW/m, got {}",

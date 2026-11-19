@@ -669,6 +669,8 @@ struct Snapshot {
     /// FireSPIN particles in flight: position in cells, and whether it is a radiation particle.
     particles: Vec<([f32; 2], bool)>,
     burned: f32,
+    /// Fireline intensity of the most intense front burning now, kW/m (0 under FireSPIN).
+    front_kw: f32,
     /// allocate: what identifies the fire the episode started with.
     fingerprint: Option<u64>,
     wind: Wind,
@@ -817,6 +819,7 @@ fn snapshot(s: &mut Shared) -> Snapshot {
             .map(|(p, radiation)| ([p[0] / grid.cell_m, p[1] / grid.cell_m], radiation))
             .collect(),
         burned: world.burned_fraction(),
+        front_kw: world.fire.strongest_front_kw(),
         fingerprint: match &s.sim {
             Sim::Allocate(env, _) => Some(env.fingerprint()),
             _ => None,
