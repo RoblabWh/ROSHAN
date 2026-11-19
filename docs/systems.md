@@ -1160,13 +1160,117 @@ below can be done while it runs.
 
 ## Results
 
-**Every planner and flight-under-a-planner number below was made before 2026-11-19, with the
-task as it was then: 4 drones with 300 L tanks that refilled in 10 s, drops of 150 L without
-loss, and the Hungarian planner. They do not describe the current task** (see
-[The allocate task](#the-allocate-task)) and are kept until its benchmark has been run.
-All planner numbers use the Rothermel model. The planner comparison was made on
-2026-11-17 with the calibrated water constants and the current demo map; the learned-planner
-and learned-flight numbers are older still (previous demo map, placeholder water constants). Evaluation results do not depend on the machine; timings do.
+The drone-swarm results are from 2026-11-19 and describe the current task. **The sections
+"Planner comparison", "Pre-burn", "Learned planner" and "Learned flight under a planner"
+further down were made before that**, with 4 drones of 300 L that refilled in 10 s, drops of
+150 L without loss and the Hungarian planner; they do not describe the current task and no
+planner has been trained on it yet. All planner numbers use the Rothermel model. Evaluation
+results do not depend on the machine; timings do.
+
+### Drone swarm
+
+2026-11-19, commit "Water does not stop a front above 4 MW/m" and later. `scenarios/demo.npz`,
+all 500 validation seeds, 30 minutes, scripted flight, the settings of
+`experiments/eval_demo.toml` unless a row says otherwise: two random fires that the drones
+reach when 20 cells (0.2 ha) have caught fire, wind 5 m/s from a random direction, 40 drones
+of 40 L at one station with 8 pads. "Start" is the highest fireline intensity of the fire
+when the drones start: up to 500 kW/m in 230 episodes (fires in grass), above 2000 kW/m in
+262 (a fire in the shrub), in between in 8. Left alone, 4.66 % of the map burns.
+
+**Planners** (`uv run python -m roshan.eval experiments/eval_demo.toml`):
+
+| Planner | Fire out | Area saved | Fire out, start up to 500 kW/m | Area saved, up to 500 | Area saved, above 2000 | Fronts stopped, mean kW/m |
+|---|---|---|---|---|---|---|
+| greedy | 16.0 % | 42.7 % | 34.3 % | 62.1 % | 26.1 % | 441 |
+| head | 13.4 % | 21.7 % | 29.1 % | 41.8 % | 4.5 % | 674 |
+| flank | 16.4 % | 43.9 % | 34.3 % | 60.1 % | 30.0 % | 270 |
+| rollout | 21.6 % | 46.3 % | 46.1 % | 67.0 % | 28.4 % | 471 |
+
+- Rollout against greedy, paired on the 500 fires: burned area -0.15 points (interval
+  [-0.18, -0.12], Wilcoxon p < 1e-50); it puts out 28 fires greedy does not and loses none
+  (McNemar p = 7e-9).
+- Attacking the most intense front first is the worst rule: the water goes where it is
+  least likely to be enough. Against a fire in the shrub, working along the flanks saves the
+  most of the three simple rules.
+- No front above 4000 kW/m is stopped (the model's limit), and the mean stopped front is
+  at a few hundred kW/m: what the drones achieve, they achieve on weak fronts.
+- Every drone was back within 467 s of taking off (endurance 900 s). Drones wait about
+  290 s each per episode for a pad.
+
+**The limit** (`experiments/eval_limit.toml`: three fires reached at 40 cells, wind 7.5 m/s;
+no fire starts below 500 kW/m, 10.3 % of the map burns when left alone):
+
+| Planner | Fire out | Area saved |
+|---|---|---|
+| greedy | 1.0 % | 15.5 % |
+| head | 0.2 % | 1.9 % |
+| flank | 1.2 % | 12.3 % |
+| rollout | 1.4 % | 17.4 % |
+
+**Team size** (greedy; the pads grow with the team, one per five drones, unless stated):
+
+| Team | Fire out | Area saved | Fire out, start up to 500 kW/m | Area saved, up to 500 | Area saved, above 2000 |
+|---|---|---|---|---|---|
+| 5 drones | 1.2 % | 4.9 % | 2.6 % | 6.7 % | 3.5 % |
+| 10 | 1.4 % | 10.8 % | 3.0 % | 13.6 % | 8.5 % |
+| 20 | 2.6 % | 24.6 % | 5.7 % | 35.3 % | 15.7 % |
+| 40 | 16.0 % | 42.7 % | 34.3 % | 62.1 % | 26.1 % |
+| 80 | 37.8 % | 65.7 % | 76.5 % | 89.7 % | 44.9 % |
+| 120 | 39.2 % | 73.4 % | 77.4 % | 91.7 % | 57.5 % |
+| 120, rollout | 50.0 % | 78.2 % | 93.0 % | 95.5 % | 63.2 % |
+| 80, 8 pads | 35.6 % | 59.1 % | 73.5 % | 87.5 % | 34.5 % |
+| 120, 8 pads | 37.8 % | 65.4 % | 77.0 % | 90.8 % | 43.0 % |
+
+A handful of 40 L drones does next to nothing. It takes about 80 to put out three quarters
+of the weak fires, the size Ausonio et al. (2021) arrive at for one platform (80 to 120
+drones for 70 m of front). Even 120 drones put out almost no fire that has reached the
+shrub; they save area there by holding its flanks.
+
+**How early the drones arrive, and the wind** (greedy, 40 drones; wind 2.5, 5 and 7.5 m/s):
+
+| Cells alight at the start | Fire out at 2.5 / 5 / 7.5 m/s | Area saved at 2.5 / 5 / 7.5 m/s |
+|---|---|---|
+| 5 | 62.6 / 41.4 / 18.0 % | 77.1 / 64.2 / 43.1 % |
+| 10 | 56.4 / 35.8 / 13.6 % | 70.8 / 58.0 / 36.9 % |
+| 20 | 49.4 / 16.0 / 7.0 % | 64.7 / 42.7 / 25.3 % |
+| 40 | 37.2 / 7.6 / 3.6 % | 56.3 / 34.9 / 20.1 % |
+| 80 | 19.0 / 4.2 / 3.4 % | 45.6 / 27.9 / 16.3 % |
+
+**What the result rests on** (greedy, 40 drones, one setting changed):
+
+| Setting | Fire out | Area saved | Fire out, start up to 500 kW/m |
+|---|---|---|---|
+| benchmark | 16.0 % | 42.7 % | 34.3 % |
+| 15 L tank | 1.6 % | 17.1 % | 3.5 % |
+| 15 L tank, 107 drones, 21 pads (the same litres in the air) | 15.2 % | 42.0 % | 33.0 % |
+| 100 L tank | 31.4 % | 65.4 % | 61.3 % |
+| service 600 s (charging instead of swapping) | 1.8 % | 10.9 % | 3.9 % |
+| service 600 s, a pad for every drone | 2.2 % | 14.4 % | 4.8 % |
+| 4 pads | 7.2 % | 30.2 % | 15.7 % |
+| 16 pads | 22.0 % | 46.7 % | 45.7 % |
+| drop efficiency 0.5 | 4.8 % | 30.7 % | 10.4 % |
+| drop efficiency 1.0 | 25.2 % | 51.8 % | 52.2 % |
+| `water_tau_s` 300 | 11.6 % | 37.9 % | 25.2 % |
+| `water_tau_s` 1200 | 17.6 % | 44.4 % | 37.8 % |
+| `ember_s` 30 | 16.4 % | 42.8 % | 35.2 % |
+| `ember_s` 120 | 14.0 % | 41.5 % | 30.4 % |
+| `water_limit_kw_m` 2000 | 16.2 % | 47.8 % | 34.3 % |
+| endurance 450 s; eucalypt curve for litter | unchanged | unchanged | unchanged |
+
+- What counts is litres delivered per minute: 107 drones of 15 L do what 40 of 40 L do, a
+  ten-minute charge instead of a one-minute swap ends the approach, and half the pads cost
+  half the fires put out.
+- The assumed drop efficiency matters most among the constants without a source: at 0.5 a
+  cell takes three drops instead of two and a third of the fires put out remain. How long
+  water lasts matters less, `ember_s` hardly.
+- A lower intensity limit saves more area, not less: no water is spent on fronts that are
+  out of reach.
+- Endurance and the litter curve do not bind on this map: the longest sortie is under
+  8 minutes, and the map's litter (TL3) burns below the lowest critical load.
+
+The sweeps were run through `roshan.eval.evaluate` with the settings above; the same runs
+from the command line are
+`uv run python -m roshan.eval experiments/eval_demo.toml --config '{"drones_per_station": 80, "pads": 16}' --out runs/team_80`.
 
 ### Performance
 
@@ -1234,6 +1338,8 @@ Scripted flight in the allocate task, 16 drones, 10,008 water drops: closest app
 
 ### Planner comparison
 
+*Before 2026-11-19: the old task with 4 drones of 300 L (see the top of Results).*
+
 200 validation seeds, 4 drones, 6 random ignitions, random wind, 30 minutes.
 `scenarios/demo.npz` is the dynamic task; `scenarios/demo_static.npz` is the same map with
 fuel almost too moist to burn, so the fires hardly spread (the situation of the old ROSHAN
@@ -1269,6 +1375,8 @@ measured separately.
 
 ### Pre-burn
 
+*Before 2026-11-19: the old task with 4 drones of 300 L (see the top of Results).*
+
 Greedy planner on the dynamic task, first 100 validation seeds, 4 drones, 2026-11-17. "Cells
 at the start" is the median number of cells alight or burned when the drones start.
 
@@ -1292,6 +1400,8 @@ What costs is the larger fire afterwards: the greedy evaluation above takes abou
 times as long with a five-minute pre-burn as without.
 
 ### Learned planner
+
+*Before 2026-11-19: the old task with 4 drones of 300 L (see the top of Results).*
 
 **Made before the calibration and on the previous demo map; not comparable with the table
 above.** All runs use `--config '{"random_ignitions":6,"random_wind":true}'`, 4 drones, one trained
@@ -1321,6 +1431,8 @@ is 18 s faster than greedy in the paired median (interval [8, 30]); it puts the 
 199 of 200 episodes, greedy in all 200.
 
 ### Learned flight under a planner
+
+*Before 2026-11-19: the old task with 4 drones of 300 L (see the top of Results).*
 
 Current simulator (2026-11-17), greedy planner, dynamic task, first 200 validation seeds, the
 same fires for every row:

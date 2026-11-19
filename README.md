@@ -154,22 +154,25 @@ env.step(env.plan("greedy"))       # buffers such as env.drones, env.targets are
 
 ## Results
 
-**These numbers are from before 2026-11-19**, when the task had 4 drones with 300 L tanks
-and a 10 s refill. The task now models a swarm of 40 L drones; its benchmark has not been
-run yet.
+A swarm of 40 L drones on the demo map, two random fires reached at 0.2 ha, 500 validation
+seeds, 2026-11-19 (greedy planner unless stated):
 
-Area saved against doing nothing, old dynamic task (4 drones, 6 random fires, random wind,
-30 minutes), 500 test seeds:
+| Team | Fires put out that are weak (up to 500 kW/m) on arrival | Area saved, all fires |
+|---|---|---|
+| 5 drones | 2.6 % | 4.9 % |
+| 20 drones | 5.7 % | 24.6 % |
+| 40 drones | 34.3 % | 42.7 % |
+| 40 drones, rollout planner | 46.1 % | 46.3 % |
+| 80 drones | 76.5 % | 65.7 % |
+| 120 drones | 77.4 % | 73.4 % |
 
-| Planner | Area saved |
-|---|---|
-| greedy | 47.4 % |
-| hungarian | 48.0 % |
-| learned (imitation of rollout) | 51.8 % |
-| rollout (needs the simulator at decision time) | 57.7 % |
-
-- The learned planner beats one-step matching and recovers about 40 % of the gap to rollout.
-  PPO does not improve on imitation yet; that is the open RL problem.
+- It takes about 80 small drones to put out most weak fires, the size the literature
+  arrives at (Ausonio et al. 2021); fires that have reached heavy shrub are not put out by
+  any team, only held at the flanks.
+- The planners differ: attacking the most intense front first saves half as much as taking
+  the nearest fire that needs water, and simulating ahead beats both. No planner has been
+  trained on this task yet; the learned-planner results in the docs are from the task
+  before it (4 drones of 300 L).
 - Fly policy: 99.4 % success on 1000 unseen episodes with 4 drones after about 2 minutes of
   training.
 - Speed (24-core laptop): 160 M drone-steps/s in the navigate simulator, about 1.0 M with PPO
