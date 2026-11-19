@@ -298,7 +298,8 @@ pub struct Source {
 /// What it takes to stop a burning cell that can still spread.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct Front {
-    /// Water (L/m²) its front needs beyond the lowest critical load (see `Water::crit`).
+    /// Water (L/m²) its front needs beyond the lowest critical load (see `Water::crit`);
+    /// infinite for a front too intense for water (`SimConfig::water_limit_kw_m`).
     pub water_l_m2: f32,
     /// Fireline intensity of the front that lit it, kW/m. Zero under FireSPIN.
     pub kw_m: f32,
@@ -368,7 +369,12 @@ impl Edges {
         let kw = fuel.heat_kj_m2 * front_ms;
         out.stats.peak_kw = out.stats.peak_kw.max(kw);
         let mut source = Source {
-            water: fuel.water_per_ms * front_ms,
+            // Beyond the limit no amount of water stops the front.
+            water: if kw > ctx.cfg.water_limit_kw_m {
+                f32::INFINITY
+            } else {
+                fuel.water_per_ms * front_ms
+            },
             kw,
             cell: cell as u32,
             alive: 0,

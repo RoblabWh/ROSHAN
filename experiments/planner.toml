@@ -27,6 +27,7 @@ water_crit_l_m2 = 0.4
 water_per_mw_grass_l_m2 = 0.35
 water_per_mw_l_m2 = 0.6
 water_per_mw_timber_l_m2 = 2.65
+water_limit_kw_m = 4000.0
 water_tau_s = 600.0
 ember_s = 60.0
 sheltered_waf = 0.2

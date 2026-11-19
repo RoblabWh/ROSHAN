@@ -387,15 +387,20 @@ impl AllocEnv {
     }
 
     /// The water load (L/m²) that stops the front of a burning cell and keeps it stopped for
-    /// `ember_s` although the water evaporates meanwhile; None if the cell has no front.
+    /// `ember_s` although the water evaporates meanwhile; None if the cell has no front, or
+    /// one that water cannot stop.
     fn hold_load(&self, cell: usize) -> Option<f32> {
         let front = self.world.fire.front(cell)?;
+        if !front.water_l_m2.is_finite() {
+            return None;
+        }
         let margin = libm::expf(self.sim.ember_s / self.sim.water_tau_s);
         Some(self.world.water.crit(front.water_l_m2) * margin)
     }
 
     /// The front cell of a block that is furthest below the load that stops it (the lowest
-    /// cell index among equals): where the next drop goes. None if the block has no front.
+    /// cell index among equals): where the next drop goes. None if the block has no front
+    /// that water can stop.
     fn neediest(&self, block: u32) -> Option<usize> {
         let (xs, ys) = self.block_cells(block);
         let mut best: Option<(f32, usize)> = None;
@@ -583,8 +588,10 @@ impl AllocEnv {
             let Some(front) = self.world.fire.front(cell) else {
                 continue; // only burning out: water changes nothing there
             };
-            let hold = self.hold_load(cell).expect("the cell has a front");
-            let short = (hold - self.world.water.load[cell]).max(0.0);
+            // A front too intense for water is shown (cells, intensity) but needs no drop.
+            let short = self
+                .hold_load(cell)
+                .map_or(0.0, |hold| (hold - self.world.water.load[cell]).max(0.0));
             let b = blocks.entry(self.block_of(cell)).or_default();
             *b = (b.0 + 1, b.1 + short / per_drop, b.2.max(front.kw_m));
         }
@@ -912,7 +919,8 @@ impl AllocEnv {
                         continue;
                     }
                     let Some(cell) = self.neediest(block) else {
-                        // The block's fire is out or only burning down: the water is free.
+                        // The block's fire is out, only burning down, or beyond water: the
+                        // drone's water is free for another fire.
                         self.set_task(i, Task::None);
                         self.decide[i] = true;
                         continue;

@@ -205,6 +205,7 @@ means all seeds, `pair = []` no paired statistics.
 | `water_per_mw_grass_l_m2` | 0.35 | water (L/m²) per MW/m of fireline intensity that stops a front in grass |
 | `water_per_mw_l_m2` | 0.6 | the same in shrub, slash and every fuel not named here |
 | `water_per_mw_timber_l_m2` | 2.65 | the same in litter under trees (the timber models TL and TU) |
+| `water_limit_kw_m` | 4000 | fireline intensity above which no amount of water stops a front |
 | `water_tau_s` | 600 | time constant of water decay (an assumption, see [Calibration](#calibration)) |
 | `ember_s` | 60 | how long a blocked burning cell keeps the ability to resume (a model parameter) |
 | `sheltered_waf` | 0.2 | share of the 20-ft wind that reaches fuel under trees (timber models TU, TL) |
@@ -500,8 +501,9 @@ Under **Rothermel** the critical load depends on how intense the fire is:
   speed is the slowest apparent speed from any of the eight neighbours that burned before, so
   a flank counts as a flank even though grid edges run obliquely to it. A cell lit by hand
   counts as a head. It is fixed when the cell ignites.
+- A front lit with more than `water_limit_kw_m` is not affected by water at all.
 - The result: flanks and backing fire are stopped by little water, a wind-driven head in
-  heavy fuel is only slowed. See the table in [Calibration](#calibration).
+  heavy fuel is only slowed, and a head beyond the limit is not even slowed. See the table in [Calibration](#calibration).
 - An edge's rate is multiplied by the multiplier of the wettest cell on its path.
 - A burning cell whose every remaining edge is blocked for `ember_s` seconds dies. If it was
   held down by water on itself before its fuel was used up, it returns to unburned, and its
@@ -688,7 +690,9 @@ A block is a target while it holds a *front*: a burning cell that can still set 
 alight. Cells that only burn out are not targets, since water on them changes nothing. The
 target's place is the block's centre. Per target the table says how many drops it takes to
 stop its fronts now (`need`), how many drops are already on their way (`inbound`) and how
-intense its strongest front is. The `max_targets` blocks with the highest need are offered.
+intense its strongest front is. A front too intense for water (`water_limit_kw_m`) counts
+towards the intensity but needs no drops, and gets none. The `max_targets` blocks with the
+highest need are offered.
 The table is rebuilt whenever a decision is due. A drone commits to a block, not to a slot.
 
 **Where a drop lands.** On the front cell of the block that is furthest below the load that
@@ -1364,6 +1368,7 @@ tables with `cargo run --release -p roshan-core --example calibrate`.
 | `water_per_mw_l_m2` | 0.6 | Loane & Gould 1986, *Aerial suppression of bushfires* (CSIRO): depth of water that holds a fire, against fireline intensity, eucalypt forest. Read from the curves as reproduced in Plucinski et al. 2007 (Bushfire CRC Technical Report A0701, Fig. 2): about 0.6, 1.1, 2.0, 3.1 mm at 1, 2, 4, 6 MW/m. Read by eye, about ±20 %. |
 | `water_per_mw_grass_l_m2` | 0.35 | The same curves for grass: about 0.35, 0.65, 1.2, 1.75 mm. |
 | `water_per_mw_timber_l_m2` | 2.65 | Loane & Gould 1986 as quoted by Alexander (2000, NZ Forest Research Bulletin 197): 5.3 mm of water for pine-needle litter at 2 MW/m. Stechishen & Little 1971 (in Hansen 2012) agree in order: 1.5-2.2 mm at 0.5-1 MW/m in red-pine needles. Used for the litter models TL; for the understory models TU it is **assumed**. |
+| `water_limit_kw_m` | 4000 | Alexander 2000 (after Alexander & De Groot 1988): direct attack on the head is generally not possible above 4000 kW/m; helicopters and air tankers with retardant are credited with 2000 to 4000. Andrews & Rothermel 1982 put the limit of retardant aircraft at about 1730 kW/m. Plain water from drones will rather lie at the lower figures: sensitivity runs use 2000. Without this limit the linear rule above lets enough drops stop any front: on the benchmark, drones stopped fronts above 4 MW/m in a fifth of the episodes (2026-11-19). |
 | `water_crit_l_m2` | 0.4 | Stechishen & Little 1971 (Canadian Forestry Service FF-X-29), as tabulated in Hansen 2012 (Int. J. Wildland Fire 21: 525-536): 0.2-0.6 mm put out fires in pine needles below about 360 kW/m. |
 | `sheltered_waf` | 0.2 | Andrews 2012 (USDA RMRS-GTR-266): fully sheltered fuel 0.1 in dense stands, 0.2 in open ones. |
 | `water_tau_s` | 600 | **Assumed.** No measured holding time of plain water was found. Water-enhancing gels are reported to last 30-45 minutes at most, and plain water less; with 600 s a drop at twice the critical load holds for 7 minutes. |
@@ -1376,9 +1381,9 @@ Checks that were not used as inputs:
 - US Forest Service retardant coverage levels (George & Johnson 1990, GTR INT-268) run from
   0.41 L/m² for grass to 2.46 L/m² for brush; long-term retardant is taken to be two to three
   times as effective as water.
-- Fires are held to be beyond control at the head above about 4 MW/m (Alexander 2000, NZ
-  Forest Research Bulletin 197). At that intensity the model asks for 2.4 L/m² in shrub and
-  10.6 L/m² in litter under trees.
+- At 4 MW/m, the limit beyond which water does nothing here (Alexander 2000, NZ Forest
+  Research Bulletin 197), the model asks for 2.4 L/m² in shrub and 10.6 L/m² in litter under
+  trees.
 - Until 2026-11-19 the eucalypt curve was used for litter under trees too. Pine-needle litter
   takes about five times as much (see `water_per_mw_timber_l_m2`).
 - Ausonio, Bagnerini & Ghio 2021 (Drones 5: 17) size a drone swarm with a critical flow from

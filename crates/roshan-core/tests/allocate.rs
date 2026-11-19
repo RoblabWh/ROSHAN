@@ -592,6 +592,46 @@ fn a_drop_goes_to_the_neediest_front_cell() {
 }
 
 #[test]
+fn fronts_too_intense_for_water_get_no_drops() {
+    // Shrub in wind: the head runs far above the 4 MW/m limit, flanks and back stay below.
+    let mut shrub = scenario();
+    shrub.fuel.fill(fuel::id("SH5").unwrap());
+    let config = AllocConfig {
+        preburn_cells: 30,
+        preburn_s: 3000.0,
+        drones_per_station: 20,
+        ..one_fire(20)
+    };
+    let sim = SimConfig::default();
+    let mut v = AllocVec::new(1, shrub, sim, config, 0, 1).unwrap();
+    v.autoreset = false;
+    let mut b = Buffers::new(&v);
+    v.reset(None, b.all());
+    let (need, mw) = (target("need"), target("intensity"));
+    let fires = |b: &Buffers| -> Vec<(f32, f32)> {
+        (b.targets.chunks(TARGET.len()).zip(&b.target_mask).skip(2))
+            .filter(|(_, m)| **m == 1)
+            .map(|(t, _)| (t[need], t[mw]))
+            .collect()
+    };
+    let limit = sim.water_limit_kw_m / 1000.0;
+    assert!(fires(&b).iter().any(|f| f.1 > limit), "a head is offered");
+    assert!(fires(&b).iter().all(|f| f.0.is_finite()));
+    let mut actions = vec![0; v.drones];
+    while b.terminated[0] + b.truncated[0] == 0 {
+        v.plan(Method::Head, 0.0, 0, &mut actions);
+        v.step(&actions, b.all());
+    }
+    let summary = &b.info[..INFO.len()];
+    assert!(summary[info("drops")] > 50.0 && summary[info("stopped_cells")] > 5.0);
+    assert!(
+        summary[info("stopped_kw_max")] <= sim.water_limit_kw_m,
+        "{summary:?}"
+    );
+    assert!(summary[info("peak_kw")] > sim.water_limit_kw_m);
+}
+
+#[test]
 fn pads_serve_in_docking_order() {
     // One pad, three drones that come home in the same tick: they are ready one service
     // after the other, lowest index first, and the waiting is counted.

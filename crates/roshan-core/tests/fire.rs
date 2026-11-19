@@ -31,6 +31,7 @@ fn cfg() -> SimConfig {
         water_per_mw_grass_l_m2: 0.0,
         water_per_mw_l_m2: 0.0,
         water_per_mw_timber_l_m2: 0.0,
+        water_limit_kw_m: f32::INFINITY,
         ..calibrated()
     }
 }
@@ -605,7 +606,7 @@ fn stopped_fronts_count_with_their_intensity() {
 
 #[test]
 fn litter_under_trees_takes_more_water_than_shrub() {
-    // The same intensity needs `water_per_mw_timber_l_m2` in TU and `water_per_mw_l_m2` in SH.
+    // Per MW/m a front needs `water_per_mw_timber_l_m2` in TU and `water_per_mw_l_m2` in SH.
     let need = |name: &str| {
         let terrain = Terrain::uniform(GRID, fuel::id(name).unwrap());
         let weather = Weather::steady(DRY, 10.0, [1.0, 0.0]);
@@ -616,6 +617,37 @@ fn litter_under_trees_takes_more_water_than_shrub() {
     };
     let cfg = SimConfig::default();
     assert!((need("TU3") - cfg.water_per_mw_timber_l_m2).abs() < 1e-3);
-    assert!((need("SH5") - cfg.water_per_mw_l_m2).abs() < 1e-3);
+    assert!((need("SH2") - cfg.water_per_mw_l_m2).abs() < 1e-3);
     assert!((need("GR2") - cfg.water_per_mw_grass_l_m2).abs() < 1e-3);
+}
+
+#[test]
+fn a_front_beyond_the_limit_is_not_stopped_by_any_amount_of_water() {
+    // A shrub head in wind runs at about 6 MW/m. Under a limit of 4 MW/m a flooded strip
+    // does not hold it; with the limit lifted the same strip does.
+    let crossed = |water_limit_kw_m: f32| {
+        let terrain = Terrain::uniform(GRID, fuel::id("SH5").unwrap());
+        let cfg = SimConfig {
+            water_tau_s: 1e9,
+            water_limit_kw_m,
+            ..calibrated()
+        };
+        let weather = Weather::steady(DRY, 5.0, [1.0, 0.0]);
+        let mut w = World::new(Arc::new(terrain), weather, cfg, 1);
+        for y in 0..GRID.ny {
+            for x in 60..64 {
+                w.add_water(x, y, 100.0);
+            }
+        }
+        w.ignite(40, 50);
+        w.run(900.0);
+        let head = w.fire.stats.peak_kw;
+        assert!(head > 5000.0, "the head is intense: {head} kW/m");
+        (state(&w, 70, 50) != UNBURNED, w.fire.stats)
+    };
+    let (through, stats) = crossed(4000.0);
+    assert!(through, "water does not stop a 6 MW/m head");
+    assert!(stats.stopped_kw_max <= 4000.0, "{stats:?}");
+    let (through, stats) = crossed(f32::INFINITY);
+    assert!(!through && stats.stopped > 0, "without the limit it does");
 }
