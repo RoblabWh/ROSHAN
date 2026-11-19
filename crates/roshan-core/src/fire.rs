@@ -91,6 +91,9 @@ pub struct FuelSpread {
     /// Water (L/m²) needed to stop a front of this fuel per m/s of its spread rate: the
     /// configured litres per MW/m times the fuel's heat per unit area.
     pub water_per_ms: f32,
+    /// Heat released per unit area by the flaming front, kJ/m²: times the front's speed in
+    /// m/s it is Byram's fireline intensity in kW/m.
+    pub heat_kj_m2: f32,
 }
 
 impl FuelSpread {
@@ -99,6 +102,7 @@ impl FuelSpread {
         wind: [0.0; 2],
         flat: Spread::NONE,
         water_per_ms: 0.0,
+        heat_kj_m2: 0.0,
     };
 }
 
@@ -287,6 +291,29 @@ pub struct Source {
     /// Water (L/m²) it takes to stop the front that set this cell alight: the more intense
     /// the front, the more (see `SimConfig::water_per_mw_l_m2`).
     water: f32,
+    /// Fireline intensity of that front, kW/m.
+    kw: f32,
+}
+
+/// What it takes to stop a burning cell that can still spread.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct Front {
+    /// Water (L/m²) its front needs beyond the lowest critical load (see `Water::crit`).
+    pub water_l_m2: f32,
+    /// Fireline intensity of the front that lit it, kW/m. Zero under FireSPIN.
+    pub kw_m: f32,
+}
+
+/// Counters for reports. They never feed back into the fire.
+#[derive(Clone, Copy, Debug, Default, PartialEq)]
+pub struct FireStats {
+    /// Burning cells that water kept from spreading until their flames died.
+    pub stopped: u32,
+    /// Sum and maximum of the fireline intensity (kW/m) of those cells.
+    pub stopped_kw_sum: f64,
+    pub stopped_kw_max: f32,
+    /// Highest fireline intensity (kW/m) any cell was lit with.
+    pub peak_kw: f32,
 }
 
 const NO_SLOT: u32 = u32::MAX;
@@ -337,9 +364,12 @@ impl Edges {
                 }
             }
         }
-        let per_ms = ctx.fuels[ctx.terrain.fuel[cell] as usize].water_per_ms;
+        let fuel = &ctx.fuels[ctx.terrain.fuel[cell] as usize];
+        let kw = fuel.heat_kj_m2 * front_ms;
+        out.stats.peak_kw = out.stats.peak_kw.max(kw);
         let mut source = Source {
-            water: per_ms * front_ms,
+            water: fuel.water_per_ms * front_ms,
+            kw,
             cell: cell as u32,
             alive: 0,
             stall_s: 0.0,
@@ -443,7 +473,15 @@ impl Edges {
                 // Flames die. A cell knocked down by water before its fuel was used up can
                 // burn again later; anything else is spent.
                 let knocked_down = own <= 0.0 && t_end < s.burnout_t;
-                (s.stall_s >= ember_s).then_some(if knocked_down { UNBURNED } else { BURNED })
+                let dead = s.stall_s >= ember_s;
+                if dead {
+                    // An armed edge has a positive rate, so only water stalls a source.
+                    let stats = &mut *out.stats;
+                    stats.stopped += 1;
+                    stats.stopped_kw_sum += s.kw as f64;
+                    stats.stopped_kw_max = stats.stopped_kw_max.max(s.kw);
+                }
+                dead.then_some(if knocked_down { UNBURNED } else { BURNED })
             };
             let Some(new_state) = fate else {
                 i += 1;
@@ -512,6 +550,7 @@ pub struct Cells<'a> {
     pub state: &'a mut [u8],
     pub t_ignite: &'a mut [f32],
     pub n_ignited: &'a mut u32,
+    pub stats: &'a mut FireStats,
 }
 
 /// Which fire model a world runs.
@@ -541,6 +580,7 @@ pub struct FireState {
     pub t_ignite: Vec<f32>,
     /// Cells currently burning or burned.
     pub n_ignited: u32,
+    pub stats: FireStats,
     model: Model,
 }
 
@@ -550,6 +590,7 @@ impl FireState {
             state: vec![UNBURNED; cells],
             t_ignite: vec![f32::NAN; cells],
             n_ignited: 0,
+            stats: FireStats::default(),
             model: match model {
                 FireModel::Rothermel => Model::Rothermel(Edges::new(cells)),
                 FireModel::Firespin => Model::Spin(Spin::new(cells)),
@@ -562,6 +603,7 @@ impl FireState {
             state: &mut self.state,
             t_ignite: &mut self.t_ignite,
             n_ignited: &mut self.n_ignited,
+            stats: &mut self.stats,
         };
         (cells, &mut self.model)
     }
@@ -607,6 +649,25 @@ impl FireState {
         match &self.model {
             Model::Rothermel(m) => Box::new(m.sources.iter().map(|s| s.cell)),
             Model::Spin(m) => Box::new(m.burning.iter().map(|b| b.cell)),
+        }
+    }
+
+    /// The front of a burning cell that can still set neighbours alight; None for any other
+    /// cell, also for one that only burns out. Water on such a cell is what stops the fire.
+    pub fn front(&self, cell: usize) -> Option<Front> {
+        match &self.model {
+            Model::Rothermel(m) => {
+                let slot = m.slot[cell];
+                let s = m.sources.get(slot as usize)?; // NO_SLOT is past the end
+                (s.alive != 0).then_some(Front {
+                    water_l_m2: s.water,
+                    kw_m: s.kw,
+                })
+            }
+            Model::Spin(_) => (self.state[cell] == BURNING).then_some(Front {
+                water_l_m2: 0.0,
+                kw_m: 0.0,
+            }),
         }
     }
 

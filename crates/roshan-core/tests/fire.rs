@@ -30,6 +30,7 @@ fn cfg() -> SimConfig {
         water_crit_l_m2: 1.0,
         water_per_mw_grass_l_m2: 0.0,
         water_per_mw_l_m2: 0.0,
+        water_per_mw_timber_l_m2: 0.0,
         ..calibrated()
     }
 }
@@ -560,4 +561,61 @@ fn fuel_under_trees_feels_less_wind() {
         head("GR2", 0.36),
         "grass stands in the open"
     );
+}
+
+#[test]
+fn stopped_fronts_count_with_their_intensity() {
+    // A fire left alone stops no front, and its peak is the head's intensity.
+    let mut idle = grass(5.0, [1.0, 0.0], calibrated());
+    idle.ignite(40, 50);
+    idle.run(900.0);
+    assert_eq!(idle.fire.stats.stopped, 0);
+    assert!(
+        (250.0..450.0).contains(&idle.fire.stats.peak_kw),
+        "GR2 head at 5 m/s is about 330 kW/m, got {}",
+        idle.fire.stats.peak_kw
+    );
+
+    // Soak every front cell: each one stalls, dies after `ember_s` and is counted once with
+    // the intensity it was lit with, whether it ends unburned or burned out.
+    let mut w = idle.clone();
+    let cells = w.terrain.grid.len();
+    let fronts: Vec<f32> = (0..cells)
+        .filter_map(|c| w.fire.front(c).map(|f| f.kw_m))
+        .collect();
+    assert!(fronts.len() > 5 && fronts.len() <= w.fire.n_burning());
+    for c in 0..cells {
+        if w.fire.front(c).is_some() {
+            let (x, y) = w.terrain.grid.xy(c);
+            w.add_water(x, y, 5.0);
+        }
+    }
+    w.run(calibrated().ember_s + 10.0);
+    let stats = w.fire.stats;
+    assert_eq!(stats.stopped as usize, fronts.len());
+    let sum: f64 = fronts.iter().map(|&k| k as f64).sum();
+    assert!((stats.stopped_kw_sum - sum).abs() < 1e-3 * sum);
+    assert_eq!(
+        stats.stopped_kw_max,
+        fronts.iter().copied().fold(0.0, f32::max)
+    );
+    assert!(stats.stopped_kw_max <= stats.peak_kw);
+    assert!(w.fire.is_out() || w.fire.n_burning() < idle.fire.n_burning());
+}
+
+#[test]
+fn litter_under_trees_takes_more_water_than_shrub() {
+    // The same intensity needs `water_per_mw_timber_l_m2` in TU and `water_per_mw_l_m2` in SH.
+    let need = |name: &str| {
+        let terrain = Terrain::uniform(GRID, fuel::id(name).unwrap());
+        let weather = Weather::steady(DRY, 10.0, [1.0, 0.0]);
+        let mut w = World::new(Arc::new(terrain), weather, calibrated(), 1);
+        w.ignite(40, 50);
+        let f = w.fire.front(w.terrain.grid.idx(40, 50)).unwrap();
+        f.water_l_m2 / (f.kw_m / 1000.0)
+    };
+    let cfg = SimConfig::default();
+    assert!((need("TU3") - cfg.water_per_mw_timber_l_m2).abs() < 1e-3);
+    assert!((need("SH5") - cfg.water_per_mw_l_m2).abs() < 1e-3);
+    assert!((need("GR2") - cfg.water_per_mw_grass_l_m2).abs() < 1e-3);
 }

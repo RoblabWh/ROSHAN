@@ -56,10 +56,10 @@ fn main() {
         for wind in [2.0, 5.0, 10.0] {
             let ros = head(name, dry, wind);
             let kw = ros * bed(name, dry).heat_per_area_kj_m2() as f32;
-            let per_mw = if name.starts_with("GR") {
-                cfg.water_per_mw_grass_l_m2
-            } else {
-                cfg.water_per_mw_l_m2
+            let per_mw = match &name[..2] {
+                "GR" => cfg.water_per_mw_grass_l_m2,
+                "TL" | "TU" => cfg.water_per_mw_timber_l_m2,
+                _ => cfg.water_per_mw_l_m2,
             };
             let crit = cfg.water_crit_l_m2.max(per_mw * kw / 1000.0);
             let drops = crit * 100.0 / 150.0;

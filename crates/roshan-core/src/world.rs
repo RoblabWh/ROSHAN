@@ -43,6 +43,9 @@ pub struct SimConfig {
     /// knows no intensity and uses `water_crit_l_m2`.
     pub water_per_mw_grass_l_m2: f32,
     pub water_per_mw_l_m2: f32,
+    /// The same for litter under trees (the timber models TL and TU): pine-needle litter
+    /// takes several times the water of eucalypt forest (Alexander 2000).
+    pub water_per_mw_timber_l_m2: f32,
     /// Time constant with which water on the ground disappears, seconds. An assumption: no
     /// measurement was found.
     pub water_tau_s: f32,
@@ -68,6 +71,7 @@ impl Default for SimConfig {
             water_crit_l_m2: 0.4,
             water_per_mw_grass_l_m2: 0.35,
             water_per_mw_l_m2: 0.6,
+            water_per_mw_timber_l_m2: 2.65,
             water_tau_s: 600.0,
             ember_s: 60.0,
             sheltered_waf: 0.2,
@@ -271,10 +275,10 @@ impl World {
                 } else {
                     bed.wind_adjustment()
                 };
-                let per_mw = if family == "GR" {
-                    self.cfg.water_per_mw_grass_l_m2
-                } else {
-                    self.cfg.water_per_mw_l_m2
+                let per_mw = match family {
+                    "GR" => self.cfg.water_per_mw_grass_l_m2,
+                    "TL" | "TU" => self.cfg.water_per_mw_timber_l_m2,
+                    _ => self.cfg.water_per_mw_l_m2,
                 };
                 // 10 m wind -> 20 ft wind -> midflame height for this fuel.
                 let midflame = wind.speed_ms as f64 / 1.15 * waf;
@@ -288,6 +292,7 @@ impl World {
                     wind: vector,
                     flat,
                     water_per_ms: per_mw * bed.heat_per_area_kj_m2() as f32 / 1000.0,
+                    heat_kj_m2: bed.heat_per_area_kj_m2() as f32,
                 }
             })
             .collect();

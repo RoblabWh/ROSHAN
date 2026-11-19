@@ -131,7 +131,10 @@ fn hint(name: &str, salt: &str) -> &'static str {
             "water (L/m²) per MW/m of fire intensity that stops a front in grass"
         }
         ("water_per_mw_l_m2", _) => {
-            "water (L/m²) per MW/m of fire intensity that stops a front in other fuels"
+            "water (L/m²) per MW/m of fire intensity that stops a front in shrub and slash"
+        }
+        ("water_per_mw_timber_l_m2", _) => {
+            "water (L/m²) per MW/m of fire intensity that stops a front in litter under trees"
         }
         ("sheltered_waf", _) => {
             "share of the wind that reaches fuel under trees: 0.1 dense stands, 0.2 open"
