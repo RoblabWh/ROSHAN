@@ -1170,7 +1170,7 @@ results do not depend on the machine; timings do.
 
 ### Drone swarm
 
-2026-11-19, commit "Water does not stop a front above 4 MW/m" and later. `scenarios/demo.npz`,
+2026-11-19, commit "Planners order the water that will be missing when a drone arrives". `scenarios/demo.npz`,
 all 500 validation seeds, 30 minutes, scripted flight, the settings of
 `experiments/eval_demo.toml` unless a row says otherwise: two random fires that the drones
 reach when 20 cells (0.2 ha) have caught fire, wind 5 m/s from a random direction, 40 drones
@@ -1182,31 +1182,31 @@ when the drones start: up to 500 kW/m in 230 episodes (fires in grass), above 20
 
 | Planner | Fire out | Area saved | Fire out, start up to 500 kW/m | Area saved, up to 500 | Area saved, above 2000 | Fronts stopped, mean kW/m |
 |---|---|---|---|---|---|---|
-| greedy | 16.0 % | 42.7 % | 34.3 % | 62.1 % | 26.1 % | 441 |
-| head | 13.4 % | 21.7 % | 29.1 % | 41.8 % | 4.5 % | 674 |
-| flank | 16.4 % | 43.9 % | 34.3 % | 60.1 % | 30.0 % | 270 |
-| rollout | 21.6 % | 46.3 % | 46.1 % | 67.0 % | 28.4 % | 471 |
+| greedy | 17.0 % | 43.4 % | 36.5 % | 62.7 % | 26.9 % | 483 |
+| head | 13.2 % | 22.0 % | 28.7 % | 42.3 % | 4.4 % | 825 |
+| flank | 17.2 % | 44.3 % | 35.7 % | 60.6 % | 30.4 % | 275 |
+| rollout | 21.6 % | 46.8 % | 46.1 % | 67.4 % | 29.0 % | 508 |
 
-- Rollout against greedy, paired on the 500 fires: burned area -0.15 points (interval
-  [-0.18, -0.12], Wilcoxon p < 1e-50); it puts out 28 fires greedy does not and loses none
-  (McNemar p = 7e-9).
+- Rollout against greedy, paired on the 500 fires: burned area -0.14 points (interval
+  [-0.17, -0.11], Wilcoxon p < 1e-40); it puts out 23 fires greedy does not and loses none
+  (McNemar p = 2e-7).
 - Attacking the most intense front first is the worst rule: the water goes where it is
   least likely to be enough. Against a fire in the shrub, working along the flanks saves the
   most of the three simple rules.
 - No front above 4000 kW/m is stopped (the model's limit), and the mean stopped front is
   at a few hundred kW/m: what the drones achieve, they achieve on weak fronts.
-- Every drone was back within 467 s of taking off (endurance 900 s). Drones wait about
-  290 s each per episode for a pad.
+- Every drone was back within 477 s of taking off (endurance 900 s). Drones wait about
+  250 to 285 s each per episode for a pad.
 
 **The limit** (`experiments/eval_limit.toml`: three fires reached at 40 cells, wind 7.5 m/s;
 no fire starts below 500 kW/m, 10.3 % of the map burns when left alone):
 
 | Planner | Fire out | Area saved |
 |---|---|---|
-| greedy | 1.0 % | 15.5 % |
+| greedy | 1.0 % | 15.7 % |
 | head | 0.2 % | 1.9 % |
-| flank | 1.2 % | 12.3 % |
-| rollout | 1.4 % | 17.4 % |
+| flank | 1.4 % | 12.3 % |
+| rollout | 1.4 % | 17.8 % |
 
 **Team size** (greedy; the pads grow with the team, one per five drones, unless stated):
 
@@ -1214,15 +1214,15 @@ no fire starts below 500 kW/m, 10.3 % of the map burns when left alone):
 |---|---|---|---|---|---|
 | 5 drones | 1.2 % | 4.9 % | 2.6 % | 6.7 % | 3.5 % |
 | 10 | 1.4 % | 10.8 % | 3.0 % | 13.6 % | 8.5 % |
-| 20 | 2.6 % | 24.6 % | 5.7 % | 35.3 % | 15.7 % |
-| 40 | 16.0 % | 42.7 % | 34.3 % | 62.1 % | 26.1 % |
-| 80 | 37.8 % | 65.7 % | 76.5 % | 89.7 % | 44.9 % |
-| 120 | 39.2 % | 73.4 % | 77.4 % | 91.7 % | 57.5 % |
-| 120, rollout | 50.0 % | 78.2 % | 93.0 % | 95.5 % | 63.2 % |
-| 80, 8 pads | 35.6 % | 59.1 % | 73.5 % | 87.5 % | 34.5 % |
-| 120, 8 pads | 37.8 % | 65.4 % | 77.0 % | 90.8 % | 43.0 % |
+| 20 | 2.8 % | 24.7 % | 6.1 % | 35.3 % | 15.9 % |
+| 40 | 17.0 % | 43.4 % | 36.5 % | 62.7 % | 26.9 % |
+| 80 | 40.4 % | 66.9 % | 80.4 % | 90.7 % | 46.1 % |
+| 120 | 45.0 % | 75.1 % | 83.9 % | 93.1 % | 59.5 % |
+| 120, rollout | 50.0 % | 79.1 % | 92.6 % | 95.8 % | 64.5 % |
+| 80, 8 pads | 37.0 % | 59.9 % | 76.1 % | 88.3 % | 35.3 % |
+| 120, 8 pads | 42.2 % | 66.6 % | 83.9 % | 92.2 % | 44.1 % |
 
-A handful of 40 L drones does next to nothing. It takes about 80 to put out three quarters
+A handful of 40 L drones does next to nothing. It takes about 80 to put out four fifths
 of the weak fires, the size Ausonio et al. (2021) arrive at for one platform (80 to 120
 drones for 70 m of front). Even 120 drones put out almost no fire that has reached the
 shrub; they save area there by holding its flanks.
@@ -1231,31 +1231,31 @@ shrub; they save area there by holding its flanks.
 
 | Cells alight at the start | Fire out at 2.5 / 5 / 7.5 m/s | Area saved at 2.5 / 5 / 7.5 m/s |
 |---|---|---|
-| 5 | 62.6 / 41.4 / 18.0 % | 77.1 / 64.2 / 43.1 % |
-| 10 | 56.4 / 35.8 / 13.6 % | 70.8 / 58.0 / 36.9 % |
-| 20 | 49.4 / 16.0 / 7.0 % | 64.7 / 42.7 / 25.3 % |
-| 40 | 37.2 / 7.6 / 3.6 % | 56.3 / 34.9 / 20.1 % |
-| 80 | 19.0 / 4.2 / 3.4 % | 45.6 / 27.9 / 16.3 % |
+| 5 | 65.6 / 43.2 / 18.0 % | 77.9 / 65.0 / 43.6 % |
+| 10 | 58.2 / 36.6 / 13.8 % | 71.4 / 58.7 / 37.6 % |
+| 20 | 49.6 / 17.0 / 6.8 % | 65.0 / 43.4 / 25.6 % |
+| 40 | 37.4 / 8.4 / 3.6 % | 56.5 / 35.8 / 20.3 % |
+| 80 | 19.2 / 4.4 / 3.4 % | 45.8 / 28.4 / 16.6 % |
 
 **What the result rests on** (greedy, 40 drones, one setting changed):
 
 | Setting | Fire out | Area saved | Fire out, start up to 500 kW/m |
 |---|---|---|---|
-| benchmark | 16.0 % | 42.7 % | 34.3 % |
-| 15 L tank | 1.6 % | 17.1 % | 3.5 % |
-| 15 L tank, 107 drones, 21 pads (the same litres in the air) | 15.2 % | 42.0 % | 33.0 % |
-| 100 L tank | 31.4 % | 65.4 % | 61.3 % |
+| benchmark | 17.0 % | 43.4 % | 36.5 % |
+| 15 L tank | 1.8 % | 17.6 % | 3.9 % |
+| 15 L tank, 107 drones, 21 pads (the same litres in the air) | 18.6 % | 43.9 % | 40.0 % |
+| 100 L tank | 31.2 % | 65.7 % | 61.3 % |
 | service 600 s (charging instead of swapping) | 1.8 % | 10.9 % | 3.9 % |
 | service 600 s, a pad for every drone | 2.2 % | 14.4 % | 4.8 % |
-| 4 pads | 7.2 % | 30.2 % | 15.7 % |
-| 16 pads | 22.0 % | 46.7 % | 45.7 % |
-| drop efficiency 0.5 | 4.8 % | 30.7 % | 10.4 % |
-| drop efficiency 1.0 | 25.2 % | 51.8 % | 52.2 % |
-| `water_tau_s` 300 | 11.6 % | 37.9 % | 25.2 % |
-| `water_tau_s` 1200 | 17.6 % | 44.4 % | 37.8 % |
-| `ember_s` 30 | 16.4 % | 42.8 % | 35.2 % |
-| `ember_s` 120 | 14.0 % | 41.5 % | 30.4 % |
-| `water_limit_kw_m` 2000 | 16.2 % | 47.8 % | 34.3 % |
+| 4 pads | 7.2 % | 30.4 % | 15.7 % |
+| 16 pads | 22.8 % | 47.3 % | 47.0 % |
+| drop efficiency 0.5 | 5.2 % | 31.3 % | 11.3 % |
+| drop efficiency 1.0 | 26.0 % | 52.3 % | 53.9 % |
+| `water_tau_s` 300 | 13.4 % | 39.0 % | 28.7 % |
+| `water_tau_s` 1200 | 17.8 % | 44.5 % | 38.3 % |
+| `ember_s` 30 | 17.0 % | 43.6 % | 36.5 % |
+| `ember_s` 120 | 13.0 % | 40.7 % | 27.8 % |
+| `water_limit_kw_m` 2000 | 17.2 % | 48.4 % | 36.1 % |
 | endurance 450 s; eucalypt curve for litter | unchanged | unchanged | unchanged |
 
 - What counts is litres delivered per minute: 107 drones of 15 L do what 40 of 40 L do, a
@@ -1263,7 +1263,7 @@ shrub; they save area there by holding its flanks.
   half the fires put out.
 - The assumed drop efficiency matters most among the constants without a source: at 0.5 a
   cell takes three drops instead of two and a third of the fires put out remain. How long
-  water lasts matters less, `ember_s` hardly.
+  water lasts and `ember_s` matter less.
 - A lower intensity limit saves more area, not less: no water is spent on fronts that are
   out of reach.
 - Endurance and the litter curve do not bind on this map: the longest sortie is under

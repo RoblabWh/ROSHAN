@@ -160,11 +160,11 @@ seeds, 2026-11-19 (greedy planner unless stated):
 | Team | Fires put out that are weak (up to 500 kW/m) on arrival | Area saved, all fires |
 |---|---|---|
 | 5 drones | 2.6 % | 4.9 % |
-| 20 drones | 5.7 % | 24.6 % |
-| 40 drones | 34.3 % | 42.7 % |
-| 40 drones, rollout planner | 46.1 % | 46.3 % |
-| 80 drones | 76.5 % | 65.7 % |
-| 120 drones | 77.4 % | 73.4 % |
+| 20 drones | 6.1 % | 24.7 % |
+| 40 drones | 36.5 % | 43.4 % |
+| 40 drones, rollout planner | 46.1 % | 46.8 % |
+| 80 drones | 80.4 % | 66.9 % |
+| 120 drones | 83.9 % | 75.1 % |
 
 - It takes about 80 small drones to put out most weak fires, the size the literature
   arrives at (Ausonio et al. 2021); fires that have reached heavy shrub are not put out by
