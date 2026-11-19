@@ -7,12 +7,15 @@ from pathlib import Path
 
 import numpy as np
 
-SCHEMA_VERSION = 1
+SCHEMA_VERSION = 2  # 1 also stored a start cell per drone; drones are now based at the stations
 
 
 @dataclass
 class Scenario:
     """Arrays are [ny, nx] with row 0 in the north; placements are (x, y) cells.
+
+    stations   ground stations; the drones of the allocate task are based there, as many at
+               each as the task's `drones_per_station` says
 
     fuel       uint8, 0 = non-burnable, 1..40 = position in roshan._core.fuel_models() + 1
     elevation  float32 metres, or None for a flat map
@@ -28,7 +31,6 @@ class Scenario:
     elevation: np.ndarray | None = None
     landcover: np.ndarray | None = None
     ignitions: list = field(default_factory=list)
-    drones: list = field(default_factory=list)
     stations: list = field(default_factory=list)
     moisture: tuple = (0.06, 0.07, 0.08, 0.60, 0.90)
     wind: list = field(default_factory=lambda: [(0.0, 5.0, 1.0, 0.0)])
@@ -40,7 +42,6 @@ class Scenario:
             "schema_version": SCHEMA_VERSION,
             "cell_m": float(self.cell_m),
             "ignitions": cells(self.ignitions),
-            "drones": cells(self.drones),
             "stations": cells(self.stations),
             "moisture": [round(float(m), 6) for m in self.moisture],
             "wind": [[round(float(v), 6) for v in w] for w in self.wind],
@@ -58,7 +59,7 @@ class Scenario:
             "fuel": np.ascontiguousarray(self.fuel, np.uint8),
             "elevation": None if self.elevation is None else np.ascontiguousarray(self.elevation, np.float32),
             "landcover": None if self.landcover is None else np.ascontiguousarray(self.landcover, np.uint8),
-            **{k: plain[k] for k in ("ignitions", "drones", "stations", "moisture", "wind")},
+            **{k: plain[k] for k in ("ignitions", "stations", "moisture", "wind")},
             "meta": json.dumps(self.meta, sort_keys=True),
         }
 
@@ -70,7 +71,6 @@ class Scenario:
             elevation=None if d["elevation"] is None else np.array(d["elevation"], np.float32),
             landcover=None if d.get("landcover") is None else np.array(d["landcover"], np.uint8),
             ignitions=[tuple(c) for c in d["ignitions"]],
-            drones=[tuple(c) for c in d["drones"]],
             stations=[tuple(c) for c in d["stations"]],
             moisture=tuple(d["moisture"]),
             wind=[tuple(w) for w in d["wind"]],
@@ -92,11 +92,12 @@ class Scenario:
     def load(cls, path):
         with np.load(path, allow_pickle=False) as f:
             plain = json.loads(str(f["plain"]))
-            if plain["schema_version"] != SCHEMA_VERSION:
+            if plain["schema_version"] not in (1, SCHEMA_VERSION):
                 raise ValueError(f"{path}: schema version {plain['schema_version']}, expected {SCHEMA_VERSION}")
             arrays = {k: f[k] for k in ("fuel", "elevation", "landcover") if k in f}
         plain.pop("schema_version")
-        placed = {k: [tuple(c) for c in plain.pop(k)] for k in ("ignitions", "drones", "stations")}
+        plain.pop("drones", None)  # version 1: where each drone started
+        placed = {k: [tuple(c) for c in plain.pop(k)] for k in ("ignitions", "stations")}
         wind = [tuple(w) for w in plain.pop("wind")]
         return cls(**arrays, **placed, wind=wind, moisture=tuple(plain.pop("moisture")), **plain)
 

@@ -163,20 +163,35 @@ fn hint(name: &str, salt: &str) -> &'static str {
         ("max_speed_ms", _) => "top speed of a drone, m/s",
         ("tank_l", _) => "tank size, litres",
         ("drop_l", _) => "water released per drop, litres; a drop lands on one cell",
-        ("refill_s", _) => "time to fill an empty tank at a ground station, seconds",
+        ("drop_efficiency", _) => "share of a drop that reaches the fuel (an assumption)",
+        ("service_s", _) => {
+            "time on a pad to swap the battery and fill the tank at a ground station, seconds"
+        }
+        ("pads", _) => "drones a ground station services at once; the others queue",
+        ("endurance_s", _) => {
+            "longest time a drone may be in the air between two services, seconds"
+        }
+        ("drones_per_station", _) => "drones based at every ground station",
         ("arrive_m", _) => "a target counts as reached within this distance, metres",
         ("station_m", _) => "a ground station counts as reached within this distance, metres",
-        ("safe_m", _) => "the controller never lets two drones get closer than this, metres",
-        ("block_cells", _) => {
-            "burning cells are grouped into square blocks this many cells wide; each is one target"
+        ("safe_m", _) => {
+            "the controller keeps drones in the air this far apart, metres; 0: straight lines, \
+             no separation (height lanes assumed)"
         }
-        ("max_targets", _) => "at most this many fire targets are offered, largest first",
-        ("max_interval_s", _) => "everyone may decide again after this long, seconds",
+        ("block_cells", _) => {
+            "cells with a fire front are grouped into square blocks this many cells wide; each \
+             is one target"
+        }
+        ("max_targets", _) => {
+            "at most this many fire targets are offered, those needing the most water first"
+        }
+        ("max_interval_s", _) => "docked drones told to wait are asked again this often, seconds",
         ("time_limit_s", _) => "an episode ends after this long, seconds",
         ("random_ignitions", _) => "above zero: this many random fires replace the scenario's",
         ("random_wind", _) => {
             "turn the scenario's wind by a random angle per episode; its wind changes turn along"
         }
+        ("wind_scale", _) => "factor on every wind speed of the scenario",
         ("preburn_s", _) => {
             "the fire burns unattended this long before the episode starts, seconds"
         }

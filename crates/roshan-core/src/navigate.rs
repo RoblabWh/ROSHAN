@@ -270,7 +270,7 @@ pub fn decentral(
 
 /// One tick of scripted flight: where every drone is next, moving at most `stride` metres
 /// towards its goal and never closer than `safe` to another drone or outside the map of
-/// `size` metres.
+/// `size` metres. Drones that are not `active` neither move nor count as obstacles.
 ///
 /// Drones are handled in index order. Each tries the straight move, then moves turned by
 /// 45 and 90 degrees, then staying put, and takes the first that keeps its distance from
@@ -283,10 +283,11 @@ pub fn scripted_step(
     stride: f32,
     safe: f32,
     (w, h): (f32, f32),
+    active: impl Fn(usize) -> bool,
 ) -> Vec<[f32; 2]> {
     let n = pos.len();
     let mut next = pos.to_vec();
-    for i in 0..n {
+    for i in (0..n).filter(|&i| active(i)) {
         let (p, goal) = (pos[i], goal(i));
         let (dx, dy) = (goal[0] - p[0], goal[1] - p[1]);
         let range = dx.hypot(dy);
@@ -300,7 +301,7 @@ pub fn scripted_step(
                     p[1] + stride * (ux * sin + uy * cos),
                 ];
                 let inside = q[0] >= 0.0 && q[1] >= 0.0 && q[0] <= w && q[1] <= h;
-                if inside && (0..n).all(|j| j == i || dist(q, next[j]) >= safe) {
+                if inside && (0..n).all(|j| j == i || !active(j) || dist(q, next[j]) >= safe) {
                     next[i] = q;
                     break;
                 }
@@ -558,6 +559,7 @@ impl NavEnv {
             agent,
             neighbors,
             mask,
+            |_| true,
         );
     }
 
@@ -598,6 +600,7 @@ impl NavEnv {
                     max * dt,
                     safe,
                     Self::size(&self.world),
+                    |_| true,
                 );
                 (pos.iter().zip(&next))
                     .flat_map(|(p, q)| [(q[0] - p[0]) / (max * dt), (q[1] - p[1]) / (max * dt)])
@@ -627,7 +630,8 @@ pub fn nearest_edge(p: [f32; 2], (w, h): (f32, f32)) -> (f32, [f32; 2]) {
 /// What a low-level pilot sees: for drones at `pos` moving with `vel` towards `goal` on a map
 /// of `size` metres, writes `agent` [drones, 8], `neighbors` [drones, drones, 4] and `mask`
 /// [drones, drones] (see `AGENT` and `NEIGHBOR`). The navigate task and learned flight under
-/// a planner share this, so a fly policy sees the same thing in both.
+/// a planner share this, so a fly policy sees the same thing in both. Drones that are not
+/// `active` (docked at a station) get an empty row and are in nobody's view.
 #[allow(clippy::too_many_arguments)]
 pub fn observe_flight(
     pos: &[[f32; 2]],
@@ -639,11 +643,13 @@ pub fn observe_flight(
     agent: &mut [f32],
     neighbors: &mut [f32],
     mask: &mut [u8],
+    active: impl Fn(usize) -> bool,
 ) {
     let n = pos.len();
+    agent.fill(0.0);
     neighbors.fill(0.0);
     mask.fill(0);
-    for i in 0..n {
+    for i in (0..n).filter(|&i| active(i)) {
         let v = [vel[i][0] / vmax, vel[i][1] / vmax];
         let to_goal = [goal[i][0] - pos[i][0], goal[i][1] - pos[i][1]];
         let (speed, range) = (v[0].hypot(v[1]), to_goal[0].hypot(to_goal[1]));
@@ -685,7 +691,7 @@ pub fn observe_flight(
         // Slots 1..: the other drones in index order, if inside the square view.
         for (slot, j) in (0..n).filter(|&j| j != i).enumerate() {
             let d = [pos[j][0] - pos[i][0], pos[j][1] - pos[i][1]];
-            if d[0].abs() <= view && d[1].abs() <= view {
+            if active(j) && d[0].abs() <= view && d[1].abs() <= view {
                 let dv = [
                     (vel[j][0] - vel[i][0]) / (2.0 * vmax),
                     (vel[j][1] - vel[i][1]) / (2.0 * vmax),

@@ -43,7 +43,7 @@ def test_evaluation_writes_what_ran(tmp_path):
     assert (tmp_path / "greedy.csv").exists()
     # The record holds every value, and running it gives the same environment.
     ran = experiment.load(tmp_path / "evaluation.toml", ["eval", "sim", "allocate", "arms"])
-    assert ran["allocate"]["tank_l"] == 250 and ran["allocate"]["drop_l"] > 0 and ran["arms"]["greedy"]["horizon"] == 120
+    assert ran["allocate"]["tank_l"] == 250 and ran["allocate"]["drop_l"] > 0 and ran["arms"]["greedy"]["horizon"] == 300
     spec = lambda **kw: AllocateEnv(1, Scenario.load("scenarios/demo.npz"), **kw).spec  # noqa: E731
     assert spec(config=ran["allocate"], sim=ran["sim"]) == spec(config=exp["allocate"])
     with pytest.raises(ValueError, match="has no"):

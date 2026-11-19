@@ -42,10 +42,10 @@ uv run python -m roshan.rl.train_planner experiments/planner.toml
 uv run python -m roshan.ui --planner runs/planner/planner.pt
 
 # 3. measure it on the validation seeds, and against a baseline on the same fires
-TASK='{"random_ignitions":6,"random_wind":true}'
+TASK='{"random_ignitions":2,"random_wind":true,"preburn_s":1800,"preburn_cells":20}'
 uv run python -m roshan.eval --scenario scenarios/demo.npz --config "$TASK" --policy runs/planner/planner.pt --out learned.csv
-uv run python -m roshan.eval --scenario scenarios/demo.npz --config "$TASK" --policy hungarian --out hungarian.csv
-uv run python -m roshan.eval.paired --arm learned learned.csv --arm hungarian hungarian.csv
+uv run python -m roshan.eval --scenario scenarios/demo.npz --config "$TASK" --policy greedy --out greedy.csv
+uv run python -m roshan.eval.paired --arm learned learned.csv --arm greedy greedy.csv
 
 # 3, from one file: add the planner as an arm to experiments/eval_demo.toml, then
 uv run python -m roshan.eval experiments/eval_demo.toml      # writes runs/eval_demo/
@@ -65,9 +65,9 @@ imitation.
 
 | Command | What it does |
 |---|---|
-| `uv run python -m roshan.ui` | The demo scenario: drones fly, drop water and refill |
+| `uv run python -m roshan.ui` | The demo scenario: 40 small drones fly out from a ground station, drop water and come home for a fresh battery and tank |
 | `... --scenario scenarios/haard.npz` | A saved scenario |
-| `... --planner off\|greedy\|rollout` | Who assigns targets to the drones |
+| `... --planner off\|greedy\|head\|flank\|rollout` | Who assigns targets to the drones |
 | `... --planner runs/planner/planner.pt` | A trained planner assigns the targets |
 | `... --fire-model rothermel\|firespin` | Which fire model runs |
 | `... --preburn 600` | Let the fires burn 10 minutes before the drones start |
@@ -75,8 +75,8 @@ imitation.
 | `uv run python -m roshan.ui --fly runs/navigate/fly.pt` | Watch a trained fly policy |
 | `uv run python -m roshan.ui --fly none --drones 2` | The fly task without a policy: pick a pilot in the side panel or steer a drone by hand |
 
-In the window you can pause, change speed, ignite, drop water, place fires, drones and
-stations, and inspect a drone's observation and reward terms. The menus open and save
+In the window you can pause, change speed, ignite, drop water, place fires and ground
+stations (Settings says how many drones each has), and inspect a drone's observation and reward terms. The menus open and save
 scenarios (and remember one as the default), fetch real terrain, load planner and fly
 checkpoints, switch fire model and task, set every simulation parameter, and choose what the
 map shows (relief, contours, fire arrival lines, spread rate). Help lists the shortcuts.
@@ -108,14 +108,15 @@ map shows (relief, contours, fire arrival lines, spread rate). Help lists the sh
 | Command | What it does |
 |---|---|
 | `uv run python -m roshan.eval experiments/eval_demo.toml` | Run every planner of the file on the same seeds, writes CSVs, `summary.md` and `evaluation.toml` to `runs/eval_demo/` |
-| `uv run python -m roshan.eval --scenario scenarios/demo.npz --policy greedy --out greedy.csv` | Run a planner on the validation seeds: `none`, `greedy`, `hungarian`, `rollout`, or a checkpoint `.pt` |
-| `... --config '{"random_ignitions":6,"random_wind":true}'` | The dynamic task all planner results use |
+| `... experiments/eval_demo.toml --config '{"drones_per_station":80}' --out runs/team_80` | The same file with a setting changed, for sweeps (`--sim`, `--split` and `--n` work the same way) |
+| `uv run python -m roshan.eval --scenario scenarios/demo.npz --policy greedy --out greedy.csv` | Run a planner on the validation seeds: `none`, `greedy`, `head`, `flank`, `rollout`, or a checkpoint `.pt` |
+| `... --config '{"random_ignitions":2,"random_wind":true}'` | Change the task: here two random fires and a randomly turned wind |
 | `... --config '{..., "preburn_s":120}'` | Start with fires that have already spread for two minutes (`preburn_cells` caps their size) |
 | `... --split test`, `... --n 200` | The test seeds; only the first 200 seeds |
 | `... --sim '{"fire_model":"firespin"}'` | Change simulation settings |
 | `... --fly runs/navigate/fly.pt` | Let the trained fly policy steer instead of the scripted controller |
 | `... --fly decentral` | Let the hand-written decentralised pilot steer (it sees what the fly policy sees) |
-| `uv run python -m roshan.eval.paired --arm greedy greedy.csv --arm hungarian hungarian.csv` | Paired statistics on two runs |
+| `uv run python -m roshan.eval.paired --arm greedy greedy.csv --arm head head.csv` | Paired statistics on two runs |
 
 **Tests and benchmarks**
 
@@ -136,9 +137,9 @@ map shows (relief, contours, fire arrival lines, spread rate). Help lists the sh
 | [FireSPIN fire model](docs/systems.md#firespin-fire-model) | The particle model of the thesis, ported; matches the old code within 1 % |
 | [Water](docs/systems.md#water) | Dropped water slows fire and evaporates; a knocked-down cell can re-ignite |
 | [Navigate task](docs/systems.md#the-navigate-task) | Drones fly to waypoints without colliding; trains the low-level fly policy |
-| [Allocate task](docs/systems.md#the-allocate-task) | A planner assigns fires and refill stations to drones; a scripted controller flies them |
-| [Planners](docs/systems.md#planners) | `greedy`, `hungarian`, `rollout` (simulates ahead), and a learned network |
-| [Scenarios](docs/systems.md#scenarios) | A map plus fires, drones, stations and weather in one `.npz` file |
+| [Allocate task](docs/systems.md#the-allocate-task) | A swarm of small drones based at ground stations; a planner says which fire each one flies to, the rest (drop, flight home, battery and tank service) is automatic |
+| [Planners](docs/systems.md#planners) | `greedy`, `head`, `flank`, `rollout` (simulates ahead), and a learned network |
+| [Scenarios](docs/systems.md#scenarios) | A map plus fires, ground stations and weather in one `.npz` file |
 | [Configuration](docs/systems.md#configuration) | Every setting with its default |
 
 From Python:
@@ -147,13 +148,17 @@ From Python:
 import roshan
 from roshan.scenario import Scenario
 
-env = roshan.AllocateEnv(64, Scenario.load("scenarios/demo.npz"), config={"random_ignitions": 6})
+env = roshan.AllocateEnv(64, Scenario.load("scenarios/demo.npz"), config={"random_ignitions": 2})
 env.step(env.plan("greedy"))       # buffers such as env.drones, env.targets are torch tensors
 ```
 
 ## Results
 
-Area saved against doing nothing, dynamic task (4 drones, 6 random fires, random wind,
+**These numbers are from before 2026-11-19**, when the task had 4 drones with 300 L tanks
+and a 10 s refill. The task now models a swarm of 40 L drones; its benchmark has not been
+run yet.
+
+Area saved against doing nothing, old dynamic task (4 drones, 6 random fires, random wind,
 30 minutes), 500 test seeds:
 
 | Planner | Area saved |

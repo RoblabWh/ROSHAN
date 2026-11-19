@@ -76,7 +76,7 @@ def main():
         return [-1.0] * obs["drones"].shape[0]
 
     frames, ticks, calls = _core.run_ui(policy=keep, auto_close_s=2.0, planner="policy")
-    assert calls >= 1 and seen["action_mask"] == (4, seen["targets"][0]), (calls, seen)
+    assert calls >= 1 and seen["action_mask"] == (seen["drones"][0], seen["targets"][0]), (calls, seen)
     print(f"ok  allocate runs with off, greedy, rollout and a policy ({calls} decisions asked)")
 
 

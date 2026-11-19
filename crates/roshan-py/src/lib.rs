@@ -329,26 +329,6 @@ impl AllocateEnv {
                 "need at least one environment and positive dt_s and fire_every",
             ));
         }
-        let positive = [
-            cfg.max_speed_ms,
-            cfg.tank_l,
-            cfg.drop_l,
-            cfg.refill_s,
-            cfg.arrive_m,
-            cfg.station_m,
-            cfg.safe_m,
-            cfg.max_interval_s,
-            cfg.time_limit_s,
-        ];
-        if positive.iter().any(|v| v.is_nan() || *v <= 0.0)
-            || cfg.max_targets == 0
-            || cfg.block_cells == 0
-        {
-            return Err(invalid(
-                "config",
-                "speeds, sizes, times, max_targets and block_cells must be positive",
-            ));
-        }
         let inner = AllocVec::new(
             num_envs,
             convert::from_py(scenario)?,
@@ -357,7 +337,7 @@ impl AllocateEnv {
             seed,
             threads,
         )
-        .map_err(|e| invalid("scenario", e))?;
+        .map_err(|e| invalid("scenario or config", e))?;
         Ok(Self { inner, sim })
     }
 
@@ -407,10 +387,11 @@ impl AllocateEnv {
     }
 
     /// Writes a planner's actions for the current state into `actions` [envs, drones]:
-    /// "greedy", or "rollout" (greedy improved by simulating `horizon_s` ahead on copies of
-    /// the world, trying up to `candidates` nearby fires per drone). Runs in parallel with the
+    /// "greedy", "head", "flank" (the nearest, most intense or least intense block that still
+    /// needs water), or "rollout" (greedy improved by simulating `horizon_s` ahead on copies
+    /// of the world, trying up to `candidates` blocks per drone). Runs in parallel with the
     /// interpreter lock released.
-    #[pyo3(signature = (method, actions, horizon_s=120.0, candidates=4))]
+    #[pyo3(signature = (method, actions, horizon_s=300.0, candidates=4))]
     fn plan(
         &self,
         py: Python<'_>,
@@ -428,16 +409,18 @@ impl AllocateEnv {
         )?;
         let out = actions.as_slice_mut()?;
         let inner = &self.inner;
-        match method {
-            "greedy" => py.detach(|| inner.greedy(out)),
-            "rollout" if horizon_s > 0.0 => py.detach(|| inner.rollout(horizon_s, candidates, out)),
-            _ => {
-                return Err(invalid(
+        let method = allocate::Method::parse(method)
+            .filter(|m| *m != allocate::Method::Rollout || horizon_s > 0.0)
+            .ok_or_else(|| {
+                invalid(
                     "method",
-                    "expected \"greedy\" or \"rollout\" with a positive horizon",
-                ));
-            }
-        }
+                    format!(
+                        "expected one of {:?}, rollout with a positive horizon",
+                        allocate::Method::NAMES
+                    ),
+                )
+            })?;
+        py.detach(|| inner.plan(method, horizon_s, candidates, out));
         Ok(())
     }
 
@@ -694,7 +677,6 @@ mod convert {
             elevation,
             landcover,
             ignitions: get(d, "ignitions")?.extract()?,
-            drones: get(d, "drones")?.extract()?,
             stations: get(d, "stations")?.extract()?,
             moisture: Moisture {
                 d1: m[0],
@@ -736,7 +718,6 @@ mod convert {
             None => d.set_item("landcover", py.None())?,
         }
         d.set_item("ignitions", s.ignitions.clone())?;
-        d.set_item("drones", s.drones.clone())?;
         d.set_item("stations", s.stations.clone())?;
         let m = s.moisture;
         d.set_item("moisture", [m.d1, m.d10, m.d100, m.herb, m.woody])?;
@@ -882,13 +863,15 @@ mod ui {
         let planner = match planner {
             "off" => roshan_ui::Planner::Off,
             "greedy" => roshan_ui::Planner::Greedy,
+            "head" => roshan_ui::Planner::Head,
+            "flank" => roshan_ui::Planner::Flank,
             "rollout" => roshan_ui::Planner::Rollout,
             "policy" if policy.is_some() => roshan_ui::Planner::Policy,
             other => {
                 return Err(invalid(
                     "planner",
                     format!(
-                        "{other:?}: expected off, greedy, rollout, or policy with a policy given"
+                        "{other:?}: expected off, greedy, head, flank, rollout, or policy with a policy given"
                     ),
                 ));
             }

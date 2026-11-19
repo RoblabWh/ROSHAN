@@ -1,12 +1,16 @@
-//! The `allocate` task: a planner gives every drone a target, a scripted controller flies it
-//! there. Targets are groups of burning cells (to drop water on) and ground stations (to
-//! refill the tank).
+//! The `allocate` task: a swarm of small drones based at ground stations, and a planner that
+//! says which fire each one flies to.
 //!
-//! One step runs the simulation until the next *decision event*: a drone finished its task,
-//! its target stopped burning, or `max_interval_s` passed. The step returns how long that
-//! took and which drones need a decision, so a trainer can discount by real time and only
-//! ask the drones that are actually free. An action is an index into the target table, or
-//! -1 for "keep doing what you are doing".
+//! A drone waits docked at a station until the planner gives it a fire target. It then flies
+//! there, drops its water, flies home, is serviced (battery and tank) on one of the station's
+//! pads and is ready again. Only the choice of target is the planner's; the rest is automatic.
+//! Targets are small square blocks of cells that hold a fire front.
+//!
+//! One step runs the simulation until the next *decision event*: a drone became ready, the
+//! block it was flying to stopped burning, or a waiting drone's regular turn came. The step
+//! returns how long that took and which drones need a decision, so a trainer can discount by
+//! real time and only ask the drones that are actually free. An action is an index into the
+//! target table, or -1: stay docked, or fly home when in the air.
 //!
 //! Episode `e` is a function of its seed alone (ignitions, wind, noise), so two policies run
 //! on the same seed face the same fire.
@@ -29,29 +33,37 @@ use crate::world::{SimConfig, Weather, World};
 pub struct AllocConfig {
     pub max_speed_ms: f32,
     /// Tank size and the amount released per drop, litres. A drop lands on one cell.
-    /// To calibrate together with the water constants in `SimConfig`.
     pub tank_l: f32,
     pub drop_l: f32,
-    /// Time to fill an empty tank at a ground station.
-    pub refill_s: f32,
-    /// A fire target is reached within this distance, a ground station within `station_m`
-    /// (stations are wide so several drones fit).
+    /// Share of a drop that reaches the fuel; the rest drifts, evaporates or misses.
+    pub drop_efficiency: f32,
+    /// Time on a pad to swap the battery and fill the tank, and how many pads a station has.
+    pub service_s: f32,
+    pub pads: u32,
+    /// Longest time a drone may be in the air between two services, seconds.
+    pub endurance_s: f32,
+    /// Drones based at every ground station of the scenario.
+    pub drones_per_station: u32,
+    /// A fire target is reached within this distance, a ground station within `station_m`.
     pub arrive_m: f32,
     pub station_m: f32,
-    /// The controller never lets two drones get closer than this.
+    /// The scripted controller keeps drones in the air this far apart. 0: no separation, the
+    /// drones fly straight lines (for swarms: they are taken to fly in separate height lanes).
     pub safe_m: f32,
-    /// Burning cells are grouped into square blocks of this many cells; each block with fire
-    /// is one target. 1 makes every burning cell its own target.
+    /// Cells with a fire front are grouped into square blocks of this many cells; each block
+    /// is one target. 1 makes every front cell its own target.
     pub block_cells: u32,
-    /// At most this many fire targets are offered, largest groups first.
+    /// At most this many fire targets are offered, those needing the most water first.
     pub max_targets: usize,
-    /// Everyone may decide again after this long, even without an event.
+    /// Docked drones that were told to wait are asked again this often.
     pub max_interval_s: f32,
     pub time_limit_s: f32,
     /// If above zero, the scenario's starting fires are replaced by this many random ones.
     pub random_ignitions: u32,
     /// Turn the scenario's wind schedule by one random angle per episode.
     pub random_wind: bool,
+    /// Factor on every wind speed of the scenario's schedule.
+    pub wind_scale: f32,
     /// The fire burns unattended this long before the episode starts, seconds, so the drones
     /// meet a front the fire model itself produced. 0 starts with the bare ignitions.
     pub preburn_s: f32,
@@ -65,28 +77,77 @@ impl Default for AllocConfig {
     fn default() -> Self {
         Self {
             max_speed_ms: 10.0,
-            tank_l: 300.0,
-            drop_l: 150.0,
-            refill_s: 10.0,
+            tank_l: 40.0,
+            drop_l: 40.0,
+            drop_efficiency: 0.7,
+            service_s: 60.0,
+            pads: 8,
+            endurance_s: 900.0,
+            drones_per_station: 40,
             arrive_m: 5.0,
             station_m: 12.0,
-            safe_m: 3.0,
-            block_cells: 5,
-            max_targets: 32,
+            safe_m: 0.0,
+            block_cells: 2,
+            max_targets: 64,
             max_interval_s: 10.0,
             time_limit_s: 1800.0,
             random_ignitions: 0,
             random_wind: false,
+            wind_scale: 1.0,
             preburn_s: 0.0,
             preburn_cells: 0,
         }
     }
 }
 
+impl AllocConfig {
+    /// Refuses settings the task cannot run with.
+    pub fn check(&self) -> Result<(), String> {
+        let positive = [
+            ("max_speed_ms", self.max_speed_ms),
+            ("tank_l", self.tank_l),
+            ("drop_l", self.drop_l),
+            ("drop_efficiency", self.drop_efficiency),
+            ("service_s", self.service_s),
+            ("endurance_s", self.endurance_s),
+            ("arrive_m", self.arrive_m),
+            ("station_m", self.station_m),
+            ("max_interval_s", self.max_interval_s),
+            ("time_limit_s", self.time_limit_s),
+            ("wind_scale", self.wind_scale),
+            ("pads", self.pads as f32),
+            ("drones_per_station", self.drones_per_station as f32),
+            ("block_cells", self.block_cells as f32),
+            ("max_targets", self.max_targets as f32),
+        ];
+        if let Some((name, v)) = positive.iter().find(|(_, v)| !(*v > 0.0 && v.is_finite())) {
+            return Err(format!("{name} must be above zero, got {v}"));
+        }
+        if self.drop_efficiency > 1.0 {
+            return Err("drop_efficiency is a share: at most 1".into());
+        }
+        if self.drop_l > self.tank_l {
+            return Err("drop_l is more than the tank holds".into());
+        }
+        if !(self.safe_m >= 0.0 && self.safe_m.is_finite()) {
+            return Err(format!("safe_m must be zero or more, got {}", self.safe_m));
+        }
+        Ok(())
+    }
+}
+
 /// Per-drone columns. Positions are fractions of the map width and height.
 pub const DRONE: [&str; 6] = ["x", "y", "water", "task_x", "task_y", "task_kind"];
 /// Per-target columns. Stations come first, then fire targets.
-pub const TARGET: [&str; 4] = ["x", "y", "is_station", "cells"];
+pub const TARGET: [&str; 7] = [
+    "x",
+    "y",
+    "is_station",
+    "cells",     // front cells in the block / cells per block
+    "need",      // drops it takes to stop the block's fronts now
+    "inbound",   // drops on their way to the block
+    "intensity", // highest fireline intensity of its fronts, MW/m
+];
 pub const GLOBAL: [&str; 5] = ["wind_x", "wind_y", "time", "burning", "burned"];
 /// Reward terms per drone for the step just finished.
 pub const TERMS: [&str; 5] = [
@@ -97,31 +158,80 @@ pub const TERMS: [&str; 5] = [
     "timeout",  // the time limit was reached (all drones)
 ];
 /// Episode summary, valid on the step an episode ends.
-pub const INFO: [&str; 8] = [
+pub const INFO: [&str; 15] = [
     "fire_out",
     "seconds", // since the episode started, not counting the pre-burn
     "burned_cells",
     "burned_fraction",
     "water_l",
     "drops",
-    "min_separation_m",
-    "start_cells", // cells that had caught fire when the episode started
+    "min_separation_m", // NaN where separation was not kept (`safe_m` 0 and scripted flight)
+    "start_cells",      // cells that had caught fire when the episode started
+    "stopped_cells",    // burning cells that water kept from spreading until they died
+    "stopped_kw_mean",  // fireline intensity of those cells, kW/m (Rothermel only)
+    "stopped_kw_max",
+    "peak_kw",      // highest fireline intensity of the fire, kW/m (Rothermel only)
+    "first_drop_s", // NaN if there was none
+    "queue_s",      // drone-seconds spent waiting for a free pad
+    "max_sortie_s", // longest time a drone was in the air between two services
 ];
 pub const TASK_NONE: f32 = 0.0;
 pub const TASK_FIRE: f32 = 1.0;
 pub const TASK_STATION: f32 = 2.0;
 pub const TASK_POINT: f32 = 3.0;
+/// At a station, in service or ready.
+pub const TASK_DOCKED: f32 = 4.0;
+
+/// The planners that need no learning (see the `impl` further down).
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub enum Method {
+    /// The nearest block that still needs water.
+    Greedy,
+    /// The most intense block that still needs water.
+    Head,
+    /// The least intense block that still needs water.
+    Flank,
+    /// Greedy improved by simulating ahead.
+    Rollout,
+}
+
+impl Method {
+    pub const NAMES: [&str; 4] = ["greedy", "head", "flank", "rollout"];
+
+    pub fn parse(name: &str) -> Option<Self> {
+        let all = [Self::Greedy, Self::Head, Self::Flank, Self::Rollout];
+        Self::NAMES.iter().position(|n| *n == name).map(|i| all[i])
+    }
+}
 
 #[derive(Clone, Copy, PartialEq, Debug)]
 enum Task {
     None,
-    /// Fly to this cell and drop water on it.
+    /// Fly to this block and drop water on its fire front.
     Fire(u32),
-    /// Fly to this station (index into the scenario's list) and fill the tank.
+    /// Fly to this station (index into the scenario's list) to be serviced.
     Station(u32),
-    /// Fly to this cell and wait there (sent by hand).
+    /// Fly to this cell (sent by hand).
     Point(u32),
 }
+
+/// A fire target on offer: a block of cells with at least one front.
+#[derive(Clone, Copy, Debug)]
+struct Target {
+    block: u32,
+    /// The block's centre, metres.
+    point: [f32; 2],
+    fronts: u32,
+    /// Drops needed now, drops on their way.
+    need: f32,
+    inbound: f32,
+    /// Highest intensity of its fronts, kW/m.
+    kw: f32,
+    /// From the block to the nearest station, metres.
+    home_m: f32,
+}
+
+const AIRBORNE: u64 = u64::MAX;
 
 /// The buffers of one environment.
 pub struct Out<'a> {
@@ -129,8 +239,9 @@ pub struct Out<'a> {
     pub targets: &'a mut [f32],
     /// [slots] 1 where a target slot is filled.
     pub target_mask: &'a mut [u8],
-    /// [drones, slots] 1 where that drone may choose that slot: a fire needs water for a
-    /// drop, a station needs a tank that is not full.
+    /// [drones, slots] 1 where that drone may choose that slot. Only the rows of drones that
+    /// need a decision are filled: a fire needs water for a drop and time in the air to get
+    /// there and home, a station can be chosen in the air.
     pub action_mask: &'a mut [u8],
     pub globals: &'a mut [f32],
     /// [drones] 1 where the drone needs a decision.
@@ -158,14 +269,25 @@ pub struct AllocEnv {
     fingerprint: u64,
     task: Vec<Task>,
     decide: Vec<bool>,
-    /// The fire targets offered at the last decision: (cell, burning cells in its block).
-    fires: Vec<(u32, u32)>,
+    /// Where each drone is heading, metres; where it is when it has nowhere to go.
+    goal: Vec<[f32; 2]>,
+    /// The tick from which a docked drone is serviced and ready; `AIRBORNE` in the air.
+    ready_at: Vec<u64>,
+    /// The station a docked drone is at.
+    at: Vec<u32>,
+    /// The tick a drone last took off.
+    launched: Vec<u64>,
+    /// [stations, pads] the tick from which each pad is free.
+    pad_free: Vec<u64>,
+    /// The fire targets offered at the last decision.
+    fires: Vec<Target>,
     drops: u32,
     water_l: f32,
     min_separation: f32,
+    first_drop: Option<u64>,
+    queue_ticks: u64,
+    max_sortie: u64,
     needs_reset: bool,
-    /// Ticks since tasks were last handed out.
-    since_decision: u32,
     /// The world's tick at which the episode started, and the cells alight by then: both
     /// zero-ish without a pre-burn. The world's own clock counts from the ignition.
     start_tick: u64,
@@ -189,9 +311,10 @@ impl AllocEnv {
             moisture: scenario.moisture,
             wind: scenario.wind.clone(),
         };
-        let n = scenario.drones.len();
+        let n = scenario.stations.len() * cfg.drones_per_station as usize;
         Self {
             world: World::new(terrain.clone(), weather, sim, 0),
+            pad_free: vec![0; scenario.stations.len() * cfg.pads as usize],
             scenario,
             terrain,
             cfg,
@@ -203,12 +326,18 @@ impl AllocEnv {
             fingerprint: 0,
             task: vec![Task::None; n],
             decide: vec![true; n],
+            goal: vec![[0.0; 2]; n],
+            ready_at: vec![0; n],
+            at: vec![0; n],
+            launched: vec![0; n],
             fires: Vec::new(),
             drops: 0,
             water_l: 0.0,
             min_separation: f32::INFINITY,
+            first_drop: None,
+            queue_ticks: 0,
+            max_sortie: 0,
             needs_reset: true,
-            since_decision: 0,
             start_tick: 0,
             start_cells: 0,
         }
@@ -219,15 +348,82 @@ impl AllocEnv {
         [(cell[0] as f32 + 0.5) * m, (cell[1] as f32 + 0.5) * m]
     }
 
+    fn station_point(&self, station: usize) -> [f32; 2] {
+        self.cell_centre(self.scenario.stations[station])
+    }
+
+    /// Blocks per row of the map, and the block side in cells.
+    fn blocks(&self) -> (u32, u32) {
+        let block = self.cfg.block_cells.max(1);
+        (self.terrain.grid.nx.div_ceil(block), block)
+    }
+
+    fn block_of(&self, cell: usize) -> u32 {
+        let (per_row, block) = self.blocks();
+        let (x, y) = self.terrain.grid.xy(cell);
+        (y / block) * per_row + x / block
+    }
+
+    /// The cells of a block (clipped at the map's edge): x range, y range.
+    fn block_cells(&self, block: u32) -> (std::ops::Range<u32>, std::ops::Range<u32>) {
+        let (per_row, side) = self.blocks();
+        let g = self.terrain.grid;
+        let (x, y) = ((block % per_row) * side, (block / per_row) * side);
+        (x..(x + side).min(g.nx), y..(y + side).min(g.ny))
+    }
+
+    /// The centre of a block, metres.
+    fn block_point(&self, block: u32) -> [f32; 2] {
+        let (xs, ys) = self.block_cells(block);
+        let m = self.terrain.grid.cell_m;
+        [
+            (xs.start + xs.end) as f32 * 0.5 * m,
+            (ys.start + ys.end) as f32 * 0.5 * m,
+        ]
+    }
+
+    /// The water load (L/m²) that stops the front of a burning cell and keeps it stopped for
+    /// `ember_s` although the water evaporates meanwhile; None if the cell has no front.
+    fn hold_load(&self, cell: usize) -> Option<f32> {
+        let front = self.world.fire.front(cell)?;
+        let margin = libm::expf(self.sim.ember_s / self.sim.water_tau_s);
+        Some(self.world.water.crit(front.water_l_m2) * margin)
+    }
+
+    /// The front cell of a block that is furthest below the load that stops it (the lowest
+    /// cell index among equals): where the next drop goes. None if the block has no front.
+    fn neediest(&self, block: u32) -> Option<usize> {
+        let (xs, ys) = self.block_cells(block);
+        let mut best: Option<(f32, usize)> = None;
+        for y in ys {
+            for x in xs.clone() {
+                let cell = self.terrain.grid.idx(x, y);
+                if let Some(hold) = self.hold_load(cell) {
+                    let short = hold - self.world.water.load[cell];
+                    if best.is_none_or(|(b, _)| short > b) {
+                        best = Some((short, cell));
+                    }
+                }
+            }
+        }
+        best.map(|(_, cell)| cell)
+    }
+
     fn task_point(&self, task: Task) -> Option<[f32; 2]> {
         match task {
             Task::None => None,
-            Task::Fire(cell) | Task::Point(cell) => {
+            Task::Fire(block) => Some(self.block_point(block)),
+            Task::Point(cell) => {
                 let (x, y) = self.terrain.grid.xy(cell as usize);
                 Some(self.cell_centre([x, y]))
             }
-            Task::Station(i) => Some(self.cell_centre(self.scenario.stations[i as usize])),
+            Task::Station(i) => Some(self.station_point(i as usize)),
         }
+    }
+
+    fn set_task(&mut self, i: usize, task: Task) {
+        self.task[i] = task;
+        self.goal[i] = self.task_point(task).unwrap_or(self.world.drones.pos[i]);
     }
 
     /// One environment on its own (the viewer uses this), started on the episode of `seed`.
@@ -248,7 +444,8 @@ impl AllocEnv {
         &self.cfg
     }
 
-    /// Smallest distance between two drones so far in this episode, metres.
+    /// Smallest distance between two drones in the air so far in this episode, metres.
+    /// Infinite where it was not watched (`safe_m` 0 under the scripted controller).
     pub fn min_separation(&self) -> f32 {
         self.min_separation
     }
@@ -259,15 +456,37 @@ impl AllocEnv {
         self.fingerprint
     }
 
-    /// Tasks finished so far in this episode (drops made).
+    /// Drops made so far in this episode.
     pub fn drops(&self) -> u32 {
         self.drops
+    }
+
+    /// Is the drone at a station (in service or ready)?
+    pub fn docked(&self, i: usize) -> bool {
+        self.ready_at[i] != AIRBORNE
+    }
+
+    /// Is the drone at a station, serviced and free to be sent?
+    pub fn ready(&self, i: usize) -> bool {
+        self.ready_at[i] <= self.world.tick
+    }
+
+    /// Per station: drones ready to be sent, drones docked.
+    pub fn fleet(&self) -> Vec<(u32, u32)> {
+        let mut out = vec![(0, 0); self.scenario.stations.len()];
+        for i in (0..self.task.len()).filter(|&i| self.docked(i)) {
+            let s = &mut out[self.at[i] as usize];
+            *s = (s.0 + self.ready(i) as u32, s.1 + 1);
+        }
+        out
     }
 
     /// Starts the episode that belongs to `seed`.
     pub fn reset(&mut self, seed: u64) {
         let (grid, s) = (self.terrain.grid, &self.scenario);
         let mut wind = s.wind.clone();
+        wind.iter_mut()
+            .for_each(|w| w.speed_ms *= self.cfg.wind_scale);
         if self.cfg.random_wind {
             // The whole schedule turns by one angle, so the scenario's wind shifts survive.
             let angle = std::f32::consts::TAU * rng::uniform(seed, Stream::Weather, 0, 0);
@@ -308,10 +527,16 @@ impl AllocEnv {
         }
         (self.start_tick, self.start_cells) = (self.world.tick, self.world.fire.n_ignited);
 
-        let n = s.drones.len();
-        self.world.drones.pos = s.drones.iter().map(|c| self.cell_centre(*c)).collect();
+        // Every drone starts docked at its station, serviced and ready.
+        let (n, per) = (self.task.len(), self.cfg.drones_per_station as usize);
+        self.world.drones.pos = (0..n).map(|i| self.station_point(i / per)).collect();
         self.world.drones.vel = vec![[0.0; 2]; n];
         self.world.drones.water = vec![self.cfg.tank_l; n];
+        self.goal.clone_from(&self.world.drones.pos);
+        self.at = (0..n).map(|i| (i / per) as u32).collect();
+        self.ready_at.fill(self.start_tick);
+        self.launched.fill(self.start_tick);
+        self.pad_free.fill(self.start_tick);
 
         // Identifies the fire an episode started with: same value, same scenario.
         let mut h = 0xcbf2_9ce4_8422_2325u64;
@@ -336,58 +561,118 @@ impl AllocEnv {
         self.task.fill(Task::None);
         self.decide.fill(true);
         (self.drops, self.water_l, self.min_separation) = (0, 0.0, f32::INFINITY);
+        (self.first_drop, self.queue_ticks, self.max_sortie) = (None, 0, 0);
         self.needs_reset = false;
-        self.since_decision = 0;
         self.fires = self.fire_targets();
     }
 
-    /// Groups the burning cells into blocks and returns, for the largest groups, the burning
-    /// cell nearest to the group's centre and the group's size.
-    fn fire_targets(&self) -> Vec<(u32, u32)> {
-        let (grid, block) = (self.terrain.grid, self.cfg.block_cells.max(1));
-        let mut groups: BTreeMap<(u32, u32), (u32, f32, f32)> = BTreeMap::new();
+    /// The blocks with a fire front, those that need the most water first: what it takes to
+    /// stop each one now and what is already on its way.
+    fn fire_targets(&self) -> Vec<Target> {
+        let area = self.terrain.grid.cell_m.powi(2);
+        let per_drop = self.cfg.drop_efficiency * self.cfg.drop_l / area; // L/m² on one cell
+        // Per block: front cells, drops needed, highest intensity.
+        let mut blocks: BTreeMap<u32, (u32, f32, f32)> = BTreeMap::new();
         for cell in self.world.fire.burning() {
-            let (x, y) = grid.xy(cell as usize);
-            let g = groups.entry((y / block, x / block)).or_default();
-            *g = (g.0 + 1, g.1 + x as f32, g.2 + y as f32);
+            let cell = cell as usize;
+            let Some(front) = self.world.fire.front(cell) else {
+                continue; // only burning out: water changes nothing there
+            };
+            let hold = self.hold_load(cell).expect("the cell has a front");
+            let short = (hold - self.world.water.load[cell]).max(0.0);
+            let b = blocks.entry(self.block_of(cell)).or_default();
+            *b = (b.0 + 1, b.1 + short / per_drop, b.2.max(front.kw_m));
         }
-        let mut best: BTreeMap<(u32, u32), (f32, u32)> = BTreeMap::new();
-        for cell in self.world.fire.burning() {
-            let (x, y) = grid.xy(cell as usize);
-            let key = (y / block, x / block);
-            let (n, sx, sy) = groups[&key];
-            let d = (x as f32 - sx / n as f32).hypot(y as f32 - sy / n as f32);
-            let b = best.entry(key).or_insert((f32::INFINITY, 0));
-            if (d, cell) < *b {
-                *b = (d, cell);
+        let mut inbound: BTreeMap<u32, f32> = BTreeMap::new();
+        for (i, task) in self.task.iter().enumerate() {
+            if let Task::Fire(block) = task {
+                let drops = (self.world.drones.water[i] / self.cfg.drop_l)
+                    .floor()
+                    .min(1.0);
+                *inbound.entry(*block).or_default() += drops;
             }
         }
-        let mut out: Vec<(u32, u32)> = best
+        let mut out: Vec<Target> = blocks
             .iter()
-            .map(|(key, &(_, cell))| (cell, groups[key].0))
+            .map(|(&block, &(fronts, need, kw))| {
+                let point = self.block_point(block);
+                let home_m = (0..self.scenario.stations.len())
+                    .map(|s| dist(point, self.station_point(s)))
+                    .fold(f32::INFINITY, f32::min);
+                Target {
+                    block,
+                    point,
+                    fronts,
+                    need,
+                    inbound: inbound.get(&block).copied().unwrap_or(0.0),
+                    kw,
+                    home_m,
+                }
+            })
             .collect();
-        out.sort_by(|a, b| b.1.cmp(&a.1).then(a.0.cmp(&b.0))); // largest first, then by cell
+        out.sort_by(|a, b| b.need.total_cmp(&a.need).then(a.block.cmp(&b.block)));
         out.truncate(self.cfg.max_targets);
         out
     }
 
-    /// One tick of the scripted controller: every drone moves towards its task, never closer
-    /// than `safe_m` to another drone (`navigate::scripted_step`).
+    /// May drone `i` be sent to this target: water for a drop, and enough time in the air
+    /// left to get there and on to the nearest station.
+    fn can_take(&self, i: usize, target: &Target) -> bool {
+        let airborne_s = if self.docked(i) {
+            0.0
+        } else {
+            (self.world.tick - self.launched[i]) as f32 * self.sim.dt_s
+        };
+        let flight_s =
+            (dist(self.world.drones.pos[i], target.point) + target.home_m) / self.cfg.max_speed_ms;
+        self.world.drones.water[i] >= self.cfg.drop_l
+            && airborne_s + flight_s <= self.cfg.endurance_s
+    }
+
+    fn nearest_station(&self, i: usize) -> u32 {
+        let p = self.world.drones.pos[i];
+        (0..self.scenario.stations.len())
+            .min_by(|&a, &b| {
+                dist(p, self.station_point(a)).total_cmp(&dist(p, self.station_point(b)))
+            })
+            .expect("a scenario with drones has a station") as u32
+    }
+
+    /// Sets the velocities of one tick of the scripted controller: every drone in the air
+    /// flies straight at its goal. With `safe_m` above zero it never gets closer than that
+    /// to another drone in the air (`navigate::scripted_step`).
     fn fly(&mut self) {
         let (dt, safe) = (self.sim.dt_s, self.cfg.safe_m);
-        let g = self.terrain.grid;
-        let size = (g.nx as f32 * g.cell_m, g.ny as f32 * g.cell_m);
-        let pos = &self.world.drones.pos;
-        let goal = |i: usize| match self.task[i] {
-            // Hold position inside a station's ring while refilling.
-            Task::Station(_) if self.arrived(i) => pos[i],
-            task => self.task_point(task).unwrap_or(pos[i]),
-        };
-        let next =
-            crate::navigate::scripted_step(pos, goal, self.cfg.max_speed_ms * dt, safe, size);
-        for (i, q) in next.iter().enumerate() {
-            let p = self.world.drones.pos[i];
-            self.world.drones.vel[i] = [(q[0] - p[0]) / dt, (q[1] - p[1]) / dt];
+        let stride = self.cfg.max_speed_ms * dt;
+        let n = self.task.len();
+        if safe > 0.0 {
+            let g = self.terrain.grid;
+            let size = (g.nx as f32 * g.cell_m, g.ny as f32 * g.cell_m);
+            let pos = &self.world.drones.pos;
+            let next = crate::navigate::scripted_step(
+                pos,
+                |i| self.goal[i],
+                stride,
+                safe,
+                size,
+                |i| !self.docked(i),
+            );
+            for (i, q) in next.iter().enumerate() {
+                let p = self.world.drones.pos[i];
+                self.world.drones.vel[i] = [(q[0] - p[0]) / dt, (q[1] - p[1]) / dt];
+            }
+            return;
+        }
+        for i in 0..n {
+            let (p, goal) = (self.world.drones.pos[i], self.goal[i]);
+            let (dx, dy) = (goal[0] - p[0], goal[1] - p[1]);
+            let range = dx.hypot(dy);
+            self.world.drones.vel[i] = if range > 0.0 && !self.docked(i) {
+                let speed = stride.min(range) / dt / range;
+                [dx * speed, dy * speed]
+            } else {
+                [0.0; 2]
+            };
         }
     }
 
@@ -396,12 +681,11 @@ impl AllocEnv {
             Task::Station(_) => self.cfg.station_m,
             _ => self.cfg.arrive_m,
         };
-        self.task_point(self.task[i])
-            .is_some_and(|goal| dist(self.world.drones.pos[i], goal) <= radius)
+        dist(self.world.drones.pos[i], self.goal[i]) <= radius
     }
 
-    /// `actions`: [drones], a slot of the target table or -1 to keep the current task. Only
-    /// drones whose `decide` flag was set are listened to.
+    /// `actions`: [drones], a slot of the target table or -1. Only drones whose `decide`
+    /// flag was set are listened to.
     pub fn step(&mut self, actions: &[i32], autoreset: bool, out: Out<'_>) {
         out.terms.fill(0.0);
         (*out.terminated, *out.truncated, *out.elapsed_s) = (0, 0, 0.0);
@@ -415,16 +699,8 @@ impl AllocEnv {
             return; // without autoreset a finished environment stays frozen
         }
 
-        self.apply(actions);
         let ignited_before = self.world.fire.n_ignited;
-        let mut ticks = 0u32;
-        let (fire_out, timeout) = loop {
-            let ended = self.tick(out.terms);
-            ticks += 1;
-            if ended.0 || ended.1 || self.pending() {
-                break ended;
-            }
-        };
+        let (ticks, fire_out, timeout) = self.advance(actions, out.terms);
 
         let n = self.task.len();
         let burnable = self.terrain.burnable_cells.max(1) as f32;
@@ -443,31 +719,52 @@ impl AllocEnv {
         self.observe(out);
     }
 
+    /// Hands out `actions` and runs to the next decision event or the end of the episode.
+    /// Returns the ticks that took and (fire out, time limit reached).
+    fn advance(&mut self, actions: &[i32], terms: &mut [f32]) -> (u32, bool, bool) {
+        self.apply(actions);
+        let mut ticks = 0u32;
+        loop {
+            let ended = self.tick(terms);
+            ticks += 1;
+            if ended.0 || ended.1 || self.pending() {
+                return (ticks, ended.0, ended.1);
+            }
+        }
+    }
+
     /// Gives the deciding drones their new tasks. `actions`: [drones], a slot of the target
-    /// table or -1 to keep the current task; drones that were not asked are not listened to.
+    /// table or -1; drones that were not asked are not listened to. -1 keeps a docked drone
+    /// where it is and sends a drone in the air home.
     pub fn apply(&mut self, actions: &[i32]) {
         let stations = self.scenario.stations.len();
         // The index addresses actions, flags, tasks and tanks alike.
         #[allow(clippy::needless_range_loop)]
         for i in 0..self.task.len() {
-            if !self.decide[i] || actions[i] < 0 {
+            if !self.decide[i] {
                 continue;
             }
-            let slot = actions[i] as usize;
-            if slot < stations {
-                // Refilling a full tank would be a way to do nothing forever; it is not allowed.
-                if self.world.drones.water[i] < self.cfg.tank_l {
-                    self.task[i] = Task::Station(slot as u32);
+            let docked = self.docked(i);
+            let slot = actions[i];
+            if slot >= 0 && (slot as usize) < stations {
+                if !docked {
+                    self.set_task(i, Task::Station(slot as u32));
                 }
-            } else if let Some(&(cell, _)) = self.fires.get(slot - stations) {
-                // A drone without water for a drop cannot take a fire; its choice is ignored.
-                if self.world.drones.water[i] >= self.cfg.drop_l {
-                    self.task[i] = Task::Fire(cell);
-                }
+            } else if let Some(target) = (slot >= 0)
+                .then(|| self.fires.get(slot as usize - stations).copied())
+                .flatten()
+                // A drone that cannot reach the fire and get home is not sent.
+                && self.can_take(i, &target)
+            {
+                self.set_task(i, Task::Fire(target.block));
+            }
+            // In the air with nothing to do: home. (A hand-sent point is kept.)
+            if !docked && self.task[i] == Task::None {
+                let home = self.nearest_station(i);
+                self.set_task(i, Task::Station(home));
             }
         }
         self.decide.fill(false);
-        self.since_decision = 0;
     }
 
     /// Does any drone need a decision?
@@ -475,27 +772,84 @@ impl AllocEnv {
         self.decide.iter().any(|&d| d)
     }
 
-    /// Advances the simulation by one tick: drones fly, drop and refill. Adds this tick's
-    /// `drop` and `refill` amounts to `terms` ([drones, TERMS]) and returns (fire out, time
-    /// limit reached). When either is true the episode is over.
+    /// Advances the simulation by one tick: drones fly, drop and are serviced. Adds this
+    /// tick's `drop` and `refill` amounts to `terms` ([drones, TERMS]) and returns (fire out,
+    /// time limit reached). When either is true the episode is over.
     pub fn tick(&mut self, terms: &mut [f32]) -> (bool, bool) {
         self.tick_flown(None, terms)
     }
 
     /// Where a pilot should steer each drone: its task's place, or where it is when it has
-    /// nothing to do or is refilling inside a station's ring.
-    pub fn flight_goals(&self) -> Vec<[f32; 2]> {
-        (0..self.task.len())
-            .map(|i| match self.task[i] {
-                Task::Station(_) if self.arrived(i) => self.world.drones.pos[i],
-                task => self.task_point(task).unwrap_or(self.world.drones.pos[i]),
-            })
-            .collect()
+    /// nothing to do or is docked.
+    pub fn flight_goals(&self) -> &[[f32; 2]] {
+        &self.goal
+    }
+
+    /// What a pilot sees (`navigate::observe_flight`): docked drones neither see nor are seen.
+    pub fn observe_pilot(
+        &self,
+        view_m: f32,
+        agent: &mut [f32],
+        neighbors: &mut [f32],
+        mask: &mut [u8],
+    ) {
+        let g = self.terrain.grid;
+        let d = &self.world.drones;
+        crate::navigate::observe_flight(
+            &d.pos,
+            &d.vel,
+            &self.goal,
+            (g.nx as f32 * g.cell_m, g.ny as f32 * g.cell_m),
+            view_m,
+            self.cfg.max_speed_ms,
+            agent,
+            neighbors,
+            mask,
+            |i| !self.docked(i),
+        );
+    }
+
+    /// Takes a docked drone into the air, unless `safe_m` is kept and another drone in the
+    /// air is closer than that.
+    /// ponytail: a drone hovering over a station blocks its launches; none does under the
+    /// built-in planners. Give stations a holding pattern if that changes.
+    fn launch(&mut self, i: usize) {
+        let (p, safe) = (self.world.drones.pos[i], self.cfg.safe_m);
+        let pos = &self.world.drones.pos;
+        let clear = safe <= 0.0
+            || (0..pos.len()).all(|j| j == i || self.docked(j) || dist(p, pos[j]) >= safe);
+        if clear {
+            (self.ready_at[i], self.launched[i]) = (AIRBORNE, self.world.tick);
+        }
+    }
+
+    /// Docks drone `i` at `station`: it takes the pad that is free first and is ready after
+    /// the service. Drones docking in one tick are handled in index order, so pads are given
+    /// first come, first served.
+    fn dock(&mut self, i: usize, station: u32, terms: &mut [f32]) {
+        let (now, dt) = (self.world.tick, self.sim.dt_s);
+        let pads = self.cfg.pads as usize;
+        let free = &mut self.pad_free[station as usize * pads..][..pads];
+        let pad = (0..pads)
+            .min_by_key(|&p| free[p])
+            .expect("a station has a pad");
+        let start = free[pad].max(now);
+        let ready = start + (self.cfg.service_s / dt).ceil() as u64;
+        free[pad] = ready;
+        self.queue_ticks += start - now;
+        self.max_sortie = self.max_sortie.max(now - self.launched[i]);
+        let water = &mut self.world.drones.water[i];
+        terms[i * TERMS.len() + 1] += (self.cfg.tank_l - *water) / self.cfg.tank_l;
+        *water = self.cfg.tank_l;
+        (self.ready_at[i], self.at[i]) = (ready, station);
+        self.world.drones.vel[i] = [0.0; 2];
+        self.set_task(i, Task::None);
     }
 
     /// Like `tick`, but with `velocity` ([drones, 2], fractions of the maximum speed) the
-    /// drones are flown by an outside pilot instead of the scripted controller. Nothing then
-    /// keeps them apart or on the map: `min_separation` tells how that went.
+    /// drones in the air are flown by an outside pilot instead of the scripted controller.
+    /// Nothing then keeps them apart, on the map or within their endurance:
+    /// `min_separation` and `max_sortie_s` tell how that went.
     pub fn tick_flown(&mut self, velocity: Option<&[f32]>, terms: &mut [f32]) -> (bool, bool) {
         let n = self.task.len();
         let term = |i: usize, which: usize| i * TERMS.len() + which;
@@ -506,58 +860,85 @@ impl AllocEnv {
                 for i in 0..n {
                     let (ax, ay) = (v[2 * i], v[2 * i + 1]);
                     let scale = self.cfg.max_speed_ms / ax.hypot(ay).max(1.0);
-                    self.world.drones.vel[i] = [ax * scale, ay * scale];
+                    let fly = !self.docked(i) as u8 as f32;
+                    self.world.drones.vel[i] = [ax * scale * fly, ay * scale * fly];
                 }
             }
         }
         self.world.tick();
-        self.since_decision += 1;
+        let now = self.world.tick;
+        // The fire only changes on a fire step: that is when a block can lose its front.
+        let fire_stepped = now.is_multiple_of(self.sim.fire_every as u64);
+        let interval = ((self.cfg.max_interval_s / dt).round() as u64).max(1);
+        let turn = (now - self.start_tick).is_multiple_of(interval);
+        let watch = self.cfg.safe_m > 0.0 || velocity.is_some();
         for i in 0..n {
-            for j in 0..i {
-                let d = dist(self.world.drones.pos[i], self.world.drones.pos[j]);
-                self.min_separation = self.min_separation.min(d);
+            if self.docked(i) {
+                if self.ready_at[i] > now {
+                    continue; // in service
+                }
+                match self.task[i] {
+                    Task::Fire(_) | Task::Point(_) => self.launch(i),
+                    // Ready: asked once, and again at every regular turn while it waits.
+                    _ if self.ready_at[i] == now || turn => self.decide[i] = true,
+                    _ => {}
+                }
+                continue;
+            }
+            if watch {
+                for j in 0..i {
+                    if !self.docked(j) {
+                        let d = dist(self.world.drones.pos[i], self.world.drones.pos[j]);
+                        self.min_separation = self.min_separation.min(d);
+                    }
+                }
             }
             match self.task[i] {
                 Task::None => {}
                 Task::Point(_) => {
                     if self.arrived(i) {
-                        (self.task[i], self.decide[i]) = (Task::None, true);
+                        self.set_task(i, Task::None);
+                        self.decide[i] = true;
                     }
                 }
-                Task::Fire(cell) => {
-                    if self.world.fire.state[cell as usize] != BURNING {
-                        (self.task[i], self.decide[i]) = (Task::None, true); // someone else got it
-                    } else if self.arrived(i) {
-                        self.world
-                            .water
-                            .add(cell as usize, self.cfg.drop_l / cell_area);
+                Task::Fire(block) => {
+                    let here = self.arrived(i);
+                    if !here && !fire_stepped {
+                        continue;
+                    }
+                    let Some(cell) = self.neediest(block) else {
+                        // The block's fire is out or only burning down: the water is free.
+                        self.set_task(i, Task::None);
+                        self.decide[i] = true;
+                        continue;
+                    };
+                    if here {
+                        let load = self.cfg.drop_efficiency * self.cfg.drop_l / cell_area;
+                        self.world.water.add(cell, load);
                         self.world.drones.water[i] -= self.cfg.drop_l;
                         self.drops += 1;
                         self.water_l += self.cfg.drop_l;
+                        self.first_drop.get_or_insert(now);
                         terms[term(i, 0)] += 1.0;
-                        (self.task[i], self.decide[i]) = (Task::None, true);
+                        if self.world.drones.water[i] >= self.cfg.drop_l {
+                            self.set_task(i, Task::None);
+                            self.decide[i] = true;
+                        } else {
+                            let home = self.nearest_station(i);
+                            self.set_task(i, Task::Station(home));
+                        }
                     }
                 }
-                Task::Station(_) => {
+                Task::Station(station) => {
                     if self.arrived(i) {
-                        let water = &mut self.world.drones.water[i];
-                        let gain = (self.cfg.tank_l * dt / self.cfg.refill_s)
-                            .min(self.cfg.tank_l - *water);
-                        *water += gain;
-                        terms[term(i, 1)] += gain / self.cfg.tank_l;
-                        if *water >= self.cfg.tank_l {
-                            (self.task[i], self.decide[i]) = (Task::None, true);
-                        }
+                        self.dock(i, station, terms);
                     }
                 }
             }
         }
-        if self.since_decision as f32 * dt >= self.cfg.max_interval_s {
-            self.decide.fill(true); // a regular look at the situation
-        }
         let fire_out = self.world.fire.is_out();
         let limit = (self.cfg.time_limit_s / dt).ceil() as u64;
-        let timeout = !fire_out && self.world.tick - self.start_tick >= limit;
+        let timeout = !fire_out && now - self.start_tick >= limit;
         if fire_out || timeout {
             self.needs_reset = true;
         }
@@ -568,7 +949,9 @@ impl AllocEnv {
     }
 
     /// The episode summary in the order of `INFO`.
-    pub fn summary(&self) -> [f32; 8] {
+    pub fn summary(&self) -> [f32; 15] {
+        let (stats, dt) = (self.world.fire.stats, self.sim.dt_s);
+        let or_nan = |x: f32| if x.is_finite() { x } else { f32::NAN };
         [
             self.world.fire.is_out() as u8 as f32,
             self.episode_s(),
@@ -576,8 +959,16 @@ impl AllocEnv {
             self.world.burned_fraction(),
             self.water_l,
             self.drops as f32,
-            self.min_separation,
+            or_nan(self.min_separation),
             self.start_cells as f32,
+            stats.stopped as f32,
+            (stats.stopped_kw_sum / stats.stopped.max(1) as f64) as f32,
+            stats.stopped_kw_max,
+            stats.peak_kw,
+            self.first_drop
+                .map_or(f32::NAN, |t| (t - self.start_tick) as f32 * dt),
+            self.queue_ticks as f32 * dt,
+            self.max_sortie as f32 * dt,
         ]
     }
 
@@ -591,47 +982,49 @@ impl AllocEnv {
         self.needs_reset
     }
 
-    /// Sends a drone by hand: to refill if the cell holds a station, to drop water if it
-    /// burns and the drone has water, otherwise just to fly there.
-    pub fn send(&mut self, drone: usize, cell: [u32; 2]) {
-        let index = self.terrain.grid.idx(cell[0], cell[1]) as u32;
-        self.task[drone] = match self.scenario.stations.iter().position(|s| *s == cell) {
+    /// Sends a drone by hand: home if the cell holds a station, to drop water if it burns
+    /// and the drone has water, otherwise just to fly there. A docked drone takes off for it.
+    /// Fails for a drone that is still being serviced.
+    pub fn send(&mut self, drone: usize, cell: [u32; 2]) -> Result<(), &'static str> {
+        if self.docked(drone) && !self.ready(drone) {
+            return Err("this drone is still being serviced");
+        }
+        let index = self.terrain.grid.idx(cell[0], cell[1]);
+        let task = match self.scenario.stations.iter().position(|s| *s == cell) {
+            Some(_) if self.docked(drone) => Task::None,
             Some(station) => Task::Station(station as u32),
-            None if self.world.fire.state[index as usize] == BURNING
+            None if self.world.fire.state[index] == BURNING
                 && self.world.drones.water[drone] >= self.cfg.drop_l =>
             {
-                Task::Fire(index)
+                Task::Fire(self.block_of(index))
             }
-            None => Task::Point(index),
+            None => Task::Point(index as u32),
         };
+        self.set_task(drone, task);
         self.decide[drone] = false;
+        Ok(())
     }
 
     /// What each drone is doing: task kind (`TASK_*`) and where, in metres.
     pub fn tasks(&self) -> Vec<(f32, Option<[f32; 2]>)> {
-        self.task
-            .iter()
-            .map(|&t| {
-                let kind = match t {
-                    Task::None => TASK_NONE,
-                    Task::Fire(_) => TASK_FIRE,
-                    Task::Station(_) => TASK_STATION,
-                    Task::Point(_) => TASK_POINT,
-                };
-                (kind, self.task_point(t))
-            })
+        (0..self.task.len())
+            .map(|i| (self.kind(i), self.task_point(self.task[i])))
             .collect()
     }
 
-    /// The fire targets on offer (cell centres in metres), in slot order after the stations.
+    fn kind(&self, i: usize) -> f32 {
+        match self.task[i] {
+            Task::Fire(_) => TASK_FIRE,
+            Task::Point(_) => TASK_POINT,
+            Task::Station(_) => TASK_STATION,
+            Task::None if self.docked(i) => TASK_DOCKED,
+            Task::None => TASK_NONE,
+        }
+    }
+
+    /// The fire targets on offer (block centres in metres), in slot order after the stations.
     pub fn fire_points(&self) -> Vec<[f32; 2]> {
-        self.fires
-            .iter()
-            .map(|&(cell, _)| {
-                self.task_point(Task::Fire(cell))
-                    .expect("a fire has a place")
-            })
-            .collect()
+        self.fires.iter().map(|t| t.point).collect()
     }
 
     /// Which drones currently need a decision.
@@ -645,53 +1038,46 @@ impl AllocEnv {
         let (w, h) = (g.nx as f32 * g.cell_m, g.ny as f32 * g.cell_m);
         let (n, stations) = (self.task.len(), self.scenario.stations.len());
         let slots = stations + self.cfg.max_targets;
+        let width = TARGET.len();
         out.targets.fill(0.0);
         out.target_mask.fill(0);
-        for (s, cell) in self.scenario.stations.iter().enumerate() {
-            let p = self.cell_centre(*cell);
-            out.targets[s * 4..][..4].copy_from_slice(&[p[0] / w, p[1] / h, 1.0, 0.0]);
+        out.action_mask.fill(0);
+        for s in 0..stations {
+            let p = self.station_point(s);
+            out.targets[s * width..][..3].copy_from_slice(&[p[0] / w, p[1] / h, 1.0]);
             out.target_mask[s] = 1;
         }
         let block_cells = (self.cfg.block_cells.max(1) as f32).powi(2);
-        for (f, &(cell, count)) in self.fires.iter().enumerate() {
-            let p = self
-                .task_point(Task::Fire(cell))
-                .expect("a fire has a place");
-            out.targets[(stations + f) * 4..][..4].copy_from_slice(&[
-                p[0] / w,
-                p[1] / h,
+        for (f, t) in self.fires.iter().enumerate() {
+            out.targets[(stations + f) * width..][..width].copy_from_slice(&[
+                t.point[0] / w,
+                t.point[1] / h,
                 0.0,
-                count as f32 / block_cells,
+                t.fronts as f32 / block_cells,
+                t.need,
+                t.inbound,
+                t.kw / 1000.0,
             ]);
             out.target_mask[stations + f] = 1;
         }
         for i in 0..n {
             let p = self.world.drones.pos[i];
-            let water = self.world.drones.water[i];
-            let (kind, point) = match self.task[i] {
-                Task::None => (TASK_NONE, p),
-                task @ Task::Fire(_) => (TASK_FIRE, self.task_point(task).unwrap_or(p)),
-                task @ Task::Station(_) => (TASK_STATION, self.task_point(task).unwrap_or(p)),
-                task @ Task::Point(_) => (TASK_POINT, self.task_point(task).unwrap_or(p)),
-            };
             out.drones[i * 6..][..6].copy_from_slice(&[
                 p[0] / w,
                 p[1] / h,
-                water / self.cfg.tank_l,
-                point[0] / w,
-                point[1] / h,
-                kind,
+                self.world.drones.water[i] / self.cfg.tank_l,
+                self.goal[i][0] / w,
+                self.goal[i][1] / h,
+                self.kind(i),
             ]);
             out.decide[i] = self.decide[i] as u8;
-            for slot in 0..slots {
-                let fire = slot >= stations;
-                let allowed = if fire {
-                    water >= self.cfg.drop_l
-                } else {
-                    water < self.cfg.tank_l
-                };
-                let can = out.target_mask[slot] == 1 && allowed;
-                out.action_mask[i * slots + slot] = can as u8;
+            if !self.decide[i] {
+                continue;
+            }
+            let row = &mut out.action_mask[i * slots..][..slots];
+            row[..stations].fill(!self.docked(i) as u8);
+            for (f, t) in self.fires.iter().enumerate() {
+                row[stations + f] = self.can_take(i, t) as u8;
             }
         }
         let wind = self.world.wind();
@@ -768,48 +1154,33 @@ impl Scratch {
 /// Planners that need no learning. They live here because the rollout planner simulates
 /// ahead on copies of the environment, which only the core can do fast.
 impl AllocEnv {
-    fn nearest_station(&self, i: usize) -> Option<i32> {
-        let p = self.world.drones.pos[i];
-        (0..self.scenario.stations.len())
-            .min_by(|&a, &b| {
-                let d = |s: usize| dist(p, self.cell_centre(self.scenario.stations[s]));
-                d(a).total_cmp(&d(b))
-            })
-            .map(|s| s as i32)
-    }
-
-    /// Greedy assignment: repeatedly pair the closest free drone and free fire. A fire another
-    /// drone is flying to is left alone; a drone that cannot drop goes to the nearest station;
-    /// a drone left without a fire refills or waits. Returns a slot or -1 per drone.
-    pub fn greedy(&self) -> Vec<i32> {
-        let (n, stations) = (self.task.len(), self.scenario.stations.len());
-        let mut actions = vec![-1; n];
-        let taken = |cell: u32| (0..n).any(|j| !self.decide[j] && self.task[j] == Task::Fire(cell));
-        let mut fires: Vec<usize> = (0..self.fires.len())
-            .filter(|&f| !taken(self.fires[f].0))
-            .collect();
-        let mut ready: Vec<usize> = (0..n)
-            .filter(|&i| self.decide[i] && self.world.drones.water[i] >= self.cfg.drop_l)
-            .collect();
-        while !ready.is_empty() && !fires.is_empty() {
-            let mut best = (f32::INFINITY, 0, 0);
-            for (r, &i) in ready.iter().enumerate() {
-                for (c, &f) in fires.iter().enumerate() {
-                    let d = dist(
-                        self.world.drones.pos[i],
-                        self.task_point(Task::Fire(self.fires[f].0)).unwrap(),
-                    );
-                    if d < best.0 {
-                        best = (d, r, c);
-                    }
+    /// Sends every deciding drone to a block that still needs water after what is already
+    /// on its way, one drop per drone: the nearest (`Greedy`), the most intense (`Head`) or
+    /// the least intense (`Flank`), nearer first among equals. Drones left over wait at their
+    /// station, or fly home when in the air. Returns a slot or -1 per drone.
+    pub fn assign(&self, method: Method) -> Vec<i32> {
+        let stations = self.scenario.stations.len();
+        let mut actions = vec![-1; self.task.len()];
+        let mut open: Vec<f32> = self.fires.iter().map(|t| t.need - t.inbound).collect();
+        for i in (0..self.task.len()).filter(|&i| self.decide[i]) {
+            let score = |f: usize| {
+                let t = &self.fires[f];
+                let d = dist(self.world.drones.pos[i], t.point);
+                match method {
+                    Method::Head => (-t.kw, d),
+                    Method::Flank => (t.kw, d),
+                    _ => (d, d),
                 }
-            }
-            actions[ready.remove(best.1)] = (stations + fires.remove(best.2)) as i32;
-        }
-        #[allow(clippy::needless_range_loop)] // the index addresses flags, tanks and actions
-        for i in 0..n {
-            if self.decide[i] && actions[i] < 0 && self.world.drones.water[i] < self.cfg.tank_l {
-                actions[i] = self.nearest_station(i).unwrap_or(-1);
+            };
+            let best = (0..self.fires.len())
+                .filter(|&f| open[f] > 0.0 && self.can_take(i, &self.fires[f]))
+                .min_by(|&a, &b| {
+                    let (a, b) = (score(a), score(b));
+                    a.0.total_cmp(&b.0).then(a.1.total_cmp(&b.1))
+                });
+            if let Some(f) = best {
+                open[f] -= 1.0;
+                actions[i] = (stations + f) as i32;
             }
         }
         actions
@@ -817,13 +1188,13 @@ impl AllocEnv {
 
     /// Plays on from here with `first` now and greedy afterwards for `horizon_s`, and returns
     /// what there is to minimise: cells burned, then cells still burning.
-    fn outcome(&self, first: &[i32], horizon_s: f32, scratch: &mut Scratch) -> (u32, usize) {
+    fn outcome(&self, first: &[i32], horizon_s: f32, terms: &mut [f32]) -> (u32, usize) {
         let mut sim = self.clone();
         let end = sim.world.time_s() + horizon_s;
-        sim.step(first, false, scratch.out(self));
+        sim.advance(first, terms);
         while !sim.needs_reset && sim.world.time_s() < end {
-            let actions = sim.greedy();
-            sim.step(&actions, false, scratch.out(self));
+            let actions = sim.assign(Method::Greedy);
+            sim.advance(&actions, terms);
         }
         (sim.world.fire.n_ignited, sim.world.fire.n_burning())
     }
@@ -834,34 +1205,23 @@ impl AllocEnv {
     /// deciding everything later, and the best outcome wins. By construction it does at
     /// least as well as greedy on the simulated horizon.
     ///
-    /// Alternatives per drone: its greedy choice, the `candidates` nearest fires it may take,
-    /// the nearest station if its tank is not full, and waiting.
+    /// Alternatives per drone: its greedy choice, -1, and the `candidates` blocks it can
+    /// reach that lack the most water.
     pub fn rollout(&self, horizon_s: f32, candidates: usize) -> Vec<i32> {
         let (n, stations) = (self.task.len(), self.scenario.stations.len());
-        let mut chosen = self.greedy();
+        let mut chosen = self.assign(Method::Greedy);
         if self.needs_reset {
             return chosen;
         }
-        let mut scratch = Scratch::new(self);
+        let mut terms = vec![0.0; n * TERMS.len()];
         for i in (0..n).filter(|&i| self.decide[i]) {
-            let p = self.world.drones.pos[i];
-            let water = self.world.drones.water[i];
             let mut options = vec![chosen[i], -1];
-            if water >= self.cfg.drop_l {
-                let mut near: Vec<(f32, i32)> = (0..self.fires.len())
-                    .map(|f| {
-                        (
-                            dist(p, self.task_point(Task::Fire(self.fires[f].0)).unwrap()),
-                            (stations + f) as i32,
-                        )
-                    })
-                    .collect();
-                near.sort_by(|a, b| a.0.total_cmp(&b.0));
-                options.extend(near.iter().take(candidates).map(|o| o.1));
-            }
-            if water < self.cfg.tank_l {
-                options.extend(self.nearest_station(i));
-            }
+            // `fires` is sorted by need, so the first that fit are the neediest.
+            let reach = (0..self.fires.len()).filter(|&f| {
+                let t = &self.fires[f];
+                t.need - t.inbound > 0.0 && self.can_take(i, t)
+            });
+            options.extend(reach.take(candidates).map(|f| (stations + f) as i32));
             let mut best = (u32::MAX, usize::MAX);
             let mut seen: Vec<i32> = Vec::new();
             for option in options {
@@ -871,13 +1231,21 @@ impl AllocEnv {
                 seen.push(option);
                 let mut first = chosen.clone();
                 first[i] = option;
-                let score = self.outcome(&first, horizon_s, &mut scratch);
+                let score = self.outcome(&first, horizon_s, &mut terms);
                 if score < best {
                     (best, chosen[i]) = (score, option); // ties keep the earlier option: greedy first
                 }
             }
         }
         chosen
+    }
+
+    /// The actions of a planner: see `Method`. `horizon_s` and `candidates` belong to rollout.
+    pub fn plan(&self, method: Method, horizon_s: f32, candidates: usize) -> Vec<i32> {
+        match method {
+            Method::Rollout => self.rollout(horizon_s, candidates),
+            method => self.assign(method),
+        }
     }
 }
 
@@ -910,7 +1278,7 @@ pub struct AllocVec {
 }
 
 impl AllocVec {
-    /// Fails if the scenario is malformed or its drones start closer than `safe_m`.
+    /// Fails if the scenario is malformed, has no ground station, or the settings cannot run.
     /// `threads == 0` uses every core.
     pub fn new(
         num_envs: usize,
@@ -921,15 +1289,12 @@ impl AllocVec {
         threads: usize,
     ) -> Result<Self, String> {
         let world = scenario.world(sim, 0)?; // validates the map and what is placed on it
-        if scenario.drones.is_empty() {
-            return Err("the scenario has no drones".into());
-        }
-        let pos = &world.drones.pos;
-        if (0..pos.len()).any(|i| (0..i).any(|j| dist(pos[i], pos[j]) < cfg.safe_m)) {
-            return Err(format!("two drones start closer than {} m", cfg.safe_m));
+        cfg.check()?;
+        if scenario.stations.is_empty() {
+            return Err("the scenario has no ground station for the drones".into());
         }
         let (drones, slots) = (
-            scenario.drones.len(),
+            scenario.stations.len() * cfg.drones_per_station as usize,
             scenario.stations.len() + cfg.max_targets,
         );
         let (scenario, terrain) = (Arc::new(scenario), world.terrain.clone());
@@ -1052,40 +1417,21 @@ impl AllocVec {
                         seed: r.5,
                         fingerprint: r.6,
                     });
-                    let g = env.terrain.grid;
-                    let size = (g.nx as f32 * g.cell_m, g.ny as f32 * g.cell_m);
-                    let d = &env.world.drones;
-                    crate::navigate::observe_flight(
-                        &d.pos,
-                        &d.vel,
-                        &env.flight_goals(),
-                        size,
-                        view_m,
-                        env.cfg.max_speed_ms,
-                        p.0,
-                        p.1,
-                        p.2,
-                    );
+                    env.observe_pilot(view_m, p.0, p.1, p.2);
                 });
         });
     }
 
-    /// Rollout-planner actions for every environment (see `AllocEnv::rollout`), [envs, drones].
-    pub fn rollout(&self, horizon_s: f32, candidates: usize, actions: &mut [i32]) {
+    /// A built-in planner's actions for every environment (see `AllocEnv::plan`),
+    /// [envs, drones].
+    pub fn plan(&self, method: Method, horizon_s: f32, candidates: usize, actions: &mut [i32]) {
         self.pool.install(|| {
             (self.envs.par_iter(), actions.par_chunks_mut(self.drones))
                 .into_par_iter()
                 .for_each(|(env, out)| {
-                    out.copy_from_slice(&env.rollout(horizon_s, candidates));
+                    out.copy_from_slice(&env.plan(method, horizon_s, candidates));
                 });
         });
-    }
-
-    /// Greedy actions for every environment (see `AllocEnv::greedy`), [envs, drones].
-    pub fn greedy(&self, actions: &mut [i32]) {
-        for (env, out) in self.envs.iter().zip(actions.chunks_mut(self.drones)) {
-            out.copy_from_slice(&env.greedy());
-        }
     }
 
     fn run(&mut self, actions: &[i32], seeds: Option<&[u64]>, b: Bufs<'_>) {

@@ -19,8 +19,9 @@ is done a `[result]` section. That file is what was run, and it can be run again
 code is saved next to it as `code.patch`.
 The viewer's Settings window loads and saves the same `[sim]`, `[allocate]` and `[navigate]`.
 
-ponytail: no inheritance between files and no sweeps; a variant is a copied file. Add a
-`--set section.key=value` override when a sweep needs one.
+ponytail: no inheritance between files; a variant is a copied file. A sweep is a shell loop
+over `python -m roshan.eval file.toml --config '{...}' --out runs/...`, which records each
+run's full settings.
 """
 
 import functools
@@ -78,7 +79,7 @@ NOTES = {
     "reward": "weight of each reward term",
     "ppo": "PPO settings",
     "eval": 'split is "val" or "test"; n = 0 runs all its seeds; pair = ["a", "b"] adds paired statistics of two arms',
-    "arms": 'one section per planner to compare: policy is none, greedy, hungarian, rollout or a checkpoint (.pt);\n'
+    "arms": 'one section per planner to compare: policy is none, greedy, head, flank, rollout or a checkpoint (.pt);\n'
             '# horizon (seconds) and candidates belong to rollout, sample to a checkpoint;\n'
             '# fly is a fly checkpoint, "decentral", or "" for the scripted controller',
 }
@@ -146,16 +147,21 @@ def claim(out, force=False):
     return out
 
 
+# The task behind `simulator_digest`. Fixed here and never tuned, so that redefining a
+# benchmark does not make runs look stale: enough fire and few enough pads that drones queue.
+DIGEST_TASK = {"random_ignitions": 3, "random_wind": True, "preburn_s": 120.0, "drones_per_station": 40, "pads": 4,
+               "time_limit_s": 900.0}
+
+
 @functools.cache
 def simulator_digest():
     """Changes whenever the simulator behaves differently (fire, water, drones or the demo map):
-    what the greedy planner does on 8 fixed episodes of the dynamic task. Results and
-    checkpoints made under another digest are stale. About a second, once per process."""
+    what the greedy planner does on 8 fixed episodes of `DIGEST_TASK` on the demo map. Results
+    and checkpoints made under another digest are stale. About a second, once per process."""
     from roshan.eval.run import evaluate
-    from roshan.rl.train_planner import RUN, TASK
     from roshan.scenario import Scenario
 
-    rows = evaluate(Scenario.load(ROOT / RUN["scenario"]), "greedy", list(range(3_000_000, 3_000_008)), TASK)
+    rows = evaluate(Scenario.load(ROOT / "scenarios/demo.npz"), "greedy", list(range(3_000_000, 3_000_008)), DIGEST_TASK)
     seen = [(r["Fire_Fingerprint"], r["Burned_Cells"], r["Burned_NoAction"], r["Drops"], r["Water_L"]) for r in rows]
     return hashlib.sha256(json.dumps(seen).encode()).hexdigest()[:12]
 

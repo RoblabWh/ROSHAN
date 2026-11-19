@@ -62,10 +62,10 @@ def test_save_and_load_give_the_same_scenario(tmp_path):
     s.meta["origin"] = [4126370, 3182980]
     loaded = Scenario.load(s.save(tmp_path / "demo.npz"))
     assert loaded.fingerprint() == s.fingerprint()
-    assert loaded.ignitions == [(20, 60)] and loaded.stations == [(3, 3)] and len(loaded.drones) == 4
+    assert loaded.ignitions == [(20, 60)] and loaded.stations == [(3, 3)]
     assert np.array_equal(loaded.elevation, s.elevation) and loaded.meta == s.meta
 
-    loaded.drones.append((7, 7))
+    loaded.stations.append((7, 7))
     assert loaded.fingerprint() != s.fingerprint()
     flat = Scenario(fuel=np.ones((4, 6), np.uint8))
     assert Scenario.load(flat.save(tmp_path / "flat.npz")).fingerprint() == flat.fingerprint()
@@ -78,7 +78,7 @@ def test_the_simulator_round_trips_a_scenario_and_rejects_bad_ones():
 
     d = s.to_dict()
     with pytest.raises(ValueError, match="outside"):
-        _core.check_scenario({**d, "drones": [[500, 0]]})
+        _core.check_scenario({**d, "stations": [[500, 0]]})
     with pytest.raises(ValueError, match="fuel id"):
         _core.check_scenario({**d, "fuel": np.full_like(d["fuel"], 99)})
     with pytest.raises(ValueError, match="shape"):

@@ -79,23 +79,25 @@ class NavigateEnv:
 
 
 class AllocateEnv:
-    """A planner assigns targets to drones on one scenario (crates/roshan-core/src/allocate.rs).
+    """A planner sends the drones of a scenario's ground stations to fires
+    (crates/roshan-core/src/allocate.rs).
 
-    Buffers (CPU, pinned when CUDA is available), E environments, D drones, S target slots
-    (the scenario's ground stations first, then fire targets):
+    Buffers (CPU, pinned when CUDA is available), E environments, D drones (the task's
+    `drones_per_station` at every station), S target slots (the scenario's ground stations
+    first, then fire targets):
 
-        actions      [E, D] int32   slot to fly to, or -1 to keep the current task (read by step)
+        actions      [E, D] int32   slot to fly to, or -1: stay docked, or fly home (read by step)
         drones       [E, D, 6]      see spec["drone"]; positions are fractions of the map size
-        targets      [E, S, 4]      see spec["target"]
+        targets      [E, S, 7]      see spec["target"]
         target_mask  [E, S]         1 where the slot holds a target
-        action_mask  [E, D, S]      1 where that drone may choose that slot
+        action_mask  [E, D, S]      1 where that drone may choose that slot (rows of drones that decide)
         globals      [E, 5]         see spec["global"]
         decide       [E, D]         1 where the drone needs a decision now
         terms        [E, D, 5]      reward building blocks for the step, see spec["terms"]
         elapsed_s    [E]            simulated seconds the step took
         terminated   [E]            the fire went out
         truncated    [E]            the time limit was reached
-        info         [E, 7]         episode summary where an episode ended, see spec["info"]
+        info         [E, 15]        episode summary where an episode ended, see spec["info"]
         seed, fingerprint [E]       the episode's seed and a digest of the fire it started with
 
     One step runs until the next decision event. `reset(seeds)` starts the episodes of the
@@ -147,9 +149,11 @@ class AllocateEnv:
         """Start fresh episodes: those of `seeds` (one per environment), or the next training ones."""
         self._env.advance(True, None if seeds is None else [int(s) for s in seeds], *self._arrays)
 
-    def plan(self, method, horizon_s=120.0, candidates=4):
-        """Actions [E, D] of a built-in planner for the current state: "greedy", or "rollout",
-        which improves on greedy by simulating `horizon_s` ahead on copies of the world."""
+    def plan(self, method, horizon_s=300.0, candidates=4):
+        """Actions [E, D] of a built-in planner for the current state: "greedy", "head" or
+        "flank" (each deciding drone to the nearest, most intense or least intense block that
+        still needs water), or "rollout", which improves on greedy by simulating `horizon_s`
+        ahead on copies of the world."""
         actions = torch.full(self.actions.shape, -1, dtype=torch.int32)
         self._env.plan(method, actions.numpy(), horizon_s, candidates)
         return actions
@@ -166,8 +170,9 @@ class AllocateEnv:
         `velocity` [E, D, 2] are fractions of the maximum speed; `actions` are applied where
         drones wait for a decision. Afterwards `self.pilot` = (agent, neighbors, mask) holds
         what a fly policy sees next (as in the navigate task, distances divided by `view_m`),
-        and the planner's tables are current. Nothing keeps drones apart or on the map here;
-        `info` reports the smallest distance between two drones when an episode ends.
+        and the planner's tables are current. Docked drones are not flown. Nothing keeps
+        drones apart, on the map or within their endurance here; `info` reports the smallest
+        distance between two drones and the longest sortie when an episode ends.
         """
         e, d = self.actions.shape
         if not hasattr(self, "pilot"):

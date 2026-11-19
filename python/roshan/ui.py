@@ -2,7 +2,7 @@
 
     uv run python -m roshan.ui                                # demo scenario, greedy planner
     uv run python -m roshan.ui --scenario scenarios/x.npz     # a saved scenario
-    uv run python -m roshan.ui --planner rollout              # off, greedy or rollout
+    uv run python -m roshan.ui --planner rollout              # off, greedy, head, flank or rollout
     uv run python -m roshan.ui --planner runs/planner/planner.pt   # a trained planner
     uv run python -m roshan.ui --fly runs/navigate/fly.pt     # watch the trained fly policy
     uv run python -m roshan.ui --fly none --drones 2          # the fly task, steered by hand
@@ -37,7 +37,7 @@ def run(scenario=None, policy=None, planner="greedy", auto_close_s=None, save_di
         fire_model="rothermel", preburn_s=0.0, path=None, settings=None, seed=None):
     """Open the viewer on a scenario and block until it closes. Call from the main thread.
 
-    `scenario` is a Scenario or None for the demo. `planner` is "off", "greedy", "rollout" or
+    `scenario` is a Scenario or None for the demo. `planner` is "off", "greedy", "head", "flank", "rollout" or
     "policy". With `policy(obs) -> one target slot per drone` (obs is a dict of arrays: drones,
     targets, target_mask, action_mask, globals, decide), the policy is asked whenever drones
     need a decision. It runs on the simulation thread. With `preburn_s` the fires burn that
@@ -152,7 +152,7 @@ def fly(checkpoint=None, drones=None, nx=35, ny=36, cell_m=10.0, auto_close_s=No
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("--scenario", help="a .npz file written by the viewer or by roshan.geo")
-    parser.add_argument("--planner", default="greedy", help="off, greedy, rollout, or a trained planner checkpoint (.pt)")
+    parser.add_argument("--planner", default="greedy", help="off, greedy, head, flank, rollout, or a trained planner checkpoint (.pt)")
     parser.add_argument("--fire-model", choices=["rothermel", "firespin"], default="rothermel")
     parser.add_argument("--preburn", type=float, default=0.0, metavar="SECONDS",
                         help="let the fires burn this long before the drones start")
@@ -165,7 +165,7 @@ if __name__ == "__main__":
     if args.experiment and (args.fly or args.fire_model != "rothermel" or args.preburn):
         parser.error("--experiment brings its own settings: not together with --fly, --fire-model or --preburn")
     learned = args.planner.endswith(".pt")
-    if not learned and args.planner not in ("off", "greedy", "rollout"):
+    if not learned and args.planner not in ("off", "greedy", "head", "flank", "rollout"):
         parser.error(f"unknown planner {args.planner!r}")
     settings, scenario = None, args.scenario
     if args.experiment:

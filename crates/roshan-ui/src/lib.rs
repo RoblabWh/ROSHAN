@@ -2,9 +2,9 @@
 //! policies, file loading, saving and terrain fetching are closures.
 //!
 //! What runs in the window:
-//! - a scenario without drones: the fire alone;
-//! - a scenario with drones: the allocate task, with a built-in planner or a policy, and
-//!   optionally a learned pilot flying the drones;
+//! - a scenario without a ground station: the fire alone;
+//! - a scenario with ground stations: the allocate task (drones are based at the stations),
+//!   with a built-in planner or a policy, and optionally a learned pilot flying the drones;
 //! - navigate: the fly task, with a policy or by hand.
 //!
 //! Where things are: this file holds the simulation side and the window loop, `panels.rs` the
@@ -30,7 +30,7 @@ mod picker;
 mod settings;
 
 use eframe::egui;
-use roshan_core::allocate::{self, AllocConfig, AllocEnv};
+use roshan_core::allocate::{self, AllocConfig, AllocEnv, Method};
 use roshan_core::fire::FireModel;
 use roshan_core::navigate::{self, NavConfig, NavEnv};
 use roshan_core::rothermel::Moisture;
@@ -88,7 +88,7 @@ pub struct Area {
 
 /// What the window runs.
 pub enum Session {
-    /// A scenario: the fire, and the allocate task if the scenario has drones.
+    /// A scenario: the fire, and the allocate task if the scenario has a ground station.
     Scenario(Scenario),
     /// The navigate task on an empty map.
     Navigate { grid: Grid, cfg: NavConfig },
@@ -116,6 +116,8 @@ pub enum Planner {
     Off,
     #[default]
     Greedy,
+    Head,
+    Flank,
     Rollout,
     /// The attached policy.
     Policy,
@@ -289,7 +291,6 @@ fn empty_scenario(grid: Grid) -> Scenario {
         elevation: None,
         landcover: None,
         ignitions: vec![],
-        drones: vec![],
         stations: vec![],
         moisture: Moisture {
             d1: 0.06,
@@ -330,7 +331,7 @@ fn build(
         );
         return Ok(Sim::Navigate(Box::new(env), Box::new(scratch)));
     }
-    if scenario.drones.is_empty() {
+    if scenario.stations.is_empty() {
         return Ok(Sim::Fire(Box::new(scenario.world(cfg, seed)?)));
     }
     let env = AllocEnv::single(scenario.clone(), cfg, alloc, seed)?;
@@ -378,22 +379,11 @@ fn asks(s: &mut Shared) -> (Option<Obs>, Option<Obs>) {
             // ponytail: built before this tick's planner decision is applied, so a new target
             // reaches the pilot one tick (0.1 s) late.
             let pilot = s.has_fly.then(|| {
-                let (drones, g) = (&env.world.drones, env.world.terrain.grid);
-                let n = drones.pos.len();
+                let n = env.world.drones.pos.len();
                 let mut agent = vec![0.0; n * navigate::AGENT.len()];
                 let mut neighbors = vec![0.0; n * n * navigate::NEIGHBOR.len()];
                 let mut mask = vec![0; n * n];
-                navigate::observe_flight(
-                    &drones.pos,
-                    &drones.vel,
-                    &env.flight_goals(),
-                    (g.nx as f32 * g.cell_m, g.ny as f32 * g.cell_m),
-                    view_m,
-                    env.config().max_speed_ms,
-                    &mut agent,
-                    &mut neighbors,
-                    &mut mask,
-                );
+                env.observe_pilot(view_m, &mut agent, &mut neighbors, &mut mask);
                 pilot_obs(n, agent, neighbors, &mask)
             });
             (planner, pilot)
@@ -421,7 +411,9 @@ fn tick(s: &mut Shared, planned: Option<Vec<f32>>, flown: Option<Vec<f32>>) {
             if env.pending() {
                 let actions = match s.planner {
                     Planner::Off => vec![-1; n],
-                    Planner::Greedy => env.greedy(),
+                    Planner::Greedy => env.assign(Method::Greedy),
+                    Planner::Head => env.assign(Method::Head),
+                    Planner::Flank => env.assign(Method::Flank),
                     // ponytail: the lookahead runs under the lock and can stall a frame or two.
                     Planner::Rollout => env.rollout(s.rollout.0, s.rollout.1),
                     Planner::Policy => planned.filter(|a| a.len() == n).map_or(vec![-1; n], |a| {
@@ -558,9 +550,8 @@ enum Tool {
     Ignite,
     /// Drop water on the running simulation.
     Water,
-    /// The rest edit the scenario and restart it: toggle a starting fire, drone or station.
+    /// The rest edit the scenario and restart it: toggle a starting fire or a ground station.
     StartFire,
-    Drone,
     Station,
     Erase,
 }
@@ -649,6 +640,10 @@ struct DroneView {
     /// What it is doing (`allocate::TASK_*`).
     kind: f32,
     deciding: bool,
+    /// At a ground station (allocate): not drawn, and no body for the others.
+    docked: bool,
+    /// Docked, serviced and free to be sent.
+    ready: bool,
     /// Litres on board, and the tank size (allocate).
     water: Option<(f32, f32)>,
 }
@@ -695,6 +690,8 @@ struct Snapshot {
     /// Fire targets on offer, in cells (allocate).
     targets: Vec<[f32; 2]>,
     stations: Vec<[u32; 2]>,
+    /// Per station: drones ready to be sent, drones docked (allocate).
+    fleet: Vec<(u32, u32)>,
     start_fires: Vec<[u32; 2]>,
     moisture: Moisture,
     /// The scenario's wind schedule.
@@ -732,6 +729,8 @@ fn snapshot(s: &mut Shared) -> Snapshot {
                     goal: task.1.map(cells),
                     kind: task.0,
                     deciding: env.deciding()[i],
+                    docked: env.docked(i),
+                    ready: env.ready(i),
                     water: Some((fleet.water[i], tank)),
                 })
                 .collect();
@@ -765,6 +764,8 @@ fn snapshot(s: &mut Shared) -> Snapshot {
                     goal: Some(cells(env.goals()[i])),
                     kind: allocate::TASK_POINT,
                     deciding: false,
+                    docked: false,
+                    ready: false,
                     water: None,
                 })
                 .collect();
@@ -841,6 +842,10 @@ fn snapshot(s: &mut Shared) -> Snapshot {
             vec![]
         } else {
             s.scenario.stations.clone()
+        },
+        fleet: match &s.sim {
+            Sim::Allocate(env, _) => env.fleet(),
+            _ => vec![],
         },
         start_fires: s.scenario.ignitions.clone(),
         moisture: s.scenario.moisture,
@@ -1194,7 +1199,7 @@ impl Shared {
             cfg,
             seed,
             advance_seed: opts.seed.is_none(),
-            rollout: (120.0, 4),
+            rollout: (300.0, 4),
             planner: opts.planner,
             flight: if has_policy && navigating {
                 Flight::Policy

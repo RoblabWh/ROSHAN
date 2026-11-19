@@ -1,14 +1,19 @@
-//! M4 checks for the allocate task: separation, determinism, decisions and suppression.
+//! Checks for the allocate task: separation, determinism, the drones' life cycle, decisions
+//! and suppression.
 
-use roshan_core::allocate::{AllocConfig, AllocVec, Bufs, DRONE, GLOBAL, INFO, TARGET, TERMS};
+use roshan_core::allocate::{
+    AllocConfig, AllocVec, Bufs, DRONE, GLOBAL, INFO, Method, TARGET, TASK_DOCKED, TASK_FIRE,
+    TASK_STATION, TERMS,
+};
 use roshan_core::fuel;
+use roshan_core::navigate::AGENT;
 use roshan_core::rothermel::Moisture;
 use roshan_core::scenario::Scenario;
 use roshan_core::terrain::Grid;
 use roshan_core::world::{SimConfig, Wind};
 
-/// Grassland, 600 m x 400 m, with two stations and `drones` drones parked in a row.
-fn scenario(drones: u32) -> Scenario {
+/// Grassland, 600 m x 400 m, with two stations in opposite corners.
+fn scenario() -> Scenario {
     let grid = Grid {
         nx: 60,
         ny: 40,
@@ -20,7 +25,6 @@ fn scenario(drones: u32) -> Scenario {
         elevation: None,
         landcover: None,
         ignitions: vec![[30, 20]],
-        drones: (0..drones).map(|i| [2 + i % 8, 2 + i / 8]).collect(),
         stations: vec![[3, 5], [56, 36]],
         moisture: Moisture {
             d1: 0.06,
@@ -93,17 +97,40 @@ impl Buffers {
     }
 }
 
+/// 16 drones (8 at each station) on four random fires for ten minutes.
 fn cfg() -> AllocConfig {
     AllocConfig {
         time_limit_s: 600.0,
         random_ignitions: 4,
         random_wind: true,
+        drones_per_station: 8,
         ..AllocConfig::default()
     }
 }
 
-/// A simple deterministic planner: a drone with water takes the fire slot `pick` chooses among
-/// those it may take; a drone without goes to station 0.
+/// One fire at the scenario's ignition, `per_station` drones at each of the two stations.
+fn one_fire(per_station: u32) -> AllocConfig {
+    AllocConfig {
+        random_ignitions: 0,
+        random_wind: false,
+        drones_per_station: per_station,
+        ..cfg()
+    }
+}
+
+fn info(name: &str) -> usize {
+    INFO.iter().position(|&n| n == name).unwrap()
+}
+
+fn target(name: &str) -> usize {
+    TARGET.iter().position(|&n| n == name).unwrap()
+}
+
+const KIND: usize = 5; // DRONE column "task_kind"
+const WATER: usize = 2;
+
+/// A simple deterministic planner: a deciding drone takes the fire slot `pick` chooses among
+/// those it may take, and otherwise answers -1.
 fn plan(v: &AllocVec, b: &Buffers, pick: impl Fn(usize, usize, usize) -> usize) -> Vec<i32> {
     let (n, slots) = (v.drones, v.slots);
     let stations = slots - v.cfg.max_targets;
@@ -113,21 +140,19 @@ fn plan(v: &AllocVec, b: &Buffers, pick: impl Fn(usize, usize, usize) -> usize) 
             let mask = &b.action_mask[k * slots..][..slots];
             let fires: Vec<usize> = (stations..slots).filter(|&s| mask[s] == 1).collect();
             match (b.decide[k], fires.is_empty()) {
-                (0, _) => -1,
-                (_, false) => fires[pick(e, i, fires.len())] as i32,
-                (_, true) if b.drones[k * DRONE.len() + 2] < 1.0 => 0,
+                (1, false) => fires[pick(e, i, fires.len())] as i32,
                 _ => -1,
             }
         })
         .collect()
 }
 
-/// Runs the given seeds to the end with the largest-fire-first planner; returns each
-/// environment's episode summary and fingerprint.
+/// Runs the given seeds to the end, with the planner above or without anyone acting; returns
+/// each environment's episode summary and fingerprint.
 fn run(seeds: &[u64], threads: usize, config: AllocConfig, act: bool) -> Vec<(Vec<f32>, u64)> {
     let mut v = AllocVec::new(
         seeds.len(),
-        scenario(4),
+        scenario(),
         SimConfig::default(),
         config,
         0,
@@ -158,13 +183,26 @@ fn run(seeds: &[u64], threads: usize, config: AllocConfig, act: bool) -> Vec<(Ve
     done.into_iter().map(Option::unwrap).collect()
 }
 
+/// NaN-safe equality of two result lists (a summary holds NaN where nothing was measured).
+fn same(a: &[(Vec<f32>, u64)], b: &[(Vec<f32>, u64)]) -> bool {
+    let bits = |r: &[(Vec<f32>, u64)]| -> Vec<(Vec<u32>, u64)> {
+        r.iter()
+            .map(|(i, f)| (i.iter().map(|x| x.to_bits()).collect(), *f))
+            .collect()
+    };
+    bits(a) == bits(b)
+}
+
 #[test]
 fn sixteen_drones_never_get_closer_than_the_safe_distance() {
+    // Separation kept, quick service on plenty of pads: as many drones in the air as can be.
     let config = AllocConfig {
-        max_interval_s: 5.0,
+        safe_m: 3.0,
+        service_s: 1.0,
+        pads: 16,
         ..cfg()
     };
-    let mut v = AllocVec::new(24, scenario(16), SimConfig::default(), config, 3, 0).unwrap();
+    let mut v = AllocVec::new(24, scenario(), SimConfig::default(), config, 3, 0).unwrap();
     let mut b = Buffers::new(&v);
     v.reset(None, b.all());
     let (mut tasks, mut closest, mut steps) = (0.0, f32::INFINITY, 0u64);
@@ -203,11 +241,13 @@ fn an_episode_depends_only_on_its_seed() {
     for cfg in [cfg(), preburned()] {
         let seeds: Vec<u64> = (100..164).collect();
         let all = run(&seeds, 0, cfg, true);
-        assert_eq!(all, run(&seeds, 1, cfg, true), "1 thread vs all threads");
+        assert!(
+            same(&all, &run(&seeds, 1, cfg, true)),
+            "1 thread vs all threads"
+        );
         for k in [0, 7, 63] {
-            assert_eq!(
-                run(&seeds[k..=k], 1, cfg, true)[0],
-                all[k],
+            assert!(
+                same(&run(&seeds[k..=k], 1, cfg, true), &all[k..=k]),
                 "seed {} alone vs in a batch of 64",
                 seeds[k]
             );
@@ -228,7 +268,7 @@ fn a_preburn_is_the_fire_left_alone() {
     let seeds: Vec<u64> = (200..208).collect();
     let make = |config| {
         let mut v =
-            AllocVec::new(seeds.len(), scenario(4), SimConfig::default(), config, 0, 1).unwrap();
+            AllocVec::new(seeds.len(), scenario(), SimConfig::default(), config, 0, 1).unwrap();
         let mut b = Buffers::new(&v);
         v.reset(Some(&seeds), b.all());
         (v, b)
@@ -261,15 +301,14 @@ fn a_preburn_is_the_fire_left_alone() {
 #[test]
 fn the_time_limit_and_the_summary_count_from_the_start_of_the_episode() {
     let seeds: Vec<u64> = (300..316).collect();
-    let (seconds, start) = (INFO.len() - 7, INFO.len() - 1);
-    assert_eq!((INFO[seconds], INFO[start]), ("seconds", "start_cells"));
+    let (seconds, start, burned) = (info("seconds"), info("start_cells"), info("burned_cells"));
     let plain = run(&seeds, 0, cfg(), false);
     for (k, (info, _)) in run(&seeds, 0, preburned(), false).iter().enumerate() {
         assert_eq!(
             info[seconds], 600.0,
             "an idle episode lasts the whole time limit"
         );
-        assert!(info[start] > plain[k].0[start] && info[start] < info[2]);
+        assert!(info[start] > plain[k].0[start] && info[start] < info[burned]);
     }
     assert!(plain.iter().all(|(info, _)| info[start] <= 4.0));
 
@@ -291,7 +330,7 @@ fn the_time_limit_and_the_summary_count_from_the_start_of_the_episode() {
 #[test]
 fn a_fire_that_dies_in_the_preburn_ends_the_episode_at_once() {
     // One burnable cell in bare ground: it burns out long before the pre-burn is over.
-    let mut lonely = scenario(4);
+    let mut lonely = scenario();
     lonely.fuel.fill(0);
     let cell = lonely.grid.idx(30, 20);
     lonely.fuel[cell] = fuel::id("GR2").unwrap();
@@ -307,7 +346,7 @@ fn a_fire_that_dies_in_the_preburn_ends_the_episode_at_once() {
         v.envs[0].world.time_s() < 600.0,
         "the pre-burn stops when the fire is out"
     );
-    v.step(&[-1; 4], b.all());
+    v.step(&vec![-1; v.drones], b.all());
     assert_eq!((b.terminated[0], b.truncated[0]), (1, 0));
     assert_eq!(
         b.info[..3],
@@ -317,41 +356,68 @@ fn a_fire_that_dies_in_the_preburn_ends_the_episode_at_once() {
 }
 
 #[test]
-fn dropping_water_saves_area_and_idle_drones_stay_put() {
+fn dropping_water_saves_area_and_what_is_stopped_is_reported() {
     let seeds: Vec<u64> = (0..48).collect();
     let (fought, idle) = (run(&seeds, 0, cfg(), true), run(&seeds, 0, cfg(), false));
-    let mean = |r: &[(Vec<f32>, u64)], col: usize| {
-        r.iter().map(|x| x.0[col]).sum::<f32>() / r.len() as f32
+    let mean = |r: &[(Vec<f32>, u64)], name: &str| {
+        r.iter().map(|x| x.0[info(name)]).sum::<f32>() / r.len() as f32
     };
-    let (burned_fought, burned_idle) = (mean(&fought, 3), mean(&idle, 3));
+    let (burned_fought, burned_idle) = (
+        mean(&fought, "burned_fraction"),
+        mean(&idle, "burned_fraction"),
+    );
     println!(
-        "burned fraction: {burned_fought:.4} with drops, {burned_idle:.4} without; drops per episode {:.1}",
-        mean(&fought, 5)
+        "burned fraction: {burned_fought:.4} with drops, {burned_idle:.4} without; per episode \
+         {:.1} drops, {:.1} fronts stopped at {:.0} kW/m, first drop after {:.0} s",
+        mean(&fought, "drops"),
+        mean(&fought, "stopped_cells"),
+        mean(&fought, "stopped_kw_mean"),
+        mean(&fought, "first_drop_s"),
     );
     assert!(
         burned_fought < 0.8 * burned_idle,
         "{burned_fought} vs {burned_idle}"
     );
     assert!(
-        mean(&fought, 5) > 4.0 && mean(&fought, 4) > 0.0,
-        "drones must have dropped water"
+        mean(&fought, "drops") > 4.0 && mean(&fought, "stopped_cells") > 1.0,
+        "drones must have dropped water and stopped fronts"
     );
+    let config = cfg();
+    for (x, _) in &fought {
+        assert_eq!(x[info("water_l")], x[info("drops")] * config.drop_l);
+        assert!(x[info("stopped_kw_max")] <= x[info("peak_kw")]);
+        assert!(
+            x[info("max_sortie_s")] <= config.endurance_s,
+            "no drone outstays its endurance"
+        );
+        assert!(
+            x[info("min_separation_m")].is_nan(),
+            "not watched without safe_m"
+        );
+    }
     assert!(
-        idle.iter().all(|x| x.0[5] == 0.0 && x.0[4] == 0.0),
-        "no action, no drops"
+        idle.iter().all(|(x, _)| x[info("drops")] == 0.0
+            && x[info("stopped_cells")] == 0.0
+            && x[info("first_drop_s")].is_nan()),
+        "no action, no drops, nothing stopped"
     );
     // In no episode may fighting the fire burn more than doing nothing.
-    assert!(fought.iter().zip(&idle).all(|(a, b)| a.0[2] <= b.0[2]));
+    let burned = info("burned_cells");
+    assert!(
+        fought
+            .iter()
+            .zip(&idle)
+            .all(|(a, b)| a.0[burned] <= b.0[burned])
+    );
 }
 
 #[test]
-fn decisions_masks_and_tanks_follow_the_rules() {
+fn a_drone_flies_out_drops_comes_home_and_is_serviced() {
     let config = AllocConfig {
-        random_ignitions: 0,
-        random_wind: false,
-        ..cfg()
+        service_s: 20.0,
+        ..one_fire(1)
     };
-    let mut v = AllocVec::new(1, scenario(2), SimConfig::default(), config, 0, 1).unwrap();
+    let mut v = AllocVec::new(1, scenario(), SimConfig::default(), config, 0, 1).unwrap();
     let mut b = Buffers::new(&v);
     v.reset(None, b.all());
     let (slots, stations) = (v.slots, 2);
@@ -363,96 +429,326 @@ fn decisions_masks_and_tanks_follow_the_rules() {
     );
     assert_eq!(b.target_mask[3..].iter().sum::<u8>(), 0);
     assert_eq!(b.targets[2], 1.0, "stations come first");
-    assert_eq!((b.drones[2], b.drones[5]), (1.0, 0.0), "full tank, no task");
-
-    // Drone 0 takes the fire, drone 1 keeps doing nothing.
-    v.step(&[stations as i32, -1], b.all());
-    assert!(b.elapsed_s[0] > 0.0 && b.elapsed_s[0] <= config.max_interval_s + 0.2);
-    assert_eq!(b.drones[5], 1.0, "drone 0 is on a fire task");
-    assert_eq!(b.drones[DRONE.len() + 5], 0.0, "drone 1 has none");
-    let start = (b.drones[DRONE.len()], b.drones[DRONE.len() + 1]);
-
-    // Fly on until drone 0 has made two drops: then its tank is empty.
-    let (mut drops, mut guard) = (0.0, 0);
-    while drops < 2.0 {
-        let a0 = if b.decide[0] == 1 && b.action_mask[stations] == 1 {
-            stations as i32
-        } else {
-            -1
-        };
-        v.step(&[a0, -1], b.all());
-        drops += b.terms[0];
-        guard += 1;
-        assert!(
-            guard < 2000 && b.terminated[0] == 0,
-            "two drops must happen before the fire is out"
-        );
-    }
-    assert_eq!(b.drones[2], 0.0, "two drops empty the tank");
-    assert!(
-        b.action_mask[stations..slots].iter().all(|m| *m == 0),
-        "no water, no fire target"
+    assert_eq!(
+        (b.drones[WATER], b.drones[KIND]),
+        (1.0, TASK_DOCKED),
+        "full tank, docked"
     );
     assert_eq!(
-        &b.action_mask[..stations],
-        [1, 1],
-        "stations stay available"
+        &b.action_mask[..3],
+        [0, 0, 1],
+        "a docked drone can only take a fire"
+    );
+
+    // Drone 0 takes the fire, drone 1 waits and is asked again on the clock.
+    v.step(&[stations as i32, -1], b.all());
+    assert_eq!(b.elapsed_s[0], config.max_interval_s);
+    assert_eq!(
+        (b.decide[0], b.decide[1]),
+        (0, 1),
+        "only the waiting drone is asked"
+    );
+    assert_eq!(b.drones[KIND], TASK_FIRE);
+    assert_eq!(b.drones[DRONE.len() + KIND], TASK_DOCKED);
+    assert_eq!(
+        b.targets[stations * TARGET.len() + target("inbound")],
+        1.0,
+        "one drop is on its way to the fire"
+    );
+    let start = (b.drones[DRONE.len()], b.drones[DRONE.len() + 1]);
+
+    // On until the drop: the tank is empty and the drone turns home by itself.
+    let (mut clock, mut dropped_at, mut ready_at, mut refilled) = (b.elapsed_s[0], None, None, 0.0);
+    for _ in 0..200 {
+        v.step(&[-1, -1], b.all());
+        clock += b.elapsed_s[0];
+        refilled += b.terms[1];
+        if b.terms[0] > 0.0 {
+            dropped_at = Some(clock);
+        }
+        if dropped_at.is_some() && b.decide[0] == 1 {
+            ready_at = Some(clock);
+            break;
+        }
+        if dropped_at.is_some() && b.drones[KIND] != TASK_DOCKED {
+            assert_eq!(
+                (b.drones[WATER], b.drones[KIND]),
+                (0.0, TASK_STATION),
+                "empty and on its way home"
+            );
+        }
+        assert_eq!(b.terminated[0] + b.truncated[0], 0);
+    }
+    let (dropped_at, ready_at) = (dropped_at.unwrap(), ready_at.unwrap());
+    // Station at (35, 55) m, the fire's block at (310, 210) m: 316 m, 31.6 s each way minus
+    // the arrival radii. The test's clock only ticks when the waiting drone is asked (10 s).
+    let first_drop = v.envs[0].summary()[info("first_drop_s")];
+    assert!((30.5..31.6).contains(&first_drop), "{first_drop} s");
+    assert!(dropped_at >= first_drop && dropped_at < first_drop + config.max_interval_s);
+    // Home is the nearest station: the other one, 298 m from the block.
+    let flight_home = ready_at - first_drop - config.service_s;
+    assert!(
+        (28.5..30.5).contains(&flight_home),
+        "home and serviced after {ready_at} s"
+    );
+    assert_eq!(
+        (b.drones[WATER], b.drones[KIND]),
+        (1.0, TASK_DOCKED),
+        "serviced"
+    );
+    assert!(
+        (refilled - 1.0).abs() < 1e-6,
+        "the refill term is one tank: {refilled}"
     );
     assert_eq!(
         (b.drones[DRONE.len()], b.drones[DRONE.len() + 1]),
         start,
-        "the idle drone never moved"
+        "the waiting drone never moved"
     );
+    let summary = v.envs[0].summary();
+    assert_eq!(summary[info("drops")], 1.0);
+    assert!((summary[info("max_sortie_s")] - (ready_at - config.service_s)).abs() < 0.2);
+    assert_eq!(b.action_mask[slots + stations], 0, "rows are per drone");
+}
 
-    // Choosing a fire anyway is ignored; going to the station refills the tank.
-    v.step(&[stations as i32, -1], b.all());
-    assert_eq!(b.drones[5], 0.0, "the forbidden choice was ignored");
-    let mut refilled = 0.0;
+#[test]
+fn need_counts_front_cells_with_the_hold_margin() {
+    let config = one_fire(4);
+    let sim = SimConfig::default();
+    let mut v = AllocVec::new(1, scenario(), sim, config, 0, 1).unwrap();
+    let mut b = Buffers::new(&v);
+    v.reset(None, b.all());
+    // One burning cell of grass in a light fire: the lowest critical load applies. To hold
+    // it for `ember_s` while the water evaporates it takes exp(ember_s / water_tau_s) of it.
+    let load = sim.water_crit_l_m2 * (sim.ember_s / sim.water_tau_s).exp();
+    let per_drop = config.drop_efficiency * config.drop_l / 100.0;
+    let fire = &b.targets[2 * TARGET.len()..][..TARGET.len()];
+    assert!(
+        (fire[target("need")] - load / per_drop).abs() < 1e-4,
+        "{fire:?}"
+    );
+    assert_eq!(
+        fire[target("cells")],
+        0.25,
+        "one front cell in a 2 x 2 block"
+    );
+    assert!((0.2..0.5).contains(&fire[target("intensity")]), "{fire:?}");
+
+    // Greedy sends what is needed and no more: two drops, from the nearer station.
+    let mut actions = vec![0; v.drones];
+    v.plan(Method::Greedy, 0.0, 0, &mut actions);
+    assert_eq!(actions, [2, 2, -1, -1, -1, -1, -1, -1]);
+    // The other rules agree when there is one block.
+    for method in [Method::Head, Method::Flank] {
+        let mut other = vec![0; v.drones];
+        v.plan(method, 0.0, 0, &mut other);
+        assert_eq!(other, actions);
+    }
+}
+
+#[test]
+fn a_drop_goes_to_the_neediest_front_cell() {
+    // A fire a few cells large; three drones leave together for the same block and drop in
+    // the same tick.
+    let config = AllocConfig {
+        preburn_cells: 12,
+        preburn_s: 3000.0,
+        ..one_fire(3)
+    };
+    let mut v = AllocVec::new(1, scenario(), SimConfig::default(), config, 0, 1).unwrap();
+    let mut b = Buffers::new(&v);
+    v.reset(None, b.all());
+    let mut actions = vec![-1; v.drones];
+    actions[..3].fill(2); // slot 2: the block that needs the most water
+    v.step(&actions, b.all());
+    let mut guard = 0;
+    while b.terms.chunks(TERMS.len()).map(|t| t[0]).sum::<f32>() == 0.0 {
+        v.step(&vec![-1; v.drones], b.all());
+        guard += 1;
+        assert!(guard < 100, "no drop");
+    }
+    let world = &v.envs[0].world;
+    let wet: Vec<usize> = (0..world.water.load.len())
+        .filter(|&c| world.water.load[c] > 0.0)
+        .collect();
+    let per_drop = config.drop_efficiency * config.drop_l / 100.0;
+    let total: f32 = wet.iter().map(|&c| world.water.load[c]).sum();
+    // A little of it has evaporated by the time the step returns.
+    assert!(
+        total <= 3.0 * per_drop && total > 2.9 * per_drop,
+        "three drops landed: {total}"
+    );
+    let grid = world.terrain.grid;
+    let block = |c: usize| (grid.xy(c).0 / 2, grid.xy(c).1 / 2);
+    for &c in &wet {
+        assert!(world.fire.front(c).is_some(), "water only on a front");
+        assert_eq!(block(c), block(wet[0]), "all in the chosen block");
+    }
+    // Every front cell of the block got a drop before any got a second one.
+    let fronts = (0..world.water.load.len())
+        .filter(|&c| block(c) == block(wet[0]) && world.fire.front(c).is_some())
+        .count();
+    assert_eq!(wet.len(), fronts.min(3));
+}
+
+#[test]
+fn pads_serve_in_docking_order() {
+    // One pad, three drones that come home in the same tick: they are ready one service
+    // after the other, lowest index first, and the waiting is counted.
+    // The fire is large enough to outlive three drops.
+    let config = AllocConfig {
+        pads: 1,
+        service_s: 30.0,
+        preburn_cells: 40,
+        preburn_s: 3000.0,
+        ..one_fire(3)
+    };
+    let mut near = scenario();
+    near.stations.truncate(1);
+    let mut v = AllocVec::new(1, near, SimConfig::default(), config, 0, 1).unwrap();
+    let mut b = Buffers::new(&v);
+    v.reset(None, b.all());
+    v.step(&[1, 1, 1], b.all());
+    let (mut clock, mut ready) = (b.elapsed_s[0], [0.0f32; 3]);
+    // Nobody waits, so the first step only returns when a drone is back and serviced.
     for _ in 0..400 {
-        let a0 = if b.decide[0] == 1 && b.drones[2] < 1.0 {
-            0
-        } else {
-            -1
-        };
-        v.step(&[a0, -1], b.all());
-        refilled += b.terms[1];
-        if b.drones[2] >= 1.0 {
+        for (at, &asked) in ready.iter_mut().zip(&b.decide) {
+            if *at == 0.0 && asked == 1 {
+                *at = clock;
+            }
+        }
+        if ready[2] > 0.0 {
             break;
         }
+        v.step(&[-1, -1, -1], b.all());
+        clock += b.elapsed_s[0];
     }
-    assert_eq!(b.drones[2], 1.0);
+    assert!(ready[0] > 0.0, "{ready:?}");
+    assert!((ready[1] - ready[0] - 30.0).abs() < 0.11, "{ready:?}");
+    assert!((ready[2] - ready[1] - 30.0).abs() < 0.11, "{ready:?}");
+    let queue = v.envs[0].summary()[info("queue_s")];
+    assert!((queue - 90.0).abs() < 0.3, "queued {queue} s");
+}
+
+#[test]
+fn endurance_masks_far_fires() {
+    // The fire's block is 316 m from station 0 and 298 m from station 1. A sortie is the way
+    // there plus the way to the nearest station (station 1's 298 m): 61.4 s and 59.7 s.
+    let sortie = |endurance_s: f32| {
+        let config = AllocConfig {
+            endurance_s,
+            ..one_fire(1)
+        };
+        let mut v = AllocVec::new(1, scenario(), SimConfig::default(), config, 0, 1).unwrap();
+        let mut b = Buffers::new(&v);
+        v.reset(None, b.all());
+        let mask = (b.action_mask[2], b.action_mask[v.slots + 2]);
+        // Choosing the fire anyway is ignored: the drone stays docked and makes no drop.
+        v.step(&[2, 2], b.all());
+        (mask, (b.terms[0], b.terms[TERMS.len()]))
+    };
+    assert_eq!(sortie(900.0), ((1, 1), (1.0, 1.0)));
+    assert_eq!(sortie(60.5).0, (0, 1));
+    assert_eq!(sortie(59.0), ((0, 0), (0.0, 0.0)));
+}
+
+#[test]
+fn docked_drones_are_neither_flown_nor_seen() {
+    let config = one_fire(2);
+    let mut v = AllocVec::new(1, scenario(), SimConfig::default(), config, 0, 1).unwrap();
+    let mut b = Buffers::new(&v);
+    v.reset(None, b.all());
+    let n = v.drones;
+    let (mut agent, mut neighbors, mut mask) = (
+        vec![0.0; n * AGENT.len()],
+        vec![0.0; n * n * 4],
+        vec![0u8; n * n],
+    );
+    let velocity = vec![1.0; 2 * n]; // everyone is told to fly south-east
+    let mut actions = vec![-1; n];
+    actions[0] = 2; // only drone 0 is sent to the fire
+    let start = b.drones.clone();
+    for _ in 0..50 {
+        v.fly_tick(
+            &actions,
+            &velocity,
+            50.0,
+            b.all(),
+            &mut agent,
+            &mut neighbors,
+            &mut mask,
+        );
+        actions.fill(-1);
+    }
+    assert_ne!(b.drones[..2], start[..2], "the drone in the air moved");
+    for i in 1..n {
+        let row = &b.drones[i * DRONE.len()..][..DRONE.len()];
+        assert_eq!(row[..2], start[i * DRONE.len()..][..2], "drone {i} stayed");
+        assert_eq!(row[KIND], TASK_DOCKED);
+        assert!(
+            agent[i * AGENT.len()..][..AGENT.len()]
+                .iter()
+                .all(|&x| x == 0.0),
+            "a docked drone sees nothing"
+        );
+    }
+    // Drone 1 sits docked 5 m from where drone 0 took off: drone 0 does not see it. Slot 0
+    // of a row is the map edge.
+    assert_eq!(mask[1..n].iter().sum::<u8>(), 0);
     assert!(
-        (refilled - 1.0).abs() < 1e-3,
-        "refill term adds up to one tank: {refilled}"
+        v.envs[0].min_separation().is_infinite(),
+        "docked drones are no bodies"
     );
 }
 
 #[test]
-fn bad_scenarios_are_refused() {
+fn bad_scenarios_and_settings_are_refused() {
     let none = Scenario {
-        drones: vec![],
-        ..scenario(1)
+        stations: vec![],
+        ..scenario()
     };
     assert!(AllocVec::new(1, none, SimConfig::default(), cfg(), 0, 1).is_err());
-    let stacked = Scenario {
-        drones: vec![[2, 2], [2, 2]],
-        ..scenario(1)
-    };
-    assert!(AllocVec::new(1, stacked, SimConfig::default(), cfg(), 0, 1).is_err());
+    for bad in [
+        AllocConfig { pads: 0, ..cfg() },
+        AllocConfig {
+            drop_l: 50.0,
+            ..cfg()
+        },
+        AllocConfig {
+            drop_efficiency: 1.5,
+            ..cfg()
+        },
+        AllocConfig {
+            safe_m: -1.0,
+            ..cfg()
+        },
+        AllocConfig {
+            drones_per_station: 0,
+            ..cfg()
+        },
+    ] {
+        assert!(AllocVec::new(1, scenario(), SimConfig::default(), bad, 0, 1).is_err());
+    }
 }
 
 #[test]
-fn rollout_is_never_worse_than_greedy_on_its_own_horizon_and_is_repeatable() {
-    let mut v = AllocVec::new(6, scenario(3), SimConfig::default(), cfg(), 11, 0).unwrap();
+fn rollout_is_repeatable_and_sometimes_differs_from_greedy() {
+    let config = AllocConfig {
+        drones_per_station: 3,
+        preburn_cells: 20,
+        preburn_s: 3000.0,
+        ..cfg()
+    };
+    let mut v = AllocVec::new(6, scenario(), SimConfig::default(), config, 11, 0).unwrap();
     let mut b = Buffers::new(&v);
     v.reset(None, b.all());
     let n = v.envs.len() * v.drones;
     let (mut greedy, mut rollout, mut again) = (vec![0; n], vec![0; n], vec![0; n]);
     let mut differed = false;
     for _ in 0..40 {
-        v.greedy(&mut greedy);
-        v.rollout(120.0, 4, &mut rollout);
-        v.rollout(120.0, 4, &mut again);
+        v.plan(Method::Greedy, 0.0, 0, &mut greedy);
+        v.plan(Method::Rollout, 200.0, 4, &mut rollout);
+        v.plan(Method::Rollout, 200.0, 4, &mut again);
         assert_eq!(rollout, again, "same state, same plan");
         differed |= rollout != greedy;
         v.step(&rollout, b.all());
@@ -467,7 +763,7 @@ fn rollout_is_never_worse_than_greedy_on_its_own_horizon_and_is_repeatable() {
 /// and its speed, and a steady wind gets the direction it always got.
 #[test]
 fn a_random_wind_keeps_the_scenarios_wind_shifts() {
-    let mut shifting = scenario(2);
+    let mut shifting = scenario();
     shifting.wind.push(Wind {
         t_s: 300.0,
         speed_ms: 8.0,
@@ -479,7 +775,7 @@ fn a_random_wind_keeps_the_scenarios_wind_shifts() {
         v.reset(None, b.all());
         v.envs[0].world.weather.wind.clone()
     };
-    let (steady, turned) = (build(scenario(2)), build(shifting));
+    let (steady, turned) = (build(scenario()), build(shifting));
     assert_eq!(turned[0], steady[0], "the first entry is drawn as before");
     assert_ne!(steady[0].to, [1.0, 0.0], "the wind was turned");
     assert_eq!((turned[1].t_s, turned[1].speed_ms), (300.0, 8.0));
@@ -492,4 +788,24 @@ fn a_random_wind_keeps_the_scenarios_wind_shifts() {
         (a[0] * b[1] - a[1] * b[0] - 1.0).abs() < 1e-6,
         "and in the same sense"
     );
+}
+
+#[test]
+fn the_wind_scale_changes_every_speed_of_the_schedule() {
+    let mut shifting = scenario();
+    shifting.wind.push(Wind {
+        t_s: 300.0,
+        speed_ms: 8.0,
+        to: [0.0, 1.0],
+    });
+    let config = AllocConfig {
+        wind_scale: 0.5,
+        ..one_fire(1)
+    };
+    let mut v = AllocVec::new(1, shifting, SimConfig::default(), config, 7, 1).unwrap();
+    let mut b = Buffers::new(&v);
+    v.reset(None, b.all());
+    let wind = &v.envs[0].world.weather.wind;
+    assert_eq!((wind[0].speed_ms, wind[1].speed_ms), (2.5, 4.0));
+    assert_eq!((wind[0].to, wind[1].t_s), ([1.0, 0.0], 300.0));
 }

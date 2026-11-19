@@ -42,9 +42,17 @@ pub(crate) enum Action {
 }
 
 /// Tool, toolbar label, and what it does.
-const TOOLS: [(Tool, &str, &str); 8] = [
-    (Tool::Select, "👆 select", "select a drone to inspect"),
-    (Tool::Send, "➡ send", "send the selected drone here"),
+const TOOLS: [(Tool, &str, &str); 7] = [
+    (
+        Tool::Select,
+        "👆 select",
+        "select a drone to inspect; on a station: its next ready drone",
+    ),
+    (
+        Tool::Send,
+        "➡ send",
+        "send the selected drone here: to a fire, a place, or home to a station",
+    ),
     (Tool::Ignite, "🔥 ignite", "set fire now"),
     (
         Tool::Water,
@@ -56,11 +64,10 @@ const TOOLS: [(Tool, &str, &str); 8] = [
         "✴ start fire",
         "toggle a fire the scenario starts with (restarts)",
     ),
-    (Tool::Drone, "✈ drone", "toggle a drone (restarts)"),
     (
         Tool::Station,
         "🏠 station",
-        "toggle a ground station (restarts)",
+        "toggle a ground station with its drones (restarts); Settings says how many",
     ),
     (
         Tool::Erase,
@@ -82,7 +89,7 @@ const SHORTCUTS: [(&str, &str); 14] = [
     (".", "one fire step (while paused)"),
     ("R", "restart"),
     ("F", "show the whole map"),
-    ("1 - 8", "choose a tool"),
+    ("1 - 7", "choose a tool"),
     ("[   ]", "half or double the speed"),
     ("Esc", "close the inspector"),
     ("Ctrl+O", "open a scenario"),
@@ -164,7 +171,6 @@ impl Viewer<'_> {
             Key::Num5,
             Key::Num6,
             Key::Num7,
-            Key::Num8,
         ];
         for ((tool, ..), key) in tools(snap.mode).zip(digits) {
             if pressed(plain, key) {
@@ -379,8 +385,8 @@ impl Viewer<'_> {
 
             ui.menu_button("Simulation", |ui| {
                 let mut navigating = !scenario;
-                ui.radio_value(&mut navigating, false, "Scenario: fire, and drones if placed")
-                    .on_hover_text("the fire spreads on the map; placed drones fight it");
+                ui.radio_value(&mut navigating, false, "Scenario: fire, and drones at stations")
+                    .on_hover_text("the fire spreads on the map; drones from the ground stations fight it");
                 ui.radio_value(&mut navigating, true, "Fly task: waypoints on an empty map")
                     .on_hover_text("drones fly to waypoints without colliding; no fire");
                 if navigating == scenario {
@@ -641,7 +647,15 @@ impl Viewer<'_> {
                 ui.radio_value(&mut planner, Planner::Off, "off")
                     .on_hover_text("nobody plans: drones move only when sent by hand");
                 ui.radio_value(&mut planner, Planner::Greedy, "greedy")
-                    .on_hover_text("repeatedly pairs the closest free drone and free fire");
+                    .on_hover_text("each ready drone to the nearest fire that still needs water");
+                ui.radio_value(&mut planner, Planner::Head, "head")
+                    .on_hover_text(
+                        "each ready drone to the most intense fire that still needs water",
+                    );
+                ui.radio_value(&mut planner, Planner::Flank, "flank")
+                    .on_hover_text(
+                        "each ready drone to the least intense fire that still needs water",
+                    );
                 ui.radio_value(&mut planner, Planner::Rollout, "rollout")
                     .on_hover_text("greedy improved by simulating the alternatives ahead");
                 if snap.has_planner {
@@ -664,7 +678,9 @@ impl Viewer<'_> {
                     let ahead = ui
                         .add(ahead)
                         .on_hover_text("how far each alternative is simulated");
-                    let tries = ui.add(tries).on_hover_text("nearest fires tried per drone");
+                    let tries = ui
+                        .add(tries)
+                        .on_hover_text("fires tried per drone: those lacking the most water");
                     if ahead.changed() | tries.changed() {
                         self.shared.lock().unwrap().rollout = (horizon, candidates);
                     }

@@ -28,8 +28,16 @@ on a simulator that behaved differently, or with other settings, gets a WARNING 
 record is written next to the CSV (`greedy.evaluation.toml`).
 
 Every seed runs exactly once. The same seeds are also run with idle drones, which gives
-`Burned_NoAction` and `Area_Saved` = 1 - burned / burned without action. The episode of a
-seed is the same fire for every policy (checked through `Fire_Fingerprint`).
+`Burned_NoAction`, `Area_Saved` = 1 - burned / burned without action, and `Peak_kW_NoAction`,
+the highest fireline intensity of the fire left alone: the summary shows the results by that
+intensity, because small drones can only stop weak fronts. The episode of a seed is the same
+fire for every policy (checked through `Fire_Fingerprint`).
+
+With a file, `--config`, `--sim`, `--split` and `--n` change it for this run (the record
+holds what ran), so a sweep is a loop:
+
+    for n in 10 20 40 80; do uv run python -m roshan.eval experiments/eval_demo.toml \\
+        --config "{\"drones_per_station\": $n}" --out runs/team_$n; done
 """
 
 import argparse
@@ -48,7 +56,11 @@ from roshan.scenario import Scenario
 SPLITS = Path(__file__).resolve().parents[3] / "splits"
 FIELDS = ["Episode_Index", "Episode_Seed", "Fire_Fingerprint", "Success", "Failure_Reason", "Time",
           "Percent_Burned", "Burned_Cells", "Burned_NoAction", "Area_Saved", "Water_L", "Drops", "Min_Separation",
-          "Burned_Start"]
+          "Burned_Start", "Stopped_Cells", "Stopped_kW_Mean", "Stopped_kW_Max", "Peak_kW", "Peak_kW_NoAction",
+          "First_Drop_s", "Queue_s", "Max_Sortie_s"]
+# Classes of the unattended fire's peak fireline intensity, kW/m: what drones can plausibly
+# stop, what aircraft are credited with, and beyond (see docs/systems.md, "Calibration").
+CLASSES = [("up to 500 kW/m", 0.0, 500.0), ("500 - 2000 kW/m", 500.0, 2000.0), ("above 2000 kW/m", 2000.0, float("inf"))]
 
 
 def seeds_of(split):
@@ -137,7 +149,9 @@ def evaluate(scenario, policy, seeds, config=None, sim=None, threads=0, batch=25
         out = bool(a["fire_out"])
         # Only what caught fire after the episode started could have been saved.
         start = a["start_cells"]
-        new, new_idle = a["burned_cells"] - start, i["burned_cells"] - start
+        # A starting cell that is put out before its fuel is gone counts as unburned again, so
+        # fewer cells than at the start can be burned at the end: everything was saved.
+        new, new_idle = max(a["burned_cells"] - start, 0.0), i["burned_cells"] - start
         rows.append({
             "Episode_Index": index,
             "Episode_Seed": seed,
@@ -153,6 +167,14 @@ def evaluate(scenario, policy, seeds, config=None, sim=None, threads=0, batch=25
             "Drops": a["drops"],
             "Min_Separation": a["min_separation_m"],
             "Burned_Start": start,
+            "Stopped_Cells": a["stopped_cells"],
+            "Stopped_kW_Mean": a["stopped_kw_mean"],
+            "Stopped_kW_Max": a["stopped_kw_max"],
+            "Peak_kW": a["peak_kw"],
+            "Peak_kW_NoAction": i["peak_kw"],
+            "First_Drop_s": a["first_drop_s"],
+            "Queue_s": a["queue_s"],
+            "Max_Sortie_s": a["max_sortie_s"],
         })
     return rows
 
@@ -170,7 +192,7 @@ def write_csv(rows, path):
 # An arm: `policy` is a name from POLICIES or a planner checkpoint; `sample` draws from a learned
 # planner instead of taking its best guess; `horizon` (seconds) and `candidates` belong to the
 # rollout planner; `fly` is a fly checkpoint, "decentral", or "" for the scripted controller.
-ARM = {"policy": "", "sample": False, "horizon": 120.0, "candidates": 4, "fly": ""}
+ARM = {"policy": "", "sample": False, "horizon": 300.0, "candidates": 4, "fly": ""}
 # `n`: only the first n seeds, 0 for all. `pair`: two arm names for paired statistics, or [].
 EVAL = {"scenario": "", "split": "val", "n": 0, "pair": []}
 
@@ -251,18 +273,34 @@ def run_experiment(exp, out, record="evaluation.toml"):
 
     idle, result = idle_run(scenario, seeds, config, sim), {}
     lines = [f"WARNING {line}" for line in warnings] + [""] * bool(warnings)
-    lines += [f"{ev['scenario']}, {len(seeds)} {ev['split']} episodes", "",
-             "| arm | fire out | burned | area saved | drops | drones closer than 2 m |", "|---|---|---|---|---|---|"]
-    paths = {}
+    c = spec["config"]
+    lines += [f"{ev['scenario']}, {len(seeds)} {ev['split']} episodes, {spec['drones']} drones of {c['tank_l']:g} L", "",
+             "| arm | fire out | burned | area saved | drops | fronts stopped | at kW/m (mean, highest) | "
+             "drones closer than 2 m |", "|---|---|---|---|---|---|---|---|"]
+    paths, by_class = {}, []
     for name, (policy, fly, device) in players.items():
         rows = evaluate(scenario, policy, seeds, config, sim, fly=fly, device=device, idle=idle)
         paths[name] = write_csv(rows, out / f"{name}.csv")
-        mean = lambda key: float(np.mean([r[key] for r in rows]))  # noqa: E731
+        mean = lambda key, rows=rows: float(np.mean([r[key] for r in rows])) if rows else float("nan")  # noqa: E731
+        stopped = sum(r["Stopped_Cells"] for r in rows)
+        # Per stopped front, not per episode: an episode that stopped nothing has no intensity.
+        stopped_kw = sum(r["Stopped_Cells"] * r["Stopped_kW_Mean"] for r in rows) / max(stopped, 1)
+        near = [r["Min_Separation"] < 2.0 for r in rows if not np.isnan(r["Min_Separation"])]
         lines.append(f"| {name} | {mean('Success'):.1%} | {mean('Percent_Burned'):.2%} | {mean('Area_Saved'):.1%} | "
-                     f"{mean('Drops'):.1f} | {np.mean([r['Min_Separation'] < 2.0 for r in rows]):.1%} of episodes |")
+                     f"{mean('Drops'):.1f} | {mean('Stopped_Cells'):.1f} | {stopped_kw:.0f}, "
+                     f"{max(r['Stopped_kW_Max'] for r in rows):.0f} | "
+                     + (f"{np.mean(near):.1%} of episodes |" if near else "not watched |"))
         print(lines[-1], flush=True)
         result[name] = {"fire_out": mean("Success"), "burned": mean("Percent_Burned"), "area_saved": mean("Area_Saved"),
-                        "drops": mean("Drops")}
+                        "drops": mean("Drops"), "stopped_cells": mean("Stopped_Cells"), "stopped_kw_mean": stopped_kw}
+        for label, low, high in CLASSES:
+            part = [r for r in rows if low <= r["Peak_kW_NoAction"] < high]
+            by_class.append(f"| {name} | {label} | {len(part)} | {mean('Success', part):.1%} | "
+                            f"{mean('Area_Saved', part):.1%} | {mean('Stopped_Cells', part):.1f} |" if part else
+                            f"| {name} | {label} | 0 | - | - | - |")
+    lines += ["", "By the peak fireline intensity of the same fire left alone:", "",
+              "| arm | unattended fire | episodes | fire out | area saved | fronts stopped |", "|---|---|---|---|---|---|",
+              *by_class]
     experiment.finish(out / record, tables, time.perf_counter() - began, result)
     text = "\n".join(lines) + "\n"
     if ev["pair"]:
@@ -280,11 +318,11 @@ def main():
     parser.add_argument("--scenario")
     parser.add_argument("--policy", help=f"one of {sorted(POLICIES)}, or a planner checkpoint (.pt)")
     parser.add_argument("--sample", action="store_true", help="sample from a learned planner instead of taking its best guess")
-    parser.add_argument("--horizon", type=float, default=120.0, help="lookahead of the rollout planner, seconds")
-    parser.add_argument("--split", choices=["val", "test"], default="val")
+    parser.add_argument("--horizon", type=float, default=300.0, help="lookahead of the rollout planner, seconds")
+    parser.add_argument("--split", choices=["val", "test"], help="default: val, or the file's")
     parser.add_argument("--n", type=int, help="use only the first N seeds of the split")
-    parser.add_argument("--config", default="{}", help="JSON overrides of the allocate config")
-    parser.add_argument("--sim", default="{}", help="JSON overrides of the simulation config")
+    parser.add_argument("--config", default="{}", help="JSON overrides of the allocate config (with a file: of its [allocate])")
+    parser.add_argument("--sim", default="{}", help="JSON overrides of the simulation config (with a file: of its [sim])")
     parser.add_argument("--fly", metavar="CHECKPOINT", help="fly the drones with this trained fly policy, or with 'decentral' "
                         "(the hand-written pilot), instead of the scripted controller")
     parser.add_argument("--out", help="with a file: the directory (default runs/<name of the file>); otherwise the CSV")
@@ -292,7 +330,11 @@ def main():
     args = parser.parse_args()
     if args.experiment:
         out = experiment.claim(args.out or f"runs/{Path(args.experiment).stem}", args.force)
-        text = run_experiment(experiment.load(args.experiment, ["eval", "sim", "allocate", "arms"]), out)
+        exp = experiment.load(args.experiment, ["eval", "sim", "allocate", "arms"])
+        exp["allocate"] = exp.get("allocate", {}) | json.loads(args.config)
+        exp["sim"] = exp.get("sim", {}) | json.loads(args.sim)
+        exp["eval"] = exp.get("eval", {}) | {k: v for k, v in (("split", args.split), ("n", args.n)) if v}
+        text = run_experiment(exp, out)
         (out / "summary.md").write_text(text)
         print(f"\n{text}\nwritten to {out}/")
         return
@@ -300,7 +342,7 @@ def main():
         parser.error("give an evaluation file, or --scenario, --policy and --out")
     csv_path = Path(args.out).with_suffix(".csv")
     exp = {
-        "eval": {"scenario": args.scenario, "split": args.split, "n": args.n or 0},
+        "eval": {"scenario": args.scenario, "split": args.split or "val", "n": args.n or 0},
         "allocate": json.loads(args.config),
         "sim": json.loads(args.sim),
         "arms": {csv_path.stem: {"policy": args.policy, "sample": args.sample, "horizon": args.horizon, "fly": args.fly or ""}},

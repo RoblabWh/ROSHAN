@@ -26,7 +26,7 @@ from roshan.scenario import Scenario
 # step, so -100 charges one point per percent burned: the reward is the objective itself.
 REWARD = {"drop": 0.0, "refill": 0.0, "burned": -100.0, "fire_out": 1.0, "timeout": 0.0}
 # The task the planner is trained and compared on (see the results in docs/systems.md).
-TASK = {"random_ignitions": 6, "random_wind": True}
+TASK = {"random_ignitions": 2, "random_wind": True, "preburn_s": 1800.0, "preburn_cells": 20}
 PPO = PPOConfig(lr=3e-4, gamma_per_s=0.999, lam=0.95, epochs=4, minibatches=4, ent_coef=0.01, rollout=64)
 # [run] of an experiment file. `teacher`: "greedy", "rollout" or "" for none; `init`: a
 # checkpoint to start from, or "".
@@ -34,6 +34,8 @@ RUN = {"kind": "planner", "scenario": "scenarios/demo.npz", "envs": 512, "update
        "imitation_steps": 800, "imitation_envs": 128, "init": "", "critic_updates": 0}
 # [net] of an experiment file: the arguments of PlannerNet.
 NET = {"hidden": 128}
+# Of a checkpoint: 2 since the observation has seven target columns.
+SCHEMA_VERSION = 2
 
 
 def observe(env, device):
@@ -99,6 +101,9 @@ def load(checkpoint, device=None):
     """The network of a checkpoint written by `train`."""
     device = device or ("cuda" if torch.cuda.is_available() else "cpu")
     saved = torch.load(checkpoint, weights_only=True)
+    if saved.get("schema_version", 1) < SCHEMA_VERSION:
+        raise ValueError(f"{checkpoint} was trained on the task as it was before 2026-11-19 (drones with their own "
+                         "start cells, four target columns); train a new one")
     net = PlannerNet(hidden=saved.get("hidden", 128)).to(device)  # checkpoints from before [net] have 128
     net.load_state_dict(saved["model"])
     return net.eval(), device
@@ -227,7 +232,7 @@ def train(scenario, num_envs=512, updates=300, seed=0, out="runs/planner", cfg=P
             "spec": env.spec,
             "ppo": dataclasses.asdict(cfg),
             "reward": reward,
-            "schema_version": 1,
+            "schema_version": SCHEMA_VERSION,
         },
         out / "planner.pt",
     )

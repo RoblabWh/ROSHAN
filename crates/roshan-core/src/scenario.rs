@@ -21,9 +21,8 @@ pub struct Scenario {
     pub landcover: Option<Vec<u8>>,
     /// Cells (x, y) that burn at time zero.
     pub ignitions: Vec<[u32; 2]>,
-    /// Cells drones start in.
-    pub drones: Vec<[u32; 2]>,
-    /// Cells holding a ground station.
+    /// Cells holding a ground station. The drones of the allocate task are based there
+    /// (`AllocConfig::drones_per_station` at each).
     pub stations: Vec<[u32; 2]>,
     pub moisture: Moisture,
     /// Wind schedule; the first entry applies from the start.
@@ -67,11 +66,7 @@ impl Scenario {
                 ));
             }
         }
-        let placed = [
-            ("ignition", &self.ignitions),
-            ("drone", &self.drones),
-            ("station", &self.stations),
-        ];
+        let placed = [("ignition", &self.ignitions), ("station", &self.stations)];
         for (what, cells) in placed {
             if let Some(c) = cells
                 .iter()
@@ -91,14 +86,6 @@ impl Scenario {
         for c in &self.ignitions {
             world.ignite(c[0], c[1]); // a cell that cannot burn simply stays unburned
         }
-        let centre = |c: &[u32; 2]| {
-            [
-                (c[0] as f32 + 0.5) * self.grid.cell_m,
-                (c[1] as f32 + 0.5) * self.grid.cell_m,
-            ]
-        };
-        world.drones.pos = self.drones.iter().map(centre).collect();
-        world.drones.vel = vec![[0.0; 2]; self.drones.len()];
         Ok(world)
     }
 }
@@ -119,7 +106,6 @@ mod tests {
             elevation: None,
             landcover: None,
             ignitions: vec![[3, 2]],
-            drones: vec![[0, 0], [11, 6]],
             stations: vec![[1, 1]],
             moisture: Moisture {
                 d1: 0.06,
@@ -141,10 +127,13 @@ mod tests {
     fn builds_a_world_and_rejects_what_does_not_fit() {
         let world = scenario().world(SimConfig::default(), 1).unwrap();
         assert_eq!(world.fire.n_burning(), 1);
-        assert_eq!(world.drones.pos, vec![[5.0, 5.0], [115.0, 65.0]]);
+        assert!(
+            world.drones.pos.is_empty(),
+            "drones are placed by the tasks"
+        );
 
         let mut outside = scenario();
-        outside.drones.push([12, 0]);
+        outside.stations.push([12, 0]);
         assert!(
             outside
                 .world(SimConfig::default(), 1)

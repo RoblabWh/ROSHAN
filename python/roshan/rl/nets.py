@@ -57,7 +57,7 @@ class PlannerNet(nn.Module):
     score stands for "keep doing what you are doing". The value is one number per environment.
     """
 
-    def __init__(self, drone_dim=6, target_dim=4, global_dim=5, hidden=128):
+    def __init__(self, drone_dim=6, target_dim=7, global_dim=5, hidden=128):
         super().__init__()
         self.drone = mlp(drone_dim + global_dim, hidden, hidden)
         self.target = mlp(target_dim + 1 + global_dim, hidden, hidden)

@@ -53,20 +53,25 @@ generic_ignite_s = 100.0
 # the planner's task: drones are sent to fires
 [allocate]
 max_speed_ms = 10.0
-tank_l = 300.0
-drop_l = 150.0
-refill_s = 10.0
+tank_l = 40.0
+drop_l = 40.0
+drop_efficiency = 0.7
+service_s = 60.0
+pads = 8
+endurance_s = 900.0
+drones_per_station = 40
 arrive_m = 5.0
 station_m = 12.0
-safe_m = 3.0
-block_cells = 5
-max_targets = 32
+safe_m = 0.0
+block_cells = 2
+max_targets = 64
 max_interval_s = 10.0
 time_limit_s = 1800.0
-random_ignitions = 6
+random_ignitions = 2
 random_wind = true
-preburn_s = 0.0
-preburn_cells = 0
+wind_scale = 1.0
+preburn_s = 1800.0
+preburn_cells = 20
 
 # weight of each reward term
 [reward]

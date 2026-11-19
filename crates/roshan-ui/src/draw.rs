@@ -476,20 +476,40 @@ impl Viewer<'_> {
         }
         match tool {
             Tool::Select => {
-                // The nearest drone within two cells of the click.
+                // The nearest drone within two cells of the click. Drones in the air come
+                // first; at a station it is the first one ready, else the first in service.
                 let d = |i: usize| {
                     let p = snap.drones[i].pos;
                     (p[0] - x as f32 - 0.5).hypot(p[1] - y as f32 - 0.5)
                 };
-                let nearest = (0..snap.drones.len()).min_by(|&a, &b| d(a).total_cmp(&d(b)));
-                self.shared.lock().unwrap().selected = nearest.filter(|&i| d(i) <= 2.0);
+                let rank = |i: usize| {
+                    let drone = &snap.drones[i];
+                    match (drone.docked, drone.ready) {
+                        (false, _) => (0, d(i)),
+                        (true, true) => (1, 0.0),
+                        (true, false) => (2, 0.0),
+                    }
+                };
+                let nearest = (0..snap.drones.len())
+                    .filter(|&i| d(i) <= 2.0)
+                    .min_by(|&a, &b| {
+                        rank(a)
+                            .0
+                            .cmp(&rank(b).0)
+                            .then(rank(a).1.total_cmp(&rank(b).1))
+                    });
+                self.shared.lock().unwrap().selected = nearest;
             }
             Tool::Send => {
                 let mut s = self.shared.lock().unwrap();
                 let selected = s.selected;
-                match (&mut s.sim, selected) {
+                let sent = match (&mut s.sim, selected) {
                     (Sim::Allocate(env, _), Some(i)) => env.send(i, [x, y]),
-                    _ => self.message = "select a drone first".to_string(),
+                    _ => Err("select a drone first"),
+                };
+                drop(s);
+                if let Err(why) = sent {
+                    self.message = why.to_string();
                 }
             }
             Tool::Ignite | Tool::Water => {
@@ -513,10 +533,9 @@ impl Viewer<'_> {
                 }
             }
             Tool::StartFire => self.edit(|s| toggle(&mut s.ignitions, [x, y])),
-            Tool::Drone => self.edit(|s| toggle(&mut s.drones, [x, y])),
             Tool::Station => self.edit(|s| toggle(&mut s.stations, [x, y])),
             Tool::Erase => self.edit(|s| {
-                for cells in [&mut s.ignitions, &mut s.drones, &mut s.stations] {
+                for cells in [&mut s.ignitions, &mut s.stations] {
                     cells.retain(|c| *c != [x, y]);
                 }
             }),
@@ -589,8 +608,9 @@ impl Viewer<'_> {
                 let red = Color32::from_rgb(255, 60, 30);
                 painter.circle_stroke(centre(c), r, Stroke::new(0.2 * r, red));
             }
-            // A ground station is a helipad.
-            for c in &snap.stations {
+            // A ground station is a helipad; beside it, how many of its drones are ready to
+            // be sent and how many are docked.
+            for (k, c) in snap.stations.iter().enumerate() {
                 let (p, r) = (centre(c), at_least(1.1, 10.0));
                 let white = Stroke::new(0.16 * r, Color32::WHITE);
                 painter.circle(p, r, Color32::from_rgb(40, 90, 190), white);
@@ -599,6 +619,9 @@ impl Viewer<'_> {
                     painter.line_segment([p + vec2(x, -h), p + vec2(x, h)], white);
                 }
                 painter.line_segment([p + vec2(-w, 0.0), p + vec2(w, 0.0)], white);
+                if let Some((ready, docked)) = snap.fleet.get(k) {
+                    labels.push((p + vec2(1.2 * r, 0.6 * r), format!("{ready}/{docked}")));
+                }
             }
             // Fire targets on offer to the planner, numbered in slot order after the stations.
             for (k, p) in snap.targets.iter().enumerate() {
@@ -620,7 +643,10 @@ impl Viewer<'_> {
             }
 
             if layers.trails {
-                for trail in &effects.trails {
+                for (trail, drone) in effects.trails.iter().zip(&snap.drones) {
+                    if drone.docked {
+                        continue;
+                    }
                     let points: Vec<Pos2> = trail.iter().map(|&p| at(p)).collect();
                     for (k, pair) in points.windows(2).enumerate() {
                         let alpha = 20 + (140 * k / TRAIL_POINTS) as u8;
@@ -640,6 +666,9 @@ impl Viewer<'_> {
 
             for (i, drone) in snap.drones.iter().enumerate() {
                 let chosen = selected == Some(i);
+                if drone.docked && !chosen {
+                    continue; // inside the station
+                }
                 let (p, navigate) = (at(drone.pos), snap.rings.is_some());
                 // Smaller on the fly task's small map, where distances between drones matter.
                 let r = if navigate {
@@ -672,6 +701,9 @@ impl Viewer<'_> {
                 if chosen {
                     let halo = Stroke::new(0.18 * r, Color32::YELLOW);
                     painter.circle_stroke(p, 1.75 * r, halo);
+                }
+                if drone.docked {
+                    continue; // only the halo shows where the selected drone is
                 }
                 let fill = match (chosen, drone.deciding) {
                     (true, _) => Color32::YELLOW,

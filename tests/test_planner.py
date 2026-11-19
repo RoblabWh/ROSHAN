@@ -16,7 +16,7 @@ def test_planner_net_respects_the_mask_and_rates_its_own_choice():
     net = PlannerNet()
     actions, log_prob, entropy, value = net(*obs)
     keep = env.spec["slots"]
-    allowed = torch.cat([obs[3] > 0, torch.ones(8, 4, 1, dtype=torch.bool)], -1)  # "keep" is always allowed
+    allowed = torch.cat([obs[3] > 0, torch.ones(8, env.spec["drones"], 1, dtype=torch.bool)], -1)  # "keep" is always allowed
     assert allowed.gather(2, actions[..., None]).all()
     assert actions.max() <= keep and value.shape == (8,) and (entropy >= 0).all()
     again = net(*obs, actions=actions)[1]
@@ -36,19 +36,24 @@ def test_imitation_learns_the_greedy_planner_and_runs_in_the_evaluation():
     assert len(rows) == 4 and sum(r["Drops"] for r in rows) > 0
 
 
-def test_an_outside_pilot_moves_the_drones():
+def test_an_outside_pilot_moves_the_drones_in_the_air():
     env = AllocateEnv(2, grassland(), seed=1, config=CONFIG)
     env.autoreset = False
+    n = env.spec["drones"]
     start = env.drones[..., :2].clone()
-    env.fly_tick(torch.zeros(2, 4, 2))
-    assert torch.equal(env.drones[..., :2], start)  # hovering
+    velocity = torch.zeros(2, n, 2)
+    velocity[..., 0] = 1.0  # everyone is told to fly east
+    # Greedy sends half of them to the fires; those take off and fly as told, the rest stay.
+    actions = env.plan("greedy")
+    for step in range(3):
+        env.fly_tick(velocity, actions if step == 0 else None)
     agent, neighbors, mask = env.pilot
-    assert agent.shape == (2, 4, 8) and neighbors.shape == (2, 4, 4, 4) and mask.shape == (2, 4, 4)
-    velocity = torch.zeros(2, 4, 2)
-    velocity[..., 0] = 1.0
-    env.fly_tick(velocity)
+    assert agent.shape == (2, n, 8) and neighbors.shape == (2, n, n, 4) and mask.shape == (2, n, n)
     moved = env.drones[..., :2] - start
-    assert (moved[..., 0] > 0).all() and (moved[..., 1] == 0).all()
+    sent = actions >= 0
+    assert sent.any() and (moved[sent][:, 0] > 0).all() and (moved[..., 1] == 0).all()
+    assert (moved[~sent] == 0).all() and (env.drones[~sent][:, 5] == 4.0).all()
+    assert agent[sent].abs().sum(-1).min() > 0 and not agent[~sent].any(), "docked drones see nothing"
 
 
 def test_evaluation_with_a_fly_network_finishes():

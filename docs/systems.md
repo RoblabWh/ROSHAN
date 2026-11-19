@@ -48,7 +48,7 @@ crates/roshan-ui/     viewer and scenario editor (egui); depends on roshan-core 
 crates/roshan-py/     Python bindings, module roshan._core
 python/roshan/
   env.py              NavigateEnv and AllocateEnv: batched environments with torch buffers
-  baselines.py        idle, greedy, Hungarian and rollout planners
+  baselines.py        the planners without learning, as functions of an environment
   eval/run.py         run a planner on fixed seeds, one CSV row per episode
   eval/paired.py      paired statistics on two such runs
   scenario.py         scenario files (.npz)
@@ -217,20 +217,30 @@ means all seeds, `pair = []` no paired statistics.
 | Key | Default | Meaning |
 |---|---|---|
 | `max_speed_ms` | 10 | drone speed |
-| `tank_l` | 300 | tank size, litres |
-| `drop_l` | 150 | water per drop, litres |
-| `refill_s` | 10 | time to fill an empty tank |
-| `arrive_m` | 5 | distance at which a drone has reached a fire cell |
-| `station_m` | 12 | distance at which a drone refills at a station |
-| `safe_m` | 3 | distance the scripted controller keeps between drones |
-| `block_cells` | 5 | side of a target block in cells |
-| `max_targets` | 32 | fire targets offered at most |
-| `max_interval_s` | 10 | longest time between two decisions |
+| `tank_l` | 40 | tank size, litres |
+| `drop_l` | 40 | water per drop, litres; with the tank's size a drone makes one drop per sortie |
+| `drop_efficiency` | 0.7 | share of a drop that reaches the fuel |
+| `service_s` | 60 | time on a pad to swap the battery and fill the tank |
+| `pads` | 8 | drones a ground station services at once; the others queue |
+| `endurance_s` | 900 | longest time in the air between two services |
+| `drones_per_station` | 40 | drones based at every ground station of the scenario |
+| `arrive_m` | 5 | distance at which a drone has reached a fire target |
+| `station_m` | 12 | distance at which a drone docks at a station |
+| `safe_m` | 0 | distance the scripted controller keeps between drones in the air; 0 = none, straight lines |
+| `block_cells` | 2 | side of a target block in cells |
+| `max_targets` | 64 | fire targets offered at most |
+| `max_interval_s` | 10 | how often docked drones that were told to wait are asked again |
 | `time_limit_s` | 1800 | episode length |
 | `random_ignitions` | 0 | if above 0: this many random fires instead of the scenario's |
 | `random_wind` | false | the scenario's wind schedule is turned by one random angle per episode; its wind changes keep their time, speed and size |
+| `wind_scale` | 1 | factor on every wind speed of the scenario's schedule |
 | `preburn_s` | 0 | the fires burn unattended this long before the episode starts, seconds |
 | `preburn_cells` | 0 | ... or until this many cells have caught fire, whichever comes first (0 = no cap) |
+
+The defaults describe a battery multirotor of the 40 L class and a station that swaps
+batteries; where they come from is in [Calibration](#calibration). Tank 300, drop 150,
+service 10, a long endurance and 4 drones per station is the heavy-lift team the task
+modelled until 2026-11-19.
 
 **Navigate task** (`config=` of `NavigateEnv`, `NavConfig` in `navigate.rs`):
 
@@ -509,9 +519,11 @@ Under **Rothermel** the critical load depends on how intense the fire is:
 Under **FireSPIN** there is no intensity, so the critical load is always `water_crit_l_m2`;
 see [the differences above](#what-differs-from-the-old-code-on-purpose).
 
-A drone's drop adds `drop_l / cell area` to one cell: 150 L on a 10 m cell is 1.5 L/m². On
-grass in moderate wind that is almost four times the critical load and holds for about 13
-minutes; a shrub head at 5 m/s wind needs 3.7 L/m² and is only slowed.
+A drone's drop adds `drop_efficiency x drop_l / cell area` to one cell: 40 L at 0.7 on a 10 m
+cell is 0.28 L/m². Loads add up, so a cell at the lowest critical load takes two drops, and a
+cell needs a little more than its critical load to stay stopped for `ember_s` while the water
+evaporates (factor `exp(ember_s / water_tau_s)`, 1.105). The drones aim for that
+(see [The allocate task](#the-allocate-task)).
 
 ## Scenarios
 
@@ -522,12 +534,13 @@ A scenario (`scenario.rs`, `python/roshan/scenario.py`) is a map and what is pla
 | `fuel` | fuel id per cell: 0 non-burnable, 1..40 = position in `roshan._core.fuel_models()` + 1 |
 | `elevation` | metres per cell, or none for a flat map; slopes are derived from it |
 | `landcover` | CLC+ class per cell, or none. FireSPIN takes its burning classes from it; Rothermel ignores it; the viewer colours the map by it |
-| `ignitions`, `drones`, `stations` | lists of (x, y) cells |
+| `ignitions`, `stations` | lists of (x, y) cells. The drones of the allocate task are based at the stations, `drones_per_station` at each |
 | `moisture` | five fractions |
 | `wind` | list of (start s, speed m/s at 10 m, to_x, to_y) |
 | `meta` | name, georeference (`crs`, `origin`), data sources |
 
-Files are `.npz` (arrays plus one JSON string) with a schema version. `Scenario.fingerprint()`
+Files are `.npz` (arrays plus one JSON string) with a schema version (2; files of version 1
+also held a start cell per drone, which loading drops). `Scenario.fingerprint()`
 is a digest of the whole content. `roshan._core.check_scenario(dict)` validates a scenario the
 way the simulator will: array shapes, fuel ids, placements inside the map, non-empty wind.
 
@@ -535,7 +548,7 @@ Shipped scenarios:
 
 | File | What |
 |---|---|
-| `scenarios/demo.npz` | 160 x 120 cells (1.6 x 1.2 km), 4 drones, 1 station: the dynamic planner task |
+| `scenarios/demo.npz` | 160 x 120 cells (1.6 x 1.2 km), 1 station in the north-west corner: the planner benchmark map |
 | `scenarios/demo_static.npz` | the same map with fuel almost too moist to burn |
 | `scenarios/haard.npz` | fetched real terrain |
 | `scenarios/baggersee.npz` | fetched real terrain |
@@ -645,39 +658,63 @@ hover, which avoids every penalty and never reaches a waypoint.
 
 ## The allocate task
 
-`allocate.rs`, used from Python as `roshan.AllocateEnv(num_envs, scenario)`. A planner gives
-every drone a target; a scripted controller flies it there. Map, drones and ground stations
-come from the scenario. This is the task planners are compared and trained on.
+`allocate.rs`, used from Python as `roshan.AllocateEnv(num_envs, scenario)`. A swarm of
+small drones is based at the scenario's ground stations, `drones_per_station` at each. A
+planner says which fire each drone flies to; everything else a drone does is automatic. This
+is the task planners are compared and trained on.
+
+**A drone's life cycle.** Every drone starts docked at its station, serviced and ready.
+
+1. Ready: the planner is asked. It answers with a fire target, or -1 to wait.
+2. Sent: the drone takes off and flies to the centre of the target block.
+3. Within `arrive_m`: it releases `drop_l` on one cell of the block (below). With water for
+   another drop left it is asked again; otherwise it turns home to the nearest station.
+4. Within `station_m` of the station: it docks and takes the pad that is free first. Service
+   (battery and tank) takes `service_s`. A station has `pads` pads; drones that find none
+   free wait, first come, first served (drones docking in the same tick: lowest index first).
+5. Serviced: ready again.
+
+A docked drone is no body: it is not drawn, not flown, and does not count for separation.
+
+**Endurance.** A drone may be in the air for `endurance_s` between two services. It is a
+check when a drone is sent: a fire can only be chosen if the flight there and on to the
+station nearest the fire fits in what is left. The scripted flight is a straight line, so a
+drone that was sent always makes it; the summary's `max_sortie_s` shows it.
+`ponytail:` no battery level per tick; an outside pilot can overrun the endurance.
 
 **Targets.** A table of slots: the scenario's ground stations first, then fire targets. The
-map is divided into blocks of `block_cells` x `block_cells` cells (50 m with the defaults).
-Each block with at least one burning cell is one target, placed on the burning cell nearest
-to the centre of the block's burning cells. The `max_targets` blocks with the most burning
-cells are offered, largest first. The table is rebuilt whenever a decision is due, so
-decisions are made on the current fire. A drone commits to a cell, not to a slot index.
+map is divided into blocks of `block_cells` x `block_cells` cells (20 m with the defaults).
+A block is a target while it holds a *front*: a burning cell that can still set a neighbour
+alight. Cells that only burn out are not targets, since water on them changes nothing. The
+target's place is the block's centre. Per target the table says how many drops it takes to
+stop its fronts now (`need`), how many drops are already on their way (`inbound`) and how
+intense its strongest front is. The `max_targets` blocks with the highest need are offered.
+The table is rebuilt whenever a decision is due. A drone commits to a block, not to a slot.
 
-**Action**: per drone a slot, or -1 to keep its current task. Only drones whose `decide` flag
-is set are listened to. `action_mask` says what a drone may choose: a fire only with water
-for a full drop, a station only if its tank is not full (otherwise refilling would be a way
-to do nothing forever).
+**Where a drop lands.** On the front cell of the block that is furthest below the load that
+stops it (the lowest cell index among equals), decided when the drone arrives. Drones that
+arrive in the same tick drop one after the other in index order and see each other's water,
+so drops spread over a block's fronts before any cell gets more than it needs.
 
-**What a drone does**
+**Action**: per drone a slot, or -1. Only drones whose `decide` flag is set are listened to.
+-1 leaves a docked drone docked and sends a drone in the air home. `action_mask` says what a
+deciding drone may choose: a fire with water for a drop and enough endurance, a station only
+when in the air. A choice that is not allowed is ignored.
 
-- Fire target: fly within `arrive_m` of the cell, release `drop_l` onto it, be free again. If
-  the cell stops burning on the way, the drone is free at once.
-- Ground station: fly within `station_m`, fill the tank at `tank_l / refill_s` per second, be
-  free when it is full.
-- No task: hover.
+**Scripted flight.** Straight at the target at `max_speed_ms`. With `safe_m = 0` (the
+default) nothing keeps drones apart: at swarm size they are taken to fly in separate height
+lanes, and the work per tick grows only linearly with the number of drones. With `safe_m`
+above zero the drones in the air move in index order; each takes the straight step, a step
+turned by 45 or 90 degrees to either side, or stays, whichever first keeps `safe_m` from the
+new positions of the drones before it and the current positions of those after it. Staying
+always qualifies, so the distance holds by induction; a drone only takes off when nobody in
+the air is within `safe_m` of it.
 
-**Scripted flight.** Straight at the target at `max_speed_ms`. Drones move in index order;
-each takes the straight step, a step turned by 45 or 90 degrees to either side, or stays,
-whichever first keeps `safe_m` from the new positions of the drones before it and the current
-positions of those after it. Staying always qualifies, so the distance holds by induction.
-
-**Decision events.** One step runs the simulation tick by tick until a drone becomes free
-(dropped, refilled, target gone) or `max_interval_s` passed since the last decision, in which
-case every drone may decide again. The step returns `elapsed_s`, so a trainer can discount by
-real time.
+**Decision events.** One step runs the simulation tick by tick until a drone needs a
+decision: it became ready, the block it was flying to lost its last front (checked at every
+fire step), or it dropped and can drop again. Docked drones that were told to wait are asked
+again every `max_interval_s` of the episode's clock. Drones on their way are not asked again.
+The step returns `elapsed_s`, so a trainer can discount by real time.
 
 **Episode.** Starts with the scenario's fires, or `random_ignitions` random ones, and
 optionally a randomly turned wind (`random_wind`: the whole schedule turns by one angle). With a **pre-burn** (`preburn_s`,
@@ -696,11 +733,11 @@ or at `time_limit_s` (`truncated`). An episode is a function of its seed alone, 
 
 | Table | Columns |
 |---|---|
-| `drones` [D, 6] | `x`, `y`, `water` (tank fraction), `task_x`, `task_y` (where it is going; its own position if idle), `task_kind` (0 none, 1 fire, 2 station, 3 point) |
-| `targets` [S, 4] | `x`, `y`, `is_station`, `cells` (burning cells in the block / cells per block) |
+| `drones` [D, 6] | `x`, `y`, `water` (tank fraction), `task_x`, `task_y` (where it is going; its own position if it has nowhere to go), `task_kind` (0 none, 1 fire, 2 station, 3 point, 4 docked) |
+| `targets` [S, 7] | `x`, `y`, `is_station`, `cells` (front cells in the block / cells per block), `need` (drops that stop the block now), `inbound` (drops on their way), `intensity` (strongest front, MW/m; 0 under FireSPIN) |
 | `globals` [5] | `wind_x`, `wind_y` (wind vector / 20 m/s), `time` (fraction of the time limit), `burning` (share of all cells), `burned` (share of burnable cells that are burning or burned) |
 | `target_mask` [S] | 1 where the slot holds a target |
-| `action_mask` [D, S] | 1 where that drone may choose that slot |
+| `action_mask` [D, S] | 1 where that drone may choose that slot; only the rows of deciding drones are filled |
 | `decide` [D] | 1 where the drone needs a decision now |
 
 Task kind 3 (a point) only occurs when a drone is sent somewhere by hand in the viewer.
@@ -710,13 +747,26 @@ Task kind 3 (a point) only occurs when a drone is sent somewhere by hand in the 
 | Term | Meaning |
 |---|---|
 | `drop` | drops this drone made during the step |
-| `refill` | tank fractions this drone took on |
+| `refill` | tank fractions this drone took on when it docked |
 | `burned` | cells that caught fire during the step, as a share of the burnable cells (same for every drone) |
 | `fire_out` | 1 when the fire went out (same for every drone) |
 | `timeout` | 1 when the time limit was reached (same for every drone) |
 
-**Episode summary** (`info`): `fire_out`, `seconds`, `burned_cells`, `burned_fraction`,
-`water_l`, `drops`, `min_separation_m` (smallest distance between two drones).
+**Episode summary** (`info`):
+
+| Value | Meaning |
+|---|---|
+| `fire_out`, `seconds` | whether the fire went out, and the episode's length without the pre-burn |
+| `burned_cells`, `burned_fraction` | cells burning or burned at the end, and their share of the burnable cells |
+| `water_l`, `drops` | water released and the number of drops |
+| `min_separation_m` | smallest distance between two drones in the air; NaN where it was not watched (`safe_m = 0` under the scripted controller) |
+| `start_cells` | cells that had caught fire when the episode started |
+| `stopped_cells` | burning cells that water kept from spreading until their flames died |
+| `stopped_kw_mean`, `stopped_kw_max` | fireline intensity of those cells, kW/m (0 under FireSPIN) |
+| `peak_kw` | highest fireline intensity any cell of the fire was lit with, kW/m |
+| `first_drop_s` | time of the first drop, NaN if there was none |
+| `queue_s` | drone-seconds spent waiting for a free pad |
+| `max_sortie_s` | longest time a drone was in the air between two services |
 
 **Other buffers**: `elapsed_s` [E], `terminated`, `truncated` [E], `seed`, `fingerprint` [E].
 The fingerprint is a digest of the cells burning at the start of the episode and of the wind,
@@ -726,38 +776,42 @@ part of it.
 **Learned flight.** `AllocateEnv.fly_tick(velocity, actions=None, view_m=50)` advances one
 tick with an outside pilot instead of the scripted controller. Afterwards `env.pilot` holds
 what a fly policy sees next, in the format of the navigate task with each drone's task point
-as its waypoint. Nothing keeps drones apart or on the map in this mode; the summary reports
-the smallest distance.
+as its waypoint. Docked drones are not flown and are in nobody's view. Nothing keeps drones
+apart, on the map or within their endurance in this mode; the summary reports the smallest
+distance and the longest sortie. Learned flight is meant for small teams: the pilot's
+observation has one row per pair of drones.
 
 ## Planners
 
-A planner maps the allocate observation to one slot per drone.
+A planner maps the allocate observation to one slot per drone that has to decide.
 
-**Rules shared by greedy and hungarian** (`baselines.py`): only drones asked to decide get a
-new target; a fire another drone is already flying to is left alone; a drone that cannot drop
-goes to the nearest station; a drone left without a fire refills if its tank is not full and
-otherwise waits.
+**Rules shared by greedy, head and flank** (`AllocEnv::assign` in the Rust core): the
+deciding drones are taken in index order. Each goes to a block that still needs water after
+what is already on its way and what the drones before it were just given, one drop per
+drone, provided it can reach it. Drones left over answer -1: they wait at their station, or
+fly home.
 
 | Planner | How it decides |
 |---|---|
-| `none` | drones never act: the reference for how much a planner saves |
-| `greedy` | repeatedly pairs the closest free drone and free fire |
-| `hungarian` | the pairing with the smallest total distance (`scipy.optimize.linear_sum_assignment`) |
+| `none` | drones are never sent: the reference for how much a planner saves |
+| `greedy` | the nearest block that still needs water |
+| `head` | the most intense block that still needs water (nearer first among equals): attack the head |
+| `flank` | the least intense block that still needs water: work along the flanks |
 | `rollout` | greedy improved by simulating ahead (below) |
-| learned | `PlannerNet`, trained by imitation of rollout (see [Training](#training)) |
+| learned | `PlannerNet` (see [Training](#training)); none has been trained on this task yet |
 
-**Rollout planner** (in the Rust core, `AllocateEnv.plan("rollout", horizon_s, candidates)`):
-multiagent rollout with greedy as the base policy. It starts from the greedy assignment. The
-drones that have to decide are then taken one at a time. For each, these alternatives are
-tried: its greedy choice, waiting, the `candidates` (4) nearest fires it may take, and the
-nearest station if its tank is not full. Each is simulated `horizon_s` (120 s) ahead on a
-copy of the world, with greedy deciding everything later. The alternative with the fewest
-cells burned, then the fewest still burning, wins; ties keep greedy's choice. By construction
-it does at least as well as greedy on the simulated horizon. It needs the simulator at
-decision time, so it is a reference and a teacher, not a deployable policy.
+**Rollout planner** (`AllocateEnv.plan("rollout", horizon_s, candidates)`): multiagent
+rollout with greedy as the base policy. It starts from the greedy assignment. The drones
+that have to decide are then taken one at a time. For each, these alternatives are tried:
+its greedy choice, -1, and the `candidates` (4) blocks it can reach that lack the most
+water. Each is simulated `horizon_s` (300 s, enough for a flight and for a soaked front to
+die) ahead on a copy of the world, with greedy deciding everything later. The alternative
+with the fewest cells burned, then the fewest still burning, wins; ties keep greedy's choice.
+By construction it does at least as well as greedy on the simulated horizon. It needs the
+simulator at decision time, so it is a reference and a teacher, not a deployable policy.
 
-`AllocateEnv.plan("greedy")` is the same greedy rule implemented in Rust, used inside
-rollouts and by the viewer.
+The Hungarian assignment of earlier versions is gone: it pairs one drone with one fire, and
+a block now takes several drops.
 
 ## Training
 
@@ -870,7 +924,7 @@ split = "val"                    # or "test"; n = 100: only the first 100 seeds
 pair = ["greedy", "learned"]     # optional
 
 [allocate]                       # and [sim]: the task, on top of the simulator's defaults
-random_ignitions = 6
+random_ignitions = 2
 random_wind = true
 
 [arms.greedy]
@@ -889,12 +943,24 @@ before 2026-11-18), or when the settings stored in the checkpoint differ from th
 evaluation's. It still runs: a different time limit is often meant, a different water model
 rarely is.
 
+`summary.md` also splits every arm's result by the peak fireline intensity of the same fire
+left alone (up to 500 kW/m, 500 to 2000, above), because small drones can only stop weak
+fronts and a mean over all fires hides that.
+
+With a file, `--config`, `--sim`, `--split` and `--n` change it for this run, and the record
+holds what ran. A sweep is a shell loop:
+
+```
+for n in 10 20 40 80; do uv run python -m roshan.eval experiments/eval_demo.toml \
+    --config "{\"drones_per_station\": $n}" --out runs/team_$n; done
+```
+
 A single run without a file takes flags
 and writes the same record next to its CSV (`--out greedy.csv` gives `greedy.evaluation.toml`):
 
 | Flag | Meaning |
 |---|---|
-| `--policy` | `none`, `greedy`, `hungarian`, `rollout`, or a planner checkpoint (`.pt`) |
+| `--policy` | `none`, `greedy`, `head`, `flank`, `rollout`, or a planner checkpoint (`.pt`) |
 | `--split`, `--n` | `val` or `test`; only the first N seeds |
 | `--config`, `--sim` | JSON overrides of the allocate and the simulation configuration |
 | `--horizon` | lookahead of the rollout planner, seconds |
@@ -910,10 +976,16 @@ and writes the same record next to its CSV (`--out greedy.csv` gives `greedy.eva
 | `Time` | seconds from the start of the episode (after any pre-burn) until it ended |
 | `Percent_Burned`, `Burned_Cells` | burned share of the burnable area; cells |
 | `Burned_NoAction` | cells burned on the same seed with idle drones |
-| `Area_Saved` | share saved of what caught fire after the episode started: 1 - (`Burned_Cells` - `Burned_Start`) / (`Burned_NoAction` - `Burned_Start`) |
+| `Area_Saved` | share saved of what caught fire after the episode started: 1 - (`Burned_Cells` - `Burned_Start`) / (`Burned_NoAction` - `Burned_Start`); 1 when starting cells were put out before they burned down |
 | `Water_L`, `Drops` | water used |
-| `Min_Separation` | smallest distance between two drones, metres |
+| `Min_Separation` | smallest distance between two drones in the air, metres; empty (NaN) where it was not watched |
 | `Burned_Start` | cells that had caught fire when the episode started (the ignitions, or the pre-burn) |
+| `Stopped_Cells` | burning cells that water kept from spreading until their flames died |
+| `Stopped_kW_Mean`, `Stopped_kW_Max` | fireline intensity of those cells, kW/m: what the drones actually stopped |
+| `Peak_kW`, `Peak_kW_NoAction` | highest fireline intensity of the fire, with the planner and left alone |
+| `First_Drop_s` | time of the first drop |
+| `Queue_s` | drone-seconds spent waiting for a free pad |
+| `Max_Sortie_s` | longest time a drone was in the air between two services |
 
 **A trained planner** is evaluated like any other: `--policy runs/planner/planner.pt` (or
 `imitation.pt`). It takes its best guess per decision unless `--sample` is given. From Python,
@@ -937,9 +1009,9 @@ from the simulation thread. What it runs depends on how it is started:
 
 | Start | Runs |
 |---|---|
-| `python -m roshan.ui [--scenario x.npz]` | The scenario. With drones in it: the allocate task (drones fly, drop water, refill). Without: the fire alone |
+| `python -m roshan.ui [--scenario x.npz]` | The scenario. With a ground station in it: the allocate task (drones fly out from the stations, drop water, come home for service). Without: the fire alone |
 | `... --experiment FILE [--seed N]` | The scenario and world of an experiment file or of a run's `experiment.toml` / `evaluation.toml`, on episode N |
-| `... --planner off\|greedy\|rollout` | Who hands out targets (default greedy); can be switched in the window |
+| `... --planner off\|greedy\|head\|flank\|rollout` | Who hands out targets (default greedy); can be switched in the window |
 | `... --planner runs/planner/planner.pt` | A trained planner hands out targets (its best guess, no sampling); works with `planner.pt` and `imitation.pt` |
 | `... --fire-model firespin` | The particle fire model; particles are drawn as dots (pale = convection, orange = radiation) |
 | `... --preburn 600` | The fires burn that many seconds before the drones start; also `preburn_s` and `preburn_cells` in Settings |
@@ -969,8 +1041,9 @@ below can be done while it runs.
   their neighbours, burned cells glow as embers and cool to ash, dropped water is cyan.
   Drones are quadcopters with their nose towards where they fly, a number, a bar for the
   water on board, and a fading trail; a drone waiting for a decision is orange, the selected
-  one yellow. Ground stations are helipads, fire targets on offer are reticles numbered with
-  their slot, and the line from a drone to its target is orange (fire), blue (station) or
+  one yellow. Ground stations are helipads with two numbers beside them: drones ready to be
+  sent / drones docked. Docked drones are not drawn. Fire targets on offer are reticles
+  numbered with their slot, and the line from a drone to its target is orange (fire), blue (station) or
   white (a point). A ring splashes where water is dropped. Drag to pan, scroll to zoom.
   Hovering a cell shows land cover, fuel model, head spread rate, slope, water and height.
 - **View menu**: colour the ground by land cover, elevation, spread rate or flame length
@@ -978,9 +1051,10 @@ below can be done while it runs.
   arrival lines every 5 minutes, the cell grid, the wind arrow, trails, target lines and
   numbers; show the whole map; keep the selected drone in view.
 - **Toolbar**: pause, single fire step, restart, speed from 0.25x to 600x, and the left-click
-  tools: select a drone; send the selected drone; ignite now; drop water now; toggle a
-  starting fire, a drone or a ground station; erase placements. The last four edit the
-  scenario and restart it. Ignite and water reach `brush` cells around the click. Right click
+  tools: select a drone (on a station: its next ready drone); send the selected drone;
+  ignite now; drop water now; toggle a starting fire or a ground station; erase placements.
+  The last three edit the scenario and restart it. How many drones a station has is
+  `drones_per_station` in Simulation > Settings. Ignite and water reach `brush` cells around the click. Right click
   always drops water.
 - **File menu**: open a scenario (`.npz`) or a land-cover GeoTIFF, open a recent file, fetch
   the terrain of a real place, go back to the built-in demo, save (to the file the scenario
@@ -1024,13 +1098,14 @@ below can be done while it runs.
   tick and summed over the episode. In the navigate task the view range and the collision
   distance are drawn around it.
 - **By hand**: in the allocate task, "send" flies the selected drone to the clicked
-  cell: to refill on a station, to drop water on a burning cell, otherwise just there. With
-  the planner off nothing else moves. In the navigate task, "steer it myself" flies the
+  cell: to drop water on a burning cell's block, home when the cell holds a station,
+  otherwise just there (and home afterwards). A docked drone takes off for it; one that is
+  still being serviced cannot be sent. With the planner off nothing else moves. In the navigate task, "steer it myself" flies the
   selected drone with W A S D or the arrow keys while the policy flies the others.
 - **Episodes**: when an episode of the allocate task ends the simulation pauses and shows the
   summary; the navigate task starts the next episode by itself and shows how the last one
   ended.
-- **Keyboard**: Space pause, `.` step, R restart, F whole map, 1-8 tools, `[` `]` half or
+- **Keyboard**: Space pause, `.` step, R restart, F whole map, 1-7 tools, `[` `]` half or
   double speed, Esc close the inspector, Ctrl+O open, Ctrl+S save, Ctrl+Shift+S save as, F12
   screenshot. Help > Keyboard and mouse lists them.
 - **Remembered between runs** (in the user's data directory, `roshan2/app.ron`): the default
@@ -1080,11 +1155,13 @@ below can be done while it runs.
 
 ## Results
 
-All planner numbers use the Rothermel model. The planner comparison below was made on
-2026-11-17 with the calibrated water constants and the current demo map. **The learned-planner
-and learned-flight numbers further down are older**: they were made on the previous demo map
-with the placeholder water constants (critical load 1.0 L/m² for every fire) and have not been
-redone. Evaluation results do not depend on the machine; timings do.
+**Every planner and flight-under-a-planner number below was made before 2026-11-19, with the
+task as it was then: 4 drones with 300 L tanks that refilled in 10 s, drops of 150 L without
+loss, and the Hungarian planner. They do not describe the current task** (see
+[The allocate task](#the-allocate-task)) and are kept until its benchmark has been run.
+All planner numbers use the Rothermel model. The planner comparison was made on
+2026-11-17 with the calibrated water constants and the current demo map; the learned-planner
+and learned-flight numbers are older still (previous demo map, placeholder water constants). Evaluation results do not depend on the machine; timings do.
 
 ### Performance
 
@@ -1098,10 +1175,23 @@ and without spread-rate noise and a pre-burn) are byte-identical before and afte
 |---|---|---|
 | 30-minute fire, 160 x 120 hills, 6 ignitions | 8.2 ms | 4.0 ms |
 | The same with one wet cell on the map | 12.0 ms | 6.1 ms |
-| Allocate with the greedy planner, 16 environments | 27.7k decisions/s | 48.6k decisions/s |
-| Rollout planner, per decision | 4.28 ms | 2.33 ms |
 | Fire step, flat 200 x 200 grass | 10 ns per burning cell | 9 ns |
 | 60-minute fire, flat 100 x 100 | 2.4 ms | 2.2 ms |
+
+The allocate task since 2026-11-19 (same machine, same day): 16 environments on the hills
+map, three random fires that burn two minutes before the drones start, one station. The
+time is for everything: fire, drones, target table and observation at every decision.
+
+| Planner | 40 drones | 100 drones |
+|---|---|---|
+| greedy: 30 simulated minutes | 4.9 ms | 8.6 ms |
+| rollout (300 s ahead, 4 candidates): 30 simulated minutes | 3.0 s | 19 s |
+| rollout: per drone asked | 0.66 ms | 1.24 ms |
+
+With greedy the task costs little more than the fire alone, because nothing is computed per
+pair of drones. The rollout planner simulates up to six futures of 300 s for every drone it
+is asked about, also for each of the drones that wait at the station every 10 s; that is the
+place to save if it has to be faster.
 
 The older figures below are from a 24-core Intel Core Ultra 9 275HX with an RTX 5090 Laptop
 GPU, 2026-11-12, before that change; the two machines are not comparable.
@@ -1277,7 +1367,8 @@ tables with `cargo run --release -p roshan-core --example calibrate`.
 | `sheltered_waf` | 0.2 | Andrews 2012 (USDA RMRS-GTR-266): fully sheltered fuel 0.1 in dense stands, 0.2 in open ones. |
 | `water_tau_s` | 600 | **Assumed.** No measured holding time of plain water was found. Water-enhancing gels are reported to last 30-45 minutes at most, and plain water less; with 600 s a drop at twice the critical load holds for 7 minutes. |
 | `ember_s` | 60 | **Assumed.** A parameter of this model without a measured counterpart. |
-| drop footprint | one cell | **Assumed.** No measured ground pattern of a drone drop of this size was found. |
+| drop footprint | one cell | **Assumed.** No measured ground pattern of a drone drop of this size was found. A drop wets the whole 10 m cell evenly. |
+| `drop_efficiency` | 0.7 | **Assumed for drones.** Hansen 2012 and Penney et al. 2019 (Fire 2: 3) use 0.7 for water from ground hoses. For drops from aircraft, losses of 36 to 88 % are reported (Restás 2023, Fire 6: 351); a drone drops from far lower. Sensitivity runs use 0.5 and 1. |
 
 Checks that were not used as inputs:
 
@@ -1289,6 +1380,11 @@ Checks that were not used as inputs:
   10.6 L/m² in litter under trees.
 - Until 2026-11-19 the eucalypt curve was used for litter under trees too. Pine-needle litter
   takes about five times as much (see `water_per_mw_timber_l_m2`).
+- Ausonio, Bagnerini & Ghio 2021 (Drones 5: 17) size a drone swarm with a critical flow from
+  Hansen's fire-point theory: about 4.3 L/min per metre of front for scrub at 10 km/h wind
+  (their Fig. 3a). Here a 10 m front in grass at 5 m/s wind is stopped by 44 L on its cell
+  (63 L carried) while the head takes 83 s to cross it: 3.2 L/min per metre delivered,
+  4.5 carried. The dose on a cell and their flow agree at low intensity.
 
 What the simulator does with it: head fire on flat ground, dead fuel 6 %, live 60/90 %. Per
 wind speed at 10 m: rate of spread (m/min), fireline intensity (kW/m), water that stops it
@@ -1305,7 +1401,32 @@ wind speed at 10 m: rate of spread (m/min), fireline intensity (kW/m), water tha
 | TU3 | 1.1 / 182 / 0.48 | 2.8 / 449 / 1.19 | 6.4 / 1037 / 2.75 |
 | TL3 | 0.1 / 4 / 0.40 | 0.2 / 8 / 0.40 | 0.4 / 16 / 0.40 |
 
-A 150 L drop on a 10 m cell is 1.5 L/m².
+One 40 L drop at efficiency 0.7 leaves 0.28 L/m² on a 10 m cell. To stay stopped for
+`ember_s` a cell needs its critical load times 1.105: two drops at 0.40 L/m², 6 at 1.33,
+15 at 3.69. `--example calibrate` prints the drops per cell for every fuel.
+
+### Drones and stations
+
+The defaults of the allocate task describe battery multirotors that can be bought, and the
+swarm of Ausonio et al. 2021 (80 to 120 drones of 20 to 30 L per platform, a 6-minute cycle,
+battery and tank swapped at a mobile platform). Checked on 2026-11-19; product figures are
+the manufacturers'.
+
+| Constant | Value | Source |
+|---|---|---|
+| `tank_l`, `drop_l` | 40 | DJI FlyCart 30 carries 30 kg (40 kg on one battery), DJI Agras T50 a 40 L tank, the drones fire services ordered in 2026 (Seneca, FireSparrow) 38 to 76 L. Ausonio et al. assume 5 to 50 L and one drop per sortie. 300 L, the value until 2026-11-19, is what turbine prototypes and unmanned helicopters lift. |
+| `max_speed_ms` | 10 | Ausonio et al.: 35 km/h loaded, 50 km/h empty. One speed is used. |
+| `endurance_s` | 900 | DJI FlyCart 30: 18 minutes of hover with 30 kg, 29 minutes empty; the Agras T40 hovers 7 minutes fully loaded. 15 minutes for the whole sortie, loaded out and empty back, leaves a reserve. |
+| `service_s` | 60 | Ausonio et al.: the automatic swap of battery and tank takes "a few seconds to a maximum of one minute". Charging the battery in the drone instead takes 9 to 12 minutes (DJI Agras); 600 is the variant for that. |
+| `pads` | 8 | **Assumed.** Eight pads at 60 s serve eight drones a minute: Ausonio's platform, 120 drones on a 6-minute cycle, needs twenty. |
+| `drones_per_station` | 40 | **A choice**, between the five drones one operator supervises (Seneca) and Ausonio's 120. Results sweep it. |
+| `safe_m` | 0 | **Assumed** height lanes: drones on different sorties do not meet. |
+
+Not modelled: endurance falling with the load carried (hover power grows with mass to the
+power 1.5, which fits the three products above within 10 %), wind acting on the drones, and
+what flying 40 drones beyond line of sight needs from a regulator. In the EU dropping
+anything from a drone is outside the open category, and no authorisation of a firefighting
+swarm was found.
 
 ### Land cover
 
@@ -1354,7 +1475,8 @@ From the plan in [design.md](design.md):
 
 - Fitting the water constants and the land-cover table to measured fires; they are set from
   published values (see [Calibration](#calibration)).
-- Retraining the learned planner on the calibrated simulator.
+- Training a planner on the drone-swarm task of 2026-11-19; the network accepts its
+  observation, and older checkpoints are refused.
 - Sensing, belief maps and the scripted explorer.
 - Sweeps over experiment files and inheritance between them; a variant is a copied file.
 
@@ -1374,8 +1496,18 @@ From the plan in [design.md](design.md):
 - **The Rothermel kernel is checked on two fuel models** against Behave, and the fuel table on
   all forty. A reference table over all forty models has not been generated.
 - **Water**: the critical load follows published values, but how long water lasts
-  (`water_tau_s`), `ember_s` and the footprint of a drone's drop (all of it on one cell) are
-  assumptions. A cell's intensity is fixed when it ignites and does not follow a later wind
+  (`water_tau_s`), `ember_s`, the share of a drop that reaches the fuel and the footprint of
+  a drone's drop (all of it spread evenly over one 10 m cell) are assumptions. A real drop of
+  40 L wets a strip of a few metres; the model asks for the same litres per metre of front
+  as Ausonio et al. at low intensity (see [Calibration](#calibration)), but cannot say where
+  within a cell the water has to go.
+- **The drones are simple**: one speed, an endurance that does not depend on the load, no
+  wind on the drones, no separation at swarm size (height lanes are assumed), every station
+  with the same number of drones, and all ready drones can take off in the same tick. A drone
+  on its way is not sent elsewhere unless its target goes out. Endurance is checked when a
+  drone is sent, not while it flies.
+- **Under FireSPIN no fireline intensity exists**, so `intensity`, `Stopped_kW_*` and
+  `Peak_kW*` are zero there. A cell's intensity is fixed when it ignites and does not follow a later wind
   change. Along an edge the wettest cell decides, which is slightly too cautious for partly
   wet paths.
 - **FireSPIN is not calibrated either**: its constants are the old ones, and no planner
@@ -1385,8 +1517,9 @@ From the plan in [design.md](design.md):
   greedy. Only imitation of the rollout planner works so far; one network, one seed.
 - **One training seed** stands behind the fly-policy numbers.
 - **The planner sees the true fire**; there is no sensing yet.
-- **The scripted controller has no deadlock handling** beyond sidestepping; none occurred in
-  the tests.
+- **The scripted controller has no deadlock handling** beyond sidestepping (only with
+  `safe_m` above zero); none occurred in the tests. A drone hovering over a station would
+  block its launches then.
 - **Random ignitions use rejection sampling**: a map that is almost all non-burnable gets
   fewer fires than asked for.
 - **The viewer's mouse and keyboard actions, menus, file dialogs and Settings window were not

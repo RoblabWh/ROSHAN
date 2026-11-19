@@ -59,7 +59,6 @@ pub fn demo_scenario() -> Scenario {
         elevation: Some(elevation),
         landcover: None,
         ignitions: vec![[20, 60]],
-        drones: vec![[4, 4], [5, 4], [4, 5], [5, 5]],
         stations: vec![[3, 3]],
         moisture: Moisture {
             d1: 0.06,

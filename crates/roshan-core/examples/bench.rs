@@ -7,7 +7,9 @@
 use std::sync::Arc;
 use std::time::Instant;
 
-use roshan_core::allocate::{AllocConfig, AllocVec, Bufs, DRONE, GLOBAL, INFO, TARGET, TERMS};
+use roshan_core::allocate::{
+    AllocConfig, AllocVec, Bufs, DRONE, GLOBAL, INFO, Method, TARGET, TERMS,
+};
 use roshan_core::fuel;
 use roshan_core::rothermel::Moisture;
 use roshan_core::scenario::Scenario;
@@ -66,7 +68,6 @@ fn hills() -> Scenario {
         elevation: Some(elevation),
         landcover: None,
         ignitions: vec![[40, 60]],
-        drones: (0..4).map(|i| [4 + 2 * i, 4]).collect(),
         stations: vec![[5, 8]],
         moisture: DRY,
         wind: vec![Wind {
@@ -107,12 +108,21 @@ fn hills_bench() {
         );
     }
 
-    let cfg = AllocConfig {
-        random_ignitions: 6,
-        random_wind: true,
-        ..AllocConfig::default()
-    };
-    for planner in ["greedy", "rollout"] {
+    // The allocate task: one station, random fires that burn two minutes before the drones
+    // start. A step runs to the next decision event.
+    for (planner, team, steps) in [
+        (Method::Greedy, 40, 4000),
+        (Method::Greedy, 100, 4000),
+        (Method::Rollout, 40, 60),
+        (Method::Rollout, 100, 60),
+    ] {
+        let cfg = AllocConfig {
+            random_ignitions: 3,
+            random_wind: true,
+            preburn_s: 120.0,
+            drones_per_station: team,
+            ..AllocConfig::default()
+        };
         let mut v = AllocVec::new(16, scenario.clone(), SimConfig::default(), cfg, 0, 1).unwrap();
         let (e, n, slots) = (v.envs.len(), v.drones, v.slots);
         let (mut drones, mut targets) = (
@@ -126,9 +136,10 @@ fn hills_bench() {
         let (mut info, mut seed, mut fingerprint) =
             (vec![0.0; e * INFO.len()], vec![0; e], vec![0; e]);
         let mut actions = vec![-1; e * n];
-        let steps = if planner == "greedy" { 400 } else { 20 };
-        let (mut decisions, mut planning, start) = (0usize, 0.0, Instant::now());
+        let (mut asked, mut simulated, mut planning) = (0usize, 0.0f64, 0.0);
+        let start = Instant::now();
         for step in 0..=steps {
+            asked += decide.iter().filter(|&&d| d == 1).count();
             let bufs = Bufs {
                 drones: &mut drones,
                 targets: &mut targets,
@@ -149,20 +160,17 @@ fn hills_bench() {
                 continue;
             }
             let plan = Instant::now();
-            if planner == "greedy" {
-                v.greedy(&mut actions);
-            } else {
-                v.rollout(120.0, 4, &mut actions);
-            }
+            v.plan(planner, 300.0, 4, &mut actions);
             planning += plan.elapsed().as_secs_f64();
             v.step(&actions, bufs);
-            decisions += e;
+            simulated += elapsed_s.iter().map(|&s| s as f64).sum::<f64>();
         }
         let total = start.elapsed().as_secs_f64();
         println!(
-            "allocate, 160x120 hills, {planner}: {:.1}k decisions/s on one thread, {:.2} ms planning per decision",
-            decisions as f64 / total / 1e3,
-            planning * 1e3 / decisions as f64
+            "allocate, 160x120 hills, {team} drones, {planner:?}: {:.1} ms per 30 simulated \
+             minutes, {:.3} ms planning per drone asked",
+            total * 1e3 * 1800.0 / simulated,
+            planning * 1e3 / asked as f64
         );
     }
 }

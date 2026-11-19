@@ -34,8 +34,7 @@ cargo run --release -p roshan-core --example calibrate   # tables behind the cal
 ```
 
 `uv run ...` rebuilds `roshan._core` whenever a Rust source changed, so Python never runs a
-stale build. Planner results use
-`--config '{"random_ignitions":6,"random_wind":true}'` on `scenarios/demo.npz`.
+stale build. The planner benchmark is `experiments/eval_demo.toml` on `scenarios/demo.npz`.
 
 ## Rules
 
@@ -61,7 +60,8 @@ stale build. Planner results use
 - After changing `CROSSWALK` in `python/roshan/geo.py`, rebuild the fuel of saved real-terrain
   scenarios: `uv run python -m roshan.geo refuel scenarios/<file>.npz`.
 - After changing `crates/roshan-ui/src/demo.rs`, regenerate `scenarios/demo.npz` and
-  `scenarios/demo_static.npz` (the static one has moisture `[0.14, 0.15, 0.16, 1.2, 1.5]`).
+  `scenarios/demo_static.npz` from `Scenario.from_dict(_core.demo_scenario())` (the static
+  one has moisture `[0.14, 0.15, 0.16, 1.2, 1.5]` and the name `demo_static`).
   Both are the planner benchmark maps, so every planner result changes with them.
 - Changing the fire, the water model or the demo map invalidates the planner results in
   `docs/systems.md` and the checkpoints in `runs/`. Re-run the untrained planners with
@@ -70,6 +70,10 @@ stale build. Planner results use
   To look at an episode of a run, start it with `--experiment <file> --seed <N>`; the
   `fire #` in the status bar must equal the CSV's `Fire_Fingerprint`.
 - The viewer refuses to save over a map that a file in `experiments/` runs on.
+- A scenario holds ground stations, not drones: `drones_per_station` in the allocate
+  settings says how many are based at each. A scenario without a station runs the fire only.
+- An evaluation row holds NaN where nothing was measured (`Min_Separation` without `safe_m`,
+  `First_Drop_s` without a drop): compare rows through `json.dumps`, not `==`.
 - `Water` copies `water_crit_l_m2` when the world is built; changing the config on a running
   world has no effect on it.
 - The viewer cannot be clicked from an automated session; menu, mouse and keyboard behaviour

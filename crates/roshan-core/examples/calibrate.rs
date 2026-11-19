@@ -5,6 +5,7 @@
 
 use std::sync::Arc;
 
+use roshan_core::allocate::AllocConfig;
 use roshan_core::fuel::{self, SB40};
 use roshan_core::rothermel::{FuelBed, Moisture};
 use roshan_core::terrain::{Grid, Terrain};
@@ -46,7 +47,15 @@ fn main() {
     let cfg = SimConfig::default();
     let dry = moisture(0.06, 0.60, 0.90);
     println!("1. Head fire on flat ground, dead fuel 6 %, live 60/90 %, wind at 10 m.");
-    println!("   ROS m/min | intensity kW/m | water to stop it L/m2 | 150 L drops per 10 m cell\n");
+    // What one drop of the default drone leaves on a 10 m cell, and how much more than the
+    // critical load a cell needs to stay stopped for `ember_s` while the water evaporates.
+    let drone = AllocConfig::default();
+    let per_drop = drone.drop_efficiency * drone.drop_l / 100.0;
+    let hold = (cfg.ember_s / cfg.water_tau_s).exp();
+    println!(
+        "   ROS m/min | intensity kW/m | water to stop it L/m2 | drops of {} L per 10 m cell\n",
+        drone.drop_l
+    );
     println!("{:5} {:>30} {:>30} {:>30}", "", "2 m/s", "5 m/s", "10 m/s");
     for name in [
         "GR1", "GR2", "GR6", "GS2", "SH2", "SH3", "SH5", "SH8", "SH9", "TU1", "TU2", "TU3", "TU5",
@@ -62,11 +71,25 @@ fn main() {
                 _ => cfg.water_per_mw_l_m2,
             };
             let crit = cfg.water_crit_l_m2.max(per_mw * kw / 1000.0);
-            let drops = crit * 100.0 / 150.0;
-            print!(" {:7.1} {:7.0} {:6.2} {:6.1}", ros * 60.0, kw, crit, drops);
+            let drops = (crit * hold / per_drop).ceil();
+            print!(" {:7.1} {:7.0} {:6.2} {:6.0}", ros * 60.0, kw, crit, drops);
         }
         println!();
     }
+
+    // A check that was not an input: Ausonio et al. 2021 (Drones 5: 17) take a critical flow
+    // of about 4.3 L/min per metre of front for scrub at 10 km/h wind (their Fig. 3a). Here
+    // a 10 m front in grass at 5 m/s is stopped by soaking its cell while the head crosses it.
+    let ros = head("GR2", dry, 5.0);
+    let (crossing_s, litres) = (10.0 / ros, cfg.water_crit_l_m2 * hold * 100.0);
+    println!(
+        "\n   Grass head at 5 m/s: {:.0} L delivered ({:.0} L carried) stop 10 m of front; the \
+         head crosses a cell in {crossing_s:.0} s,\n   so that is {:.1} L/min per metre of \
+         front. Ausonio et al. 2021: about 4.3.",
+        litres,
+        litres / drone.drop_efficiency,
+        litres / 10.0 / (crossing_s / 60.0),
+    );
 
     // Tanskanen et al. 2007 (Int. J. Wildland Fire 16): experimental fires in Scots pine stands,
     // fitted against the wind inside the stand: ROS = 0.663 exp(2.286 U) m/min at 7-11 % fuel
