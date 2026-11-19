@@ -581,19 +581,39 @@ impl AllocEnv {
     fn fire_targets(&self) -> Vec<Target> {
         let area = self.terrain.grid.cell_m.powi(2);
         let per_drop = self.cfg.drop_efficiency * self.cfg.drop_l / area; // L/m² on one cell
-        // Per block: front cells, drops needed, highest intensity.
-        let mut blocks: BTreeMap<u32, (u32, f32, f32)> = BTreeMap::new();
+        let nearest_station = |point: [f32; 2]| {
+            (0..self.scenario.stations.len())
+                .map(|s| dist(point, self.station_point(s)))
+                .fold(f32::INFINITY, f32::min)
+        };
+        // Per block: front cells, drops needed, highest intensity, metres to the nearest
+        // station, and the share of the water lying there now that is left when a drone sent
+        // from that station arrives. Without it a front that needs many drops is never
+        // stopped: what is ordered for the load missing now has evaporated on arrival.
+        let mut blocks: BTreeMap<u32, (u32, f32, f32, f32, f32)> = BTreeMap::new();
         for cell in self.world.fire.burning() {
             let cell = cell as usize;
             let Some(front) = self.world.fire.front(cell) else {
                 continue; // only burning out: water changes nothing there
             };
+            let block = self.block_of(cell);
+            let b = blocks.entry(block).or_insert_with(|| {
+                let home_m = nearest_station(self.block_point(block));
+                let flight_s = home_m / self.cfg.max_speed_ms;
+                let left = libm::expf(-flight_s / self.sim.water_tau_s);
+                (0, 0.0, 0.0, home_m, left)
+            });
             // A front too intense for water is shown (cells, intensity) but needs no drop.
-            let short = self
-                .hold_load(cell)
-                .map_or(0.0, |hold| (hold - self.world.water.load[cell]).max(0.0));
-            let b = blocks.entry(self.block_of(cell)).or_default();
-            *b = (b.0 + 1, b.1 + short / per_drop, b.2.max(front.kw_m));
+            let short = self.hold_load(cell).map_or(0.0, |hold| {
+                (hold - self.world.water.load[cell] * b.4).max(0.0)
+            });
+            *b = (
+                b.0 + 1,
+                b.1 + short / per_drop,
+                b.2.max(front.kw_m),
+                b.3,
+                b.4,
+            );
         }
         let mut inbound: BTreeMap<u32, f32> = BTreeMap::new();
         for (i, task) in self.task.iter().enumerate() {
@@ -606,20 +626,14 @@ impl AllocEnv {
         }
         let mut out: Vec<Target> = blocks
             .iter()
-            .map(|(&block, &(fronts, need, kw))| {
-                let point = self.block_point(block);
-                let home_m = (0..self.scenario.stations.len())
-                    .map(|s| dist(point, self.station_point(s)))
-                    .fold(f32::INFINITY, f32::min);
-                Target {
-                    block,
-                    point,
-                    fronts,
-                    need,
-                    inbound: inbound.get(&block).copied().unwrap_or(0.0),
-                    kw,
-                    home_m,
-                }
+            .map(|(&block, &(fronts, need, kw, home_m, _))| Target {
+                block,
+                point: self.block_point(block),
+                fronts,
+                need,
+                inbound: inbound.get(&block).copied().unwrap_or(0.0),
+                kw,
+                home_m,
             })
             .collect();
         out.sort_by(|a, b| b.need.total_cmp(&a.need).then(a.block.cmp(&b.block)));

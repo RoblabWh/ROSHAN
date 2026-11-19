@@ -534,6 +534,17 @@ fn need_counts_front_cells_with_the_hold_margin() {
     );
     assert!((0.2..0.5).contains(&fire[target("intensity")]), "{fire:?}");
 
+    // Water already on the cell counts with what is left of it when a drone sent now arrives
+    // from the nearest station (298 m, 29.8 s): a cell holding exactly the load that stops it
+    // still needs a little, or a front that takes many drops would never be stopped.
+    let cell = v.envs[0].world.terrain.grid.idx(30, 20);
+    let mut wet = v.envs[0].clone();
+    wet.world.water.add(cell, load);
+    let mut scratch = roshan_core::allocate::Scratch::new(&wet);
+    wet.step(&vec![-1; v.drones], false, scratch.out(&wet));
+    let seen = scratch.out(&wet).targets[2 * TARGET.len() + target("need")];
+    assert!(seen > 0.05 && seen < 0.5, "needs {seen} drops");
+
     // Greedy sends what is needed and no more: two drops, from the nearer station.
     let mut actions = vec![0; v.drones];
     v.plan(Method::Greedy, 0.0, 0, &mut actions);
