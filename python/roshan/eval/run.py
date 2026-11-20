@@ -285,7 +285,7 @@ def run_experiment(exp, out, record="evaluation.toml"):
              + f" and {spec['drones'] - team} explorers" * (spec["drones"] > team), "",
              "| arm | fire out | burned | area saved | drops | fronts stopped | at kW/m (mean, highest) | "
              "drones closer than 2 m |", "|---|---|---|---|---|---|---|---|"]
-    paths, by_class = {}, []
+    paths, by_class, sensing = {}, [], []
     for name, (policy, fly, device) in players.items():
         rows = evaluate(scenario, policy, seeds, config, sim, fly=fly, device=device, idle=idle)
         paths[name] = write_csv(rows, out / f"{name}.csv")
@@ -301,6 +301,15 @@ def run_experiment(exp, out, record="evaluation.toml"):
         print(lines[-1], flush=True)
         result[name] = {"fire_out": mean("Success"), "burned": mean("Percent_Burned"), "area_saved": mean("Area_Saved"),
                         "drops": mean("Drops"), "stopped_cells": mean("Stopped_Cells"), "stopped_kw_mean": stopped_kw}
+        if rows and not np.isnan(rows[0]["Seen_Share"]):
+            # NaN stays out of `result`: a TOML file cannot hold it.
+            found = [r["Detect_s"] for r in rows if not np.isnan(r["Detect_s"])]
+            known = lambda key: [r[key] for r in rows if not np.isnan(r[key])] or [float("nan")]  # noqa: E731
+            after = f"{np.median(found):.0f} s | {np.percentile(found, 90):.0f} s" if found else "- | -"
+            sensing.append(f"| {name} | {len(found) / len(rows):.1%} | {after} | {mean('Seen_Share'):.1%} | "
+                           f"{np.mean(known('Belief_Miss')):.1%} | {np.mean(known('Belief_Phantom')):.1%} |")
+            result[name] |= {"found": len(found) / len(rows), "seen_share": mean("Seen_Share")}
+            result[name] |= {"detect_s_median": float(np.median(found))} if found else {}
         for label, low, high in CLASSES:
             part = [r for r in rows if low <= r["Peak_kW_Start"] < high]
             by_class.append(f"| {name} | {label} | {len(part)} | {mean('Success', part):.1%} | "
@@ -309,6 +318,10 @@ def run_experiment(exp, out, record="evaluation.toml"):
     lines += ["", "By the peak fireline intensity of the fire when the drones start:", "",
               "| arm | fire at the start | episodes | fire out | area saved | fronts stopped |", "|---|---|---|---|---|---|",
               *by_class]
+    if sensing:
+        lines += ["", "What the drones saw of the fire (the planners read the true fire):", "",
+                  "| arm | fire found | after (median) | after (9 of 10) | map seen | burning cells not known | "
+                  "believed fire that is gone |", "|---|---|---|---|---|---|---|", *sensing]
     experiment.finish(out / record, tables, time.perf_counter() - began, result)
     text = "\n".join(lines) + "\n"
     if ev["pair"]:

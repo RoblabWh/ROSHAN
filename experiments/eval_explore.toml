@@ -1,0 +1,90 @@
+# Finding the fire: explorers sweep the demo map while two random fires burn that nobody was
+# told about (they have reached 20 cells, 0.2 ha, when the episode starts). Four explorers
+# with a 55 m sensor at the one station; the 40 attack drones carry a 20 m sensor.
+#   none:   the attack drones stay docked, so the explorers alone find and follow the fire
+#   greedy: the planner still reads the true fire; its drones see it as they fight it
+#   uv run python -m roshan.eval experiments/eval_explore.toml  -> runs/eval_explore/
+# Every setting is listed with the value this run uses. Copy the file to make a variant.
+
+# split is "val" or "test"; n = 0 runs all its seeds; pair = ["a", "b"] adds paired statistics of two arms
+[eval]
+scenario = "scenarios/demo.npz"
+split = "val"
+n = 0
+pair = []
+
+# the simulation; names carry their units: _s seconds, _m metres, _l litres
+[sim]
+dt_s = 0.1
+fire_every = 20
+water_crit_l_m2 = 0.4
+water_per_mw_grass_l_m2 = 0.35
+water_per_mw_l_m2 = 0.6
+water_per_mw_timber_l_m2 = 2.65
+water_limit_kw_m = 4000.0
+water_tau_s = 600.0
+ember_s = 60.0
+sheltered_waf = 0.2
+ros_noise = 0.0
+fire_model = "rothermel"
+
+# the FireSPIN particle model, used when fire_model is firespin
+[sim.spin]
+dt_s = 0.5
+emit_convective = true
+emit_radiation = true
+conv_y_st = 1.0
+conv_y_lim = 0.2
+conv_tau_mem_s = 10.0
+conv_fl = 0.15
+conv_c0 = 1.98
+lt_m = 80.0
+wind_a = 0.314
+rad_y_st = 1.0
+rad_y_lim = 0.165
+generic_burn_s = 120.0
+generic_ignite_s = 100.0
+
+# the planner's task: drones are sent to fires
+[allocate]
+max_speed_ms = 10.0
+tank_l = 40.0
+drop_l = 40.0
+drop_efficiency = 0.7
+service_s = 60.0
+pads = 8
+endurance_s = 900.0
+drones_per_station = 40
+arrive_m = 5.0
+station_m = 12.0
+safe_m = 0.0
+sense_m = 20.0
+explorers_per_station = 4
+explorer_sense_m = 55.0
+explorers_follow = true
+block_cells = 2
+max_targets = 64
+max_interval_s = 10.0
+time_limit_s = 1800.0
+random_ignitions = 2
+random_wind = true
+wind_scale = 1.0
+preburn_s = 1800.0
+preburn_cells = 20
+
+# one section per planner to compare: policy is none, greedy, head, flank, rollout or a checkpoint (.pt);
+# horizon (seconds) and candidates belong to rollout, sample to a checkpoint;
+# fly is a fly checkpoint, "decentral", or "" for the scripted controller
+[arms.none]
+policy = "none"
+sample = false
+horizon = 300.0
+candidates = 4
+fly = ""
+
+[arms.greedy]
+policy = "greedy"
+sample = false
+horizon = 300.0
+candidates = 4
+fly = ""

@@ -7,6 +7,7 @@
 use crate::{Mode, Shared, Sim, Snapshot, Tool, Viewer};
 use eframe::egui::{self, Color32, Pos2, Rect, Stroke, vec2};
 use roshan_core::allocate::{TASK_FIRE, TASK_STATION};
+use roshan_core::belief::{Belief, NEVER};
 use roshan_core::fire::{BURNED, BURNING};
 use roshan_core::fuel::SB40;
 use roshan_core::rothermel::FuelBed;
@@ -102,6 +103,8 @@ pub struct Layers {
     pub goals: bool,
     pub labels: bool,
     pub wind: bool,
+    /// What the drones have seen of the fire, where they carry sensors.
+    pub belief: bool,
 }
 
 impl Default for Layers {
@@ -116,9 +119,13 @@ impl Default for Layers {
             goals: true,
             labels: true,
             wind: true,
+            belief: true,
         }
     }
 }
+
+/// Explorers and the lines to their waypoints.
+const EXPLORER: Color32 = Color32::from_rgb(200, 150, 255);
 
 /// Minutes between two arrival-time lines.
 pub const ISOCHRONE_S: f32 = 300.0;
@@ -276,8 +283,12 @@ fn base(world: &World, scenario: &Scenario, layers: Layers) -> (Vec<[u8; 3]>, Le
     (colours, legend)
 }
 
-/// The picture of the map right now: the base with fire, ash and water laid over it.
-fn paint(world: &World, base: &[[u8; 3]], layers: Layers) -> Vec<Color32> {
+/// The picture of the map right now: the base with fire, ash and water laid over it. With a
+/// `belief` (and its layer on) the picture also shows where the drones' knowledge is wrong:
+/// cells nobody has looked at are dark, a fire the drones do not know of is grey, and a fire
+/// they still believe in although it is gone is violet.
+fn paint(world: &World, belief: Option<&Belief>, base: &[[u8; 3]], layers: Layers) -> Vec<Color32> {
+    let belief = belief.filter(|_| layers.belief);
     let (fire, grid) = (&world.fire, world.terrain.grid);
     let now = world.time_s();
     let step = (world.tick / world.cfg.fire_every as u64) as u32;
@@ -310,6 +321,19 @@ fn paint(world: &World, base: &[[u8; 3]], layers: Layers) -> Vec<Color32> {
             if water > 0.0 {
                 // Cyan (lakes are blue), full strength at 2 L/m².
                 c = mix(c, [90, 220, 245], (0.3 + 0.25 * water).min(0.8));
+            }
+            if let Some(b) = belief {
+                match (fire.state[i] == BURNING, b.state[i] == BURNING) {
+                    (true, false) => {
+                        let grey = ((c[0] as u16 + c[1] as u16 + c[2] as u16) / 3) as u8;
+                        c = mix(c, [grey; 3], 0.85);
+                    }
+                    (false, true) => c = mix(c, [190, 70, 230], 0.7),
+                    _ => {}
+                }
+                if b.seen[i] == NEVER {
+                    c = scale(c, 0.5);
+                }
             }
             rgb(c)
         })
@@ -370,7 +394,7 @@ impl Canvas {
         );
         if self.painted_for != Some(now) {
             self.painted_for = Some(now);
-            self.fresh = Some(paint(world, &self.base, layers));
+            self.fresh = Some(paint(world, s.sim.belief(), &self.base, layers));
         }
     }
 
@@ -681,6 +705,8 @@ impl Viewer<'_> {
                         Color32::from_rgb(255, 150, 60)
                     } else if drone.kind == TASK_STATION {
                         Color32::from_rgb(110, 170, 255)
+                    } else if drone.explorer {
+                        EXPLORER
                     } else {
                         Color32::WHITE
                     };
@@ -698,6 +724,11 @@ impl Viewer<'_> {
                     let red = Stroke::new(at_least(0.1, 1.0), Color32::RED);
                     painter.circle_stroke(p, collide, red);
                 }
+                if chosen && drone.sense > 0.0 && !drone.docked {
+                    // What its fire sensor sees.
+                    let faint = Stroke::new(at_least(0.12, 1.0), Color32::from_white_alpha(150));
+                    painter.circle_stroke(p, drone.sense, faint);
+                }
                 if chosen {
                     let halo = Stroke::new(0.18 * r, Color32::YELLOW);
                     painter.circle_stroke(p, 1.75 * r, halo);
@@ -708,6 +739,7 @@ impl Viewer<'_> {
                 let fill = match (chosen, drone.deciding) {
                     (true, _) => Color32::YELLOW,
                     (_, true) => Color32::from_rgb(255, 170, 60), // waiting for a decision
+                    _ if drone.explorer => EXPLORER,
                     _ => Color32::from_rgb(235, 238, 242),
                 };
                 quadcopter(painter, p, r, drone.vel, fill);
@@ -800,6 +832,14 @@ impl Viewer<'_> {
             let slope = world.terrain.slope[i];
             let height = (s.scenario.elevation.as_ref())
                 .map_or(String::new(), |e| format!("   {:.0} m high", e[i]));
+            let believed = s.sim.belief().map(|b| match (b.seen[i], b.state[i]) {
+                (NEVER, _) => "no drone has looked here yet".to_string(),
+                (seen, state) => format!(
+                    "the drones saw it {:.0} s ago: {}",
+                    (world.tick - seen as u64) as f32 * world.cfg.dt_s,
+                    ["not burning", "burning", "burned"][state.min(2) as usize]
+                ),
+            });
             drop(s);
             self.hover = format!("cell ({x}, {y})   {fuel}");
             let anchor = egui::PopupAnchor::Pointer;
@@ -815,6 +855,9 @@ impl Viewer<'_> {
                     "head rate {rate:.3} m/s   slope {:.0} %   water {water:.2} L/m²{height}",
                     slope[0].hypot(slope[1]) * 100.0
                 ));
+                if let Some(believed) = &believed {
+                    ui.label(believed);
+                }
             });
         }
     }
@@ -857,11 +900,56 @@ mod tests {
             .burning()
             .next()
             .expect("the demo starts with a fire") as usize;
-        let before = paint(&world, &base, Layers::default());
+        let before = paint(&world, None, &base, Layers::default());
         assert_ne!(before[burning].to_array()[..3], base[burning]);
+
+        // The belief layer: one look at the fire, then a fire the drones only believe in.
+        let grid = scenario.grid;
+        let centre = |cell: usize| {
+            let (x, y) = grid.xy(cell);
+            [
+                (x as f32 + 0.5) * grid.cell_m,
+                (y as f32 + 0.5) * grid.cell_m,
+            ]
+        };
+        let (far, gone) = (0, grid.idx(grid.nx - 1, grid.ny - 1));
+        assert!(far != burning && gone != burning);
+        let mut seen = Belief::new(grid.len());
+        seen.look(grid, &world.fire.state, centre(burning), 15.0, 1);
+        let mut fake = world.fire.state.clone();
+        fake[gone] = BURNING;
+        seen.look(grid, &fake, centre(gone), 1.0, 1);
+        let with = paint(&world, Some(&seen), &base, Layers::default());
+        assert_eq!(
+            with[burning], before[burning],
+            "a fire the drones know looks as it is"
+        );
+        assert_ne!(
+            with[gone], before[gone],
+            "a fire that is gone but believed is marked"
+        );
+        let dark = |c: Color32| c.r() as u32 + c.g() as u32 + c.b() as u32;
+        assert!(dark(with[far]) < dark(before[far]), "nobody looked there");
+        let unknown = paint(
+            &world,
+            Some(&Belief::new(grid.len())),
+            &base,
+            Layers::default(),
+        );
+        assert_ne!(
+            unknown[burning], before[burning],
+            "a fire the drones do not know of"
+        );
+        let off = Layers {
+            belief: false,
+            ..Layers::default()
+        };
+        assert_eq!(paint(&world, Some(&seen), &base, off), before);
+
         world.run(600.0);
         let after = paint(
             &world,
+            None,
             &base,
             Layers {
                 isochrones: true,

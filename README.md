@@ -108,6 +108,7 @@ map shows (relief, contours, fire arrival lines, spread rate). Help lists the sh
 | Command | What it does |
 |---|---|
 | `uv run python -m roshan.eval experiments/eval_demo.toml` | Run every planner of the file on the same seeds, writes CSVs, `summary.md` and `evaluation.toml` to `runs/eval_demo/` |
+| `uv run python -m roshan.eval experiments/eval_explore.toml` | Explorer drones find and follow two fires nobody was told about; `summary.md` adds what the drones saw (found after, map seen, what the belief gets wrong) |
 | `... experiments/eval_demo.toml --config '{"drones_per_station":80}' --out runs/team_80` | The same file with a setting changed, for sweeps (`--sim`, `--split` and `--n` work the same way) |
 | `uv run python -m roshan.eval --scenario scenarios/demo.npz --policy greedy --out greedy.csv` | Run a planner on the validation seeds: `none`, `greedy`, `head`, `flank`, `rollout`, or a checkpoint `.pt` |
 | `... --config '{"random_ignitions":2,"random_wind":true}'` | Change the task: here two random fires and a randomly turned wind |

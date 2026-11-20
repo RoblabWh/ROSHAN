@@ -1108,10 +1108,16 @@ below can be done while it runs.
   numbered with their slot, and the line from a drone to its target is orange (fire), blue (station) or
   white (a point). A ring splashes where water is dropped. Drag to pan, scroll to zoom.
   Hovering a cell shows land cover, fuel model, head spread rate, slope, water and height.
+  Explorers are violet drones without a water bar, with a violet line to their next waypoint;
+  the selected drone's fire sensor is a thin circle. Where drones carry sensors the map also
+  shows what they know: cells no drone has looked at are dark, a fire the drones do not know
+  of is grey, a fire they still believe in although it is gone is violet, and hovering a cell
+  says when it was last seen and as what.
 - **View menu**: colour the ground by land cover, elevation, spread rate or flame length
   (the last two for the wind at the start); switch relief shading, elevation contours, fire
-  arrival lines every 5 minutes, the cell grid, the wind arrow, trails, target lines and
-  numbers; show the whole map; keep the selected drone in view.
+  arrival lines every 5 minutes, the cell grid, the wind arrow, trails, target lines,
+  numbers and what the drones have seen (on by default, visible only with sensors); show the
+  whole map; keep the selected drone in view.
 - **Toolbar**: pause, single fire step, restart, speed from 0.25x to 600x, and the left-click
   tools: select a drone (on a station: its next ready drone); send the selected drone;
   ignite now; drop water now; toggle a starting fire or a ground station; erase placements.
@@ -1154,8 +1160,8 @@ below can be done while it runs.
   (wind speed and direction, dead-fuel, live-herb and live-woody moisture) and later wind
   changes (after how many minutes, speed, direction).
 - **Status bar**: time, burning cells, burned share, the fireline intensity of the most
-  intense front burning now (Rothermel), current wind, drones flying / ready /
-  in service (allocate task), map size, seed, the
+  intense front burning now (Rothermel), current wind, attack drones flying / ready /
+  in service and explorers out (allocate task), map size, seed, the
   fire's fingerprint (allocate task), policy calls, and the last message.
 - **Inspector**: "select" and click a drone. A panel shows every observation column of
   that drone by name, its neighbour slots (navigate), and every reward term for the last
@@ -1209,6 +1215,10 @@ below can be done while it runs.
   that depend only on their seed (with and without a pre-burn), water saving area, decision,
   mask and tank rules, the pre-burn (equals the fire left alone, episode clock, cell cap, a
   fire that dies in it).
+  Sensing: the sensor is a circle and the belief is the last look (`belief.rs`), a sensor
+  never changes an episode, explorers never decide or carry water and come home within
+  their endurance, the sweep sees the whole map and finds the fire, following lowers what
+  the belief misses.
 - **Python** (`tests/`): baselines, the allocate environment, the evaluation runner and paired
   statistics, environment buffers and validation, advantage estimation, the squashed policy,
   a PPO update, a short end-to-end training run, the planner network and imitation, both
@@ -1330,6 +1340,56 @@ shrub; they save area there by holding its flanks.
 The sweeps were run through `roshan.eval.evaluate` with the settings above; the same runs
 from the command line are
 `uv run python -m roshan.eval experiments/eval_demo.toml --config '{"drones_per_station": 80, "pads": 16}' --out runs/team_80`.
+
+### Finding the fire
+
+2026-11-20, commit "Explorers visit the fire in their stripe between two sweep legs".
+`scenarios/demo.npz`, all 500 validation seeds, 30 minutes, scripted flight, the settings of
+`experiments/eval_explore.toml`: the fires and wind of the drone-swarm results above (two
+random fires that have reached 20 cells when the episode starts, 5 m/s from a random
+direction), explorers with a 55 m sensor at the one station, 8 pads. Nobody is told where
+the fires are. **The planners still read the true fire**; these numbers describe the belief.
+
+**Explorers alone** (arm `none`: the attack drones stay docked and see nothing). "Found" is
+the first sighting of either fire; the two error columns are averaged over the whole episode,
+the time before the first sighting included.
+
+| Explorers | Following | A fire found | After (median) | After (9 of 10) | Map seen | Burning cells not known | Believed fire that is gone |
+|---|---|---|---|---|---|---|---|
+| 1 | off | 92.2 % | 478 s | 1348 s | 64.5 % | 88.4 % | 43.0 % |
+| 1 | on | 92.2 % | 478 s | 1348 s | 43.3 % | 84.5 % | 27.6 % |
+| 2 | off | 100 % | 277 s | 691 s | 100 % | 78.5 % | 41.9 % |
+| 2 | on | 100 % | 277 s | 691 s | 77.5 % | 70.3 % | 25.7 % |
+| 4 | off | 100 % | 156 s | 346 s | 100 % | 65.0 % | 35.6 % |
+| 4 | on | 100 % | 156 s | 346 s | 97.0 % | 57.2 % | 26.7 % |
+| 8 | off | 100 % | 112 s | 186 s | 100 % | 46.3 % | 24.7 % |
+| 8 | on | 100 % | 112 s | 186 s | 100 % | 44.5 % | 22.1 % |
+
+- **Finding works from two explorers on.** One explorer at 10 m/s cannot sweep 1.6 km x
+  1.2 km in half an hour and misses the fire altogether in 8 % of the episodes. Two see the
+  whole map and always find a fire, four find one in under three minutes in the median.
+- **Keeping track does not work yet.** Even eight explorers know less than 60 % of the
+  burning cells on average, and a quarter of what the belief holds as fire is gone: a sweep
+  comes by every few minutes, and the fire moves on in between.
+- **Following helps a little and costs coverage.** A visit per sweep leg lowers both errors
+  (four explorers: 65.0 % to 57.2 % not known, 35.6 % to 26.7 % gone) and slows the sweep:
+  two explorers then see 77.5 % of the map, not all of it. The time to the first sighting
+  is the sweep's either way.
+- So a planner that worked from this belief would work from a picture that is half wrong.
+  What is missing is knowledge between two looks: a forecast of the fire from the last
+  look, an explorer that stays with a fire, or a learned one. This table is what those have
+  to beat.
+
+**With the attack drones flying** (arm `greedy`, 40 drones with a 20 m sensor, 4 explorers,
+following): a fire is seen after 80 s in the median, because the planner knows the fire and
+sends drones there; that is not a detection result. 43.8 % of the burning cells are not
+known and 24.1 % of the believed fire is gone. The explorers see 91.1 % of the map, less
+than alone, because they queue for the pads behind the attack drones. The attack does not
+suffer: fire out in 17.0 %, 43.3 % of the area saved, against 17.0 % and 43.4 % without
+explorers.
+
+The rows are `uv run python -m roshan.eval experiments/eval_explore.toml --config
+'{"explorers_per_station": 2, "explorers_follow": false}' --out runs/explore_2_false`.
 
 ### Performance
 
@@ -1712,7 +1772,7 @@ From the plan in [design.md](design.md):
   fewer fires than asked for.
 - **The viewer's mouse and keyboard actions, menus, file dialogs and Settings window were not
   tested automatically.** Window captures confirm that the fire view, the allocate view with
-  the inspector, the fly-task view and real terrain with relief render; unit tests cover the
+  the inspector, explorers with the belief shown (2026-11-20), the fly-task view and real terrain with relief render; unit tests cover the
   map painting, the settings form, learned flight under a planner and the switch to the fly
   task; the check script confirms that policies are called and every planner runs.
 - **Colouring by spread rate or flame length shows the start**: it is not updated when the

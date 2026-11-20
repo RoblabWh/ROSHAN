@@ -185,6 +185,14 @@ impl Sim {
         }
     }
 
+    /// What the drones have seen of the fire (allocate with a sensor).
+    fn belief(&self) -> Option<&roshan_core::belief::Belief> {
+        match self {
+            Sim::Allocate(env, _) => env.belief(),
+            _ => None,
+        }
+    }
+
     fn world_mut(&mut self) -> &mut World {
         match self {
             Sim::Fire(w) => w,
@@ -644,8 +652,12 @@ struct DroneView {
     docked: bool,
     /// Docked, serviced and free to be sent.
     ready: bool,
-    /// Litres on board, and the tank size (allocate).
+    /// Litres on board, and the tank size (allocate; an explorer has no tank).
     water: Option<(f32, f32)>,
+    /// An explorer of the allocate task: flies its own sweep, takes no orders.
+    explorer: bool,
+    /// Radius of its fire sensor in cells; 0 without one.
+    sense: f32,
 }
 
 /// What the inspector shows about the selected drone.
@@ -733,7 +745,9 @@ fn snapshot(s: &mut Shared) -> Snapshot {
                     deciding: env.deciding()[i],
                     docked: env.docked(i),
                     ready: env.ready(i),
-                    water: Some((fleet.water[i], tank)),
+                    water: (!env.explorer(i)).then_some((fleet.water[i], tank)),
+                    explorer: env.explorer(i),
+                    sense: env.sense_m(i) / grid.cell_m,
                 })
                 .collect();
             let targets = env.fire_points().into_iter().map(cells).collect();
@@ -748,6 +762,7 @@ fn snapshot(s: &mut Shared) -> Snapshot {
                     .collect();
                 rows.push(("needs a decision".into(), o.decide[i] as f32));
                 rows.push(("water (litres)".into(), env.world.drones.water[i]));
+                rows.push(("explorer".into(), env.explorer(i) as u8 as f32));
                 Inspect {
                     index: i,
                     rows,
@@ -769,6 +784,8 @@ fn snapshot(s: &mut Shared) -> Snapshot {
                     docked: false,
                     ready: false,
                     water: None,
+                    explorer: false,
+                    sense: 0.0,
                 })
                 .collect();
             let inspect = selected.map(|i| {

@@ -476,6 +476,12 @@ impl Viewer<'_> {
                     .on_hover_text("a line from each drone to where it is heading");
                 ui.checkbox(&mut layers.labels, "Numbers on drones and targets")
                     .on_hover_text("the indices the planner and the inspector use");
+                ui.checkbox(&mut layers.belief, "What the drones have seen")
+                    .on_hover_text(
+                        "with fire sensors on (sense_m or explorers): cells no drone has looked \
+                         at are dark, a fire the drones do not know of is grey, a fire they \
+                         still believe in although it is gone is violet",
+                    );
                 ui.separator();
                 if ui.button("Whole map   F").on_hover_text("zoom out until the whole map fits").clicked() {
                     action = Some(Action::Fit);
@@ -591,17 +597,25 @@ impl Viewer<'_> {
                 ui.separator();
             }
             if snap.mode == Mode::Allocate {
-                let docked = snap.drones.iter().filter(|d| d.docked).count();
-                let ready = snap.drones.iter().filter(|d| d.ready).count();
+                let attack = || snap.drones.iter().filter(|d| !d.explorer);
+                let docked = attack().filter(|d| d.docked).count();
+                let ready = attack().filter(|d| d.ready).count();
                 ui.label(format!(
                     "{} flying, {ready} ready, {} in service",
-                    snap.drones.len() - docked,
+                    attack().count() - docked,
                     docked - ready
                 ))
                 .on_hover_text(
-                    "drones in the air, docked and free to be sent, docked and waiting for \
-                     or on a pad",
+                    "attack drones in the air, docked and free to be sent, docked and waiting \
+                     for or on a pad",
                 );
+                let explorers = snap.drones.iter().filter(|d| d.explorer);
+                let (all, out) =
+                    explorers.fold((0, 0), |(all, out), d| (all + 1, out + !d.docked as u32));
+                if all > 0 {
+                    ui.label(format!("{out} of {all} explorers out"))
+                        .on_hover_text("explorers in the air; the others are being serviced");
+                }
                 ui.separator();
             }
             if !snap.particles.is_empty() {
@@ -892,6 +906,12 @@ impl Viewer<'_> {
                 });
             }
             ui.small("burning: white to red   burned: embers, then ash\nwater dropped: cyan");
+            if snap.drones.iter().any(|d| d.sense > 0.0) {
+                ui.small(
+                    "not looked at yet: dark   fire the drones do not know: grey\n\
+                     fire gone but still believed: violet   explorers: violet drones",
+                );
+            }
         }
         if let Some(trace) = &snap.error {
             ui.separator();
