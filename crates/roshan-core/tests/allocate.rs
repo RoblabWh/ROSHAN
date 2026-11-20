@@ -253,9 +253,18 @@ fn believing() -> AllocConfig {
     }
 }
 
+/// `believing` with explorers that stay with the fire and a belief that is a forecast.
+fn forecasting() -> AllocConfig {
+    AllocConfig {
+        explorers_track: 1,
+        forecast: true,
+        ..believing()
+    }
+}
+
 #[test]
 fn an_episode_depends_only_on_its_seed() {
-    for cfg in [cfg(), preburned(), explored(), believing()] {
+    for cfg in [cfg(), preburned(), explored(), believing(), forecasting()] {
         let seeds: Vec<u64> = (100..164).collect();
         let all = run(&seeds, 0, cfg, true);
         assert!(
@@ -799,6 +808,10 @@ fn bad_scenarios_and_settings_are_refused() {
             ..cfg()
         },
         AllocConfig {
+            forecast: true, // nothing to forecast from either
+            ..cfg()
+        },
+        AllocConfig {
             drones_per_station: 0,
             ..cfg()
         },
@@ -1054,6 +1067,45 @@ fn following_the_fire_keeps_the_belief_fresher_and_the_sweep_still_ends() {
         );
         assert!(b.0[info("max_sortie_s")] <= 900.0);
     }
+}
+
+#[test]
+fn tracking_and_forecasting_keep_the_belief_closer_to_the_fire() {
+    let seeds: Vec<u64> = (0..16).collect();
+    let sweep = AllocConfig {
+        explorers_per_station: 2,
+        random_ignitions: 1,
+        ..cfg()
+    };
+    let track = AllocConfig {
+        explorers_track: 1,
+        ..sweep
+    };
+    let forecast = AllocConfig {
+        forecast: true,
+        ..track
+    };
+    let runs = [sweep, track, forecast].map(|c| run(&seeds, 0, c, false));
+    let mean = |r: &[(Vec<f32>, u64)], name: &str| {
+        r.iter().map(|x| x.0[info(name)]).sum::<f32>() / r.len() as f32
+    };
+    let miss = [0, 1, 2].map(|k| mean(&runs[k], "belief_miss"));
+    let phantom = [0, 1, 2].map(|k| mean(&runs[k], "belief_phantom"));
+    println!("burning cells not known {miss:.3?}, phantoms {phantom:.3?} (sweep, track, forecast)");
+    assert!(miss[1] < miss[0] && miss[2] < miss[1], "{miss:?}");
+    for run in &runs[1..] {
+        for (a, b) in runs[0].iter().zip(run) {
+            let cells = info("burned_cells");
+            assert_eq!(a.0[cells], b.0[cells], "sensing never changes the fire");
+            assert!(b.0[info("max_sortie_s")] <= 900.0);
+        }
+    }
+    // A forecast needs the model it runs.
+    let firespin = SimConfig {
+        fire_model: roshan_core::fire::FireModel::Firespin,
+        ..SimConfig::default()
+    };
+    assert!(AllocVec::new(1, scenario(), firespin, forecast, 0, 1).is_err());
 }
 
 #[test]

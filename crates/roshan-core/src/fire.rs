@@ -404,6 +404,52 @@ impl Edges {
         true
     }
 
+    /// `cell` can burn again: its burning neighbours get their edge towards it back.
+    fn rearm(&mut self, ctx: &Ctx, cell: usize) {
+        for (k, &(dx, dy)) in DIRS.iter().enumerate() {
+            let Some(from) = ctx.terrain.grid.offset(cell, -dx, -dy) else {
+                continue;
+            };
+            let slot = self.slot[from];
+            if slot == NO_SLOT {
+                continue;
+            }
+            if let Some((_, rate)) = ctx.edge(from, k, &mut [None; 25]) {
+                let s = &mut self.sources[slot as usize];
+                s.alive |= 1 << k;
+                s.rate[k] = rate;
+                s.progress[k] = 0.0;
+            }
+        }
+    }
+
+    /// Makes `cell` what was seen of it (`state`) at time `t`, whatever this fire held: for a
+    /// fire that is a forecast and gets corrected by a look (`allocate`). A cell seen burning
+    /// that was not is lit at `t`; one already burning keeps its progress.
+    fn correct(&mut self, out: &mut Cells, ctx: &Ctx, cell: usize, state: u8, t: f32) {
+        if out.state[cell] == state {
+            return;
+        }
+        let slot = self.slot[cell] as usize;
+        if slot != NO_SLOT as usize {
+            self.sources.swap_remove(slot);
+            if let Some(moved) = self.sources.get(slot) {
+                self.slot[moved.cell as usize] = slot as u32;
+            }
+            self.slot[cell] = NO_SLOT;
+        }
+        *out.n_ignited -= (out.state[cell] != UNBURNED) as u32;
+        (out.state[cell], out.t_ignite[cell]) = (UNBURNED, f32::NAN);
+        match state {
+            BURNING => drop(self.ignite(out, ctx, cell, t, 0.0)),
+            BURNED => {
+                (out.state[cell], out.t_ignite[cell]) = (BURNED, t);
+                *out.n_ignited += 1;
+            }
+            _ => self.rearm(ctx, cell),
+        }
+    }
+
     /// Recomputes edge rates after the weather changed.
     fn refresh_rates(&mut self, ctx: &Ctx) {
         for s in &mut self.sources {
@@ -508,22 +554,7 @@ impl Edges {
 
         // Burning neighbours of a knocked-down cell get their edge towards it back.
         for r in 0..self.reverted.len() {
-            let cell = self.reverted[r] as usize;
-            for (k, &(dx, dy)) in DIRS.iter().enumerate() {
-                let Some(from) = ctx.terrain.grid.offset(cell, -dx, -dy) else {
-                    continue;
-                };
-                let slot = self.slot[from];
-                if slot == NO_SLOT {
-                    continue;
-                }
-                if let Some((_, rate)) = ctx.edge(from, k, &mut [None; 25]) {
-                    let s = &mut self.sources[slot as usize];
-                    s.alive |= 1 << k;
-                    s.rate[k] = rate;
-                    s.progress[k] = 0.0;
-                }
-            }
+            self.rearm(ctx, self.reverted[r] as usize);
         }
 
         // New ignitions. Several edges may reach one cell in the same step: the earliest wins,
@@ -620,6 +651,15 @@ impl FireState {
         match self.parts() {
             (mut out, Model::Rothermel(m)) => m.ignite(&mut out, ctx, cell, t, head_start),
             (mut out, Model::Spin(m)) => m.ignite(&mut out, ctx, cell, t),
+        }
+    }
+
+    /// Makes `cell` what was seen of it at time `t` (see `Edges::correct`).
+    /// ponytail: the Rothermel model only; under FireSPIN nothing happens, and the allocate
+    /// task refuses a forecast there. Particles in flight would have to be corrected too.
+    pub fn correct(&mut self, ctx: &Ctx, cell: usize, state: u8, t: f32) {
+        if let (mut out, Model::Rothermel(m)) = self.parts() {
+            m.correct(&mut out, ctx, cell, state, t);
         }
     }
 

@@ -11,7 +11,7 @@
 //! ponytail: the intensity of a front is taken to be measured exactly. Derive it from the
 //! believed state, the fuel and the wind when sensor errors are modelled.
 
-use crate::fire::{BURNED, BURNING, Front, UNBURNED};
+use crate::fire::{BURNED, BURNING, FireState, Front, UNBURNED};
 use crate::terrain::Grid;
 
 /// `seen` of a cell nobody has looked at yet.
@@ -137,6 +137,26 @@ impl Belief {
             self.phantom += (self.n_burning - held) as f64 / self.n_burning as f64;
             self.phantom_steps += 1;
         }
+    }
+
+    /// Replaces the believed fire by a forecast of it (`AllocConfig::forecast`): a fire the
+    /// model has run on from what was seen, corrected by every look. When and whether a cell
+    /// was looked at stays. Call after the looks and before `score`.
+    pub fn adopt(&mut self, fire: &FireState) {
+        self.state.copy_from_slice(&fire.state);
+        for &cell in &self.lit {
+            self.water[cell as usize] = f32::NAN;
+        }
+        self.lit.clear();
+        self.lit.extend(fire.burning());
+        for &cell in &self.lit {
+            if let Some(f) = fire.front(cell as usize) {
+                (self.water[cell as usize], self.kw[cell as usize]) = (f.water_l_m2, f.kw_m);
+            }
+        }
+        self.stale = false;
+        self.n_burning = self.lit.len() as u32;
+        self.n_burned = fire.n_ignited - self.n_burning;
     }
 
     /// The cells believed burning (valid after `score`), in no particular order.

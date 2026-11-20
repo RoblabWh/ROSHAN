@@ -201,7 +201,7 @@ Milestones M0 to M8 of the plan are done. The main things to know before trustin
 
 - Water constants and the land-cover to fuel table come from published values, not from
   measured fires; the learned-planner numbers predate that calibration (see docs/systems.md).
-- The planner sees the true fire by default. With `plan_on_belief` it works from what explorers and the drones' sensors have seen; that costs a third to more than half of the area saved.
+- The planner sees the true fire by default. With `plan_on_belief` it works from what explorers and the drones' sensors have seen; that costs a third to more than half of the area saved. Explorers that track a known fire (`explorers_track`) and a belief that forecasts it (`forecast`) win back little of that: the loss is the time until a fire is found.
 - One training seed stands behind every learned result.
 - PPO on the planner task makes an imitated policy worse.
 

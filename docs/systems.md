@@ -232,6 +232,8 @@ means all seeds, `pair = []` no paired statistics.
 | `explorers_per_station` | 0 | explorer drones based at every station besides the attack drones (see Explorers below) |
 | `explorer_sense_m` | 55 | radius of an explorer's fire sensor |
 | `explorers_follow` | true | an explorer visits the fire known in its stripe between two legs of its sweep |
+| `explorers_track` | 0 | up to this many explorers stay with a fire once one is known; the others keep sweeping |
+| `forecast` | false | between looks the belief is a forecast: the fire model runs on from what was seen and every look corrects it (Rothermel only) |
 | `plan_on_belief` | false | the planners work from what the drones have seen, not from the true fire (see Planning on the belief below) |
 | `block_cells` | 2 | side of a target block in cells |
 | `max_targets` | 64 | fire targets offered at most |
@@ -746,10 +748,27 @@ it all the same. What stays true: the water lying on a cell (the swarm dropped i
 how it evaporates), the wind, the drones, and when the episode ends. Sending a drone by hand
 in the viewer also uses the true fire.
 
-`ponytail:` the rollout planner's lookahead still simulates the **true** fire, so with
-`plan_on_belief` it chooses among believed targets but judges them with knowledge the swarm
-does not have: an upper bound, not a fair planner. The belief between two looks is the last
-look, not a forecast. A front's intensity is taken to be measured exactly.
+**Forecast** (`forecast`, off by default, Rothermel model only). Without it the belief
+between two looks is the last look, so every cell the fire reaches afterwards is unknown
+until a drone comes back. With it the task keeps a second fire, the believed one: a world of
+its own without drones in which the fire model runs on from what was seen, under the same
+wind, fuel, moisture and water (the swarm knows what it dropped) but without the per-cell
+spread-rate noise (`ros_noise`), which nobody can know. After the looks of a fire step every
+cell just looked at is put right in it (`FireState::correct`): a cell seen burning that the
+forecast did not have is lit at that moment, one it already had keeps its progress, a cell
+seen unburned or burned is made that, and the burning neighbours of a cell put back to
+unburned may spread into it again. The forecast then *is* the belief: its state, its list of
+burning cells and its fronts (water need and intensity are the model's, not measured).
+`seen` still says when a cell was last looked at. A forecast costs a second fire step.
+
+The rollout planner's lookahead with `plan_on_belief`: with a forecast it plays on in the
+believed fire, so it does not see what no drone saw. Without one it still simulates the
+**true** fire and is an upper bound, not a fair planner.
+
+`ponytail:` the forecast knows wind, fuel and moisture exactly; with `ros_noise` 0 it is the
+true model and is wrong only where no drone has looked. A cell lit by a look starts its
+edges at zero, so a corrected front lags by up to one cell. Without a forecast a front's
+intensity is taken to be measured exactly.
 
 **Explorers.** With `explorers_per_station` above zero every station also bases that many
 explorers: the attack drone's airframe (speed, endurance, pads, service time) with a camera
@@ -772,6 +791,16 @@ attack drones, station by station; they never need a decision, their action is i
   stops and a later fire is still found, only later; each explorer follows the fire in its own
   stripe, and none has to know where another is heading. In the rollout planner's lookaheads,
   which carry no belief, explorers only sweep.
+- *Tracking* (`explorers_track`, 0 by default). Up to that many explorers stay with a fire
+  once one is known. At every arrival, and when it takes off, a tracker picks the believed
+  front cell (any believed-burning cell while none has a front) with the highest age of its
+  last look per second it takes to renew it, anywhere on the map, and flies there; cells it
+  can see, cells within the sensor radius of where another tracker is heading, and cells
+  beyond its endurance are left out. So it works its way along the front, and several
+  trackers spread out along it. An explorer becomes a tracker at a waypoint or at take-off
+  while fewer than `explorers_track` are trackers, and goes back to the waypoint it left when
+  no cell is left to look at. The rule is greedy, one cell ahead, and treats the head and
+  the back of a fire alike.
 - *Life cycle.* An explorer takes off by itself when the episode starts. At each waypoint it
   checks its endurance: if the next leg plus the way from its end to the nearest station does
   not fit, it flies home, takes a pad for `service_s` like any drone, and then returns to the
@@ -1459,6 +1488,43 @@ The rows are `uv run python -m roshan.eval experiments/eval_explore.toml --confi
 '{"explorers_per_station": 2, "explorers_follow": false}' --out runs/explore_2_false` and
 `... --config '{"explorers_per_station": 4, "plan_on_belief": true}' --out runs/belief_4_true`.
 
+### Tracking and forecasting the fire
+
+2026-11-20, `experiments/eval_explore.toml` as above (500 validation seeds, two unknown
+fires, 4 explorers, attack drones with a 20 m sensor), greedy planner with `plan_on_belief`.
+"Not known" and "gone" are the two belief errors under the `none` arm (explorers alone),
+averaged over the episode, the time before a fire is found included.
+
+| Explorers do | Belief | Burning cells not known | Believed fire that is gone | Map seen | Fire out | Area saved | First drop (median) |
+|---|---|---|---|---|---|---|---|
+| (planner knows the fire) | | | | | 17.0 % | 43.3 % | 81 s |
+| sweep and follow | last look | 57.2 % | 26.7 % | 97.0 % | 4.4 % | 25.3 % | 256 s |
+| 2 of 4 track | last look | 32.1 % | 6.5 % | 87.5 % | 5.4 % | 27.6 % | 256 s |
+| 4 of 4 track | last look | 34.2 % | 5.9 % | 66.3 % | 5.0 % | 27.5 % | 256 s |
+| sweep and follow | forecast | 25.8 % | 4.9 % | 97.3 % | 4.6 % | 28.3 % | 259 s |
+| 2 of 4 track | forecast | 24.3 % | 0.9 % | 87.6 % | 5.4 % | 29.9 % | 259 s |
+| 4 of 4 track | forecast | 27.3 % | 0.7 % | 66.4 % | 5.4 % | 29.9 % | 259 s |
+| sweep and follow, 110 m sensor | last look | 37.7 % | 18.9 % | 100 % | 5.8 % | 29.8 % | 211 s |
+| 2 of 4 track, 110 m sensor | forecast | 13.0 % | 0.6 % | 98.8 % | 8.4 % | 35.4 % | 213 s |
+
+With spread-rate noise (`ros_noise` 0.25), which the forecast does not know: 2 of 4 track
+with a forecast leaves 26.6 % not known and 3.7 % gone and saves 29.4 % of the area
+(sweep and follow, last look: 25.2 %; planner knowing the fire: 42.9 %).
+
+- **Tracking and the forecast each halve the belief errors**; together a known fire is
+  known almost exactly (under 1 % believed fire that is gone). What is left of "not known"
+  is mostly the time before each fire is found.
+- **The area saved moves little** (25 % to 30 %, against 43 % for the planner that knows the
+  fire): the loss is the three minutes until the first drop, which neither changes. A better
+  belief of a known fire is not what the swarm lacks; finding the fire sooner is.
+- Tracking with all explorers finds the second fire late (a third of the map is never seen);
+  two of four is as good.
+- A sensor twice as wide (an explorer flying higher) finds fires 50 s sooner and, with
+  tracking and forecast, gives the best result here: 35 % of the area saved.
+
+Rows: `... --config '{"plan_on_belief": true, "forecast": true, "explorers_track": 2}'`,
+with `"explorer_sense_m": 110` and `--sim '{"ros_noise": 0.25}'` where stated.
+
 ### Performance
 
 `cargo run --release -p roshan-core --example bench`, one thread, on an AMD Ryzen 9 9950X3D,
@@ -1832,10 +1898,11 @@ From the plan in [design.md](design.md):
   greedy. Only imitation of the rollout planner works so far; one network, one seed.
 - **One training seed** stands behind the fly-policy numbers.
 - **The planner sees the true fire by default.** With `plan_on_belief` it works from what
-  the drones have seen, which is the last look and no forecast; the rollout planner's
+  the drones have seen: the last look, or with `forecast` the fire model run on from it
+  (which knows wind, fuel and moisture exactly). Without a forecast the rollout planner's
   lookahead still simulates the true fire. The sensor has no errors, no smoke and no
   communication range, and measures a front's intensity exactly. No planner has been trained
-  on the belief. An explorer does not stay with a fire it found: it looks at it once per leg of its sweep.
+  on the belief. Explorers stay with a fire only with `explorers_track`, by a greedy rule.
 - **The scripted controller has no deadlock handling** beyond sidestepping (only with
   `safe_m` above zero); none occurred in the tests. A drone hovering over a station would
   block its launches then.

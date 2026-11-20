@@ -217,6 +217,15 @@ fn hint(name: &str, salt: &str) -> &'static str {
             "between two legs of its sweep an explorer visits the fire it believes to burn in \
              its stripe, where the last look is oldest"
         }
+        ("explorers_track", _) => {
+            "up to this many explorers stay with a fire once one is known, flying from one \
+             believed front cell to the next, the longest unseen first; the others keep sweeping"
+        }
+        ("forecast", _) => {
+            "between looks the belief is a forecast: the fire model runs on from what was seen \
+             (known wind and fuel, no spread-rate noise) and every look corrects it. Off: the \
+             belief is the last look. Needs a sensor; Rothermel only"
+        }
         ("plan_on_belief", _) => {
             "the planners work from what the drones have seen, not from the true fire: no \
              target until the fire is found. Needs sense_m or explorers"
@@ -328,7 +337,7 @@ fn idle(salt: &str, name: &str, root: &Value) -> Option<&'static str> {
     match (salt, name) {
         ("sim.spin", _) if !firespin => Some("the FireSPIN model is not chosen"),
         ("sim", _) if firespin && rothermel_only => Some("the FireSPIN model does not use it"),
-        ("allocate", "explorer_sense_m" | "explorers_follow")
+        ("allocate", "explorer_sense_m" | "explorers_follow" | "explorers_track")
             if root["explorers_per_station"] == 0 =>
         {
             Some("explorers_per_station is 0")

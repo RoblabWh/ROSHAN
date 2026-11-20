@@ -213,6 +213,12 @@ impl World {
         self.fire.ignite(&ctx!(self), cell, t, 0.0)
     }
 
+    /// Makes a cell what was seen of it (`fire::BURNING`...), for a world that is a forecast.
+    pub fn correct(&mut self, cell: usize, state: u8) {
+        let t = self.time_s();
+        self.fire.correct(&ctx!(self), cell, state, t);
+    }
+
     /// Adds water to a cell, in litres per square metre.
     pub fn add_water(&mut self, x: u32, y: u32, litres_per_m2: f32) {
         self.water.add(self.terrain.grid.idx(x, y), litres_per_m2);

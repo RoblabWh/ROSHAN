@@ -22,8 +22,8 @@ use std::sync::Arc;
 use rayon::prelude::*;
 use serde::{Deserialize, Serialize};
 
-use crate::belief::Belief;
-use crate::fire::{BURNING, Front};
+use crate::belief::{Belief, NEVER};
+use crate::fire::{BURNING, FireModel, Front};
 use crate::rng::{self, Stream};
 use crate::scenario::Scenario;
 use crate::terrain::{Grid, Terrain};
@@ -67,6 +67,19 @@ pub struct AllocConfig {
     /// Between two legs of its sweep an explorer visits the fire it believes to burn in its
     /// stripe: the cell whose last look is oldest for the flight it takes to get there.
     pub explorers_follow: bool,
+    /// Up to this many explorers stay with a fire once one is known: each flies from one
+    /// believed front cell to the next, always to the one whose last look is oldest for the
+    /// flight it takes, and goes back to its sweep only when no such cell is left. The other
+    /// explorers keep sweeping (and following, with `explorers_follow`).
+    pub explorers_track: u32,
+    /// Between looks the belief is a forecast: the fire model runs on from what was seen,
+    /// with the known wind, fuel and water but without the spread-rate noise (`ros_noise`),
+    /// and every look corrects it. Off: the belief is the last look. Needs a sensor;
+    /// Rothermel model only.
+    /// ponytail: the forecast knows wind, fuel and moisture exactly; only `ros_noise` and
+    /// what no drone has seen make it wrong. Give it its own weather when forecast errors
+    /// are to be studied.
+    pub forecast: bool,
     /// The planners work from what the drones have seen (`belief::Belief`), not from the fire:
     /// targets, where a drop goes, the news that a target went out and the `burning` and
     /// `burned` globals. Needs a sensor (`sense_m` or explorers). Until the fire is found
@@ -116,6 +129,8 @@ impl Default for AllocConfig {
             explorers_per_station: 0,
             explorer_sense_m: 55.0,
             explorers_follow: true,
+            explorers_track: 0,
+            forecast: false,
             plan_on_belief: false,
             block_cells: 2,
             max_targets: 64,
@@ -169,8 +184,12 @@ impl AllocConfig {
                 self.sense_m
             ));
         }
-        if self.plan_on_belief && self.sense_m == 0.0 && self.explorers_per_station == 0 {
+        let blind = self.sense_m == 0.0 && self.explorers_per_station == 0;
+        if self.plan_on_belief && blind {
             return Err("plan_on_belief needs a sensor: sense_m or explorers_per_station".into());
+        }
+        if self.forecast && blind {
+            return Err("forecast needs a sensor: sense_m or explorers_per_station".into());
         }
         Ok(())
     }
@@ -354,6 +373,11 @@ pub struct AllocEnv {
     leg: Vec<u32>,
     /// Per drone: an explorer has visited the fire since it last flew a leg of its sweep.
     visited: Vec<bool>,
+    /// Per drone: an explorer that stays with the fire (`explorers_track`).
+    tracker: Vec<bool>,
+    /// The believed fire run on by the fire model (`AllocConfig::forecast`): a world of its
+    /// own without drones, corrected by every look.
+    forecast: Option<World>,
 }
 
 /// Drones of both kinds. The attack drones come first in every per-drone list, station by
@@ -456,6 +480,8 @@ impl AllocEnv {
             sweeps: Arc::new(sweeps(terrain.grid, &scenario.stations, &cfg, &sim)),
             leg: vec![0; n],
             visited: vec![false; n],
+            tracker: vec![false; n],
+            forecast: None,
             world: World::new(terrain.clone(), weather, sim, 0),
             pad_free: vec![0; scenario.stations.len() * cfg.pads as usize],
             scenario,
@@ -718,6 +744,66 @@ impl AllocEnv {
         best.map(|(_, cell)| cell)
     }
 
+    /// Sends explorer `i` on to the next cell of the fire it tracks (`explorers_track`) and
+    /// says whether it did. An explorer becomes a tracker when fire is known and fewer than
+    /// `explorers_track` are with it, and stops being one when there is nothing left to look
+    /// at within its endurance. The next cell is a believed front cell (any believed-burning
+    /// cell while none has a front): the highest age of its last look per second it takes to
+    /// get a new one, the first in the belief's list among equals. Cells in view, and cells
+    /// another tracker is about to see, are left out, so trackers spread along the front.
+    /// ponytail: greedy, one cell ahead, and the age of a look counts the same at the head
+    /// as at the back of the fire. Weigh it with the spread rate, or plan a tour, when a
+    /// learned explorer is to be beaten by more than this.
+    fn track(&mut self, i: usize) -> bool {
+        let Some(belief) = &self.belief else {
+            return false;
+        };
+        let explorers = self.attackers()..self.task.len();
+        let others = explorers.clone().filter(|&j| j != i && self.tracker[j]);
+        if !self.tracker[i] && others.clone().count() >= self.cfg.explorers_track as usize {
+            return false;
+        }
+        let taken: Vec<[f32; 2]> = others
+            .filter(|&j| matches!(self.task[j], Task::Follow(_)))
+            .map(|j| self.goal[j])
+            .collect();
+        let (g, p, r) = (
+            self.terrain.grid,
+            self.world.drones.pos[i],
+            self.cfg.explorer_sense_m,
+        );
+        let (now, dt) = (self.world.tick as u32, self.sim.dt_s);
+        let picture_s = self.sim.fire_every as f32 * dt;
+        let fronts = belief
+            .burning()
+            .iter()
+            .any(|&c| belief.front(c as usize).is_some());
+        let mut best: Option<(f32, u32)> = None;
+        for &cell in belief.burning() {
+            let (x, y) = g.xy(cell as usize);
+            let point = self.cell_centre([x, y]);
+            let away = dist(p, point);
+            if (fronts && belief.front(cell as usize).is_none())
+                || away <= r
+                || taken.iter().any(|&t| dist(t, point) <= r)
+            {
+                continue;
+            }
+            // A cell the forecast set alight has never been looked at: as old as can be.
+            let seen = belief.seen[cell as usize];
+            let age_s = now.saturating_sub(if seen == NEVER { 0 } else { seen }) as f32 * dt;
+            let worth = age_s / (away / self.cfg.max_speed_ms + picture_s);
+            if best.is_none_or(|(b, _)| worth > b) && self.in_reach(i, cell) {
+                best = Some((worth, cell));
+            }
+        }
+        self.tracker[i] = best.is_some();
+        if let Some((_, cell)) = best {
+            self.set_task(i, Task::Follow(cell));
+        }
+        best.is_some()
+    }
+
     /// An explorer has arrived at a waypoint of its sweep. Unless it comes back from one, it
     /// first visits the fire known in its stripe (`explorers_follow`). Otherwise on to the
     /// next waypoint, or home when the way there and on to a station would take it past its
@@ -726,6 +812,9 @@ impl AllocEnv {
     /// ponytail: a lane that cannot be flown from and to a station within the endurance is
     /// tried again and again. Cut such lanes in two when maps get that large.
     fn explore(&mut self, i: usize) {
+        if self.track(i) {
+            return;
+        }
         let visit = (self.cfg.explorers_follow && !self.visited[i])
             .then(|| self.stalest(i))
             .flatten()
@@ -744,6 +833,9 @@ impl AllocEnv {
 
     /// An explorer has looked at the fire: back to the waypoint where it left its sweep.
     fn resume(&mut self, i: usize) {
+        if self.track(i) {
+            return;
+        }
         let back = self.waypoint(i, self.leg[i]);
         if self.in_reach(i, back) {
             self.set_task(i, Task::Explore(back));
@@ -841,6 +933,7 @@ impl AllocEnv {
         self.at = (0..n).map(|i| self.base(i) as u32).collect();
         self.leg.fill(0);
         self.visited.fill(false);
+        self.tracker.fill(false);
         self.ready_at.fill(self.start_tick);
         self.launched.fill(self.start_tick);
         self.pad_free.fill(self.start_tick);
@@ -872,6 +965,17 @@ impl AllocEnv {
         self.needs_reset = false;
         let sensing = self.cfg.sense_m > 0.0 || self.cfg.explorers_per_station > 0;
         self.belief = sensing.then(|| Belief::new(grid.len()));
+        // The forecast starts knowing nothing, at the same time on the same clock.
+        self.forecast = (sensing && self.cfg.forecast).then(|| {
+            let cfg = SimConfig {
+                ros_noise: 0.0,
+                ..self.sim
+            };
+            let weather = (*self.world.weather).clone();
+            let mut world = World::new(self.terrain.clone(), weather, cfg, seed);
+            world.tick = self.world.tick;
+            world
+        });
         self.fires = self.fire_targets();
     }
 
@@ -1191,6 +1295,13 @@ impl AllocEnv {
                 }
             }
         }
+        if let Some(forecast) = &mut self.forecast {
+            // The swarm knows the water it dropped: the forecast burns under the same.
+            if (self.world.tick + 1).is_multiple_of(self.sim.fire_every as u64) {
+                forecast.water.clone_from(&self.world.water);
+            }
+            forecast.tick();
+        }
         self.world.tick();
         let now = self.world.tick;
         // The fire only changes on a fire step: that is when a block can lose its front.
@@ -1206,6 +1317,15 @@ impl AllocEnv {
                 let fire = &self.world.fire;
                 belief.look(self.terrain.grid, &fire.state, |c| fire.front(c), p, r, now);
             }
+            if let Some(forecast) = &mut self.forecast {
+                // Every cell just looked at is put right in the forecast, which then is
+                // the belief. ponytail: a pass over the map per fire step; collect the
+                // cells in `look` if maps get large.
+                for (cell, _) in (belief.seen.iter().enumerate()).filter(|s| *s.1 == now as u32) {
+                    forecast.correct(cell, self.world.fire.state[cell]);
+                }
+                belief.adopt(&forecast.fire);
+            }
             belief.score(self.world.fire.burning());
             self.belief = Some(belief);
         }
@@ -1215,9 +1335,12 @@ impl AllocEnv {
                     continue; // in service
                 }
                 if self.explorer(i) {
-                    // Off on its own, to the waypoint it has not reached yet.
-                    let next = self.waypoint(i, self.leg[i]);
-                    self.set_task(i, Task::Explore(next));
+                    // Off on its own: to the fire it tracks, or to the waypoint it has
+                    // not reached yet.
+                    if !self.track(i) {
+                        let next = self.waypoint(i, self.leg[i]);
+                        self.set_task(i, Task::Explore(next));
+                    }
                     self.launch(i);
                     continue;
                 }
@@ -1562,8 +1685,15 @@ impl AllocEnv {
     /// what there is to minimise: cells burned, then cells still burning.
     fn outcome(&self, first: &[i32], horizon_s: f32, terms: &mut [f32]) -> (u32, usize) {
         let mut sim = self.clone();
-        // A lookahead simulates and is scored by the true fire: it needs no sensing.
-        (sim.belief, sim.cfg.plan_on_belief) = (None, false);
+        // A lookahead needs no sensing. A planner that works from the belief plays on in the
+        // forecast of the fire, if there is one, so that it does not see what no drone saw;
+        // otherwise in the true fire.
+        if let (Some(mut believed), true) = (sim.forecast.take(), sim.cfg.plan_on_belief) {
+            believed.drones = std::mem::take(&mut sim.world.drones);
+            believed.water.clone_from(&sim.world.water);
+            sim.world = believed;
+        }
+        (sim.belief, sim.forecast, sim.cfg.plan_on_belief) = (None, None, false);
         let end = sim.world.time_s() + horizon_s;
         sim.advance(first, terms);
         while !sim.needs_reset && sim.world.time_s() < end {
@@ -1664,6 +1794,9 @@ impl AllocVec {
     ) -> Result<Self, String> {
         let world = scenario.world(sim, 0)?; // validates the map and what is placed on it
         cfg.check()?;
+        if cfg.forecast && sim.fire_model != FireModel::Rothermel {
+            return Err("forecast works with the Rothermel fire model only".into());
+        }
         if scenario.stations.is_empty() {
             return Err("the scenario has no ground station for the drones".into());
         }
