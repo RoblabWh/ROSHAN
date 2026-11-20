@@ -104,6 +104,8 @@ pub struct AllocConfig {
     pub block_cells: u32,
     /// At most this many fire targets are offered, those needing the most water first.
     pub max_targets: usize,
+    /// The numbers of the `triage` planner.
+    pub triage: TriageConfig,
     /// Docked drones that were told to wait are asked again this often.
     pub max_interval_s: f32,
     pub time_limit_s: f32,
@@ -120,6 +122,38 @@ pub struct AllocConfig {
     /// Keeps fires comparable across fuels: a fixed time gives a huge fire on windy grass
     /// and a tiny one in forest.
     pub preburn_cells: u32,
+}
+
+/// The `triage` planner (`Method::Triage`): a ready drone goes to the block with the lowest
+/// score among those that still need water and are not beyond `cap_kw_m`. The score is the
+/// distance in metres plus the three terms below, so each weight reads "this is worth so
+/// many metres of flight".
+#[derive(Clone, Copy, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(default, deny_unknown_fields)]
+pub struct TriageConfig {
+    /// Blocks whose strongest front is above this fireline intensity (kW/m) get no drone:
+    /// water is scarce and does most where fronts are weak.
+    pub cap_kw_m: f32,
+    /// Metres added per MW/m of the block's strongest front.
+    pub per_mw_m: f32,
+    /// Metres added per drop the block still lacks (after what is on its way): blocks that
+    /// are nearly stopped come first.
+    pub per_drop_m: f32,
+    /// Metres added per neighbouring block (of 8) that still lacks water: a drop next to a
+    /// held stretch lasts, one in the middle of an open stretch is re-ignited.
+    pub per_neighbour_m: f32,
+}
+
+impl Default for TriageConfig {
+    /// Tuned on the demo map with 40 drones (`python -m roshan.tune`, docs/systems.md).
+    fn default() -> Self {
+        Self {
+            cap_kw_m: 1600.0,
+            per_mw_m: 100.0,
+            per_drop_m: 28.0,
+            per_neighbour_m: 35.0,
+        }
+    }
 }
 
 impl Default for AllocConfig {
@@ -146,7 +180,8 @@ impl Default for AllocConfig {
             forecast: false,
             plan_on_belief: false,
             block_cells: 2,
-            max_targets: 64,
+            max_targets: 256,
+            triage: TriageConfig::default(),
             max_interval_s: 10.0,
             time_limit_s: 1800.0,
             random_ignitions: 0,
@@ -182,6 +217,11 @@ impl AllocConfig {
         ];
         if let Some((name, v)) = positive.iter().find(|(_, v)| !(*v > 0.0 && v.is_finite())) {
             return Err(format!("{name} must be above zero, got {v}"));
+        }
+        let t = self.triage;
+        let weights = [t.cap_kw_m, t.per_mw_m, t.per_drop_m, t.per_neighbour_m];
+        if !weights.iter().all(|w| w.is_finite()) || t.cap_kw_m < 0.0 {
+            return Err("triage: every number must be finite and cap_kw_m zero or more".into());
         }
         if self.drop_efficiency > 1.0 {
             return Err("drop_efficiency is a share: at most 1".into());
@@ -280,14 +320,46 @@ pub enum Method {
     Flank,
     /// Greedy improved by simulating ahead.
     Rollout,
+    /// The block with the lowest score of `TriageConfig`; blocks beyond its cap get nothing.
+    Triage,
+    /// Triage improved by simulating ahead.
+    TriageRollout,
 }
 
 impl Method {
-    pub const NAMES: [&str; 4] = ["greedy", "head", "flank", "rollout"];
+    pub const NAMES: [&str; 6] = [
+        "greedy",
+        "head",
+        "flank",
+        "rollout",
+        "triage",
+        "triage_rollout",
+    ];
 
     pub fn parse(name: &str) -> Option<Self> {
-        let all = [Self::Greedy, Self::Head, Self::Flank, Self::Rollout];
+        let all = [
+            Self::Greedy,
+            Self::Head,
+            Self::Flank,
+            Self::Rollout,
+            Self::Triage,
+            Self::TriageRollout,
+        ];
         Self::NAMES.iter().position(|n| *n == name).map(|i| all[i])
+    }
+
+    /// Does it simulate ahead?
+    pub fn looks_ahead(self) -> bool {
+        matches!(self, Self::Rollout | Self::TriageRollout)
+    }
+
+    /// The rule a lookahead improves on and plays on with; any other planner is its own.
+    fn base(self) -> Self {
+        match self {
+            Self::Rollout => Self::Greedy,
+            Self::TriageRollout => Self::Triage,
+            rule => rule,
+        }
     }
 }
 
@@ -320,6 +392,8 @@ struct Target {
     kw: f32,
     /// From the block to the nearest station, metres.
     home_m: f32,
+    /// How many of the 8 neighbouring blocks still lack water.
+    near: u8,
 }
 
 const AIRBORNE: u64 = u64::MAX;
@@ -1115,6 +1189,21 @@ impl AllocEnv {
                 *inbound.entry(*block).or_default() += drops;
             }
         }
+        let (per_row, _) = self.blocks();
+        let lacks = |block: u32| {
+            let on_its_way = inbound.get(&block).copied().unwrap_or(0.0);
+            blocks.get(&block).is_some_and(|b| b.1 - on_its_way > 0.0)
+        };
+        let near = |block: u32| {
+            let (x, y) = ((block % per_row) as i64, (block / per_row) as i64);
+            let around = (-1..=1).flat_map(|dy| (-1..=1).map(move |dx| (dx, dy)));
+            around
+                .filter(|&(dx, dy)| (dx, dy) != (0, 0) && (0..per_row as i64).contains(&(x + dx)))
+                .filter(|&(dx, dy)| {
+                    y + dy >= 0 && lacks(((y + dy) * per_row as i64 + x + dx) as u32)
+                })
+                .count() as u8
+        };
         let mut out: Vec<Target> = blocks
             .iter()
             .map(|(&block, &(fronts, need, kw, home_m, _))| Target {
@@ -1125,6 +1214,7 @@ impl AllocEnv {
                 inbound: inbound.get(&block).copied().unwrap_or(0.0),
                 kw,
                 home_m,
+                near: near(block),
             })
             .collect();
         out.sort_by(|a, b| b.need.total_cmp(&a.need).then(a.block.cmp(&b.block)));
@@ -1746,22 +1836,11 @@ impl AllocEnv {
         let mut actions = vec![-1; self.task.len()];
         let mut open: Vec<f32> = self.fires.iter().map(|t| t.need - t.inbound).collect();
         for i in (0..self.task.len()).filter(|&i| self.decide[i]) {
-            let score = |f: usize| {
-                let t = &self.fires[f];
-                let d = dist(self.world.drones.pos[i], t.point);
-                match method {
-                    Method::Head => (-t.kw, d),
-                    Method::Flank => (t.kw, d),
-                    _ => (d, d),
-                }
-            };
             let best = (0..self.fires.len())
                 .filter(|&f| open[f] > 0.0 && self.can_take(i, &self.fires[f]))
-                .min_by(|&a, &b| {
-                    let (a, b) = (score(a), score(b));
-                    a.0.total_cmp(&b.0).then(a.1.total_cmp(&b.1))
-                });
-            if let Some(f) = best {
+                .filter_map(|f| Some((self.rank(method, i, f, open[f], true)?, f)))
+                .min_by(|a, b| a.0.0.total_cmp(&b.0.0).then(a.0.1.total_cmp(&b.0.1)));
+            if let Some((_, f)) = best {
                 open[f] -= 1.0;
                 actions[i] = (stations + f) as i32;
             }
@@ -1769,9 +1848,46 @@ impl AllocEnv {
         actions
     }
 
+    /// How a rule ranks fire target `f` for drone `i` (lowest first, the second number
+    /// decides among equals); None if the rule gives the block no drone (`capped`: the
+    /// triage cap applies). `open` is what the block still lacks.
+    fn rank(
+        &self,
+        method: Method,
+        i: usize,
+        f: usize,
+        open: f32,
+        capped: bool,
+    ) -> Option<(f32, f32)> {
+        let t = &self.fires[f];
+        let d = dist(self.world.drones.pos[i], t.point);
+        Some(match method.base() {
+            Method::Head => (-t.kw, d),
+            Method::Flank => (t.kw, d),
+            Method::Triage => {
+                let w = self.cfg.triage;
+                if capped && t.kw > w.cap_kw_m {
+                    return None;
+                }
+                let score = d
+                    + w.per_mw_m * t.kw / 1000.0
+                    + w.per_drop_m * open
+                    + w.per_neighbour_m * t.near as f32;
+                (score, d)
+            }
+            _ => (d, d),
+        })
+    }
+
     /// Plays on from here with `first` now and greedy afterwards for `horizon_s`, and returns
     /// what there is to minimise: cells burned, then cells still burning.
-    fn outcome(&self, first: &[i32], horizon_s: f32, terms: &mut [f32]) -> (u32, usize) {
+    fn outcome(
+        &self,
+        base: Method,
+        first: &[i32],
+        horizon_s: f32,
+        terms: &mut [f32],
+    ) -> (u32, usize) {
         let mut sim = self.clone();
         // A lookahead needs no sensing. A planner that works from the belief plays on in the
         // forecast of the fire, if there is one, so that it does not see what no drone saw;
@@ -1785,7 +1901,7 @@ impl AllocEnv {
         let end = sim.world.time_s() + horizon_s;
         sim.advance(first, terms);
         while !sim.needs_reset && sim.world.time_s() < end {
-            let actions = sim.assign(Method::Greedy);
+            let actions = sim.assign(base);
             sim.advance(&actions, terms);
         }
         (sim.world.fire.n_ignited, sim.world.fire.n_burning())
@@ -1799,9 +1915,14 @@ impl AllocEnv {
     ///
     /// Alternatives per drone: its greedy choice, -1, and the `candidates` blocks it can
     /// reach that lack the most water.
-    pub fn rollout(&self, horizon_s: f32, candidates: usize) -> Vec<i32> {
+    ///
+    /// `method` names the base rule: `Rollout` is the above on greedy. `TriageRollout` plays
+    /// on with the triage rule, and its alternatives are the `candidates` blocks that rule
+    /// ranks best, its cap set aside, so the lookahead can overrule the cap where it pays.
+    pub fn rollout(&self, method: Method, horizon_s: f32, candidates: usize) -> Vec<i32> {
         let (n, stations) = (self.task.len(), self.scenario.stations.len());
-        let mut chosen = self.assign(Method::Greedy);
+        let base = method.base();
+        let mut chosen = self.assign(base);
         if self.needs_reset {
             return chosen;
         }
@@ -1809,11 +1930,26 @@ impl AllocEnv {
         for i in (0..n).filter(|&i| self.decide[i]) {
             let mut options = vec![chosen[i], -1];
             // `fires` is sorted by need, so the first that fit are the neediest.
-            let reach = (0..self.fires.len()).filter(|&f| {
-                let t = &self.fires[f];
-                t.need - t.inbound > 0.0 && self.can_take(i, t)
-            });
-            options.extend(reach.take(candidates).map(|f| (stations + f) as i32));
+            let mut reach: Vec<usize> = (0..self.fires.len())
+                .filter(|&f| {
+                    let t = &self.fires[f];
+                    t.need - t.inbound > 0.0 && self.can_take(i, t)
+                })
+                .collect();
+            if base == Method::Triage {
+                let score = |f: usize| {
+                    let t = &self.fires[f];
+                    self.rank(base, i, f, t.need - t.inbound, false)
+                        .map(|r| r.0)
+                };
+                reach.sort_by(|&a, &b| score(a).partial_cmp(&score(b)).unwrap().then(a.cmp(&b)));
+            }
+            options.extend(
+                reach
+                    .iter()
+                    .take(candidates)
+                    .map(|&f| (stations + f) as i32),
+            );
             let mut best = (u32::MAX, usize::MAX);
             let mut seen: Vec<i32> = Vec::new();
             for option in options {
@@ -1823,7 +1959,7 @@ impl AllocEnv {
                 seen.push(option);
                 let mut first = chosen.clone();
                 first[i] = option;
-                let score = self.outcome(&first, horizon_s, &mut terms);
+                let score = self.outcome(base, &first, horizon_s, &mut terms);
                 if score < best {
                     (best, chosen[i]) = (score, option); // ties keep the earlier option: greedy first
                 }
@@ -1834,9 +1970,10 @@ impl AllocEnv {
 
     /// The actions of a planner: see `Method`. `horizon_s` and `candidates` belong to rollout.
     pub fn plan(&self, method: Method, horizon_s: f32, candidates: usize) -> Vec<i32> {
-        match method {
-            Method::Rollout => self.rollout(horizon_s, candidates),
-            method => self.assign(method),
+        if method.looks_ahead() {
+            self.rollout(method, horizon_s, candidates)
+        } else {
+            self.assign(method)
         }
     }
 }

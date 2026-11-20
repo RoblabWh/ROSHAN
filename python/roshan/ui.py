@@ -152,7 +152,7 @@ def fly(checkpoint=None, drones=None, nx=35, ny=36, cell_m=10.0, auto_close_s=No
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("--scenario", help="a .npz file written by the viewer or by roshan.geo")
-    parser.add_argument("--planner", default="greedy", help="off, greedy, head, flank, rollout, or a trained planner checkpoint (.pt)")
+    parser.add_argument("--planner", default="greedy", help="off, greedy, head, flank, rollout, triage, triage_rollout, or a trained planner checkpoint (.pt)")
     parser.add_argument("--fire-model", choices=["rothermel", "firespin"], default="rothermel")
     parser.add_argument("--preburn", type=float, default=0.0, metavar="SECONDS",
                         help="let the fires burn this long before the drones start")
@@ -165,7 +165,7 @@ if __name__ == "__main__":
     if args.experiment and (args.fly or args.fire_model != "rothermel" or args.preburn):
         parser.error("--experiment brings its own settings: not together with --fly, --fire-model or --preburn")
     learned = args.planner.endswith(".pt")
-    if not learned and args.planner not in ("off", "greedy", "head", "flank", "rollout"):
+    if not learned and args.planner not in ("off", "greedy", "head", "flank", "rollout", "triage", "triage_rollout"):
         parser.error(f"unknown planner {args.planner!r}")
     settings, scenario = None, args.scenario
     if args.experiment:

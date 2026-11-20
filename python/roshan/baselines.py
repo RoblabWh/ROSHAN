@@ -34,4 +34,16 @@ def rollout(env, horizon_s=300.0, candidates=4):
     return env.plan("rollout", horizon_s, candidates)
 
 
-POLICIES = {"none": idle, "greedy": greedy, "head": head, "flank": flank, "rollout": rollout}
+def triage(env):
+    """Blocks whose strongest front is beyond the cap get no drone; the rest by the lowest score of
+    distance, intensity, drops still lacking and open neighbours (the `triage` settings of the task)."""
+    return env.plan("triage")
+
+
+def triage_rollout(env, horizon_s=300.0, candidates=4):
+    """Triage improved by lookahead; the alternatives are the blocks the rule ranks best."""
+    return env.plan("triage_rollout", horizon_s, candidates)
+
+
+POLICIES = {"none": idle, "greedy": greedy, "head": head, "flank": flank, "rollout": rollout, "triage": triage,
+            "triage_rollout": triage_rollout}

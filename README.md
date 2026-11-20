@@ -67,7 +67,7 @@ imitation.
 |---|---|
 | `uv run python -m roshan.ui` | The demo scenario: 40 small drones fly out from a ground station, drop water and come home for a fresh battery and tank |
 | `... --scenario scenarios/haard.npz` | A saved scenario |
-| `... --planner off\|greedy\|head\|flank\|rollout` | Who assigns targets to the drones |
+| `... --planner off\|greedy\|head\|flank\|rollout\|triage\|triage_rollout` | Who assigns targets to the drones |
 | `... --planner runs/planner/planner.pt` | A trained planner assigns the targets |
 | `... --fire-model rothermel\|firespin` | Which fire model runs |
 | `... --preburn 600` | Let the fires burn 10 minutes before the drones start |
@@ -110,7 +110,9 @@ map shows (relief, contours, fire arrival lines, spread rate). Help lists the sh
 | `uv run python -m roshan.eval experiments/eval_demo.toml` | Run every planner of the file on the same seeds, writes CSVs, `summary.md` and `evaluation.toml` to `runs/eval_demo/` |
 | `uv run python -m roshan.eval experiments/eval_explore.toml` | Explorer drones find and follow two fires nobody was told about; `summary.md` adds what the drones saw (found after, map seen, what the belief gets wrong) |
 | `... experiments/eval_demo.toml --config '{"drones_per_station":80}' --out runs/team_80` | The same file with a setting changed, for sweeps (`--sim`, `--split` and `--n` work the same way) |
-| `uv run python -m roshan.eval --scenario scenarios/demo.npz --policy greedy --out greedy.csv` | Run a planner on the validation seeds: `none`, `greedy`, `head`, `flank`, `rollout`, or a checkpoint `.pt` |
+| `uv run python -m roshan.eval --scenario scenarios/demo.npz --policy greedy --out greedy.csv` | Run a planner on the validation seeds: `none`, `greedy`, `head`, `flank`, `rollout`, `triage`, `triage_rollout`, or a checkpoint `.pt` |
+| `uv run python -m roshan.eval experiments/eval_haard.toml` | The same benchmark on real terrain (Die Haard), writes `runs/eval_haard/` |
+| `uv run python -m roshan.tune experiments/eval_demo.toml` | Tune the numbers of the triage planner on training seeds (about 6 minutes) |
 | `... --config '{"random_ignitions":2,"random_wind":true}'` | Change the task: here two random fires and a randomly turned wind |
 | `... --config '{..., "preburn_s":120}'` | Start with fires that have already spread for two minutes (`preburn_cells` caps their size) |
 | `... --split test`, `... --n 200` | The test seeds; only the first 200 seeds |
@@ -139,7 +141,7 @@ map shows (relief, contours, fire arrival lines, spread rate). Help lists the sh
 | [Water](docs/systems.md#water) | Dropped water slows fire and evaporates; a knocked-down cell can re-ignite |
 | [Navigate task](docs/systems.md#the-navigate-task) | Drones fly to waypoints without colliding; trains the low-level fly policy |
 | [Allocate task](docs/systems.md#the-allocate-task) | A swarm of small drones based at ground stations; a planner says which fire each one flies to, the rest (drop, flight home, battery and tank service) is automatic |
-| [Planners](docs/systems.md#planners) | `greedy`, `head`, `flank`, `rollout` (simulates ahead), and a learned network |
+| [Planners](docs/systems.md#planners) | `greedy`, `head`, `flank`, `rollout` (simulates ahead), `triage` (leaves fronts dry that are too intense to be worth the water), `triage_rollout`, and a learned network |
 | [Scenarios](docs/systems.md#scenarios) | A map plus fires, ground stations and weather in one `.npz` file |
 | [Configuration](docs/systems.md#configuration) | Every setting with its default |
 
@@ -170,10 +172,12 @@ seeds, 2026-11-19 (greedy planner unless stated):
 - It takes about 80 small drones to put out most weak fires, the size the literature
   arrives at (Ausonio et al. 2021); fires that have reached heavy shrub are not put out by
   any team, only held at the flanks.
-- The planners differ: attacking the most intense front first saves half as much as taking
-  the nearest fire that needs water, and simulating ahead beats both. No planner has been
-  trained on this task yet; the learned-planner results in the docs are from the task
-  before it (4 drones of 300 L).
+- The planners differ, and what counts is triage: water is scarce, and a rule that leaves
+  the most intense fronts dry (`triage`) saves 57 % of the area with 40 drones where the
+  nearest-fire rule saves 44 %; with lookahead on top 65 % (2026-11-20, with 256 targets on
+  offer; the table above was made with 64). No planner has been trained on this task yet;
+  what a learned one has to beat and how to build it is in
+  [docs/planner-findings.md](docs/planner-findings.md).
 - Fly policy: 99.4 % success on 1000 unseen episodes with 4 drones after about 2 minutes of
   training.
 - Speed (24-core laptop): 160 M drone-steps/s in the navigate simulator, about 1.0 M with PPO

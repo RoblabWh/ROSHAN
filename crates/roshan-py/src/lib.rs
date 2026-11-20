@@ -401,12 +401,12 @@ impl AllocateEnv {
         let out = actions.as_slice_mut()?;
         let inner = &self.inner;
         let method = allocate::Method::parse(method)
-            .filter(|m| *m != allocate::Method::Rollout || horizon_s > 0.0)
+            .filter(|m| !m.looks_ahead() || horizon_s > 0.0)
             .ok_or_else(|| {
                 invalid(
                     "method",
                     format!(
-                        "expected one of {:?}, rollout with a positive horizon",
+                        "expected one of {:?}, the rollouts with a positive horizon",
                         allocate::Method::NAMES
                     ),
                 )
@@ -860,12 +860,14 @@ mod ui {
             "head" => roshan_ui::Planner::Head,
             "flank" => roshan_ui::Planner::Flank,
             "rollout" => roshan_ui::Planner::Rollout,
+            "triage" => roshan_ui::Planner::Triage,
+            "triage_rollout" => roshan_ui::Planner::TriageRollout,
             "policy" if policy.is_some() => roshan_ui::Planner::Policy,
             other => {
                 return Err(invalid(
                     "planner",
                     format!(
-                        "{other:?}: expected off, greedy, head, flank, rollout, or policy with a policy given"
+                        "{other:?}: expected off, greedy, head, flank, rollout, triage, triage_rollout, or policy with a policy given"
                     ),
                 ));
             }

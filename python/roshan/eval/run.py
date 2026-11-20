@@ -206,8 +206,9 @@ EVAL = {"scenario": "", "split": "val", "n": 0, "pair": []}
 def _players(arm):
     """(planner, pilot, device) of an arm."""
     policy, fly, device = arm["policy"], None, "cpu"
-    if policy == "rollout":
-        policy = lambda env: POLICIES["rollout"](env, arm["horizon"], arm["candidates"])  # noqa: E731
+    if policy in ("rollout", "triage_rollout"):
+        name = policy
+        policy = lambda env: POLICIES[name](env, arm["horizon"], arm["candidates"])  # noqa: E731
     elif str(policy).endswith(".pt"):
         from roshan.rl.train_planner import load, planner_policy
 

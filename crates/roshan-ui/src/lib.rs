@@ -119,6 +119,10 @@ pub enum Planner {
     Head,
     Flank,
     Rollout,
+    /// Skips fronts too intense to be worth the water, then the cheapest block.
+    Triage,
+    /// Triage improved by simulating ahead.
+    TriageRollout,
     /// The attached policy.
     Policy,
 }
@@ -421,7 +425,11 @@ fn tick(s: &mut Shared, planned: Option<Vec<f32>>, flown: Option<Vec<f32>>) {
                     Planner::Head => env.assign(Method::Head),
                     Planner::Flank => env.assign(Method::Flank),
                     // ponytail: the lookahead runs under the lock and can stall a frame or two.
-                    Planner::Rollout => env.rollout(s.rollout.0, s.rollout.1),
+                    Planner::Rollout => env.rollout(Method::Rollout, s.rollout.0, s.rollout.1),
+                    Planner::Triage => env.assign(Method::Triage),
+                    Planner::TriageRollout => {
+                        env.rollout(Method::TriageRollout, s.rollout.0, s.rollout.1)
+                    }
                     Planner::Policy => planned.filter(|a| a.len() == n).map_or(vec![-1; n], |a| {
                         a.iter().map(|&v| v.round() as i32).collect()
                     }),

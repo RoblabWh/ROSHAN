@@ -861,6 +861,61 @@ fn rollout_is_repeatable_and_sometimes_differs_from_greedy() {
     );
 }
 
+/// The triage planner is greedy with a cap and three weights: without them it is greedy, a
+/// cap of zero sends nobody, and its lookahead is repeatable.
+#[test]
+fn triage_is_greedy_with_a_cap_and_weights() {
+    use roshan_core::allocate::TriageConfig;
+    let with = |triage: TriageConfig| {
+        let config = AllocConfig {
+            drones_per_station: 3,
+            preburn_cells: 20,
+            preburn_s: 3000.0,
+            triage,
+            ..cfg()
+        };
+        let mut v = AllocVec::new(6, scenario(), SimConfig::default(), config, 11, 0).unwrap();
+        let mut b = Buffers::new(&v);
+        v.reset(None, b.all());
+        (v, b)
+    };
+    let plain = TriageConfig {
+        cap_kw_m: f32::MAX,
+        per_mw_m: 0.0,
+        per_drop_m: 0.0,
+        per_neighbour_m: 0.0,
+    };
+    let (mut v, mut b) = with(plain);
+    let n = v.envs.len() * v.drones;
+    let (mut greedy, mut triage, mut again) = (vec![0; n], vec![0; n], vec![0; n]);
+    for _ in 0..30 {
+        v.plan(Method::Greedy, 0.0, 0, &mut greedy);
+        v.plan(Method::Triage, 0.0, 0, &mut triage);
+        assert_eq!(greedy, triage, "no cap, no weights: the nearest block");
+        v.plan(Method::TriageRollout, 200.0, 4, &mut triage);
+        v.plan(Method::TriageRollout, 200.0, 4, &mut again);
+        assert_eq!(triage, again, "same state, same plan");
+        v.step(&greedy, b.all());
+    }
+    let (v, _) = with(TriageConfig {
+        cap_kw_m: 0.0,
+        ..plain
+    });
+    v.plan(Method::Triage, 0.0, 0, &mut triage);
+    assert!(
+        triage.iter().all(|&a| a == -1),
+        "every front is beyond a cap of zero"
+    );
+    let bad = AllocConfig {
+        triage: TriageConfig {
+            per_drop_m: f32::NAN,
+            ..plain
+        },
+        ..cfg()
+    };
+    assert!(bad.check().is_err());
+}
+
 /// A random wind turns the whole schedule: the scenario's wind shift keeps its size, its time
 /// and its speed, and a steady wind gets the direction it always got.
 #[test]

@@ -66,7 +66,7 @@ explorers_track = 0
 forecast = false
 plan_on_belief = false
 block_cells = 2
-max_targets = 64
+max_targets = 256
 max_interval_s = 10.0
 time_limit_s = 1800.0
 random_ignitions = 3
@@ -74,6 +74,15 @@ random_wind = true
 wind_scale = 1.5
 preburn_s = 1800.0
 preburn_cells = 40
+
+
+# the triage planner: no drone to blocks above cap_kw_m; the rest by the lowest of
+# distance + per_mw_m x MW/m + per_drop_m x drops lacking + per_neighbour_m x open neighbours
+[allocate.triage]
+cap_kw_m = 1600.0
+per_mw_m = 100.0
+per_drop_m = 28.0
+per_neighbour_m = 35.0
 
 # one section per planner to compare: policy is none, greedy, head, flank, rollout or a checkpoint (.pt);
 # horizon (seconds) and candidates belong to rollout, sample to a checkpoint;

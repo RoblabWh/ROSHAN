@@ -58,7 +58,7 @@ def test_the_planners_send_what_the_fires_need():
     env = AllocateEnv(2, grassland(), config=CONFIG)
     need = env.targets[:, 2:6, 4]  # drops each of the four fires needs
     assert torch.allclose(need, torch.full_like(need, 0.4 * np.exp(0.1) / 0.28), atol=1e-4)
-    for name in ("greedy", "head", "flank", "rollout"):
+    for name in ("greedy", "head", "flank", "rollout", "triage", "triage_rollout"):
         actions = POLICIES[name](env)
         assert actions.shape == (2, 16) and actions.dtype == torch.int32
         sent = actions[actions >= 0]

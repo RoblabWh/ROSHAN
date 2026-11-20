@@ -67,7 +67,7 @@ explorers_track = 0
 forecast = false
 plan_on_belief = false
 block_cells = 2
-max_targets = 64
+max_targets = 256
 max_interval_s = 10.0
 time_limit_s = 1800.0
 random_ignitions = 2
@@ -76,8 +76,18 @@ wind_scale = 1.0
 preburn_s = 1800.0
 preburn_cells = 20
 
-# one section per planner to compare: policy is none, greedy, head, flank, rollout or a checkpoint (.pt);
-# horizon (seconds) and candidates belong to rollout, sample to a checkpoint;
+
+# the triage planner: no drone to blocks above cap_kw_m; the rest by the lowest of
+# distance + per_mw_m x MW/m + per_drop_m x drops lacking + per_neighbour_m x open neighbours
+[allocate.triage]
+cap_kw_m = 1600.0
+per_mw_m = 100.0
+per_drop_m = 28.0
+per_neighbour_m = 35.0
+
+# one section per planner to compare: policy is none, greedy, head, flank, rollout, triage, triage_rollout
+# or a checkpoint (.pt);
+# horizon (seconds) and candidates belong to the rollouts, sample to a checkpoint;
 # fly is a fly checkpoint, "decentral", or "" for the scripted controller
 [arms.none]
 policy = "none"
@@ -112,4 +122,25 @@ policy = "rollout"
 sample = false
 horizon = 300.0
 candidates = 4
+fly = ""
+
+[arms.triage]
+policy = "triage"
+sample = false
+horizon = 300.0
+candidates = 4
+fly = ""
+
+[arms.triage_rollout]
+policy = "triage_rollout"
+sample = false
+horizon = 300.0
+candidates = 4
+fly = ""
+
+[arms.triage_rollout_16]
+policy = "triage_rollout"
+sample = false
+horizon = 300.0
+candidates = 16
 fly = ""

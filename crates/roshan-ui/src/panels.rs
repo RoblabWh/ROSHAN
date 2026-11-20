@@ -700,6 +700,13 @@ impl Viewer<'_> {
                     );
                 ui.radio_value(&mut planner, Planner::Rollout, "rollout")
                     .on_hover_text("greedy improved by simulating the alternatives ahead");
+                ui.radio_value(&mut planner, Planner::Triage, "triage")
+                    .on_hover_text(
+                        "no drone to fronts beyond the cap; the rest by distance, intensity, \
+                         drops still lacking and open neighbours (Settings > Triage planner)",
+                    );
+                ui.radio_value(&mut planner, Planner::TriageRollout, "triage + rollout")
+                    .on_hover_text("triage improved by simulating the alternatives ahead");
                 if snap.has_planner {
                     ui.radio_value(&mut planner, Planner::Policy, "policy")
                         .on_hover_text("the attached planner checkpoint decides");
@@ -708,7 +715,7 @@ impl Viewer<'_> {
             if planner != snap.planner {
                 self.shared.lock().unwrap().planner = planner;
             }
-            if planner == Planner::Rollout {
+            if matches!(planner, Planner::Rollout | Planner::TriageRollout) {
                 let (mut horizon, mut candidates) = snap.rollout;
                 ui.horizontal(|ui| {
                     let ahead = egui::DragValue::new(&mut horizon)

@@ -235,6 +235,20 @@ fn hint(name: &str, salt: &str) -> &'static str {
             "the planners work from what the drones have seen, not from the true fire: no \
              target until the fire is found. Needs sense_m or explorers"
         }
+        ("triage", _) => {
+            "the numbers of the triage planner: which blocks get no drone, and how the rest \
+             are ranked"
+        }
+        ("cap_kw_m", _) => {
+            "triage: blocks whose strongest front is above this intensity (kW/m) get no drone"
+        }
+        ("per_mw_m", _) => "triage: metres added to a block's distance per MW/m of its front",
+        ("per_drop_m", _) => {
+            "triage: metres added per drop the block still lacks; nearly stopped blocks first"
+        }
+        ("per_neighbour_m", _) => {
+            "triage: metres added per neighbouring block that still lacks water"
+        }
         ("block_cells", _) => {
             "cells with a fire front are grouped into square blocks this many cells wide; each \
              is one target"
@@ -281,7 +295,7 @@ fn json<T: serde::Serialize>(value: &T) -> Value {
 /// Group headings: (section, the key the group starts with, title). Keys follow in the order
 /// the struct declares them, so a new parameter lands in the group it is declared in. For a
 /// nested section the key is its name and the title that of its fold.
-const HEADINGS: [(&str, &str, &str); 18] = [
+const HEADINGS: [(&str, &str, &str); 20] = [
     ("sim", "dt_s", "Clock"),
     ("sim", "water_crit_l_m2", "Water"),
     ("sim", "sheltered_waf", "Fire"),
@@ -296,6 +310,12 @@ const HEADINGS: [(&str, &str, &str); 18] = [
     ("allocate", "sense_m", "Finding the fire"),
     ("allocate", "block_cells", "Targets"),
     ("allocate", "time_limit_s", "Episode"),
+    ("allocate", "triage", "Triage planner"),
+    (
+        "allocate.triage",
+        "cap_kw_m",
+        "Score of a block, in metres of flight",
+    ),
     ("navigate", "drones", "Drones"),
     ("navigate", "view_m", "Distances"),
     ("navigate", "goals", "Episode"),
@@ -896,6 +916,7 @@ mod tests {
             ("sim", &sim),
             ("sim.spin", &sim["spin"]),
             ("allocate", &alloc),
+            ("allocate.triage", &alloc["triage"]),
             ("navigate", &nav),
         ];
         for (salt, name, _) in HEADINGS {

@@ -153,7 +153,7 @@ def train(scenario, num_envs=512, updates=300, seed=0, out="runs/planner", cfg=P
     if teacher:
         result["teacher_agreement"] = imitate(net, optimizer, scenario, device, teacher, imitation_steps, imitation_envs,
                                               seed=seed, config=config, sim=sim)
-        torch.save({"model": net.state_dict(), "spec": env.spec, "hidden": hidden, "schema_version": 1}, out / "imitation.pt")
+        torch.save({"model": net.state_dict(), "spec": env.spec, "hidden": hidden, "schema_version": SCHEMA_VERSION}, out / "imitation.pt")
 
     first = observe(env, device)
     obs = [torch.zeros((t_len + 1, *o.shape), dtype=o.dtype, device=device) for o in first]

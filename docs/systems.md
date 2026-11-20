@@ -238,7 +238,11 @@ means all seeds, `pair = []` no paired statistics.
 | `forecast` | false | between looks the belief is a forecast: the fire model runs on from what was seen and every look corrects it (Rothermel only) |
 | `plan_on_belief` | false | the planners work from what the drones have seen, not from the true fire (see Planning on the belief below) |
 | `block_cells` | 2 | side of a target block in cells |
-| `max_targets` | 64 | fire targets offered at most |
+| `max_targets` | 256 | fire targets offered at most (64 until 2026-11-20: it bound in a third of the decisions and kept the most intense blocks) |
+| `triage.cap_kw_m` | 1600 | triage planner: blocks whose strongest front is above this get no drone |
+| `triage.per_mw_m` | 100 | triage planner: metres added to a block's distance per MW/m of its front |
+| `triage.per_drop_m` | 28 | triage planner: metres added per drop the block still lacks |
+| `triage.per_neighbour_m` | 35 | triage planner: metres added per neighbouring block that still lacks water |
 | `max_interval_s` | 10 | how often docked drones that were told to wait are asked again |
 | `time_limit_s` | 1800 | episode length |
 | `random_ignitions` | 0 | if above 0: this many random fires instead of the scenario's |
@@ -765,7 +769,9 @@ burning cells and its fronts (water need and intensity are the model's, not meas
 
 The rollout planner's lookahead with `plan_on_belief`: with a forecast it plays on in the
 believed fire, so it does not see what no drone saw. Without one it still simulates the
-**true** fire and is an upper bound, not a fair planner.
+**true** fire, with later decisions that see it too, which the real ones do not: it is
+neither fair nor an upper bound (a probe on 100 seeds on 2026-11-20 had it 1.5 points below
+greedy).
 
 `ponytail:` the forecast knows wind, fuel and moisture exactly; with `ros_noise` 0 it is the
 true model and is wrong only where no drone has looked. A cell lit by a look starts its
@@ -921,6 +927,8 @@ fly home.
 | `head` | the most intense block that still needs water (nearer first among equals): attack the head |
 | `flank` | the least intense block that still needs water: work along the flanks |
 | `rollout` | greedy improved by simulating ahead (below) |
+| `triage` | no drone to a block whose strongest front is above a cap; the rest by the lowest score (below) |
+| `triage_rollout` | triage improved by simulating ahead |
 | learned | `PlannerNet` (see [Training](#training)); none has been trained on this task yet |
 
 **Rollout planner** (`AllocateEnv.plan("rollout", horizon_s, candidates)`): multiagent
@@ -932,6 +940,25 @@ die) ahead on a copy of the world, with greedy deciding everything later. The al
 with the fewest cells burned, then the fewest still burning, wins; ties keep greedy's choice.
 By construction it does at least as well as greedy on the simulated horizon. It needs the
 simulator at decision time, so it is a reference and a teacher, not a deployable policy.
+
+**Triage planner** (`triage`, settings `[allocate.triage]`). Water is scarce: the pads hand
+out about 8 drops a minute against an open need of some 240, so the question is which blocks
+to leave dry. A block whose strongest front is above `cap_kw_m` gets no drone. Among the
+rest a drone takes the lowest score, in metres:
+`distance + per_mw_m x intensity (MW/m) + per_drop_m x drops still lacking + per_neighbour_m
+x neighbouring blocks (of 8) that still lack water`. Weak fronts first (a drop protects more
+there), nearly stopped blocks first, and blocks next to a held stretch first (a drop in the
+middle of an open stretch is re-ignited by its neighbours when the water has evaporated).
+With no cap and all weights zero it is greedy. The defaults were tuned on the demo map with
+40 drones (`python -m roshan.tune`, cross-entropy method on 1000 training seeds, every
+candidate on the same seeds); the best cap grows with the team (about 1250, 1600 and 2750
+kW/m for 20, 40 and 80 drones), the defaults lose about a point at 20 and 80.
+
+**Triage with lookahead** (`triage_rollout`): the rollout planner on top of the triage rule.
+The rule decides everything later in the lookahead, and the alternatives tried per drone
+are the rule's choice, waiting, and the `candidates` blocks the rule ranks best with its cap
+set aside, so the lookahead can overrule the cap where that pays. (The greedy rollout's
+alternatives are the neediest blocks, which are the most intense: the wrong ones.)
 
 The Hungarian assignment of earlier versions is gone: it pairs one drone with one fire, and
 a block now takes several drops.
@@ -1012,7 +1039,7 @@ One file for both tasks.
 - **PPO** runs for `--updates` afterwards (0 = imitation only). `--critic-updates N` trains
   only the value function for the first N updates; `--init` starts from saved weights.
 - **Task.** With an experiment file: its `[allocate]` on top of the simulator's defaults.
-  Without one: `{"random_ignitions": 6, "random_wind": true}` on `scenarios/demo.npz` unless
+  Without one: `{"random_ignitions": 2, "random_wind": true, "preburn_s": 1800, "preburn_cells": 20}` on `scenarios/demo.npz` unless
   `--config` says otherwise.
 - **Output.** `runs/<name>/planner.pt`, `imitation.pt`, `experiment.toml`, `tensorboard/`.
 
@@ -1083,7 +1110,7 @@ and writes the same record next to its CSV (`--out greedy.csv` gives `greedy.eva
 
 | Flag | Meaning |
 |---|---|
-| `--policy` | `none`, `greedy`, `head`, `flank`, `rollout`, or a planner checkpoint (`.pt`) |
+| `--policy` | `none`, `greedy`, `head`, `flank`, `rollout`, `triage`, `triage_rollout`, or a planner checkpoint (`.pt`) |
 | `--split`, `--n` | `val` or `test`; only the first N seeds |
 | `--config`, `--sim` | JSON overrides of the allocate and the simulation configuration |
 | `--horizon` | lookahead of the rollout planner, seconds |
@@ -1234,7 +1261,7 @@ below can be done while it runs.
   exist, keeps the viewer's simulation settings and the message says so). Both
   can be attached at once, which shows the planner with learned flight (nothing then keeps
   drones apart, as in the evaluation with `--fly`). Either can be detached again.
-- **Side panel**: the seed; the planner (off, greedy, rollout with its look-ahead, or the
+- **Side panel**: the seed; the planner (off, greedy, head, flank, triage, the two rollouts with their look-ahead, or the
   attached policy); in the fly task the pilot (off, straight, scripted, decentral, or the
   attached fly policy; scripted is the default without a policy); the weather at the start
   (wind speed and direction, dead-fuel, live-herb and live-woody moisture) and later wind
@@ -1562,6 +1589,36 @@ explorers fly 15 m/s by default (every explorer result above was made at 10 m/s)
 
 Rows: `--config '{"plan_on_belief": true, "forecast": true, "explorers_track": 2,
 "report_m": 100}'` and so on, `--out runs/scout_...`.
+
+### Triage
+
+2026-11-20, `experiments/eval_demo.toml` and `experiments/eval_haard.toml` (the same task
+on real terrain, Die Haard, with a station in the corner), 500 validation seeds each, 40
+drones, **`max_targets` 256** (the tables above were made with 64, which costs greedy about
+0.8 points; the simulator digest changed with it to f124e4bcc54d). The triage numbers were
+tuned on training seeds of the demo map only.
+
+| Planner | Demo: fire out | Demo: area saved | Haard: fire out | Haard: area saved |
+|---|---|---|---|---|
+| greedy | 17.0 % | 44.2 % | 25.6 % | 50.6 % |
+| head | 13.2 % | 22.0 % | 21.2 % | 31.4 % |
+| flank | 17.2 % | 45.1 % | 30.2 % | 53.3 % |
+| rollout (300 s, 4) | 21.6 % | 47.5 % | 28.2 % | 52.1 % |
+| triage | 21.4 % | 57.0 % | 30.2 % | 59.9 % |
+| triage_rollout (300 s, 4) | 30.8 % | 64.7 % | 34.8 % | 64.1 % |
+| triage_rollout (300 s, 16) | 30.2 % | 65.7 % | 34.2 % | 65.1 % |
+
+Other team sizes on the demo map (one pad per five drones), area saved: 20 drones greedy
+25.6 %, triage 30.4 % (31.2 % with numbers tuned for 20); 80 drones greedy 67.3 %, triage
+76.0 % (77.3 % tuned for 80).
+
+- **Leaving intense fronts dry is worth more than any lookahead on greedy**: triage saves
+  13 points more than greedy and 9.5 more than the greedy rollout, at greedy's cost.
+- **Lookahead on top of triage adds another 8 points** and puts out half again as many
+  fires. Sixteen candidates instead of four add one point.
+- The rule carries over to a map it was not tuned on, and to other team sizes with a loss
+  of about a point.
+- These are the baselines a learned planner has to beat (`docs/planner-findings.md`).
 
 ### Performance
 
