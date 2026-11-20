@@ -296,7 +296,7 @@ pub fn decentral(
 pub fn scripted_step(
     pos: &[[f32; 2]],
     goal: impl Fn(usize) -> [f32; 2],
-    stride: f32,
+    stride: impl Fn(usize) -> f32,
     safe: f32,
     (w, h): (f32, f32),
     active: impl Fn(usize) -> bool,
@@ -307,7 +307,7 @@ pub fn scripted_step(
         let (p, goal) = (pos[i], goal(i));
         let (dx, dy) = (goal[0] - p[0], goal[1] - p[1]);
         let range = dx.hypot(dy);
-        let stride = stride.min(range);
+        let stride = stride(i).min(range);
         if stride > 0.0 {
             let (ux, uy) = (dx / range, dy / range);
             for turn in [0.0f32, 45.0, -45.0, 90.0, -90.0] {
@@ -613,7 +613,7 @@ impl NavEnv {
                 let next = scripted_step(
                     pos,
                     |i| self.goal[i],
-                    max * dt,
+                    |_| max * dt,
                     safe,
                     Self::size(&self.world),
                     |_| true,

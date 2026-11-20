@@ -1109,6 +1109,39 @@ fn tracking_and_forecasting_keep_the_belief_closer_to_the_fire() {
 }
 
 #[test]
+fn a_reported_fire_and_a_faster_explorer_find_it_sooner() {
+    let seeds: Vec<u64> = (0..16).collect();
+    let slow = AllocConfig {
+        explorers_per_station: 1,
+        explorer_speed_ms: 10.0,
+        random_ignitions: 1,
+        ..cfg()
+    };
+    let fast = AllocConfig {
+        explorer_speed_ms: 20.0,
+        ..slow
+    };
+    let told = AllocConfig {
+        report_m: 60.0,
+        ..slow
+    };
+    let found = |c: AllocConfig| {
+        let runs = run(&seeds, 0, c, false);
+        let after: Vec<f32> = runs.iter().map(|r| r.0[info("detect_s")]).collect();
+        assert!(after.iter().all(|t| t.is_finite()), "{after:?}");
+        after.iter().sum::<f32>() / after.len() as f32
+    };
+    let (slow, fast, told) = (found(slow), found(fast), found(told));
+    println!("found after {slow:.0} s at 10 m/s, {fast:.0} s at 20 m/s, {told:.0} s when reported");
+    assert!(fast < slow && told < slow);
+    let bad = AllocConfig {
+        report_m: f32::NAN,
+        ..cfg()
+    };
+    assert!(bad.check().is_err());
+}
+
+#[test]
 fn planning_on_the_belief_waits_for_the_fire_to_be_found() {
     let seeds: Vec<u64> = (0..24).collect();
     let (truth, belief) = (

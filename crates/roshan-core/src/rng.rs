@@ -14,6 +14,7 @@ pub enum Stream {
     Weather = 4,
     Ignition = 5,
     Spin = 6,
+    Report = 7,
 }
 
 const M0: u64 = 0xD251_1F53;

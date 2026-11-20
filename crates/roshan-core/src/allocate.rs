@@ -64,6 +64,17 @@ pub struct AllocConfig {
     pub explorers_per_station: u32,
     /// Radius of an explorer's fire sensor, metres (the attack drones' is `sense_m`).
     pub explorer_sense_m: f32,
+    /// Top speed of an explorer, m/s (the attack drones' is `max_speed_ms`): without a tank
+    /// it is the lighter, faster aircraft.
+    /// ponytail: the pilot observation still scales velocities by `max_speed_ms`; give it
+    /// the drone's own speed when a fly policy is to steer explorers.
+    pub explorer_speed_ms: f32,
+    /// Above zero: every fire is reported when the episode starts, at its ignition point
+    /// moved by a random error of up to this many metres. Explorers fly to the reports
+    /// first (explorer k to report k) and search around each in widening squares out to
+    /// that distance before they sweep. 0: nobody is told anything.
+    /// ponytail: only explorers use a report; attack drones still wait for a sighting.
+    pub report_m: f32,
     /// Between two legs of its sweep an explorer visits the fire it believes to burn in its
     /// stripe: the cell whose last look is oldest for the flight it takes to get there.
     pub explorers_follow: bool,
@@ -128,6 +139,8 @@ impl Default for AllocConfig {
             sense_m: 0.0,
             explorers_per_station: 0,
             explorer_sense_m: 55.0,
+            explorer_speed_ms: 15.0,
+            report_m: 0.0,
             explorers_follow: true,
             explorers_track: 0,
             forecast: false,
@@ -161,6 +174,7 @@ impl AllocConfig {
             ("time_limit_s", self.time_limit_s),
             ("wind_scale", self.wind_scale),
             ("explorer_sense_m", self.explorer_sense_m),
+            ("explorer_speed_ms", self.explorer_speed_ms),
             ("pads", self.pads as f32),
             ("drones_per_station", self.drones_per_station as f32),
             ("block_cells", self.block_cells as f32),
@@ -177,6 +191,12 @@ impl AllocConfig {
         }
         if !(self.safe_m >= 0.0 && self.safe_m.is_finite()) {
             return Err(format!("safe_m must be zero or more, got {}", self.safe_m));
+        }
+        if !(self.report_m >= 0.0 && self.report_m.is_finite()) {
+            return Err(format!(
+                "report_m must be zero or more, got {}",
+                self.report_m
+            ));
         }
         if !(self.sense_m >= 0.0 && self.sense_m.is_finite()) {
             return Err(format!(
@@ -375,6 +395,10 @@ pub struct AllocEnv {
     visited: Vec<bool>,
     /// Per drone: an explorer that stays with the fire (`explorers_track`).
     tracker: Vec<bool>,
+    /// Where fires were reported at the start (`report_m`), metres, and per explorer the
+    /// cells it searches around its report before it sweeps.
+    reports: Vec<[f32; 2]>,
+    search: Vec<Vec<u32>>,
     /// The believed fire run on by the fire model (`AllocConfig::forecast`): a world of its
     /// own without drones, corrected by every look.
     forecast: Option<World>,
@@ -392,6 +416,18 @@ fn stripe(long: u32, k: u32, e: u32) -> (u32, u32) {
     (lo, ((e + 1) * long / k).max(lo + 1) - lo)
 }
 
+/// How many cells apart an explorer's lanes are: a circle of `explorer_sense_m` that takes a
+/// picture every fire step covers a band a little narrower than its diameter, and a lane
+/// sits on cell centres (one cell less).
+fn lane_cells(grid: Grid, cfg: &AllocConfig, sim: &SimConfig) -> u32 {
+    let gap = cfg.explorer_speed_ms * sim.dt_s * sim.fire_every as f32; // flown between two pictures
+    let band = 2.0
+        * (cfg.explorer_sense_m.powi(2) - (gap / 2.0).powi(2))
+            .max(0.0)
+            .sqrt();
+    ((band / grid.cell_m - 1.0).floor() as u32).max(1)
+}
+
 /// The search pattern of every explorer. The map is cut into one stripe per explorer along
 /// its longer side; each stripe is swept back and forth along its own longer side, starting
 /// in the corner nearest the explorer's station. Lanes are as far apart as the sensor allows:
@@ -403,12 +439,7 @@ fn stripe(long: u32, k: u32, e: u32) -> (u32, u32) {
 fn sweeps(grid: Grid, stations: &[[u32; 2]], cfg: &AllocConfig, sim: &SimConfig) -> Vec<Vec<u32>> {
     let per = cfg.explorers_per_station as usize;
     let k = (stations.len() * per) as u32;
-    let gap = cfg.max_speed_ms * sim.dt_s * sim.fire_every as f32; // flown between two pictures
-    let band = 2.0
-        * (cfg.explorer_sense_m.powi(2) - (gap / 2.0).powi(2))
-            .max(0.0)
-            .sqrt();
-    let spacing = ((band / grid.cell_m - 1.0).floor() as u32).max(1);
+    let spacing = lane_cells(grid, cfg, sim);
     let stripes_along_x = grid.nx >= grid.ny;
     let (long, short) = if stripes_along_x {
         (grid.nx, grid.ny)
@@ -481,6 +512,8 @@ impl AllocEnv {
             leg: vec![0; n],
             visited: vec![false; n],
             tracker: vec![false; n],
+            reports: Vec::new(),
+            search: Vec::new(),
             forecast: None,
             world: World::new(terrain.clone(), weather, sim, 0),
             pad_free: vec![0; scenario.stations.len() * cfg.pads as usize],
@@ -660,6 +693,20 @@ impl AllocEnv {
         }
     }
 
+    /// The top speed of drone `i`, m/s.
+    fn speed(&self, i: usize) -> f32 {
+        if self.explorer(i) {
+            self.cfg.explorer_speed_ms
+        } else {
+            self.cfg.max_speed_ms
+        }
+    }
+
+    /// Where fires were reported when the episode started, metres (`report_m`).
+    pub fn reports(&self) -> &[[f32; 2]] {
+        &self.reports
+    }
+
     /// The attack drones: the first this many of every per-drone list.
     pub fn attackers(&self) -> usize {
         self.scenario.stations.len() * self.cfg.drones_per_station as usize
@@ -681,7 +728,13 @@ impl AllocEnv {
     /// The cell an explorer flies to after reaching `leg` waypoints: its sweep, there and
     /// back again, for ever.
     fn waypoint(&self, i: usize, leg: u32) -> u32 {
-        let cells = &self.sweeps[i - self.attackers()];
+        let e = i - self.attackers();
+        // First the search around the fire reported to it, if any, then the sweep.
+        let search = self.search.get(e).map_or(&[][..], |s| s);
+        if let Some(&cell) = search.get(leg as usize) {
+            return cell;
+        }
+        let (cells, leg) = (&self.sweeps[e], leg - search.len() as u32);
         let round = 2 * (cells.len() - 1); // a sweep has at least one lane: two ends
         let at = leg as usize % round;
         cells[at.min(round - at)]
@@ -699,8 +752,7 @@ impl AllocEnv {
         let (x, y) = self.terrain.grid.xy(cell as usize);
         let point = self.cell_centre([x, y]);
         let airborne_s = (self.world.tick - self.launched[i]) as f32 * self.sim.dt_s;
-        let flight_s =
-            (dist(self.world.drones.pos[i], point) + self.home_m(point)) / self.cfg.max_speed_ms;
+        let flight_s = (dist(self.world.drones.pos[i], point) + self.home_m(point)) / self.speed(i);
         airborne_s + flight_s <= self.cfg.endurance_s
     }
 
@@ -735,7 +787,7 @@ impl AllocEnv {
                     continue;
                 }
                 let age_s = (now - belief.seen[cell]) as f32 * dt;
-                let worth = age_s / (away / self.cfg.max_speed_ms + picture_s);
+                let worth = age_s / (away / self.cfg.explorer_speed_ms + picture_s);
                 if best.is_none_or(|(b, _)| worth > b) {
                     best = Some((worth, cell as u32));
                 }
@@ -792,7 +844,7 @@ impl AllocEnv {
             // A cell the forecast set alight has never been looked at: as old as can be.
             let seen = belief.seen[cell as usize];
             let age_s = now.saturating_sub(if seen == NEVER { 0 } else { seen }) as f32 * dt;
-            let worth = age_s / (away / self.cfg.max_speed_ms + picture_s);
+            let worth = age_s / (away / self.cfg.explorer_speed_ms + picture_s);
             if best.is_none_or(|(b, _)| worth > b) && self.in_reach(i, cell) {
                 best = Some((worth, cell));
             }
@@ -907,6 +959,43 @@ impl AllocEnv {
                 self.world.ignite(c[0], c[1]);
             }
         }
+        // Reports: each ignition, off by up to `report_m` in a random direction.
+        let (w, h) = (grid.nx as f32 * grid.cell_m, grid.ny as f32 * grid.cell_m);
+        let told = self.cfg.report_m > 0.0;
+        self.reports = (self.world.fire.burning().filter(|_| told).enumerate())
+            .map(|(k, cell)| {
+                let (x, y) = grid.xy(cell as usize);
+                let p = self.cell_centre([x, y]);
+                let off =
+                    self.cfg.report_m * rng::uniform(seed, Stream::Report, k as u64, 0).sqrt();
+                let turn = std::f32::consts::TAU * rng::uniform(seed, Stream::Report, k as u64, 1);
+                [
+                    (p[0] + off * turn.cos()).clamp(0.0, w - 1.0),
+                    (p[1] + off * turn.sin()).clamp(0.0, h - 1.0),
+                ]
+            })
+            .collect();
+        // Explorer k searches around report k: the report itself, then squares that widen by
+        // one lane until they cover the possible error. Corners off the map are pulled in.
+        let lane = lane_cells(grid, &self.cfg, &self.sim) as i64;
+        let reach = self.cfg.report_m - self.cfg.explorer_sense_m;
+        let rings = (reach / (lane as f32 * grid.cell_m)).ceil().max(0.0) as i64;
+        let explorers = self.task.len() - self.attackers();
+        self.search = (self.reports.iter().take(explorers))
+            .map(|r| {
+                let (cx, cy) = ((r[0] / grid.cell_m) as i64, (r[1] / grid.cell_m) as i64);
+                let cell = |dx: i64, dy: i64| {
+                    let x = (cx + dx).clamp(0, grid.nx as i64 - 1) as u32;
+                    let y = (cy + dy).clamp(0, grid.ny as i64 - 1) as u32;
+                    grid.idx(x, y) as u32
+                };
+                let corners = [(-1, -1), (1, -1), (1, 1), (-1, 1), (-1, -1)];
+                let squares = (1..=rings)
+                    .flat_map(|k| corners.map(|(dx, dy)| cell(dx * k * lane, dy * k * lane)));
+                std::iter::once(cell(0, 0)).chain(squares).collect()
+            })
+            .collect();
+
         // Pre-burn: the fire alone, exactly as an idle episode would have it at that time.
         // There are no drones and no water in the world yet.
         let end = (self.cfg.preburn_s / self.sim.dt_s).round() as u64;
@@ -1071,7 +1160,6 @@ impl AllocEnv {
     /// to another drone in the air (`navigate::scripted_step`).
     fn fly(&mut self) {
         let (dt, safe) = (self.sim.dt_s, self.cfg.safe_m);
-        let stride = self.cfg.max_speed_ms * dt;
         let n = self.task.len();
         if safe > 0.0 {
             let g = self.terrain.grid;
@@ -1080,7 +1168,7 @@ impl AllocEnv {
             let next = crate::navigate::scripted_step(
                 pos,
                 |i| self.goal[i],
-                stride,
+                |i| self.speed(i) * dt,
                 safe,
                 size,
                 |i| !self.docked(i),
@@ -1096,7 +1184,7 @@ impl AllocEnv {
             let (dx, dy) = (goal[0] - p[0], goal[1] - p[1]);
             let range = dx.hypot(dy);
             self.world.drones.vel[i] = if range > 0.0 && !self.docked(i) {
-                let speed = stride.min(range) / dt / range;
+                let speed = (self.speed(i) * dt).min(range) / dt / range;
                 [dx * speed, dy * speed]
             } else {
                 [0.0; 2]
@@ -1289,7 +1377,7 @@ impl AllocEnv {
             Some(v) => {
                 for i in 0..n {
                     let (ax, ay) = (v[2 * i], v[2 * i + 1]);
-                    let scale = self.cfg.max_speed_ms / ax.hypot(ay).max(1.0);
+                    let scale = self.speed(i) / ax.hypot(ay).max(1.0);
                     let fly = !self.docked(i) as u8 as f32;
                     self.world.drones.vel[i] = [ax * scale * fly, ay * scale * fly];
                 }

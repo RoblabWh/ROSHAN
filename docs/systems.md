@@ -231,6 +231,8 @@ means all seeds, `pair = []` no paired statistics.
 | `sense_m` | 0 | radius of the fire sensor of an attack drone in the air; 0 = no sensor (see Sensing below) |
 | `explorers_per_station` | 0 | explorer drones based at every station besides the attack drones (see Explorers below) |
 | `explorer_sense_m` | 55 | radius of an explorer's fire sensor |
+| `explorer_speed_ms` | 15 | top speed of an explorer (the attack drones' is `max_speed_ms`) |
+| `report_m` | 0 | above zero: every fire is reported at the start, off by up to this many metres; explorers go there first |
 | `explorers_follow` | true | an explorer visits the fire known in its stripe between two legs of its sweep |
 | `explorers_track` | 0 | up to this many explorers stay with a fire once one is known; the others keep sweeping |
 | `forecast` | false | between looks the belief is a forecast: the fire model runs on from what was seen and every look corrects it (Rothermel only) |
@@ -791,6 +793,15 @@ attack drones, station by station; they never need a decision, their action is i
   stops and a later fire is still found, only later; each explorer follows the fire in its own
   stripe, and none has to know where another is heading. In the rollout planner's lookaheads,
   which carry no belief, explorers only sweep.
+- *Speed.* An explorer flies at `explorer_speed_ms` (15 m/s), an attack drone at
+  `max_speed_ms` (10 m/s): without a tank it is the lighter aircraft. Its endurance, pads and
+  service time are still the attack drone's.
+- *Reports* (`report_m`, 0 by default). Above zero every fire is reported when the episode
+  starts: its ignition point moved by a random error of up to `report_m` (uniform over the
+  disc, pulled onto the map). Explorer k flies to report k first, then around it in squares
+  that widen by one lane until they cover the possible error, and only then starts its
+  sweep; explorers beyond the number of reports sweep from the start. Only explorers use a
+  report: with `plan_on_belief` the attack drones still wait for a sighting.
 - *Tracking* (`explorers_track`, 0 by default). Up to that many explorers stay with a fire
   once one is known. At every arrival, and when it takes off, a tracker picks the believed
   front cell (any believed-burning cell while none has a front) with the highest age of its
@@ -1525,6 +1536,33 @@ with a forecast leaves 26.6 % not known and 3.7 % gone and saves 29.4 % of the a
 Rows: `... --config '{"plan_on_belief": true, "forecast": true, "explorers_track": 2}'`,
 with `"explorer_sense_m": 110` and `--sim '{"ros_noise": 0.25}'` where stated.
 
+### A faster explorer and a reported fire
+
+2026-11-20, as the table above with 2 of 4 explorers tracking and a forecast; from here on
+explorers fly 15 m/s by default (every explorer result above was made at 10 m/s).
+
+| Explorer | Report | Found after (median, 9 of 10) | Burning cells not known | Fire out | Area saved | First drop (median) |
+|---|---|---|---|---|---|---|
+| (planner knows the fire) | | | | 17.0 % | 43.3 % | 81 s |
+| 10 m/s, 55 m | none | 156 s, 346 s | 24.3 % | 5.4 % | 29.9 % | 259 s |
+| 15 m/s, 55 m | none | 105 s, 254 s | 17.1 % | 7.2 % | 33.4 % | 215 s |
+| 20 m/s, 55 m | none | 80 s, 190 s | 12.8 % | 6.8 % | 35.8 % | 188 s |
+| 15 m/s, 110 m | none | 72 s, 140 s | 8.9 % | 9.8 % | 38.3 % | 175 s |
+| 15 m/s, 55 m | within 300 m | 80 s, 140 s | 11.3 % | 8.8 % | 36.6 % | 184 s |
+| 15 m/s, 55 m | within 100 m | 58 s, 90 s | 6.7 % | 11.2 % | 40.5 % | 144 s |
+| 15 m/s, 110 m | within 300 m | 66 s, 108 s | 6.7 % | 9.8 % | 39.4 % | 158 s |
+
+- **Every second off the detection is area saved.** A report good to 100 m brings the swarm
+  to 40.5 % of the area saved, close to the 43.3 % of the planner that knows the fire.
+- The first drop still comes a minute later than with full knowledge even then (144 s
+  against 81 s): the attack drones wait at the station until an explorer has seen the fire.
+  Sending them towards a report is not built.
+- With a report but explorers that only sweep and follow and no forecast, the same 300 m
+  report gives 30.8 %: finding the fire early and then keeping track of it both count.
+
+Rows: `--config '{"plan_on_belief": true, "forecast": true, "explorers_track": 2,
+"report_m": 100}'` and so on, `--out runs/scout_...`.
+
 ### Performance
 
 `cargo run --release -p roshan-core --example bench`, one thread, on an AMD Ryzen 9 9950X3D,
@@ -1799,6 +1837,7 @@ the manufacturers'.
 | `drones_per_station` | 40 | **A choice**, between the five drones one operator supervises (Seneca) and Ausonio's 120. Results sweep it. |
 | `safe_m` | 0 | **Assumed** height lanes: drones on different sorties do not meet. |
 | `sense_m` | 0 | Off by default. **Assumed** where used: 20 m, a downward camera on a drone that flies low to drop. |
+| `explorer_speed_ms` | 15 | **Assumed**: a camera drone of the Matrice 30 class is sold with a top speed of about 23 m/s (from memory of its specification sheet, not checked again); 15 m/s is taken as a cruise speed at which a thermal picture every 2 s is still sharp. The attack drone's 10 m/s is that of a heavy-lift sprayer. |
 | `explorer_sense_m` | 55 | A thermal camera with a 61° diagonal field of view and 640 x 512 pixels (DJI Matrice 30T, retailers' specification sheets) that looks straight down from 120 m, the height limit of the EU open category (EASA), images 110 m x 88 m of ground; 55 m is the radius of the circle with that area. **Assumed**: a burning 10 m cell is recognised anywhere in the image, through smoke, in every picture. Checked on 2026-11-20. |
 | explorer speed, endurance, service | as the attack drones | **Assumed**: the same airframe with a camera instead of a tank. An empty FlyCart 30 hovers 29 minutes, so 900 s is cautious for it. |
 

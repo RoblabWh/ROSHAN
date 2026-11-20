@@ -213,6 +213,11 @@ fn hint(name: &str, salt: &str) -> &'static str {
             "an explorer sees the fire within this distance, metres; its sweep lanes are spaced \
              to match"
         }
+        ("explorer_speed_ms", _) => "top speed of an explorer, m/s: no tank, so the faster drone",
+        ("report_m", _) => {
+            "above zero: every fire is reported at the start, off by up to this many metres; \
+             explorers fly to the reports first and search around them. 0: nobody is told"
+        }
         ("explorers_follow", _) => {
             "between two legs of its sweep an explorer visits the fire it believes to burn in \
              its stripe, where the last look is oldest"
@@ -337,11 +342,10 @@ fn idle(salt: &str, name: &str, root: &Value) -> Option<&'static str> {
     match (salt, name) {
         ("sim.spin", _) if !firespin => Some("the FireSPIN model is not chosen"),
         ("sim", _) if firespin && rothermel_only => Some("the FireSPIN model does not use it"),
-        ("allocate", "explorer_sense_m" | "explorers_follow" | "explorers_track")
-            if root["explorers_per_station"] == 0 =>
-        {
-            Some("explorers_per_station is 0")
-        }
+        (
+            "allocate",
+            "explorer_sense_m" | "explorer_speed_ms" | "explorers_follow" | "explorers_track",
+        ) if root["explorers_per_station"] == 0 => Some("explorers_per_station is 0"),
         ("allocate", "preburn_cells") if root["preburn_s"] == 0.0 => Some("preburn_s is 0"),
         _ => None,
     }
