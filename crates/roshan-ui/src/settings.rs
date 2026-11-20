@@ -186,6 +186,14 @@ fn hint(name: &str, salt: &str) -> &'static str {
              step; all drones share what they saw. 0: no sensor. The planners still read the \
              true fire"
         }
+        ("explorers_per_station", _) => {
+            "explorer drones based at every ground station besides its attack drones: no \
+             tank, a camera. They take off by themselves and sweep the map for fire"
+        }
+        ("explorer_sense_m", _) => {
+            "an explorer sees the fire within this distance, metres; its sweep lanes are spaced \
+             to match"
+        }
         ("block_cells", _) => {
             "cells with a fire front are grouped into square blocks this many cells wide; each \
              is one target"

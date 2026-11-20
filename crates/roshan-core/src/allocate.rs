@@ -26,7 +26,7 @@ use crate::belief::Belief;
 use crate::fire::BURNING;
 use crate::rng::{self, Stream};
 use crate::scenario::Scenario;
-use crate::terrain::Terrain;
+use crate::terrain::{Grid, Terrain};
 use crate::world::{SimConfig, Weather, World};
 
 #[derive(Clone, Copy, Debug, PartialEq, Serialize, Deserialize)]
@@ -55,6 +55,15 @@ pub struct AllocConfig {
     /// per fire step, and all share what they saw (`belief::Belief`). 0: no sensor. The
     /// planners still read the true fire.
     pub sense_m: f32,
+    /// Explorer drones based at every station, besides its `drones_per_station`: the same
+    /// drone with a camera instead of a tank. They take off by themselves and sweep the map
+    /// for fire; no planner commands them.
+    /// ponytail: same speed, endurance, pads and service as the attack drones. Give them
+    /// their own speed and endurance keys when a faster scout is to be studied; the speed
+    /// then has to reach `fly` and `navigate::scripted_step` per drone.
+    pub explorers_per_station: u32,
+    /// Radius of an explorer's fire sensor, metres (the attack drones' is `sense_m`).
+    pub explorer_sense_m: f32,
     /// Cells with a fire front are grouped into square blocks of this many cells; each block
     /// is one target. 1 makes every front cell its own target.
     pub block_cells: u32,
@@ -93,6 +102,8 @@ impl Default for AllocConfig {
             station_m: 12.0,
             safe_m: 0.0,
             sense_m: 0.0,
+            explorers_per_station: 0,
+            explorer_sense_m: 55.0,
             block_cells: 2,
             max_targets: 64,
             max_interval_s: 10.0,
@@ -121,6 +132,7 @@ impl AllocConfig {
             ("max_interval_s", self.max_interval_s),
             ("time_limit_s", self.time_limit_s),
             ("wind_scale", self.wind_scale),
+            ("explorer_sense_m", self.explorer_sense_m),
             ("pads", self.pads as f32),
             ("drones_per_station", self.drones_per_station as f32),
             ("block_cells", self.block_cells as f32),
@@ -199,6 +211,8 @@ pub const TASK_STATION: f32 = 2.0;
 pub const TASK_POINT: f32 = 3.0;
 /// At a station, in service or ready.
 pub const TASK_DOCKED: f32 = 4.0;
+/// An explorer on its sweep.
+pub const TASK_EXPLORE: f32 = 5.0;
 
 /// The planners that need no learning (see the `impl` further down).
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -231,6 +245,8 @@ enum Task {
     Station(u32),
     /// Fly to this cell (sent by hand).
     Point(u32),
+    /// An explorer flying to this cell of its sweep.
+    Explore(u32),
 }
 
 /// A fire target on offer: a block of cells with at least one front.
@@ -314,6 +330,82 @@ pub struct AllocEnv {
     start_kw: f32,
     /// What the drones have seen of the fire in this episode; None without a sensor.
     belief: Option<Belief>,
+    /// Per explorer: the cells its sweep visits in turn, there and back again.
+    sweeps: Arc<Vec<Vec<u32>>>,
+    /// Per drone: how many waypoints of its sweep an explorer has reached.
+    leg: Vec<u32>,
+}
+
+/// Drones of both kinds. The attack drones come first in every per-drone list, station by
+/// station, then the explorers, station by station.
+fn fleet_size(stations: usize, cfg: &AllocConfig) -> usize {
+    stations * (cfg.drones_per_station + cfg.explorers_per_station) as usize
+}
+
+/// The search pattern of every explorer. The map is cut into one stripe per explorer along
+/// its longer side; each stripe is swept back and forth along its own longer side, starting
+/// in the corner nearest the explorer's station. Lanes are as far apart as the sensor allows:
+/// a circle of `explorer_sense_m` that takes a picture every fire step covers a band a little
+/// narrower than its diameter, and a lane sits on cell centres (one cell less).
+/// ponytail: stripes are dealt out by drone index, not to the nearest station, and lanes cross
+/// ground that cannot burn. Assign by distance and skip such lanes for maps with several
+/// stations or large lakes.
+fn sweeps(grid: Grid, stations: &[[u32; 2]], cfg: &AllocConfig, sim: &SimConfig) -> Vec<Vec<u32>> {
+    let per = cfg.explorers_per_station as usize;
+    let k = (stations.len() * per) as u32;
+    let gap = cfg.max_speed_ms * sim.dt_s * sim.fire_every as f32; // flown between two pictures
+    let band = 2.0
+        * (cfg.explorer_sense_m.powi(2) - (gap / 2.0).powi(2))
+            .max(0.0)
+            .sqrt();
+    let spacing = ((band / grid.cell_m - 1.0).floor() as u32).max(1);
+    let stripes_along_x = grid.nx >= grid.ny;
+    let (long, short) = if stripes_along_x {
+        (grid.nx, grid.ny)
+    } else {
+        (grid.ny, grid.nx)
+    };
+    (0..k)
+        .map(|e| {
+            let lo = (e * long / k).min(long - 1);
+            let wide = ((e + 1) * long / k).max(lo + 1) - lo;
+            // Lanes run along the stripe's longer side (`along`) and are spaced `across` it.
+            let lanes_cross_stripe = short >= wide;
+            let across_is_x = lanes_cross_stripe == stripes_along_x;
+            let ((a0, width), (b0, length)) = if lanes_cross_stripe {
+                ((lo, wide), (0, short))
+            } else {
+                ((0, short), (lo, wide))
+            };
+            let station = stations[e as usize / per];
+            let (sa, sb) = if across_is_x {
+                (station[0], station[1])
+            } else {
+                (station[1], station[0])
+            };
+            let (flip_across, flip_along) = (sa >= a0 + width / 2, sb >= b0 + length / 2);
+            let lanes = width.div_ceil(spacing);
+            let (near, far) = if flip_along {
+                (b0 + length - 1, b0)
+            } else {
+                (b0, b0 + length - 1)
+            };
+            let mut cells = Vec::with_capacity(2 * lanes as usize);
+            for t in 0..lanes {
+                let lane = if flip_across { lanes - 1 - t } else { t };
+                let a = a0 + (2 * lane + 1) * width / (2 * lanes);
+                let ends = if t % 2 == 0 { [near, far] } else { [far, near] };
+                for b in ends {
+                    cells.push(if across_is_x {
+                        grid.idx(a, b)
+                    } else {
+                        grid.idx(b, a)
+                    } as u32);
+                }
+            }
+            cells
+        })
+        .collect()
 }
 
 fn dist(a: [f32; 2], b: [f32; 2]) -> f32 {
@@ -333,8 +425,11 @@ impl AllocEnv {
             moisture: scenario.moisture,
             wind: scenario.wind.clone(),
         };
-        let n = scenario.stations.len() * cfg.drones_per_station as usize;
+        let n = fleet_size(scenario.stations.len(), &cfg);
+        let attackers = scenario.stations.len() * cfg.drones_per_station as usize;
         Self {
+            sweeps: Arc::new(sweeps(terrain.grid, &scenario.stations, &cfg, &sim)),
+            leg: vec![0; n],
             world: World::new(terrain.clone(), weather, sim, 0),
             pad_free: vec![0; scenario.stations.len() * cfg.pads as usize],
             scenario,
@@ -347,7 +442,7 @@ impl AllocEnv {
             seed: 0,
             fingerprint: 0,
             task: vec![Task::None; n],
-            decide: vec![true; n],
+            decide: (0..n).map(|i| i < attackers).collect(),
             goal: vec![[0.0; 2]; n],
             ready_at: vec![0; n],
             at: vec![0; n],
@@ -442,7 +537,7 @@ impl AllocEnv {
         match task {
             Task::None => None,
             Task::Fire(block) => Some(self.block_point(block)),
-            Task::Point(cell) => {
+            Task::Point(cell) | Task::Explore(cell) => {
                 let (x, y) = self.terrain.grid.xy(cell as usize);
                 Some(self.cell_centre([x, y]))
             }
@@ -491,8 +586,67 @@ impl AllocEnv {
     }
 
     /// The radius of drone `i`'s fire sensor, metres; 0 for none.
-    pub fn sense_m(&self, _i: usize) -> f32 {
-        self.cfg.sense_m
+    pub fn sense_m(&self, i: usize) -> f32 {
+        if self.explorer(i) {
+            self.cfg.explorer_sense_m
+        } else {
+            self.cfg.sense_m
+        }
+    }
+
+    /// The attack drones: the first this many of every per-drone list.
+    pub fn attackers(&self) -> usize {
+        self.scenario.stations.len() * self.cfg.drones_per_station as usize
+    }
+
+    /// Is drone `i` an explorer?
+    pub fn explorer(&self, i: usize) -> bool {
+        i >= self.attackers()
+    }
+
+    /// The station a drone is based at.
+    fn base(&self, i: usize) -> usize {
+        match i.checked_sub(self.attackers()) {
+            Some(e) => e / self.cfg.explorers_per_station as usize,
+            None => i / self.cfg.drones_per_station as usize,
+        }
+    }
+
+    /// The cell an explorer flies to after reaching `leg` waypoints: its sweep, there and
+    /// back again, for ever.
+    fn waypoint(&self, i: usize, leg: u32) -> u32 {
+        let cells = &self.sweeps[i - self.attackers()];
+        let round = 2 * (cells.len() - 1); // a sweep has at least one lane: two ends
+        let at = leg as usize % round;
+        cells[at.min(round - at)]
+    }
+
+    /// From a point to the nearest station, metres.
+    fn home_m(&self, point: [f32; 2]) -> f32 {
+        (0..self.scenario.stations.len())
+            .map(|s| dist(point, self.station_point(s)))
+            .fold(f32::INFINITY, f32::min)
+    }
+
+    /// An explorer has reached a waypoint: on to the next one, or home when the way there and
+    /// on to a station would take it past its endurance. It then comes back to this waypoint
+    /// after the service, so no lane is left out.
+    /// ponytail: a lane that cannot be flown from and to a station within the endurance is
+    /// tried again and again. Cut such lanes in two when maps get that large.
+    fn explore(&mut self, i: usize) {
+        let next = self.waypoint(i, self.leg[i] + 1);
+        let (x, y) = self.terrain.grid.xy(next as usize);
+        let point = self.cell_centre([x, y]);
+        let airborne_s = (self.world.tick - self.launched[i]) as f32 * self.sim.dt_s;
+        let flight_s =
+            (dist(self.world.drones.pos[i], point) + self.home_m(point)) / self.cfg.max_speed_ms;
+        if airborne_s + flight_s <= self.cfg.endurance_s {
+            self.leg[i] += 1;
+            self.set_task(i, Task::Explore(next));
+        } else {
+            let home = self.nearest_station(i);
+            self.set_task(i, Task::Station(home));
+        }
     }
 
     /// Drops made so far in this episode.
@@ -510,10 +664,10 @@ impl AllocEnv {
         self.ready_at[i] <= self.world.tick
     }
 
-    /// Per station: drones ready to be sent, drones docked.
+    /// Per station: attack drones ready to be sent, attack drones docked.
     pub fn fleet(&self) -> Vec<(u32, u32)> {
         let mut out = vec![(0, 0); self.scenario.stations.len()];
-        for i in (0..self.task.len()).filter(|&i| self.docked(i)) {
+        for i in (0..self.attackers()).filter(|&i| self.docked(i)) {
             let s = &mut out[self.at[i] as usize];
             *s = (s.0 + self.ready(i) as u32, s.1 + 1);
         }
@@ -567,13 +721,17 @@ impl AllocEnv {
         (self.start_tick, self.start_cells) = (self.world.tick, self.world.fire.n_ignited);
         self.start_kw = self.world.fire.stats.peak_kw;
 
-        // Every drone starts docked at its station, serviced and ready.
-        let (n, per) = (self.task.len(), self.cfg.drones_per_station as usize);
-        self.world.drones.pos = (0..n).map(|i| self.station_point(i / per)).collect();
+        // Every drone starts docked at its station, serviced and ready. Explorers carry no
+        // water and are never asked for a decision.
+        let (n, attackers) = (self.task.len(), self.attackers());
+        self.world.drones.pos = (0..n).map(|i| self.station_point(self.base(i))).collect();
         self.world.drones.vel = vec![[0.0; 2]; n];
-        self.world.drones.water = vec![self.cfg.tank_l; n];
+        self.world.drones.water = (0..n)
+            .map(|i| if i < attackers { self.cfg.tank_l } else { 0.0 })
+            .collect();
         self.goal.clone_from(&self.world.drones.pos);
-        self.at = (0..n).map(|i| (i / per) as u32).collect();
+        self.at = (0..n).map(|i| self.base(i) as u32).collect();
+        self.leg.fill(0);
         self.ready_at.fill(self.start_tick);
         self.launched.fill(self.start_tick);
         self.pad_free.fill(self.start_tick);
@@ -599,11 +757,11 @@ impl AllocEnv {
 
         self.seed = seed;
         self.task.fill(Task::None);
-        self.decide.fill(true);
+        (0..n).for_each(|i| self.decide[i] = i < attackers);
         (self.drops, self.water_l, self.min_separation) = (0, 0.0, f32::INFINITY);
         (self.first_drop, self.queue_ticks, self.max_sortie) = (None, 0, 0);
         self.needs_reset = false;
-        let sensing = self.cfg.sense_m > 0.0;
+        let sensing = self.cfg.sense_m > 0.0 || self.cfg.explorers_per_station > 0;
         self.belief = sensing.then(|| Belief::new(grid.len()));
         self.fires = self.fire_targets();
     }
@@ -613,11 +771,6 @@ impl AllocEnv {
     fn fire_targets(&self) -> Vec<Target> {
         let area = self.terrain.grid.cell_m.powi(2);
         let per_drop = self.cfg.drop_efficiency * self.cfg.drop_l / area; // L/m² on one cell
-        let nearest_station = |point: [f32; 2]| {
-            (0..self.scenario.stations.len())
-                .map(|s| dist(point, self.station_point(s)))
-                .fold(f32::INFINITY, f32::min)
-        };
         // Per block: front cells, drops needed, highest intensity, metres to the nearest
         // station, and the share of the water lying there now that is left when a drone sent
         // from that station arrives. Without it a front that needs many drops is never
@@ -630,7 +783,7 @@ impl AllocEnv {
             };
             let block = self.block_of(cell);
             let b = blocks.entry(block).or_insert_with(|| {
-                let home_m = nearest_station(self.block_point(block));
+                let home_m = self.home_m(self.block_point(block));
                 let flight_s = home_m / self.cfg.max_speed_ms;
                 let left = libm::expf(-flight_s / self.sim.water_tau_s);
                 (0, 0.0, 0.0, home_m, left)
@@ -896,9 +1049,11 @@ impl AllocEnv {
         free[pad] = ready;
         self.queue_ticks += start - now;
         self.max_sortie = self.max_sortie.max(now - self.launched[i]);
-        let water = &mut self.world.drones.water[i];
-        terms[i * TERMS.len() + 1] += (self.cfg.tank_l - *water) / self.cfg.tank_l;
-        *water = self.cfg.tank_l;
+        if !self.explorer(i) {
+            let water = &mut self.world.drones.water[i];
+            terms[i * TERMS.len() + 1] += (self.cfg.tank_l - *water) / self.cfg.tank_l;
+            *water = self.cfg.tank_l;
+        }
         (self.ready_at[i], self.at[i]) = (ready, station);
         self.world.drones.vel[i] = [0.0; 2];
         self.set_task(i, Task::None);
@@ -944,6 +1099,13 @@ impl AllocEnv {
             if self.docked(i) {
                 if self.ready_at[i] > now {
                     continue; // in service
+                }
+                if self.explorer(i) {
+                    // Off on its own, to the waypoint it has not reached yet.
+                    let next = self.waypoint(i, self.leg[i]);
+                    self.set_task(i, Task::Explore(next));
+                    self.launch(i);
+                    continue;
                 }
                 match self.task[i] {
                     Task::Fire(_) | Task::Point(_) => self.launch(i),
@@ -1001,6 +1163,11 @@ impl AllocEnv {
                 Task::Station(station) => {
                     if self.arrived(i) {
                         self.dock(i, station, terms);
+                    }
+                }
+                Task::Explore(_) => {
+                    if self.arrived(i) {
+                        self.explore(i);
                     }
                 }
             }
@@ -1064,6 +1231,9 @@ impl AllocEnv {
     /// and the drone has water, otherwise just to fly there. A docked drone takes off for it.
     /// Fails for a drone that is still being serviced.
     pub fn send(&mut self, drone: usize, cell: [u32; 2]) -> Result<(), &'static str> {
+        if self.explorer(drone) {
+            return Err("an explorer flies its own sweep");
+        }
         if self.docked(drone) && !self.ready(drone) {
             return Err("this drone is still being serviced");
         }
@@ -1094,6 +1264,7 @@ impl AllocEnv {
         match self.task[i] {
             Task::Fire(_) => TASK_FIRE,
             Task::Point(_) => TASK_POINT,
+            Task::Explore(_) => TASK_EXPLORE,
             Task::Station(_) => TASK_STATION,
             Task::None if self.docked(i) => TASK_DOCKED,
             Task::None => TASK_NONE,
@@ -1373,7 +1544,7 @@ impl AllocVec {
             return Err("the scenario has no ground station for the drones".into());
         }
         let (drones, slots) = (
-            scenario.stations.len() * cfg.drones_per_station as usize,
+            fleet_size(scenario.stations.len(), &cfg),
             scenario.stations.len() + cfg.max_targets,
         );
         let (scenario, terrain) = (Arc::new(scenario), world.terrain.clone());

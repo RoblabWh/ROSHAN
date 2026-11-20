@@ -177,6 +177,18 @@ def test_sensing_fills_its_columns_and_leaves_the_fire_alone():
         assert 0 <= s["Belief_Miss"] < 1 and 0 <= s["Belief_Phantom"] <= 1
 
 
+def test_explorers_find_the_fire_without_changing_it():
+    seeds, config = seeds_of("val")[:4], {**CONFIG, "preburn_s": 300.0}
+    env = AllocateEnv(1, grassland(), config={**config, "explorers_per_station": 1})
+    assert env.spec["drones"] == 18 and not env.decide[0, 16:].any(), "explorers come last and are not asked"
+    assert (env.drones[0, 16:, 2] == 0).all(), "they carry no water"
+    # With the attack drones idle, the explorers are the only ones in the air.
+    alone, found = (evaluate(grassland(), "none", seeds, {**config, "explorers_per_station": k}) for k in (0, 1))
+    for a, f in zip(alone, found):
+        assert (a["Burned_Cells"], a["Peak_kW"], a["Time"]) == (f["Burned_Cells"], f["Peak_kW"], f["Time"])
+        assert f["Drops"] == 0 and 0 < f["Detect_s"] < f["Time"] and 0 < f["Seen_Share"] <= 1
+
+
 def test_separation_is_watched_when_it_is_kept():
     rows = evaluate(grassland(), "greedy", seeds_of("val")[:4], {**CONFIG, "safe_m": 3.0, "preburn_s": 300.0})
     assert all(r["Min_Separation"] >= 3.0 - 1e-3 and r["Drops"] > 20 for r in rows)

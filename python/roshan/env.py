@@ -83,7 +83,8 @@ class AllocateEnv:
     (crates/roshan-core/src/allocate.rs).
 
     Buffers (CPU, pinned when CUDA is available), E environments, D drones (the task's
-    `drones_per_station` at every station), S target slots (the scenario's ground stations
+    `drones_per_station` at every station, then its `explorers_per_station`: explorers carry
+    no water, never decide, and their actions are ignored), S target slots (the scenario's ground stations
     first, then fire targets):
 
         actions      [E, D] int32   slot to fly to, or -1: stay docked, or fly home (read by step)

@@ -280,7 +280,9 @@ def run_experiment(exp, out, record="evaluation.toml"):
     idle, result = idle_run(scenario, seeds, config, sim), {}
     lines = [f"WARNING {line}" for line in warnings] + [""] * bool(warnings)
     c = spec["config"]
-    lines += [f"{ev['scenario']}, {len(seeds)} {ev['split']} episodes, {spec['drones']} drones of {c['tank_l']:g} L", "",
+    team = spec["stations"] * c["drones_per_station"]
+    lines += [f"{ev['scenario']}, {len(seeds)} {ev['split']} episodes, {team} drones of {c['tank_l']:g} L"
+             + f" and {spec['drones'] - team} explorers" * (spec["drones"] > team), "",
              "| arm | fire out | burned | area saved | drops | fronts stopped | at kW/m (mean, highest) | "
              "drones closer than 2 m |", "|---|---|---|---|---|---|---|---|"]
     paths, by_class = {}, []

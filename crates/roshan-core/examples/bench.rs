@@ -110,17 +110,22 @@ fn hills_bench() {
 
     // The allocate task: one station, random fires that burn two minutes before the drones
     // start. A step runs to the next decision event.
-    for (planner, team, steps) in [
-        (Method::Greedy, 40, 4000),
-        (Method::Greedy, 100, 4000),
-        (Method::Rollout, 40, 60),
-        (Method::Rollout, 100, 60),
+    // `explorers` above zero also gives the attack drones a 20 m sensor.
+    for (planner, team, explorers, steps) in [
+        (Method::Greedy, 40, 0, 4000),
+        (Method::Greedy, 100, 0, 4000),
+        (Method::Greedy, 40, 4, 4000),
+        (Method::Rollout, 40, 0, 60),
+        (Method::Rollout, 100, 0, 60),
+        (Method::Rollout, 40, 4, 60),
     ] {
         let cfg = AllocConfig {
             random_ignitions: 3,
             random_wind: true,
             preburn_s: 120.0,
             drones_per_station: team,
+            explorers_per_station: explorers,
+            sense_m: if explorers > 0 { 20.0 } else { 0.0 },
             ..AllocConfig::default()
         };
         let mut v = AllocVec::new(16, scenario.clone(), SimConfig::default(), cfg, 0, 1).unwrap();
@@ -167,8 +172,8 @@ fn hills_bench() {
         }
         let total = start.elapsed().as_secs_f64();
         println!(
-            "allocate, 160x120 hills, {team} drones, {planner:?}: {:.1} ms per 30 simulated \
-             minutes, {:.3} ms planning per drone asked",
+            "allocate, 160x120 hills, {team} drones, {explorers} explorers, {planner:?}: {:.1} ms \
+             per 30 simulated minutes, {:.3} ms planning per drone asked",
             total * 1e3 * 1800.0 / simulated,
             planning * 1e3 / asked as f64
         );

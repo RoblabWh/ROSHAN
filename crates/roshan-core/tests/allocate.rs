@@ -2,8 +2,8 @@
 //! and suppression.
 
 use roshan_core::allocate::{
-    AllocConfig, AllocVec, Bufs, DRONE, GLOBAL, INFO, Method, TARGET, TASK_DOCKED, TASK_FIRE,
-    TASK_STATION, TERMS,
+    AllocConfig, AllocVec, Bufs, DRONE, GLOBAL, INFO, Method, TARGET, TASK_DOCKED, TASK_EXPLORE,
+    TASK_FIRE, TASK_STATION, TERMS,
 };
 use roshan_core::fuel;
 use roshan_core::navigate::AGENT;
@@ -236,9 +236,18 @@ fn preburned() -> AllocConfig {
     }
 }
 
+/// `cfg` with an explorer at each station and a sensor on the attack drones.
+fn explored() -> AllocConfig {
+    AllocConfig {
+        explorers_per_station: 1,
+        sense_m: 20.0,
+        ..cfg()
+    }
+}
+
 #[test]
 fn an_episode_depends_only_on_its_seed() {
-    for cfg in [cfg(), preburned()] {
+    for cfg in [cfg(), preburned(), explored()] {
         let seeds: Vec<u64> = (100..164).collect();
         let all = run(&seeds, 0, cfg, true);
         assert!(
@@ -892,5 +901,91 @@ fn sensing_reports_what_was_seen_and_never_changes_the_fire() {
     for (s, _) in run(&seeds[..4], 0, sensing, false) {
         assert!(s[first].is_nan() && s[info("seen_share")] == 0.0);
         assert!(s[info("belief_miss")] == 1.0 && s[info("belief_phantom")].is_nan());
+    }
+}
+
+#[test]
+fn explorers_fly_alone_carry_no_water_and_come_home_in_time() {
+    // Two attack drones and one explorer per station; the explorers have to come home early.
+    let config = AllocConfig {
+        explorers_per_station: 1,
+        endurance_s: 120.0,
+        service_s: 20.0,
+        ..one_fire(2)
+    };
+    let mut v = AllocVec::new(1, scenario(), SimConfig::default(), config, 0, 1).unwrap();
+    v.autoreset = false;
+    let mut b = Buffers::new(&v);
+    v.reset(Some(&[5]), b.all());
+    let (n, slots) = (v.drones, v.slots);
+    assert_eq!(n, 6, "four attack drones, then two explorers");
+    assert_eq!(
+        v.envs[0].fleet(),
+        vec![(2, 2), (2, 2)],
+        "stations count attack drones"
+    );
+    assert!(
+        v.envs[0].send(4, [30, 20]).is_err(),
+        "nobody sends an explorer"
+    );
+    // Per explorer: 0 at the start, 1 once seen on its sweep, 2 docked again, 3 off again.
+    let mut stage = [0; 2];
+    while b.terminated[0] + b.truncated[0] == 0 {
+        for (e, i) in (4..n).enumerate() {
+            let kind = b.drones[i * DRONE.len() + KIND];
+            assert!([TASK_EXPLORE, TASK_STATION, TASK_DOCKED].contains(&kind));
+            assert_eq!(b.decide[i], 0, "an explorer is never asked");
+            assert_eq!(
+                b.drones[i * DRONE.len() + WATER],
+                0.0,
+                "and carries no water"
+            );
+            assert!(b.action_mask[i * slots..][..slots].iter().all(|&m| m == 0));
+            assert_eq!(
+                b.terms[i * TERMS.len()..][..2],
+                [0.0, 0.0],
+                "no drop, no refill"
+            );
+            let wanted = [TASK_EXPLORE, TASK_DOCKED, TASK_EXPLORE];
+            if stage[e] < 3 && kind == wanted[stage[e]] {
+                stage[e] += 1;
+            }
+        }
+        // The attack drones wait; an explorer told to fly to a fire does not listen.
+        let mut actions = vec![-1; n];
+        actions[4..].fill(2);
+        v.step(&actions, b.all());
+    }
+    assert_eq!(stage, [3, 3], "out, home for a service, out again");
+    assert_eq!(b.info[info("drops")], 0.0);
+    let sortie = b.info[info("max_sortie_s")];
+    assert!(
+        sortie > 60.0 && sortie <= 120.0,
+        "longest sortie {sortie} s"
+    );
+}
+
+#[test]
+fn the_first_sweep_sees_the_whole_map_and_finds_the_fire() {
+    // One explorer per station, nobody else in the air, one fire somewhere. Each explorer
+    // has 300 m x 400 m to sweep: four lanes, about 220 s with the way there.
+    let config = AllocConfig {
+        explorers_per_station: 1,
+        random_ignitions: 1,
+        time_limit_s: 260.0,
+        ..cfg()
+    };
+    for (seed, (s, _)) in run(&(0..16).collect::<Vec<u64>>(), 0, config, false)
+        .iter()
+        .enumerate()
+    {
+        let at = |name: &str| s[info(name)];
+        assert_eq!(at("seen_share"), 1.0, "seed {seed}: a gap in the sweep");
+        assert!(
+            at("detect_s") < at("seconds"),
+            "seed {seed}: the fire was not found"
+        );
+        assert!(at("belief_miss") < 1.0 && at("belief_phantom") <= 1.0);
+        assert_eq!(at("drops"), 0.0);
     }
 }

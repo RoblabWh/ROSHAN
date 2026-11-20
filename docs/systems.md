@@ -228,7 +228,9 @@ means all seeds, `pair = []` no paired statistics.
 | `arrive_m` | 5 | distance at which a drone has reached a fire target |
 | `station_m` | 12 | distance at which a drone docks at a station |
 | `safe_m` | 0 | distance the scripted controller keeps between drones in the air; 0 = none, straight lines |
-| `sense_m` | 0 | radius of the fire sensor of every drone in the air; 0 = no sensor (see Sensing below) |
+| `sense_m` | 0 | radius of the fire sensor of an attack drone in the air; 0 = no sensor (see Sensing below) |
+| `explorers_per_station` | 0 | explorer drones based at every station besides the attack drones (see Explorers below) |
+| `explorer_sense_m` | 55 | radius of an explorer's fire sensor |
 | `block_cells` | 2 | side of a target block in cells |
 | `max_targets` | 64 | fire targets offered at most |
 | `max_interval_s` | 10 | how often docked drones that were told to wait are asked again |
@@ -715,9 +717,9 @@ new positions of the drones before it and the current positions of those after i
 always qualifies, so the distance holds by induction; a drone only takes off when nobody in
 the air is within `safe_m` of it.
 
-**Sensing.** With `sense_m` above zero every drone in the air carries a fire sensor: once
-per fire step (2 s) it sees the state (unburned, burning, burned) of every cell whose centre
-is within `sense_m` of it. All drones write into one shared map, the belief
+**Sensing.** With `sense_m` above zero every attack drone in the air carries a fire sensor,
+and an explorer always carries one of `explorer_sense_m`: once per fire step (2 s) a drone
+sees the state (unburned, burning, burned) of every cell whose centre is within that radius. All drones write into one shared map, the belief
 (`crates/roshan-core/src/belief.rs`): per cell the state at the last look and when that was.
 A cell nobody looks at keeps its old state, so the belief can hold fire that has gone out and
 miss fire that is new. Docked drones see nothing. The sensor is a circle, has no errors, and
@@ -725,6 +727,34 @@ what one drone sees all know at once. The belief is filled from the fire and nev
 it, so sensing changes no fire, and **the planners still read the true fire**: the belief is
 measured (four values in the summary below), not yet used. The rollout planner's lookaheads
 carry no belief.
+
+**Explorers.** With `explorers_per_station` above zero every station also bases that many
+explorers: the attack drone's airframe (speed, endurance, pads, service time) with a camera
+instead of a tank. No planner commands them. In every per-drone table they come after all
+attack drones, station by station; they never need a decision, their action is ignored, their
+`water` is 0, and they cannot be sent by hand.
+
+- *Sweep.* The map is cut into one stripe per explorer along its longer side. An explorer
+  sweeps its stripe back and forth along the stripe's longer side, starting in the corner
+  nearest its station, and when it reaches the last lane it sweeps back the way it came, for
+  the whole episode. Lanes are as far apart as the sensor allows: a circle of
+  `explorer_sense_m` that takes a picture every 2 s (20 m of flight) covers a band of
+  `2·sqrt(r² − 10²)` metres, and one cell is taken off because lanes run through cell centres.
+  With 55 m that is 9 cells. The waypoints depend on the map and the number of explorers only.
+- *Life cycle.* An explorer takes off by itself when the episode starts. At each waypoint it
+  checks its endurance: if the next leg plus the way from its end to the nearest station does
+  not fit, it flies home, takes a pad for `service_s` like any drone, and then returns to the
+  waypoint it turned home at, so no lane is left out.
+- *What it costs the others.* Explorers queue for the same pads, and `queue_s` and
+  `max_sortie_s` count them. With `safe_m` above zero they are kept apart from all drones.
+  Station labels and `fleet()` count attack drones only.
+- *On the demo map* (1.6 km x 1.2 km, one station in a corner) a full sweep is about 23 km for one
+  explorer, 11 km each for two, 6 km for four and 3.7 km for eight: at 10 m/s one explorer
+  cannot see the whole map within a 30-minute episode.
+
+`ponytail:` stripes are dealt out by drone index, not to the nearest station; lanes cross
+ground that cannot burn; a lane that cannot be flown from and to a station within the
+endurance is tried again and again; explorers have no speed or endurance of their own.
 
 **Decision events.** One step runs the simulation tick by tick until a drone needs a
 decision: it became ready, the block it was flying to lost its last front (checked at every
@@ -749,7 +779,7 @@ or at `time_limit_s` (`truncated`). An episode is a function of its seed alone, 
 
 | Table | Columns |
 |---|---|
-| `drones` [D, 6] | `x`, `y`, `water` (tank fraction), `task_x`, `task_y` (where it is going; its own position if it has nowhere to go), `task_kind` (0 none, 1 fire, 2 station, 3 point, 4 docked) |
+| `drones` [D, 6] | `x`, `y`, `water` (tank fraction), `task_x`, `task_y` (where it is going; its own position if it has nowhere to go), `task_kind` (0 none, 1 fire, 2 station, 3 point, 4 docked, 5 an explorer on its sweep). Explorers come after the attack drones |
 | `targets` [S, 7] | `x`, `y`, `is_station`, `cells` (front cells in the block / cells per block), `need` (drops that stop the block now), `inbound` (drops on their way), `intensity` (strongest front, MW/m; 0 under FireSPIN) |
 | `globals` [5] | `wind_x`, `wind_y` (wind vector / 20 m/s), `time` (fraction of the time limit), `burning` (share of all cells), `burned` (share of burnable cells that are burning or burned) |
 | `target_mask` [S] | 1 where the slot holds a target |
@@ -1315,6 +1345,12 @@ time is for everything: fire, drones, target table and observation at every deci
 | rollout (300 s ahead, 4 candidates): 30 simulated minutes | 3.0 s | 19 s |
 | rollout: per drone asked | 0.66 ms | 1.24 ms |
 
+Sensing (2026-11-20, same bench): with 4 explorers and a 20 m sensor on the 40 attack drones,
+greedy takes 6.6 ms instead of 4.7 ms for 30 simulated minutes and the rollout planner 3.9 s
+instead of 3.2 s. With sensing off the timings are unchanged (4.7 ms, 8.3 ms, 3.2 s, 21 s).
+The rollout planner's lookaheads carry no belief but still fly the explorers, which keeps
+the pads right.
+
 With greedy the task costs little more than the fire alone, because nothing is computed per
 pair of drones. The rollout planner simulates up to six futures of 300 s for every drone it
 is asked about, also for each of the drones that wait at the station every 10 s; that is the
@@ -1558,6 +1594,8 @@ the manufacturers'.
 | `drones_per_station` | 40 | **A choice**, between the five drones one operator supervises (Seneca) and Ausonio's 120. Results sweep it. |
 | `safe_m` | 0 | **Assumed** height lanes: drones on different sorties do not meet. |
 | `sense_m` | 0 | Off by default. **Assumed** where used: 20 m, a downward camera on a drone that flies low to drop. |
+| `explorer_sense_m` | 55 | A thermal camera with a 61° diagonal field of view and 640 x 512 pixels (DJI Matrice 30T, retailers' specification sheets) that looks straight down from 120 m, the height limit of the EU open category (EASA), images 110 m x 88 m of ground; 55 m is the radius of the circle with that area. **Assumed**: a burning 10 m cell is recognised anywhere in the image, through smoke, in every picture. Checked on 2026-11-20. |
+| explorer speed, endurance, service | as the attack drones | **Assumed**: the same airframe with a camera instead of a tank. An empty FlyCart 30 hovers 29 minutes, so 900 s is cautious for it. |
 
 Not modelled: endurance falling with the load carried (hover power grows with mass to the
 power 1.5, which fits the three products above within 10 %), wind acting on the drones, and
@@ -1614,7 +1652,7 @@ From the plan in [design.md](design.md):
   published values (see [Calibration](#calibration)).
 - Training a planner on the drone-swarm task of 2026-11-19; the network accepts its
   observation, and older checkpoints are refused.
-- The scripted explorer, and planners that read the belief instead of the true fire.
+- Planners that read the belief instead of the true fire; an explorer that follows a fire it found.
 - Sweeps over experiment files and inheritance between them; a variant is a copied file.
 
 ## Known limits
@@ -1655,7 +1693,7 @@ From the plan in [design.md](design.md):
 - **One training seed** stands behind the fly-policy numbers.
 - **The planner sees the true fire.** Drones can sense it (`sense_m`) and the belief they
   build is measured, but no planner reads it yet. The sensor has no errors, no smoke and no
-  communication range.
+  communication range. Explorers only sweep: they do not stay with a fire they found.
 - **The scripted controller has no deadlock handling** beyond sidestepping (only with
   `safe_m` above zero); none occurred in the tests. A drone hovering over a station would
   block its launches then.
