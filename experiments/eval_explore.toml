@@ -2,7 +2,8 @@
 # told about (they have reached 20 cells, 0.2 ha, when the episode starts). Four explorers
 # with a 55 m sensor at the one station; the 40 attack drones carry a 20 m sensor.
 #   none:   the attack drones stay docked, so the explorers alone find and follow the fire
-#   greedy: the planner still reads the true fire; its drones see it as they fight it
+#   greedy: the planner reads the true fire and its drones see it as they fight it; with
+#           plan_on_belief = true it only knows what the drones have seen
 #   uv run python -m roshan.eval experiments/eval_explore.toml  -> runs/eval_explore/
 # Every setting is listed with the value this run uses. Copy the file to make a variant.
 
@@ -62,6 +63,7 @@ sense_m = 20.0
 explorers_per_station = 4
 explorer_sense_m = 55.0
 explorers_follow = true
+plan_on_belief = false
 block_cells = 2
 max_targets = 64
 max_interval_s = 10.0

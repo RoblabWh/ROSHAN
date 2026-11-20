@@ -232,6 +232,7 @@ means all seeds, `pair = []` no paired statistics.
 | `explorers_per_station` | 0 | explorer drones based at every station besides the attack drones (see Explorers below) |
 | `explorer_sense_m` | 55 | radius of an explorer's fire sensor |
 | `explorers_follow` | true | an explorer visits the fire known in its stripe between two legs of its sweep |
+| `plan_on_belief` | false | the planners work from what the drones have seen, not from the true fire (see Planning on the belief below) |
 | `block_cells` | 2 | side of a target block in cells |
 | `max_targets` | 64 | fire targets offered at most |
 | `max_interval_s` | 10 | how often docked drones that were told to wait are asked again |
@@ -721,13 +722,34 @@ the air is within `safe_m` of it.
 **Sensing.** With `sense_m` above zero every attack drone in the air carries a fire sensor,
 and an explorer always carries one of `explorer_sense_m`: once per fire step (2 s) a drone
 sees the state (unburned, burning, burned) of every cell whose centre is within that radius. All drones write into one shared map, the belief
-(`crates/roshan-core/src/belief.rs`): per cell the state at the last look and when that was.
+(`crates/roshan-core/src/belief.rs`): per cell the state at the last look and when that was,
+and of a burning cell what it takes to stop its front (water need, fireline intensity).
 A cell nobody looks at keeps its old state, so the belief can hold fire that has gone out and
 miss fire that is new. Docked drones see nothing. The sensor is a circle, has no errors, and
 what one drone sees all know at once. The belief is filled from the fire and never read by
-it, so sensing changes no fire, and **the planners still read the true fire**: the belief is
-measured (four values in the summary below), not yet used. The rollout planner's lookaheads
-carry no belief.
+it, so sensing changes no fire. The belief is measured (four values in the summary below);
+the planners read the true fire unless `plan_on_belief` is set.
+
+**Planning on the belief** (`plan_on_belief`, needs `sense_m` or explorers). Everything a
+planner is told about the fire then comes from the belief:
+
+- the target table (blocks with a believed front, their `need`, `intensity` and `cells`) and
+  with it the action mask, for the built-in planners and for a learned one alike;
+- where a drop goes: the believed front cell of the block that lacks the most water;
+- the news that a block has no front left, which frees a drone on its way: it arrives when
+  some drone has looked, not when the fire changes;
+- the globals `burning` and `burned`, counted from the cells seen burning and burned.
+
+When the episode starts nothing is known and no fire target is on offer; the attack drones
+wait until a sensor has found fire. A drone sent to a fire that has gone out unseen drops on
+it all the same. What stays true: the water lying on a cell (the swarm dropped it and knows
+how it evaporates), the wind, the drones, and when the episode ends. Sending a drone by hand
+in the viewer also uses the true fire.
+
+`ponytail:` the rollout planner's lookahead still simulates the **true** fire, so with
+`plan_on_belief` it chooses among believed targets but judges them with knowledge the swarm
+does not have: an upper bound, not a fair planner. The belief between two looks is the last
+look, not a forecast. A front's intensity is taken to be measured exactly.
 
 **Explorers.** With `explorers_per_station` above zero every station also bases that many
 explorers: the attack drone's airframe (speed, endurance, pads, service time) with a camera
@@ -1218,7 +1240,8 @@ below can be done while it runs.
   Sensing: the sensor is a circle and the belief is the last look (`belief.rs`), a sensor
   never changes an episode, explorers never decide or carry water and come home within
   their endurance, the sweep sees the whole map and finds the fire, following lowers what
-  the belief misses.
+  the belief misses, and a planner on the belief has no target before the fire is found and
+  drops later than one that knows the fire.
 - **Python** (`tests/`): baselines, the allocate environment, the evaluation runner and paired
   statistics, environment buffers and validation, advantage estimation, the squashed policy,
   a PPO update, a short end-to-end training run, the planner network and imitation, both
@@ -1348,7 +1371,8 @@ from the command line are
 `experiments/eval_explore.toml`: the fires and wind of the drone-swarm results above (two
 random fires that have reached 20 cells when the episode starts, 5 m/s from a random
 direction), explorers with a 55 m sensor at the one station, 8 pads. Nobody is told where
-the fires are. **The planners still read the true fire**; these numbers describe the belief.
+the fires are. In the first two tables the planners read the true fire and the numbers
+describe the belief; the third is what it costs to plan on the belief.
 
 **Explorers alone** (arm `none`: the attack drones stay docked and see nothing). "Found" is
 the first sighting of either fire; the two error columns are averaged over the whole episode,
@@ -1388,8 +1412,34 @@ than alone, because they queue for the pads behind the attack drones. The attack
 suffer: fire out in 17.0 %, 43.3 % of the area saved, against 17.0 % and 43.4 % without
 explorers.
 
+**Planning on the belief** (commit "Planners can work from the belief", greedy, 40 attack
+drones with a 20 m sensor, following on). "Fire" rows are the planner that knows the true
+fire, with the same explorers in the air and on the pads.
+
+| Explorers | Planner knows | Fire out | Area saved | Fire out, start up to 500 kW/m | Area saved, up to 500 | Area saved, above 2000 | First drop (median) |
+|---|---|---|---|---|---|---|---|
+| 2 | the fire | 16.8 % | 43.3 % | 36.1 % | 62.5 % | 26.8 % | 81 s |
+| 2 | the belief | 2.6 % | 17.5 % | 5.7 % | 24.9 % | 11.2 % | 363 s |
+| 4 | the fire | 17.0 % | 43.3 % | 36.5 % | 62.5 % | 26.7 % | 81 s |
+| 4 | the belief | 4.4 % | 25.3 % | 9.6 % | 36.7 % | 15.7 % | 256 s |
+| 8 | the fire | 16.2 % | 42.8 % | 34.8 % | 61.9 % | 26.4 % | 81 s |
+| 8 | the belief | 5.6 % | 29.0 % | 12.2 % | 42.0 % | 18.3 % | 207 s |
+
+- **Not knowing the fire costs most of the result.** With four explorers the swarm saves
+  25 % of the area where the all-knowing planner saves 43 %, and puts out 4 % of the fires
+  where it puts out 17 %. More explorers help, but eight still reach only two thirds of the
+  area saved.
+- **The first drop comes three to five minutes later**, which is the time to find a fire
+  plus the flight. Initial attack lives on being early: a fire in grass that the all-knowing
+  planner puts out in 36 % of the episodes is put out in 6 to 12 %.
+- The swarm drops about as much water in both cases (199 against 200 drops with eight
+  explorers), so the loss is in when and where, not in how much.
+- Once the attack drones fly they feed the belief themselves: with four explorers 54.5 % of
+  the burning cells are not known on average, against 57.2 % with the explorers alone.
+
 The rows are `uv run python -m roshan.eval experiments/eval_explore.toml --config
-'{"explorers_per_station": 2, "explorers_follow": false}' --out runs/explore_2_false`.
+'{"explorers_per_station": 2, "explorers_follow": false}' --out runs/explore_2_false` and
+`... --config '{"explorers_per_station": 4, "plan_on_belief": true}' --out runs/belief_4_true`.
 
 ### Performance
 
@@ -1417,8 +1467,8 @@ time is for everything: fire, drones, target table and observation at every deci
 | rollout: per drone asked | 0.66 ms | 1.24 ms |
 
 Sensing (2026-11-20, same bench): with 4 explorers and a 20 m sensor on the 40 attack drones,
-greedy takes 6.6 ms instead of 4.7 ms for 30 simulated minutes and the rollout planner 3.9 s
-instead of 3.2 s. With sensing off the timings are unchanged (4.7 ms, 8.3 ms, 3.2 s, 21 s).
+greedy takes 7.7 ms instead of 4.7 ms for 30 simulated minutes and the rollout planner 3.7 s
+instead of 3.1 s. With sensing off the timings are unchanged (4.7 ms, 8.1 ms, 3.1 s, 20 s).
 The rollout planner's lookaheads carry no belief but still fly the explorers, which keeps
 the pads right.
 
@@ -1723,7 +1773,8 @@ From the plan in [design.md](design.md):
   published values (see [Calibration](#calibration)).
 - Training a planner on the drone-swarm task of 2026-11-19; the network accepts its
   observation, and older checkpoints are refused.
-- Planners that read the belief instead of the true fire.
+- A forecast of the fire between two looks, and a rollout lookahead that simulates the
+  believed fire instead of the true one.
 - Sweeps over experiment files and inheritance between them; a variant is a copied file.
 
 ## Known limits
@@ -1762,9 +1813,11 @@ From the plan in [design.md](design.md):
 - **PPO on the planner task makes an imitated policy worse**, and from scratch stays below
   greedy. Only imitation of the rollout planner works so far; one network, one seed.
 - **One training seed** stands behind the fly-policy numbers.
-- **The planner sees the true fire.** Drones can sense it (`sense_m`) and the belief they
-  build is measured, but no planner reads it yet. The sensor has no errors, no smoke and no
-  communication range. An explorer does not stay with a fire it found: it looks at it once per leg of its sweep.
+- **The planner sees the true fire by default.** With `plan_on_belief` it works from what
+  the drones have seen, which is the last look and no forecast; the rollout planner's
+  lookahead still simulates the true fire. The sensor has no errors, no smoke and no
+  communication range, and measures a front's intensity exactly. No planner has been trained
+  on the belief. An explorer does not stay with a fire it found: it looks at it once per leg of its sweep.
 - **The scripted controller has no deadlock handling** beyond sidestepping (only with
   `safe_m` above zero); none occurred in the tests. A drone hovering over a station would
   block its launches then.

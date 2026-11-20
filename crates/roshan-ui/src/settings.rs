@@ -183,8 +183,8 @@ fn hint(name: &str, salt: &str) -> &'static str {
         }
         ("sense_m", _) => {
             "every drone in the air sees the fire within this distance, metres, once per fire \
-             step; all drones share what they saw. 0: no sensor. The planners still read the \
-             true fire"
+             step; all drones share what they saw. 0: no sensor. The planners read the true \
+             fire unless plan_on_belief is set"
         }
         ("explorers_per_station", _) => {
             "explorer drones based at every ground station besides its attack drones: no \
@@ -197,6 +197,10 @@ fn hint(name: &str, salt: &str) -> &'static str {
         ("explorers_follow", _) => {
             "between two legs of its sweep an explorer visits the fire it believes to burn in \
              its stripe, where the last look is oldest"
+        }
+        ("plan_on_belief", _) => {
+            "the planners work from what the drones have seen, not from the true fire: no \
+             target until the fire is found. Needs sense_m or explorers"
         }
         ("block_cells", _) => {
             "cells with a fire front are grouped into square blocks this many cells wide; each \

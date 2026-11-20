@@ -5,11 +5,13 @@
 //! ponytail: the sensor is perfect inside its circle and every drone knows at once what any
 //! drone saw. Add a miss probability (a new `rng::Stream`, keyed by tick and cell) and a
 //! communication range when an experiment needs them.
-//! ponytail: only the fire state is kept. A planner that reads the belief also needs the water
-//! need and intensity of each front (`FireState::front`) and a list of the believed-burning
-//! cells; add both then.
+//! Of a burning cell the sensor also reads what it takes to stop its front (`fire::Front`:
+//! water need and fireline intensity), so that a planner can work from the belief instead of
+//! the fire (`AllocConfig::plan_on_belief`).
+//! ponytail: the intensity of a front is taken to be measured exactly. Derive it from the
+//! believed state, the fuel and the wind when sensor errors are modelled.
 
-use crate::fire::{BURNING, UNBURNED};
+use crate::fire::{BURNED, BURNING, Front, UNBURNED};
 use crate::terrain::Grid;
 
 /// `seen` of a cell nobody has looked at yet.
@@ -21,8 +23,17 @@ pub struct Belief {
     pub state: Vec<u8>,
     /// Per cell: the world tick of the last look, or `NEVER`.
     pub seen: Vec<u32>,
+    /// Per cell: the front seen at the last look, as in `Front`; `water` is NaN for a cell
+    /// that had no front (not burning, or only burning out).
+    water: Vec<f32>,
+    kw: Vec<f32>,
+    /// The cells believed burning, in the order they were found. Between `look` and the next
+    /// `score` it may still hold cells that were seen to have stopped burning.
+    lit: Vec<u32>,
+    stale: bool,
     n_seen: u32,
     n_burning: u32,
+    n_burned: u32,
     detected: Option<u64>,
     /// Sums of the shares `score` measured, and how often each was defined.
     miss: f64,
@@ -36,8 +47,13 @@ impl Belief {
         Self {
             state: vec![UNBURNED; cells],
             seen: vec![NEVER; cells],
+            water: vec![f32::NAN; cells],
+            kw: vec![0.0; cells],
+            lit: Vec::new(),
+            stale: false,
             n_seen: 0,
             n_burning: 0,
+            n_burned: 0,
             detected: None,
             miss: 0.0,
             miss_steps: 0,
@@ -46,9 +62,18 @@ impl Belief {
         }
     }
 
-    /// One picture: copies `truth` (the fire's state per cell) for every cell whose centre is
-    /// within `radius_m` of `pos` (metres). Parts of the circle off the map are ignored.
-    pub fn look(&mut self, grid: Grid, truth: &[u8], pos: [f32; 2], radius_m: f32, tick: u64) {
+    /// One picture: copies `truth` (the fire's state per cell) and, of burning cells, their
+    /// `front` (`FireState::front`) for every cell whose centre is within `radius_m` of `pos`
+    /// (metres). Parts of the circle off the map are ignored.
+    pub fn look(
+        &mut self,
+        grid: Grid,
+        truth: &[u8],
+        front: impl Fn(usize) -> Option<Front>,
+        pos: [f32; 2],
+        radius_m: f32,
+        tick: u64,
+    ) {
         let m = grid.cell_m;
         // Cells whose centre can be in reach along one axis, clipped to the map.
         let span = |p: f32, n: u32| {
@@ -70,17 +95,35 @@ impl Belief {
                 self.n_seen += (self.seen[cell] == NEVER) as u32;
                 self.n_burning += (new == BURNING) as u32;
                 self.n_burning -= (old == BURNING) as u32;
+                self.n_burned += (new == BURNED) as u32;
+                self.n_burned -= (old == BURNED) as u32;
+                (self.water[cell], self.kw[cell]) = (f32::NAN, 0.0);
                 if new == BURNING {
                     self.detected.get_or_insert(tick);
+                    if old != BURNING {
+                        self.lit.push(cell as u32);
+                    }
+                    if let Some(f) = front(cell) {
+                        (self.water[cell], self.kw[cell]) = (f.water_l_m2, f.kw_m);
+                    }
+                } else if old == BURNING {
+                    self.stale = true;
                 }
                 (self.state[cell], self.seen[cell]) = (new, tick as u32);
             }
         }
     }
 
-    /// Compares the belief with the fire: `burning` are the cells burning now, in any order.
-    /// Call once per fire step; the averages are over the steps where a share exists.
+    /// Call once per fire step, after the looks. Tidies the list of believed-burning cells
+    /// and compares the belief with the fire: `burning` are the cells burning now, in any
+    /// order. The averages are over the steps where a share exists.
     pub fn score(&mut self, burning: impl Iterator<Item = u32>) {
+        if std::mem::take(&mut self.stale) {
+            // A cell leaves and enters the list at most once per fire step, so after this
+            // every believed-burning cell is in it exactly once.
+            let state = &self.state;
+            self.lit.retain(|&c| state[c as usize] == BURNING);
+        }
         let (mut real, mut held) = (0u32, 0u32);
         for cell in burning {
             real += 1;
@@ -94,6 +137,25 @@ impl Belief {
             self.phantom += (self.n_burning - held) as f64 / self.n_burning as f64;
             self.phantom_steps += 1;
         }
+    }
+
+    /// The cells believed burning (valid after `score`), in no particular order.
+    pub fn burning(&self) -> &[u32] {
+        &self.lit
+    }
+
+    /// The front of a believed-burning cell as it was last seen; None for a cell that is not
+    /// believed burning or had no front then.
+    pub fn front(&self, cell: usize) -> Option<Front> {
+        (!self.water[cell].is_nan()).then_some(Front {
+            water_l_m2: self.water[cell],
+            kw_m: self.kw[cell],
+        })
+    }
+
+    /// Cells believed burning, and cells believed burning or burned.
+    pub fn counts(&self) -> (u32, u32) {
+        (self.n_burning, self.n_burning + self.n_burned)
     }
 
     /// The world tick at which a burning cell was first seen.
@@ -122,7 +184,6 @@ impl Belief {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::fire::BURNED;
 
     const GRID: Grid = Grid {
         nx: 30,
@@ -135,7 +196,7 @@ mod tests {
         let truth = vec![UNBURNED; GRID.len()];
         let mut b = Belief::new(GRID.len());
         // Over the centre of cell (15, 10) with 70 m: the cells within 7 cell widths.
-        b.look(GRID, &truth, [155.0, 105.0], 70.0, 4);
+        b.look(GRID, &truth, |_| None, [155.0, 105.0], 70.0, 4);
         let seen = |x: u32, y: u32| b.seen[GRID.idx(x, y)] == 4;
         assert!(seen(15, 10) && seen(22, 10) && seen(15, 3) && seen(8, 10));
         assert!(!seen(23, 10), "beyond the radius");
@@ -151,10 +212,10 @@ mod tests {
         let truth = vec![UNBURNED; GRID.len()];
         let mut b = Belief::new(GRID.len());
         for pos in [[-500.0, 50.0], [50.0, 5000.0], [f32::NAN, 0.0]] {
-            b.look(GRID, &truth, pos, 70.0, 1);
+            b.look(GRID, &truth, |_| None, pos, 70.0, 1);
         }
         assert_eq!(b.seen_share(), 0.0);
-        b.look(GRID, &truth, [-20.0, -20.0], 70.0, 1); // the corner is in reach
+        b.look(GRID, &truth, |_| None, [-20.0, -20.0], 70.0, 1); // the corner is in reach
         assert!(b.seen[0] == 1 && b.seen_share() < 0.05);
     }
 
@@ -173,8 +234,14 @@ mod tests {
         b.score(burning(&truth));
         assert!(b.detected().is_none() && b.miss() == 1.0 && b.phantom().is_nan());
 
-        b.look(GRID, &truth, [55.0, 55.0], 20.0, 7);
+        let front = Front {
+            water_l_m2: 0.3,
+            kw_m: 800.0,
+        };
+        b.look(GRID, &truth, |_| Some(front), [55.0, 55.0], 20.0, 7);
         assert_eq!(b.detected(), Some(7));
+        assert_eq!((b.front(near), b.front(far)), (Some(front), None));
+        assert_eq!((b.burning(), b.counts()), (&[near as u32][..], (1, 1)));
         assert_eq!((b.state[near], b.state[far]), (BURNING, UNBURNED));
         b.score(burning(&truth));
         assert_eq!(b.miss(), 0.75, "all missed, then one of two");
@@ -187,11 +254,13 @@ mod tests {
         assert_eq!(b.state[near], BURNING);
         assert_eq!(b.phantom(), 0.5, "right once, then wrong once");
 
-        b.look(GRID, &truth, [55.0, 55.0], 20.0, 9);
-        b.look(GRID, &truth, [255.0, 155.0], 20.0, 9);
+        b.look(GRID, &truth, |_| None, [55.0, 55.0], 20.0, 9);
+        b.look(GRID, &truth, |_| None, [255.0, 155.0], 20.0, 9);
         assert_eq!((b.state[near], b.state[far]), (UNBURNED, BURNED));
         assert_eq!(b.detected(), Some(7), "the first sighting stays");
         b.score(burning(&truth));
+        assert!(b.burning().is_empty() && b.front(near).is_none());
+        assert_eq!(b.counts(), (0, 1), "one cell seen burned");
         assert_eq!(b.phantom(), 0.5, "nothing believed burning: not counted");
     }
 }

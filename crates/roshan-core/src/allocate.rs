@@ -23,7 +23,7 @@ use rayon::prelude::*;
 use serde::{Deserialize, Serialize};
 
 use crate::belief::Belief;
-use crate::fire::BURNING;
+use crate::fire::{BURNING, Front};
 use crate::rng::{self, Stream};
 use crate::scenario::Scenario;
 use crate::terrain::{Grid, Terrain};
@@ -53,7 +53,7 @@ pub struct AllocConfig {
     pub safe_m: f32,
     /// Every drone in the air sees the fire state of the cells within this distance, once
     /// per fire step, and all share what they saw (`belief::Belief`). 0: no sensor. The
-    /// planners still read the true fire.
+    /// planners read the true fire unless `plan_on_belief` is set.
     pub sense_m: f32,
     /// Explorer drones based at every station, besides its `drones_per_station`: the same
     /// drone with a camera instead of a tank. They take off by themselves and sweep the map
@@ -67,6 +67,14 @@ pub struct AllocConfig {
     /// Between two legs of its sweep an explorer visits the fire it believes to burn in its
     /// stripe: the cell whose last look is oldest for the flight it takes to get there.
     pub explorers_follow: bool,
+    /// The planners work from what the drones have seen (`belief::Belief`), not from the fire:
+    /// targets, where a drop goes, the news that a target went out and the `burning` and
+    /// `burned` globals. Needs a sensor (`sense_m` or explorers). Until the fire is found
+    /// there is no target.
+    /// ponytail: the water lying on a cell stays the true value (the swarm dropped it and
+    /// knows how it evaporates), and the rollout planner's lookahead still simulates the
+    /// true fire. Build its world from the belief when the fire is forecast from it.
+    pub plan_on_belief: bool,
     /// Cells with a fire front are grouped into square blocks of this many cells; each block
     /// is one target. 1 makes every front cell its own target.
     pub block_cells: u32,
@@ -108,6 +116,7 @@ impl Default for AllocConfig {
             explorers_per_station: 0,
             explorer_sense_m: 55.0,
             explorers_follow: true,
+            plan_on_belief: false,
             block_cells: 2,
             max_targets: 64,
             max_interval_s: 10.0,
@@ -159,6 +168,9 @@ impl AllocConfig {
                 "sense_m must be zero or more, got {}",
                 self.sense_m
             ));
+        }
+        if self.plan_on_belief && self.sense_m == 0.0 && self.explorers_per_station == 0 {
+            return Err("plan_on_belief needs a sensor: sense_m or explorers_per_station".into());
         }
         Ok(())
     }
@@ -515,11 +527,25 @@ impl AllocEnv {
         ]
     }
 
+    /// What the planners take to be the fire: the drones' belief with `plan_on_belief`,
+    /// otherwise None, which stands for the fire itself.
+    fn known(&self) -> Option<&Belief> {
+        self.belief.as_ref().filter(|_| self.cfg.plan_on_belief)
+    }
+
+    /// The front of a cell as far as the planners know (`fire::FireState::front`).
+    fn front(&self, cell: usize) -> Option<Front> {
+        match self.known() {
+            Some(belief) => belief.front(cell),
+            None => self.world.fire.front(cell),
+        }
+    }
+
     /// The water load (L/m²) that stops the front of a burning cell and keeps it stopped for
     /// `ember_s` although the water evaporates meanwhile; None if the cell has no front, or
     /// one that water cannot stop.
     fn hold_load(&self, cell: usize) -> Option<f32> {
-        let front = self.world.fire.front(cell)?;
+        let front = self.front(cell)?;
         if !front.water_l_m2.is_finite() {
             return None;
         }
@@ -859,9 +885,13 @@ impl AllocEnv {
         // from that station arrives. Without it a front that needs many drops is never
         // stopped: what is ordered for the load missing now has evaporated on arrival.
         let mut blocks: BTreeMap<u32, (u32, f32, f32, f32, f32)> = BTreeMap::new();
-        for cell in self.world.fire.burning() {
+        let burning: Box<dyn Iterator<Item = u32>> = match self.known() {
+            Some(belief) => Box::new(belief.burning().iter().copied()),
+            None => self.world.fire.burning(),
+        };
+        for cell in burning {
             let cell = cell as usize;
-            let Some(front) = self.world.fire.front(cell) else {
+            let Some(front) = self.front(cell) else {
                 continue; // only burning out: water changes nothing there
             };
             let block = self.block_of(cell);
@@ -1173,7 +1203,8 @@ impl AllocEnv {
         if fire_stepped && let Some(mut belief) = self.belief.take() {
             for i in (0..n).filter(|&i| !self.docked(i) && self.sense_m(i) > 0.0) {
                 let (p, r) = (self.world.drones.pos[i], self.sense_m(i));
-                belief.look(self.terrain.grid, &self.world.fire.state, p, r, now);
+                let fire = &self.world.fire;
+                belief.look(self.terrain.grid, &fire.state, |c| fire.front(c), p, r, now);
             }
             belief.score(self.world.fire.burning());
             self.belief = Some(belief);
@@ -1418,12 +1449,16 @@ impl AllocEnv {
             }
         }
         let wind = self.world.wind();
+        let fire = &self.world.fire;
+        let (burning, burned) = self
+            .known()
+            .map_or((fire.n_burning() as u32, fire.n_ignited), Belief::counts);
         out.globals.copy_from_slice(&[
             wind.to[0] * wind.speed_ms / 20.0,
             wind.to[1] * wind.speed_ms / 20.0,
             self.episode_s() / self.cfg.time_limit_s,
-            self.world.fire.n_burning() as f32 / g.len() as f32,
-            self.world.burned_fraction(),
+            burning as f32 / g.len() as f32,
+            burned as f32 / self.terrain.burnable_cells.max(1) as f32,
         ]);
         (*out.seed, *out.fingerprint) = (self.seed, self.fingerprint);
     }
@@ -1527,7 +1562,8 @@ impl AllocEnv {
     /// what there is to minimise: cells burned, then cells still burning.
     fn outcome(&self, first: &[i32], horizon_s: f32, terms: &mut [f32]) -> (u32, usize) {
         let mut sim = self.clone();
-        sim.belief = None; // a lookahead is scored by the fire: it needs no sensing
+        // A lookahead simulates and is scored by the true fire: it needs no sensing.
+        (sim.belief, sim.cfg.plan_on_belief) = (None, false);
         let end = sim.world.time_s() + horizon_s;
         sim.advance(first, terms);
         while !sim.needs_reset && sim.world.time_s() < end {

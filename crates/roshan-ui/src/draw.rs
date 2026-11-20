@@ -915,10 +915,10 @@ mod tests {
         let (far, gone) = (0, grid.idx(grid.nx - 1, grid.ny - 1));
         assert!(far != burning && gone != burning);
         let mut seen = Belief::new(grid.len());
-        seen.look(grid, &world.fire.state, centre(burning), 15.0, 1);
+        seen.look(grid, &world.fire.state, |_| None, centre(burning), 15.0, 1);
         let mut fake = world.fire.state.clone();
         fake[gone] = BURNING;
-        seen.look(grid, &fake, centre(gone), 1.0, 1);
+        seen.look(grid, &fake, |_| None, centre(gone), 1.0, 1);
         let with = paint(&world, Some(&seen), &base, Layers::default());
         assert_eq!(
             with[burning], before[burning],

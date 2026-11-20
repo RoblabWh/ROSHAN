@@ -155,7 +155,7 @@ Vertical slices, each with a check. Commands assume `uv run` for Python.
 | M6 | UI debug tools: policy attach, observation and reward-term inspector, manual control | Checklist of the debug features above |
 | M7 | PPO on `allocate`; FlyAgent-in-the-loop check | On the static regime the learned planner is within the interval of greedy; on the dynamic regime paired results against Hungarian and rollout are reported |
 | M8 | FireSPIN port; fire boundary becomes an enum | Both models run both tasks; spread curve compared against the old C++ on a uniform map |
-| Later | Sensing, belief maps, scripted explorer | When partial-observability experiments start. Sensing, the belief map and scripted explorers were built on 2026-11-20 (docs/systems.md, "The allocate task"). The planners still read the true fire: targets are built from each front's water need and intensity, not from a burning mask as this line once said, so the belief has to carry those before it can replace the truth |
+| Later | Sensing, belief maps, scripted explorer | When partial-observability experiments start. Sensing, the belief map and scripted explorers were built on 2026-11-20 (docs/systems.md, "The allocate task"). Targets are built from each front's water need and intensity, not from a burning mask as this line once said; the belief carries both, and `plan_on_belief` makes the planners work from it |
 
 ### Throughput targets
 

@@ -60,6 +60,7 @@ sense_m = 0.0
 explorers_per_station = 0
 explorer_sense_m = 55.0
 explorers_follow = true
+plan_on_belief = false
 block_cells = 2
 max_targets = 64
 max_interval_s = 10.0

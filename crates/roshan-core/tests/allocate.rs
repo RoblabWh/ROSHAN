@@ -245,9 +245,17 @@ fn explored() -> AllocConfig {
     }
 }
 
+/// `explored` with planners that only know what the drones have seen.
+fn believing() -> AllocConfig {
+    AllocConfig {
+        plan_on_belief: true,
+        ..explored()
+    }
+}
+
 #[test]
 fn an_episode_depends_only_on_its_seed() {
-    for cfg in [cfg(), preburned(), explored()] {
+    for cfg in [cfg(), preburned(), explored(), believing()] {
         let seeds: Vec<u64> = (100..164).collect();
         let all = run(&seeds, 0, cfg, true);
         assert!(
@@ -787,6 +795,10 @@ fn bad_scenarios_and_settings_are_refused() {
             ..cfg()
         },
         AllocConfig {
+            plan_on_belief: true, // nothing to believe without a sensor
+            ..cfg()
+        },
+        AllocConfig {
             drones_per_station: 0,
             ..cfg()
         },
@@ -1029,4 +1041,57 @@ fn following_the_fire_keeps_the_belief_fresher_and_the_sweep_still_ends() {
         );
         assert!(b.0[info("max_sortie_s")] <= 900.0);
     }
+}
+
+#[test]
+fn planning_on_the_belief_waits_for_the_fire_to_be_found() {
+    let seeds: Vec<u64> = (0..24).collect();
+    let (truth, belief) = (
+        run(&seeds, 0, explored(), true),
+        run(&seeds, 0, believing(), true),
+    );
+    let idle = run(&seeds, 0, explored(), false);
+    let mean = |r: &[(Vec<f32>, u64)], name: &str| {
+        r.iter().map(|x| x.0[info(name)]).sum::<f32>() / r.len() as f32
+    };
+    let burned = |r: &[(Vec<f32>, u64)]| mean(r, "burned_fraction");
+    println!(
+        "burned: {:.4} idle, {:.4} planning on the fire, {:.4} on the belief; first drop after \
+         {:.0} s and {:.0} s",
+        burned(&idle),
+        burned(&truth),
+        burned(&belief),
+        mean(&truth, "first_drop_s"),
+        mean(&belief, "first_drop_s")
+    );
+    for ((t, b), seed) in truth.iter().zip(&belief).zip(&seeds) {
+        assert_eq!(t.1, b.1, "the same fire");
+        let (found, drop) = (b.0[info("detect_s")], b.0[info("first_drop_s")]);
+        assert!(
+            found < drop,
+            "seed {seed}: a drop at {drop} s before the fire was found at {found} s"
+        );
+        assert!(
+            t.0[info("first_drop_s")] < drop,
+            "seed {seed}: knowing the fire is faster"
+        );
+    }
+    // Late and half blind, the drones still save area, and less than with the true fire.
+    assert!(burned(&belief) < burned(&idle));
+    assert!(burned(&truth) < burned(&belief));
+
+    // Nothing is known when the episode starts: no fire target is on offer.
+    let v = AllocVec::new(1, scenario(), SimConfig::default(), believing(), 0, 1).unwrap();
+    let mut v = v;
+    let mut b = Buffers::new(&v);
+    v.reset(Some(&[3]), b.all());
+    assert_eq!(
+        b.target_mask.iter().map(|&m| m as usize).sum::<usize>(),
+        2,
+        "the stations"
+    );
+    assert_eq!(
+        b.globals[GLOBAL.iter().position(|&g| g == "burning").unwrap()],
+        0.0
+    );
 }
