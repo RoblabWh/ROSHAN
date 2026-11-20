@@ -33,7 +33,7 @@ def test_environment_buffers_and_seeds():
     spec = env.spec
     assert (spec["drones"], spec["stations"], spec["slots"]) == (16, 2, 2 + spec["config"]["max_targets"])
     assert spec["size_m"] == (600.0, 400.0)
-    assert env.targets.shape[-1] == len(spec["target"]) == 7 and env.info.shape[-1] == len(spec["info"]) == 16
+    assert env.targets.shape[-1] == len(spec["target"]) == 7 and env.info.shape[-1] == len(spec["info"]) == 20
     assert env.decide.all(), "every drone decides at the start"
     assert (env.drones[..., 5] == DOCKED).all() and (env.drones[..., 2] == 1).all(), "docked with a full tank"
     assert env.target_mask[:, :2].all() and env.targets[:, :2, 2].all(), "stations fill the first slots"
@@ -164,6 +164,17 @@ def test_rollout_planner_runs_through_the_evaluation_and_holds_its_own():
     burned = {name: np.mean([r["Percent_Burned"] for r in evaluate(grassland(), name, seeds, config)])
               for name in ("greedy", "rollout")}
     assert burned["rollout"] <= 1.05 * burned["greedy"], burned
+
+
+def test_sensing_fills_its_columns_and_leaves_the_fire_alone():
+    seeds, config = seeds_of("val")[:4], {**CONFIG, "preburn_s": 300.0}
+    blind, seeing = (evaluate(grassland(), "greedy", seeds, {**config, "sense_m": r}) for r in (0.0, 20.0))
+    for b, s in zip(blind, seeing):
+        assert np.isnan(b["Detect_s"]) and np.isnan(b["Seen_Share"]), "no sensor, nothing measured"
+        assert (b["Burned_Cells"], b["Drops"], b["Time"]) == (s["Burned_Cells"], s["Drops"], s["Time"])
+        # The drones fly straight to the fire, so they see it within a minute, and little else.
+        assert 0 < s["Detect_s"] < 60.0 and 0 < s["Seen_Share"] < 0.9
+        assert 0 <= s["Belief_Miss"] < 1 and 0 <= s["Belief_Phantom"] <= 1
 
 
 def test_separation_is_watched_when_it_is_kept():

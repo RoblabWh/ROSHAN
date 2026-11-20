@@ -774,6 +774,10 @@ fn bad_scenarios_and_settings_are_refused() {
             ..cfg()
         },
         AllocConfig {
+            sense_m: f32::NAN,
+            ..cfg()
+        },
+        AllocConfig {
             drones_per_station: 0,
             ..cfg()
         },
@@ -859,4 +863,34 @@ fn the_wind_scale_changes_every_speed_of_the_schedule() {
     let wind = &v.envs[0].world.weather.wind;
     assert_eq!((wind[0].speed_ms, wind[1].speed_ms), (2.5, 4.0));
     assert_eq!((wind[0].to, wind[1].t_s), ([1.0, 0.0], 300.0));
+}
+
+#[test]
+fn sensing_reports_what_was_seen_and_never_changes_the_fire() {
+    let seeds: Vec<u64> = (0..16).collect();
+    let sensing = AllocConfig {
+        sense_m: 20.0,
+        ..cfg()
+    };
+    let (blind, seeing) = (run(&seeds, 0, cfg(), true), run(&seeds, 0, sensing, true));
+    let first = info("detect_s");
+    let share = |x: f32| (0.0..=1.0).contains(&x);
+    for (b, s) in blind.iter().zip(&seeing) {
+        let cut = |r: &(Vec<f32>, u64)| (r.0[..first].to_vec(), r.1);
+        assert!(same(&[cut(b)], &[cut(s)]), "a sensor changed the episode");
+        assert!(
+            b.0[first..].iter().all(|x| x.is_nan()),
+            "no sensor: nothing measured"
+        );
+        // The drones fly to the fire, so they see it, and little else of the map.
+        let at = |name: &str| s.0[info(name)];
+        assert!(at("detect_s") > 0.0 && at("detect_s") < at("seconds"));
+        assert!(at("seen_share") > 0.0 && at("seen_share") < 0.5);
+        assert!(share(at("belief_miss")) && share(at("belief_phantom")));
+    }
+    // Docked drones see nothing: with nobody sent, all of the fire is missed.
+    for (s, _) in run(&seeds[..4], 0, sensing, false) {
+        assert!(s[first].is_nan() && s[info("seen_share")] == 0.0);
+        assert!(s[info("belief_miss")] == 1.0 && s[info("belief_phantom")].is_nan());
+    }
 }

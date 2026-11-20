@@ -22,6 +22,7 @@ use std::sync::Arc;
 use rayon::prelude::*;
 use serde::{Deserialize, Serialize};
 
+use crate::belief::Belief;
 use crate::fire::BURNING;
 use crate::rng::{self, Stream};
 use crate::scenario::Scenario;
@@ -50,6 +51,10 @@ pub struct AllocConfig {
     /// The scripted controller keeps drones in the air this far apart. 0: no separation, the
     /// drones fly straight lines (for swarms: they are taken to fly in separate height lanes).
     pub safe_m: f32,
+    /// Every drone in the air sees the fire state of the cells within this distance, once
+    /// per fire step, and all share what they saw (`belief::Belief`). 0: no sensor. The
+    /// planners still read the true fire.
+    pub sense_m: f32,
     /// Cells with a fire front are grouped into square blocks of this many cells; each block
     /// is one target. 1 makes every front cell its own target.
     pub block_cells: u32,
@@ -87,6 +92,7 @@ impl Default for AllocConfig {
             arrive_m: 5.0,
             station_m: 12.0,
             safe_m: 0.0,
+            sense_m: 0.0,
             block_cells: 2,
             max_targets: 64,
             max_interval_s: 10.0,
@@ -132,6 +138,12 @@ impl AllocConfig {
         if !(self.safe_m >= 0.0 && self.safe_m.is_finite()) {
             return Err(format!("safe_m must be zero or more, got {}", self.safe_m));
         }
+        if !(self.sense_m >= 0.0 && self.sense_m.is_finite()) {
+            return Err(format!(
+                "sense_m must be zero or more, got {}",
+                self.sense_m
+            ));
+        }
         Ok(())
     }
 }
@@ -158,7 +170,7 @@ pub const TERMS: [&str; 5] = [
     "timeout",  // the time limit was reached (all drones)
 ];
 /// Episode summary, valid on the step an episode ends.
-pub const INFO: [&str; 16] = [
+pub const INFO: [&str; 20] = [
     "fire_out",
     "seconds", // since the episode started, not counting the pre-burn
     "burned_cells",
@@ -175,6 +187,11 @@ pub const INFO: [&str; 16] = [
     "first_drop_s", // NaN if there was none
     "queue_s",      // drone-seconds spent waiting for a free pad
     "max_sortie_s", // longest time a drone was in the air between two services
+    // What the drones saw of the fire (`belief::Belief`); NaN without a sensor.
+    "detect_s",       // when a burning cell was first seen; NaN if none was
+    "seen_share",     // share of the map's cells looked at at least once
+    "belief_miss",    // share of the burning cells not believed burning, mean over fire steps
+    "belief_phantom", // share of the believed-burning cells not burning, mean over fire steps
 ];
 pub const TASK_NONE: f32 = 0.0;
 pub const TASK_FIRE: f32 = 1.0;
@@ -295,6 +312,8 @@ pub struct AllocEnv {
     start_cells: u32,
     /// Highest fireline intensity (kW/m) the fire had reached by then.
     start_kw: f32,
+    /// What the drones have seen of the fire in this episode; None without a sensor.
+    belief: Option<Belief>,
 }
 
 fn dist(a: [f32; 2], b: [f32; 2]) -> f32 {
@@ -344,6 +363,7 @@ impl AllocEnv {
             start_tick: 0,
             start_cells: 0,
             start_kw: 0.0,
+            belief: None,
         }
     }
 
@@ -465,6 +485,16 @@ impl AllocEnv {
         self.fingerprint
     }
 
+    /// What the drones have seen of the fire so far; None without a sensor.
+    pub fn belief(&self) -> Option<&Belief> {
+        self.belief.as_ref()
+    }
+
+    /// The radius of drone `i`'s fire sensor, metres; 0 for none.
+    pub fn sense_m(&self, _i: usize) -> f32 {
+        self.cfg.sense_m
+    }
+
     /// Drops made so far in this episode.
     pub fn drops(&self) -> u32 {
         self.drops
@@ -573,6 +603,8 @@ impl AllocEnv {
         (self.drops, self.water_l, self.min_separation) = (0, 0.0, f32::INFINITY);
         (self.first_drop, self.queue_ticks, self.max_sortie) = (None, 0, 0);
         self.needs_reset = false;
+        let sensing = self.cfg.sense_m > 0.0;
+        self.belief = sensing.then(|| Belief::new(grid.len()));
         self.fires = self.fire_targets();
     }
 
@@ -898,6 +930,16 @@ impl AllocEnv {
         let interval = ((self.cfg.max_interval_s / dt).round() as u64).max(1);
         let turn = (now - self.start_tick).is_multiple_of(interval);
         let watch = self.cfg.safe_m > 0.0 || velocity.is_some();
+        // The sensors take a picture when the fire has changed. Copying the truth gives the
+        // same belief in any drone order.
+        if fire_stepped && let Some(mut belief) = self.belief.take() {
+            for i in (0..n).filter(|&i| !self.docked(i) && self.sense_m(i) > 0.0) {
+                let (p, r) = (self.world.drones.pos[i], self.sense_m(i));
+                belief.look(self.terrain.grid, &self.world.fire.state, p, r, now);
+            }
+            belief.score(self.world.fire.burning());
+            self.belief = Some(belief);
+        }
         for i in 0..n {
             if self.docked(i) {
                 if self.ready_at[i] > now {
@@ -976,9 +1018,10 @@ impl AllocEnv {
     }
 
     /// The episode summary in the order of `INFO`.
-    pub fn summary(&self) -> [f32; 16] {
+    pub fn summary(&self) -> [f32; 20] {
         let (stats, dt) = (self.world.fire.stats, self.sim.dt_s);
         let or_nan = |x: f32| if x.is_finite() { x } else { f32::NAN };
+        let sensed = |f: fn(&Belief) -> f32| self.belief.as_ref().map_or(f32::NAN, f);
         [
             self.world.fire.is_out() as u8 as f32,
             self.episode_s(),
@@ -997,6 +1040,13 @@ impl AllocEnv {
                 .map_or(f32::NAN, |t| (t - self.start_tick) as f32 * dt),
             self.queue_ticks as f32 * dt,
             self.max_sortie as f32 * dt,
+            self.belief
+                .as_ref()
+                .and_then(|b| b.detected())
+                .map_or(f32::NAN, |t| (t - self.start_tick) as f32 * dt),
+            sensed(Belief::seen_share),
+            sensed(Belief::miss),
+            sensed(Belief::phantom),
         ]
     }
 
@@ -1218,6 +1268,7 @@ impl AllocEnv {
     /// what there is to minimise: cells burned, then cells still burning.
     fn outcome(&self, first: &[i32], horizon_s: f32, terms: &mut [f32]) -> (u32, usize) {
         let mut sim = self.clone();
+        sim.belief = None; // a lookahead is scored by the fire: it needs no sensing
         let end = sim.world.time_s() + horizon_s;
         sim.advance(first, terms);
         while !sim.needs_reset && sim.world.time_s() < end {

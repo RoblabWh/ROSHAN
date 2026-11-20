@@ -58,7 +58,7 @@ SPLITS = Path(__file__).resolve().parents[3] / "splits"
 FIELDS = ["Episode_Index", "Episode_Seed", "Fire_Fingerprint", "Success", "Failure_Reason", "Time",
           "Percent_Burned", "Burned_Cells", "Burned_NoAction", "Area_Saved", "Water_L", "Drops", "Min_Separation",
           "Burned_Start", "Stopped_Cells", "Stopped_kW_Mean", "Stopped_kW_Max", "Peak_kW", "Peak_kW_NoAction", "Peak_kW_Start",
-          "First_Drop_s", "Queue_s", "Max_Sortie_s"]
+          "First_Drop_s", "Queue_s", "Max_Sortie_s", "Detect_s", "Seen_Share", "Belief_Miss", "Belief_Phantom"]
 # Classes of the fire's peak fireline intensity when the drones start, kW/m: what drones can
 # plausibly stop, what aircraft are credited with, and beyond (docs/systems.md, "Calibration").
 CLASSES = [("up to 500 kW/m", 0.0, 500.0), ("500 - 2000 kW/m", 500.0, 2000.0), ("above 2000 kW/m", 2000.0, float("inf"))]
@@ -177,6 +177,10 @@ def evaluate(scenario, policy, seeds, config=None, sim=None, threads=0, batch=25
             "First_Drop_s": a["first_drop_s"],
             "Queue_s": a["queue_s"],
             "Max_Sortie_s": a["max_sortie_s"],
+            "Detect_s": a["detect_s"],
+            "Seen_Share": a["seen_share"],
+            "Belief_Miss": a["belief_miss"],
+            "Belief_Phantom": a["belief_phantom"],
         })
     return rows
 

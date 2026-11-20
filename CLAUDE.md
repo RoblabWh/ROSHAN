@@ -73,7 +73,7 @@ stale build. The planner benchmark is `experiments/eval_demo.toml` on `scenarios
 - A scenario holds ground stations, not drones: `drones_per_station` in the allocate
   settings says how many are based at each. A scenario without a station runs the fire only.
 - An evaluation row holds NaN where nothing was measured (`Min_Separation` without `safe_m`,
-  `First_Drop_s` without a drop): compare rows through `json.dumps`, not `==`.
+  `First_Drop_s` without a drop, `Detect_s` without a sensor): compare rows through `json.dumps`, not `==`.
 - `Water` copies `water_crit_l_m2` when the world is built; changing the config on a running
   world has no effect on it.
 - The viewer cannot be clicked from an automated session; menu, mouse and keyboard behaviour

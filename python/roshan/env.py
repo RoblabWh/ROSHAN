@@ -97,7 +97,7 @@ class AllocateEnv:
         elapsed_s    [E]            simulated seconds the step took
         terminated   [E]            the fire went out
         truncated    [E]            the time limit was reached
-        info         [E, 16]        episode summary where an episode ended, see spec["info"]
+        info         [E, 20]        episode summary where an episode ended, see spec["info"]
         seed, fingerprint [E]       the episode's seed and a digest of the fire it started with
 
     One step runs until the next decision event. `reset(seeds)` starts the episodes of the

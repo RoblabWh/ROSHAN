@@ -181,6 +181,11 @@ fn hint(name: &str, salt: &str) -> &'static str {
             "the controller keeps drones in the air this far apart, metres; 0: straight lines, \
              no separation (height lanes assumed)"
         }
+        ("sense_m", _) => {
+            "every drone in the air sees the fire within this distance, metres, once per fire \
+             step; all drones share what they saw. 0: no sensor. The planners still read the \
+             true fire"
+        }
         ("block_cells", _) => {
             "cells with a fire front are grouped into square blocks this many cells wide; each \
              is one target"

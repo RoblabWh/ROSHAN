@@ -228,6 +228,7 @@ means all seeds, `pair = []` no paired statistics.
 | `arrive_m` | 5 | distance at which a drone has reached a fire target |
 | `station_m` | 12 | distance at which a drone docks at a station |
 | `safe_m` | 0 | distance the scripted controller keeps between drones in the air; 0 = none, straight lines |
+| `sense_m` | 0 | radius of the fire sensor of every drone in the air; 0 = no sensor (see Sensing below) |
 | `block_cells` | 2 | side of a target block in cells |
 | `max_targets` | 64 | fire targets offered at most |
 | `max_interval_s` | 10 | how often docked drones that were told to wait are asked again |
@@ -714,6 +715,17 @@ new positions of the drones before it and the current positions of those after i
 always qualifies, so the distance holds by induction; a drone only takes off when nobody in
 the air is within `safe_m` of it.
 
+**Sensing.** With `sense_m` above zero every drone in the air carries a fire sensor: once
+per fire step (2 s) it sees the state (unburned, burning, burned) of every cell whose centre
+is within `sense_m` of it. All drones write into one shared map, the belief
+(`crates/roshan-core/src/belief.rs`): per cell the state at the last look and when that was.
+A cell nobody looks at keeps its old state, so the belief can hold fire that has gone out and
+miss fire that is new. Docked drones see nothing. The sensor is a circle, has no errors, and
+what one drone sees all know at once. The belief is filled from the fire and never read by
+it, so sensing changes no fire, and **the planners still read the true fire**: the belief is
+measured (four values in the summary below), not yet used. The rollout planner's lookaheads
+carry no belief.
+
 **Decision events.** One step runs the simulation tick by tick until a drone needs a
 decision: it became ready, the block it was flying to lost its last front (checked at every
 fire step), or it dropped and can drop again. Docked drones that were told to wait are asked
@@ -771,6 +783,10 @@ Task kind 3 (a point) only occurs when a drone is sent somewhere by hand in the 
 | `first_drop_s` | time of the first drop, NaN if there was none |
 | `queue_s` | drone-seconds spent waiting for a free pad |
 | `max_sortie_s` | longest time a drone was in the air between two services |
+| `detect_s` | time until a sensor first saw a burning cell; NaN if none did or there is no sensor |
+| `seen_share` | share of the map's cells that were looked at at least once; NaN without a sensor |
+| `belief_miss` | share of the burning cells the belief did not hold as burning, averaged over the fire steps; NaN without a sensor |
+| `belief_phantom` | share of the believed-burning cells that did not burn (any more), averaged over the fire steps on which any cell was believed burning; NaN if none ever was |
 
 **Other buffers**: `elapsed_s` [E], `terminated`, `truncated` [E], `seed`, `fingerprint` [E].
 The fingerprint is a digest of the cells burning at the start of the episode and of the wind,
@@ -990,6 +1006,7 @@ and writes the same record next to its CSV (`--out greedy.csv` gives `greedy.eva
 | `First_Drop_s` | time of the first drop |
 | `Queue_s` | drone-seconds spent waiting for a free pad |
 | `Max_Sortie_s` | longest time a drone was in the air between two services |
+| `Detect_s`, `Seen_Share`, `Belief_Miss`, `Belief_Phantom` | what the drones saw of the fire (`detect_s` ... in the episode summary); empty (NaN) without a sensor |
 
 **A trained planner** is evaluated like any other: `--policy runs/planner/planner.pt` (or
 `imitation.pt`). It takes its best guess per decision unless `--sample` is given. From Python,
@@ -1540,6 +1557,7 @@ the manufacturers'.
 | `pads` | 8 | **Assumed.** Eight pads at 60 s serve eight drones a minute: Ausonio's platform, 120 drones on a 6-minute cycle, needs twenty. |
 | `drones_per_station` | 40 | **A choice**, between the five drones one operator supervises (Seneca) and Ausonio's 120. Results sweep it. |
 | `safe_m` | 0 | **Assumed** height lanes: drones on different sorties do not meet. |
+| `sense_m` | 0 | Off by default. **Assumed** where used: 20 m, a downward camera on a drone that flies low to drop. |
 
 Not modelled: endurance falling with the load carried (hover power grows with mass to the
 power 1.5, which fits the three products above within 10 %), wind acting on the drones, and
@@ -1596,7 +1614,7 @@ From the plan in [design.md](design.md):
   published values (see [Calibration](#calibration)).
 - Training a planner on the drone-swarm task of 2026-11-19; the network accepts its
   observation, and older checkpoints are refused.
-- Sensing, belief maps and the scripted explorer.
+- The scripted explorer, and planners that read the belief instead of the true fire.
 - Sweeps over experiment files and inheritance between them; a variant is a copied file.
 
 ## Known limits
@@ -1635,7 +1653,9 @@ From the plan in [design.md](design.md):
 - **PPO on the planner task makes an imitated policy worse**, and from scratch stays below
   greedy. Only imitation of the rollout planner works so far; one network, one seed.
 - **One training seed** stands behind the fly-policy numbers.
-- **The planner sees the true fire**; there is no sensing yet.
+- **The planner sees the true fire.** Drones can sense it (`sense_m`) and the belief they
+  build is measured, but no planner reads it yet. The sensor has no errors, no smoke and no
+  communication range.
 - **The scripted controller has no deadlock handling** beyond sidestepping (only with
   `safe_m` above zero); none occurred in the tests. A drone hovering over a station would
   block its launches then.

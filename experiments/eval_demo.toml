@@ -57,6 +57,7 @@ drones_per_station = 40
 arrive_m = 5.0
 station_m = 12.0
 safe_m = 0.0
+sense_m = 0.0
 block_cells = 2
 max_targets = 64
 max_interval_s = 10.0
