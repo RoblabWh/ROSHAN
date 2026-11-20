@@ -231,6 +231,7 @@ means all seeds, `pair = []` no paired statistics.
 | `sense_m` | 0 | radius of the fire sensor of an attack drone in the air; 0 = no sensor (see Sensing below) |
 | `explorers_per_station` | 0 | explorer drones based at every station besides the attack drones (see Explorers below) |
 | `explorer_sense_m` | 55 | radius of an explorer's fire sensor |
+| `explorers_follow` | true | an explorer visits the fire known in its stripe between two legs of its sweep |
 | `block_cells` | 2 | side of a target block in cells |
 | `max_targets` | 64 | fire targets offered at most |
 | `max_interval_s` | 10 | how often docked drones that were told to wait are asked again |
@@ -741,10 +742,19 @@ attack drones, station by station; they never need a decision, their action is i
   `explorer_sense_m` that takes a picture every 2 s (20 m of flight) covers a band of
   `2·sqrt(r² − 10²)` metres, and one cell is taken off because lanes run through cell centres.
   With 55 m that is 9 cells. The waypoints depend on the map and the number of explorers only.
+- *Following* (`explorers_follow`). At a waypoint an explorer looks for believed-burning
+  cells in its own stripe that it cannot see from where it is, and visits the one with the
+  highest age of its last look per second it takes to renew it (the flight there plus one
+  picture; the lowest cell index among equals). After the visit it flies back to the waypoint
+  it left and takes the next leg of the sweep before it may visit again. So the sweep never
+  stops and a later fire is still found, only later; each explorer follows the fire in its own
+  stripe, and none has to know where another is heading. In the rollout planner's lookaheads,
+  which carry no belief, explorers only sweep.
 - *Life cycle.* An explorer takes off by itself when the episode starts. At each waypoint it
   checks its endurance: if the next leg plus the way from its end to the nearest station does
   not fit, it flies home, takes a pad for `service_s` like any drone, and then returns to the
-  waypoint it turned home at, so no lane is left out.
+  waypoint it turned home at, so every lane is flown from end to end. A visit is only made
+  if the way there and on to a station fits as well.
 - *What it costs the others.* Explorers queue for the same pads, and `queue_s` and
   `max_sortie_s` count them. With `safe_m` above zero they are kept apart from all drones.
   Station labels and `fleet()` count attack drones only.
@@ -754,7 +764,8 @@ attack drones, station by station; they never need a decision, their action is i
 
 `ponytail:` stripes are dealt out by drone index, not to the nearest station; lanes cross
 ground that cannot burn; a lane that cannot be flown from and to a station within the
-endurance is tried again and again; explorers have no speed or endurance of their own.
+endurance is tried again and again; explorers have no speed or endurance of their own; a
+visit is one look at one cell, whatever the fire does there.
 
 **Decision events.** One step runs the simulation tick by tick until a drone needs a
 decision: it became ready, the block it was flying to lost its last front (checked at every
@@ -1652,7 +1663,7 @@ From the plan in [design.md](design.md):
   published values (see [Calibration](#calibration)).
 - Training a planner on the drone-swarm task of 2026-11-19; the network accepts its
   observation, and older checkpoints are refused.
-- Planners that read the belief instead of the true fire; an explorer that follows a fire it found.
+- Planners that read the belief instead of the true fire.
 - Sweeps over experiment files and inheritance between them; a variant is a copied file.
 
 ## Known limits
@@ -1693,7 +1704,7 @@ From the plan in [design.md](design.md):
 - **One training seed** stands behind the fly-policy numbers.
 - **The planner sees the true fire.** Drones can sense it (`sense_m`) and the belief they
   build is measured, but no planner reads it yet. The sensor has no errors, no smoke and no
-  communication range. Explorers only sweep: they do not stay with a fire they found.
+  communication range. An explorer does not stay with a fire it found: it looks at it once per leg of its sweep.
 - **The scripted controller has no deadlock handling** beyond sidestepping (only with
   `safe_m` above zero); none occurred in the tests. A drone hovering over a station would
   block its launches then.

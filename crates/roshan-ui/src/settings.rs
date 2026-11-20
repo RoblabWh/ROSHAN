@@ -194,6 +194,10 @@ fn hint(name: &str, salt: &str) -> &'static str {
             "an explorer sees the fire within this distance, metres; its sweep lanes are spaced \
              to match"
         }
+        ("explorers_follow", _) => {
+            "between two legs of its sweep an explorer visits the fire it believes to burn in \
+             its stripe, where the last look is oldest"
+        }
         ("block_cells", _) => {
             "cells with a fire front are grouped into square blocks this many cells wide; each \
              is one target"

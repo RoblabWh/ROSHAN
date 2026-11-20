@@ -64,6 +64,9 @@ pub struct AllocConfig {
     pub explorers_per_station: u32,
     /// Radius of an explorer's fire sensor, metres (the attack drones' is `sense_m`).
     pub explorer_sense_m: f32,
+    /// Between two legs of its sweep an explorer visits the fire it believes to burn in its
+    /// stripe: the cell whose last look is oldest for the flight it takes to get there.
+    pub explorers_follow: bool,
     /// Cells with a fire front are grouped into square blocks of this many cells; each block
     /// is one target. 1 makes every front cell its own target.
     pub block_cells: u32,
@@ -104,6 +107,7 @@ impl Default for AllocConfig {
             sense_m: 0.0,
             explorers_per_station: 0,
             explorer_sense_m: 55.0,
+            explorers_follow: true,
             block_cells: 2,
             max_targets: 64,
             max_interval_s: 10.0,
@@ -247,6 +251,8 @@ enum Task {
     Point(u32),
     /// An explorer flying to this cell of its sweep.
     Explore(u32),
+    /// An explorer leaving its sweep to look at this believed-burning cell.
+    Follow(u32),
 }
 
 /// A fire target on offer: a block of cells with at least one front.
@@ -334,12 +340,20 @@ pub struct AllocEnv {
     sweeps: Arc<Vec<Vec<u32>>>,
     /// Per drone: how many waypoints of its sweep an explorer has reached.
     leg: Vec<u32>,
+    /// Per drone: an explorer has visited the fire since it last flew a leg of its sweep.
+    visited: Vec<bool>,
 }
 
 /// Drones of both kinds. The attack drones come first in every per-drone list, station by
 /// station, then the explorers, station by station.
 fn fleet_size(stations: usize, cfg: &AllocConfig) -> usize {
     stations * (cfg.drones_per_station + cfg.explorers_per_station) as usize
+}
+
+/// Stripe `e` of `k` along a side of `long` cells: its first cell and its width.
+fn stripe(long: u32, k: u32, e: u32) -> (u32, u32) {
+    let lo = (e * long / k).min(long - 1);
+    (lo, ((e + 1) * long / k).max(lo + 1) - lo)
 }
 
 /// The search pattern of every explorer. The map is cut into one stripe per explorer along
@@ -367,8 +381,7 @@ fn sweeps(grid: Grid, stations: &[[u32; 2]], cfg: &AllocConfig, sim: &SimConfig)
     };
     (0..k)
         .map(|e| {
-            let lo = (e * long / k).min(long - 1);
-            let wide = ((e + 1) * long / k).max(lo + 1) - lo;
+            let (lo, wide) = stripe(long, k, e);
             // Lanes run along the stripe's longer side (`along`) and are spaced `across` it.
             let lanes_cross_stripe = short >= wide;
             let across_is_x = lanes_cross_stripe == stripes_along_x;
@@ -430,6 +443,7 @@ impl AllocEnv {
         Self {
             sweeps: Arc::new(sweeps(terrain.grid, &scenario.stations, &cfg, &sim)),
             leg: vec![0; n],
+            visited: vec![false; n],
             world: World::new(terrain.clone(), weather, sim, 0),
             pad_free: vec![0; scenario.stations.len() * cfg.pads as usize],
             scenario,
@@ -537,7 +551,7 @@ impl AllocEnv {
         match task {
             Task::None => None,
             Task::Fire(block) => Some(self.block_point(block)),
-            Task::Point(cell) | Task::Explore(cell) => {
+            Task::Point(cell) | Task::Explore(cell) | Task::Follow(cell) => {
                 let (x, y) = self.terrain.grid.xy(cell as usize);
                 Some(self.cell_centre([x, y]))
             }
@@ -628,25 +642,93 @@ impl AllocEnv {
             .fold(f32::INFINITY, f32::min)
     }
 
-    /// An explorer has reached a waypoint: on to the next one, or home when the way there and
-    /// on to a station would take it past its endurance. It then comes back to this waypoint
-    /// after the service, so no lane is left out.
-    /// ponytail: a lane that cannot be flown from and to a station within the endurance is
-    /// tried again and again. Cut such lanes in two when maps get that large.
-    fn explore(&mut self, i: usize) {
-        let next = self.waypoint(i, self.leg[i] + 1);
-        let (x, y) = self.terrain.grid.xy(next as usize);
+    /// Can explorer `i` fly to `cell` and on to a station within its endurance?
+    fn in_reach(&self, i: usize, cell: u32) -> bool {
+        let (x, y) = self.terrain.grid.xy(cell as usize);
         let point = self.cell_centre([x, y]);
         let airborne_s = (self.world.tick - self.launched[i]) as f32 * self.sim.dt_s;
         let flight_s =
             (dist(self.world.drones.pos[i], point) + self.home_m(point)) / self.cfg.max_speed_ms;
-        if airborne_s + flight_s <= self.cfg.endurance_s {
+        airborne_s + flight_s <= self.cfg.endurance_s
+    }
+
+    /// The believed-burning cell in explorer `i`'s stripe that is most worth a visit: the
+    /// highest age of its last look per second it takes to get a new one (the flight and
+    /// one picture), the lowest cell index among equals. None if the stripe holds none
+    /// beyond what the explorer sees from where it is. Each explorer follows the fire in its
+    /// own stripe, so none has to know where another one is heading.
+    /// ponytail: one visit between two sweep legs, whatever the fire does. Weigh the age with
+    /// the spread rate, or let an explorer stay with a fire, when the belief is what a
+    /// planner works from.
+    fn stalest(&self, i: usize) -> Option<u32> {
+        let (belief, g) = (self.belief.as_ref()?, self.terrain.grid);
+        let (e, k) = ((i - self.attackers()) as u32, self.sweeps.len() as u32);
+        let (xs, ys) = if g.nx >= g.ny {
+            (stripe(g.nx, k, e), (0, g.ny))
+        } else {
+            ((0, g.nx), stripe(g.ny, k, e))
+        };
+        let (p, now, dt) = (
+            self.world.drones.pos[i],
+            self.world.tick as u32,
+            self.sim.dt_s,
+        );
+        let picture_s = self.sim.fire_every as f32 * dt;
+        let mut best: Option<(f32, u32)> = None;
+        for y in ys.0..ys.0 + ys.1 {
+            for x in xs.0..xs.0 + xs.1 {
+                let cell = g.idx(x, y);
+                let away = dist(p, self.cell_centre([x, y]));
+                if belief.state[cell] != BURNING || away <= self.cfg.explorer_sense_m {
+                    continue;
+                }
+                let age_s = (now - belief.seen[cell]) as f32 * dt;
+                let worth = age_s / (away / self.cfg.max_speed_ms + picture_s);
+                if best.is_none_or(|(b, _)| worth > b) {
+                    best = Some((worth, cell as u32));
+                }
+            }
+        }
+        best.map(|(_, cell)| cell)
+    }
+
+    /// An explorer has arrived at a waypoint of its sweep. Unless it comes back from one, it
+    /// first visits the fire known in its stripe (`explorers_follow`). Otherwise on to the
+    /// next waypoint, or home when the way there and on to a station would take it past its
+    /// endurance. From a visit or a service it returns to the waypoint it left, so every lane
+    /// is flown from end to end.
+    /// ponytail: a lane that cannot be flown from and to a station within the endurance is
+    /// tried again and again. Cut such lanes in two when maps get that large.
+    fn explore(&mut self, i: usize) {
+        let visit = (self.cfg.explorers_follow && !self.visited[i])
+            .then(|| self.stalest(i))
+            .flatten()
+            .filter(|&cell| self.in_reach(i, cell));
+        self.visited[i] = visit.is_some();
+        let next = self.waypoint(i, self.leg[i] + 1);
+        if let Some(cell) = visit {
+            self.set_task(i, Task::Follow(cell));
+        } else if self.in_reach(i, next) {
             self.leg[i] += 1;
             self.set_task(i, Task::Explore(next));
         } else {
-            let home = self.nearest_station(i);
-            self.set_task(i, Task::Station(home));
+            self.fly_home(i);
         }
+    }
+
+    /// An explorer has looked at the fire: back to the waypoint where it left its sweep.
+    fn resume(&mut self, i: usize) {
+        let back = self.waypoint(i, self.leg[i]);
+        if self.in_reach(i, back) {
+            self.set_task(i, Task::Explore(back));
+        } else {
+            self.fly_home(i);
+        }
+    }
+
+    fn fly_home(&mut self, i: usize) {
+        let home = self.nearest_station(i);
+        self.set_task(i, Task::Station(home));
     }
 
     /// Drops made so far in this episode.
@@ -732,6 +814,7 @@ impl AllocEnv {
         self.goal.clone_from(&self.world.drones.pos);
         self.at = (0..n).map(|i| self.base(i) as u32).collect();
         self.leg.fill(0);
+        self.visited.fill(false);
         self.ready_at.fill(self.start_tick);
         self.launched.fill(self.start_tick);
         self.pad_free.fill(self.start_tick);
@@ -1170,6 +1253,11 @@ impl AllocEnv {
                         self.explore(i);
                     }
                 }
+                Task::Follow(_) => {
+                    if self.arrived(i) {
+                        self.resume(i);
+                    }
+                }
             }
         }
         let fire_out = self.world.fire.is_out();
@@ -1264,7 +1352,7 @@ impl AllocEnv {
         match self.task[i] {
             Task::Fire(_) => TASK_FIRE,
             Task::Point(_) => TASK_POINT,
-            Task::Explore(_) => TASK_EXPLORE,
+            Task::Explore(_) | Task::Follow(_) => TASK_EXPLORE,
             Task::Station(_) => TASK_STATION,
             Task::None if self.docked(i) => TASK_DOCKED,
             Task::None => TASK_NONE,

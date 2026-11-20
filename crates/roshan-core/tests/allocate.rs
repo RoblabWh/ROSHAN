@@ -971,6 +971,7 @@ fn the_first_sweep_sees_the_whole_map_and_finds_the_fire() {
     // has 300 m x 400 m to sweep: four lanes, about 220 s with the way there.
     let config = AllocConfig {
         explorers_per_station: 1,
+        explorers_follow: false,
         random_ignitions: 1,
         time_limit_s: 260.0,
         ..cfg()
@@ -987,5 +988,45 @@ fn the_first_sweep_sees_the_whole_map_and_finds_the_fire() {
         );
         assert!(at("belief_miss") < 1.0 && at("belief_phantom") <= 1.0);
         assert_eq!(at("drops"), 0.0);
+    }
+}
+
+#[test]
+fn following_the_fire_keeps_the_belief_fresher_and_the_sweep_still_ends() {
+    let seeds: Vec<u64> = (0..16).collect();
+    let sweep = AllocConfig {
+        explorers_per_station: 1,
+        explorers_follow: false,
+        random_ignitions: 1,
+        ..cfg()
+    };
+    let follow = AllocConfig {
+        explorers_follow: true,
+        ..sweep
+    };
+    let (swept, followed) = (run(&seeds, 0, sweep, false), run(&seeds, 0, follow, false));
+    let mean = |r: &[(Vec<f32>, u64)], name: &str| {
+        r.iter().map(|x| x.0[info(name)]).sum::<f32>() / r.len() as f32
+    };
+    let (miss_swept, miss_followed) = (mean(&swept, "belief_miss"), mean(&followed, "belief_miss"));
+    println!(
+        "burning cells not known: {miss_swept:.3} sweeping, {miss_followed:.3} following; \
+         phantoms {:.3} and {:.3}",
+        mean(&swept, "belief_phantom"),
+        mean(&followed, "belief_phantom")
+    );
+    assert!(miss_followed < miss_swept);
+    for (a, b) in swept.iter().zip(&followed) {
+        assert_eq!(
+            a.0[info("burned_cells")],
+            b.0[info("burned_cells")],
+            "the same fire"
+        );
+        assert_eq!(
+            b.0[info("seen_share")],
+            1.0,
+            "visits slow the sweep but leave no gap"
+        );
+        assert!(b.0[info("max_sortie_s")] <= 900.0);
     }
 }
