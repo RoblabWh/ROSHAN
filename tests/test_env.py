@@ -27,7 +27,7 @@ def test_config_overrides_and_rejects_unknown_keys():
     assert env.spec["config"]["drones"] == 6 and env.agent.shape[1] == 6
     with pytest.raises(ValueError, match="unknown field"):
         NavigateEnv(2, config={"dronez": 6})
-    with pytest.raises(ValueError, match="positive"):
+    with pytest.raises(ValueError, match="drones must be above zero"):
         NavigateEnv(2, config={"drones": 0})
     with pytest.raises(ValueError):
         NavigateEnv(2, sim={"dt_s": -1.0})

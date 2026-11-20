@@ -84,7 +84,7 @@ fn tools(mode: Mode) -> impl Iterator<Item = (Tool, &'static str, &'static str)>
     })
 }
 
-const SHORTCUTS: [(&str, &str); 14] = [
+const SHORTCUTS: [(&str, &str); 16] = [
     ("Space", "pause or resume"),
     (".", "one fire step (while paused)"),
     ("R", "restart"),
@@ -95,6 +95,8 @@ const SHORTCUTS: [(&str, &str); 14] = [
     ("Ctrl+O", "open a scenario"),
     ("Ctrl+S", "save"),
     ("Ctrl+Shift+S", "save as"),
+    ("Ctrl+,", "open Settings"),
+    ("Ctrl+Enter", "Settings: apply and restart"),
     ("F12", "screenshot"),
     ("Right click", "drop water"),
     ("Drag, scroll", "pan, zoom"),
@@ -162,6 +164,9 @@ impl Viewer<'_> {
         };
         if let Some(action) = action {
             self.act(ctx, action);
+        }
+        if pressed(ctrl, Key::Comma) {
+            self.forms.open = true;
         }
         let digits = [
             Key::Num1,
@@ -422,7 +427,7 @@ impl Viewer<'_> {
                     }
                 }
                 ui.separator();
-                if ui.button("Settings ...").on_hover_text("every parameter of the simulation and the two tasks").clicked() {
+                if ui.button("Settings ...   Ctrl+,").on_hover_text("every parameter of the simulation and the two tasks").clicked() {
                     self.forms.open = true;
                 }
             });
@@ -978,8 +983,8 @@ impl Viewer<'_> {
     }
 
     /// The windows that float over the map: settings, terrain fetch, help.
-    pub(crate) fn windows(&mut self, ctx: &egui::Context, _snap: &Snapshot) {
-        self.settings_window(ctx);
+    pub(crate) fn windows(&mut self, ctx: &egui::Context, snap: &Snapshot) {
+        self.settings_window(ctx, snap.mode);
 
         let mut open = self.show_fetch;
         egui::Window::new("Terrain of a real place")

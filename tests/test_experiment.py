@@ -33,6 +33,24 @@ def test_viewer_settings_round_trip(tmp_path):
     changed = {"allocate": {"tank_l": 250.0}, "sim": {"spin": {"lt_m": 90.0}}}
     experiment.save_world(tmp_path / "s.toml", json.dumps(changed))
     assert json.loads(experiment.world(tmp_path / "s.toml")) == changed
+    # Writing over the viewer's own file is fine; over a training file it would drop [run].
+    experiment.save_world(tmp_path / "s.toml", json.dumps(changed))
+    (tmp_path / "train.toml").write_text("[run]\nenvs = 4\n\n[sim]\ndt_s = 0.1\n")
+    with pytest.raises(ValueError, match=r"\[run\]"):
+        experiment.save_world(tmp_path / "train.toml", json.dumps(changed))
+    assert "[run]" in (tmp_path / "train.toml").read_text()
+
+
+def test_settings_no_world_can_run_with_are_refused():
+    """They used to reach an assert in the simulator (a panic) instead of an error."""
+    import roshan
+    from roshan.scenario import Scenario
+
+    scenario = Scenario.load(experiment.ROOT / "scenarios/demo.npz")
+    with pytest.raises(ValueError, match="spin.dt_s"):
+        roshan.AllocateEnv(1, scenario, sim={"spin": {"dt_s": 0.0}})
+    with pytest.raises(ValueError, match="goals"):
+        roshan.NavigateEnv(1, config={"goals": 0})
 
 
 def test_evaluation_writes_what_ran(tmp_path):

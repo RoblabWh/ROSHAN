@@ -64,6 +64,22 @@ impl Default for NavConfig {
     }
 }
 
+impl NavConfig {
+    /// Refuses settings the task cannot run with.
+    pub fn check(&self) -> Result<(), String> {
+        let positive = [
+            ("drones", self.drones as f32),
+            ("max_speed_ms", self.max_speed_ms),
+            ("view_m", self.view_m),
+            ("goals", self.goals as f32),
+        ];
+        match positive.iter().find(|(_, v)| !(*v > 0.0 && v.is_finite())) {
+            Some((name, v)) => Err(format!("{name} must be above zero, got {v}")),
+            None => Ok(()),
+        }
+    }
+}
+
 /// Per-drone observation columns.
 pub const AGENT: [&str; 8] = [
     "vx",

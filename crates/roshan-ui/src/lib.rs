@@ -160,6 +160,8 @@ pub struct Options {
     pub settings: Option<String>,
     /// The episode to start on; Restart then replays it instead of moving to the next seed.
     pub seed: Option<u64>,
+    /// Open with the Settings window on this tab (0 simulation, 1 allocate, 2 fly task).
+    pub show_settings: Option<usize>,
 }
 
 #[derive(Debug, Default, Clone, Copy)]
@@ -323,13 +325,9 @@ fn build(
     alloc: AllocConfig,
     seed: u64,
 ) -> Result<Sim, String> {
-    if cfg.dt_s.is_nan() || cfg.dt_s <= 0.0 || cfg.fire_every == 0 {
-        return Err("the tick length and the fire interval must be positive".into());
-    }
+    cfg.check()?;
     if let Some(nav) = navigate {
-        if nav.drones == 0 {
-            return Err("the fly task needs at least one drone".into());
-        }
+        nav.check()?;
         let env = NavEnv::single(scenario.grid, cfg, nav, seed);
         let mut scratch = navigate::Scratch::new(nav.drones);
         env.observe(
@@ -1111,7 +1109,7 @@ impl Viewer<'_> {
             }
             Ok(Outcome::Policy(loaded, path)) => self.attach(loaded, &path),
             Ok(Outcome::Settings(text, path)) => {
-                self.message = match self.forms.load(&text) {
+                self.message = match self.forms.load(&text, &path) {
                     Ok(()) => format!("{} loaded: Apply and restart to use it", path.display()),
                     Err(why) => format!("{}: {why}", path.display()),
                 };
@@ -1319,7 +1317,7 @@ pub fn run(
                     (has_policy && navigating).then(|| "given at start".to_string()),
                 ],
                 prefs,
-                forms: settings::Forms::default(),
+                forms: settings::Forms::opened_on(opts.show_settings),
                 show_fetch: opts.start_on_map,
                 show_help: false,
                 effects: draw::Effects::default(),

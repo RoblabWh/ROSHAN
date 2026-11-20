@@ -1154,16 +1154,34 @@ below can be done while it runs.
 - **Simulation menu**: switch between the scenario and the fly task, switch the fire model,
   choose whether Restart moves on to the next seed (the default) or replays the same one,
   jump to the first validation or test seed, and open Settings.
-- **Settings window**: every parameter of the simulation (`SimConfig`, with the FireSPIN
-  block), the allocate task (`AllocConfig`) and the fly task (`NavConfig`), under its own
-  name. Changed values are bold and can be put back one by one. "Apply and restart" takes
-  them over; values the simulation rejects change nothing. This is where the dynamic task
-  (`random_ignitions`, `random_wind`), the time limit and the spread-rate noise are set.
-  "Load ..." shows the `[sim]`, `[allocate]` and `[navigate]` of an
-  [experiment file](#experiment-files) (missing values are the defaults, as in training),
-  including the `experiment.toml` of a finished run; "Save ..." writes every value of all
-  three tabs as such a file. To train on it, copy its `[sim]` and the task section into a
-  training file (one with `[run]`).
+- **Settings window** (Simulation > Settings, or Ctrl+,): every parameter of the simulation
+  (`SimConfig`, with the FireSPIN block), the allocate task (`AllocConfig`) and the fly task
+  (`NavConfig`), under its own name, in the order the structs declare them and under group
+  headings; a number shows its unit, taken from the ending of the name (`_s`, `_m`, `_l`,
+  `_ms`, `_l_m2`, `_kw_m`, `_cells`). This is where the dynamic task (`random_ignitions`,
+  `random_wind`), the time limit and the spread-rate noise are set.
+  - A value that differs from the default has a white name and can be put back. A parameter
+    that changes nothing right now is dimmed and its tooltip says why (explorer keys without
+    explorers, `preburn_cells` without `preburn_s`, the FireSPIN block under Rothermel, the
+    Rothermel-only keys under FireSPIN); it can still be edited. A tab whose task is not
+    running says so.
+  - The filter box shows the parameters whose name or description holds the text, from all
+    three tabs; "changed only" shows what differs from the defaults.
+  - "Apply and restart" (Ctrl+Enter) counts the values it would change and lists them in its
+    tooltip. The run starts over and goes on as it was (paused stays paused), on the same
+    seed. While the simulation would refuse the values (`plan_on_belief` without a sensor, a
+    time step of zero), the window says why in red and Apply is off.
+  - The edits are a draft: closing the window keeps them, "Revert" drops them. What changes
+    elsewhere meanwhile (the fire model in the menu, the settings a loaded checkpoint brings)
+    is taken over for every value that was not edited, so Apply never undoes it.
+  - "Copy" puts what differs from the defaults on the clipboard as flags for
+    `python -m roshan.eval`: `--sim '{...}' --config '{...}'`.
+  - "Load ..." shows the `[sim]`, `[allocate]` and `[navigate]` of an
+    [experiment file](#experiment-files) (missing values are the defaults, as in training),
+    including the `experiment.toml` of a finished run; "Save ..." writes every value of all
+    three tabs as such a file. It refuses to write over a file that holds other sections (a
+    training or evaluation file). To train on it, copy its `[sim]` and the task section into
+    a training file (one with `[run]`).
 - **Saving.** The window title names the scenario's file, with a star while it has unsaved
   edits; closing the window with unsaved edits asks first. Save writes to the file the
   scenario came from (also one given with `--scenario`), or to a new time-stamped file when
@@ -1199,7 +1217,7 @@ below can be done while it runs.
   ended.
 - **Keyboard**: Space pause, `.` step, R restart, F whole map, 1-7 tools, `[` `]` half or
   double speed, Esc close the inspector, Ctrl+O open, Ctrl+S save, Ctrl+Shift+S save as, F12
-  screenshot. Help > Keyboard and mouse lists them.
+  screenshot, Ctrl+, Settings, Ctrl+Enter apply the settings. Help > Keyboard and mouse lists them.
 - **Remembered between runs** (in the user's data directory, `roshan2/app.ron`): the default
   scenario, recent files, the view settings, the speed, the brush, the last fetch area, and
   the window's place and size. Runs with `auto_close_s` neither read nor write it.

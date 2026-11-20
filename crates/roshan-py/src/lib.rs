@@ -66,15 +66,8 @@ impl NavigateEnv {
                 "need at least one environment and a 3x3 map of positive cell size",
             ));
         }
-        if cfg.drones == 0 || cfg.max_speed_ms <= 0.0 || cfg.view_m <= 0.0 || cfg.goals == 0 {
-            return Err(invalid(
-                "config",
-                "drones, max_speed_ms, view_m and goals must be positive",
-            ));
-        }
-        if sim.dt_s <= 0.0 || sim.fire_every == 0 {
-            return Err(invalid("sim", "dt_s and fire_every must be positive"));
-        }
+        cfg.check().map_err(|e| invalid("config", e))?;
+        sim.check().map_err(|e| invalid("sim", e))?;
         let grid = Grid { nx, ny, cell_m };
         Ok(Self {
             inner: NavVec::new(num_envs, grid, sim, cfg, seed, threads),
@@ -323,12 +316,10 @@ impl AllocateEnv {
     ) -> PyResult<Self> {
         let cfg: AllocConfig = serde_json::from_str(config).map_err(|e| invalid("config", e))?;
         let sim: SimConfig = serde_json::from_str(sim).map_err(|e| invalid("sim", e))?;
-        if num_envs == 0 || sim.dt_s <= 0.0 || sim.fire_every == 0 {
-            return Err(invalid(
-                "sim",
-                "need at least one environment and positive dt_s and fire_every",
-            ));
+        if num_envs == 0 {
+            return Err(invalid("num_envs", "need at least one environment"));
         }
+        sim.check().map_err(|e| invalid("sim", e))?;
         let inner = AllocVec::new(
             num_envs,
             convert::from_py(scenario)?,
@@ -801,6 +792,7 @@ mod ui {
     /// settings: JSON with `sim`, `allocate`, `navigate` objects: the world of an experiment, used as training and
     ///     evaluation use it instead of the viewer's own defaults
     /// seed: the episode to start on
+    /// settings_tab: open with the Settings window on this tab (0 simulation, 1 allocate, 2 fly task)
     /// fetch(lat, lon, width_km, height_km) -> dict             called on a worker thread by "Fetch terrain"
     /// load_settings(path: str) -> str                          Settings > Load: JSON of an experiment file's
     ///     sim, allocate and navigate sections
@@ -812,7 +804,8 @@ mod ui {
     #[pyo3(signature = (scenario=None, policy=None, auto_close_s=None, save=None, fetch=None, start_on_map=false,
                         planner="greedy", navigate=None, nx=35, ny=36, cell_m=10.0, select=None,
                         fire_model="rothermel", open=None, load_policy=None, preburn_s=0.0,
-                        load_settings=None, save_settings=None, path=None, settings=None, seed=None))]
+                        load_settings=None, save_settings=None, path=None, settings=None, seed=None,
+                        settings_tab=None))]
     #[allow(clippy::too_many_arguments)]
     pub fn run_ui(
         py: Python<'_>,
@@ -837,6 +830,7 @@ mod ui {
         path: Option<std::path::PathBuf>,
         settings: Option<String>,
         seed: Option<u64>,
+        settings_tab: Option<usize>,
     ) -> PyResult<(u64, u64, u64)> {
         // Without a scenario or task from the caller, the user's default scenario may be shown.
         let explicit = scenario.is_some() || navigate.is_some();
@@ -951,6 +945,7 @@ mod ui {
             path,
             settings,
             seed,
+            show_settings: settings_tab,
         };
 
         // The window loop runs with the interpreter lock released. Each frame takes it briefly

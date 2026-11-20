@@ -805,6 +805,19 @@ fn bad_scenarios_and_settings_are_refused() {
     ] {
         assert!(AllocVec::new(1, scenario(), SimConfig::default(), bad, 0, 1).is_err());
     }
+    // Settings a world would panic on are refused by name.
+    let mut sim = SimConfig::default();
+    assert!(sim.check().is_ok());
+    sim.spin.dt_s = 0.0;
+    assert_eq!(
+        sim.check().unwrap_err(),
+        "spin.dt_s must be above zero, got 0"
+    );
+    let nav = roshan_core::navigate::NavConfig {
+        view_m: f32::NAN,
+        ..Default::default()
+    };
+    assert!(nav.check().unwrap_err().starts_with("view_m"));
 }
 
 #[test]

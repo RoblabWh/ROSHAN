@@ -9,7 +9,7 @@
 //! the world of a finished run can be looked at.
 
 use crate::draw::Layers;
-use crate::{Area, Outcome, Viewer};
+use crate::{Area, Mode, Outcome, Viewer};
 use eframe::egui;
 use roshan_core::allocate::AllocConfig;
 use roshan_core::navigate::NavConfig;
@@ -73,14 +73,30 @@ impl Prefs {
 pub struct Forms {
     pub open: bool,
     tab: usize,
-    /// The values being edited: simulation, allocate task, fly task.
+    /// The values being edited: simulation, allocate task, fly task. Kept while the window
+    /// is closed, so closing it loses nothing.
     draft: Option<[Value; 3]>,
+    /// What was running when the draft was last compared with it (`rebase`).
+    base: [Value; 3],
+    filter: String,
+    changed_only: bool,
+    /// The experiment file the draft was loaded from.
+    from: Option<PathBuf>,
 }
 
 impl Forms {
+    /// Open on a tab from the start (`Options::show_settings`), or closed.
+    pub(crate) fn opened_on(tab: Option<usize>) -> Self {
+        Self {
+            open: tab.is_some(),
+            tab: tab.unwrap_or(0).min(TABS.len() - 1),
+            ..Self::default()
+        }
+    }
+
     /// Shows the settings of an experiment file (JSON of its sections) in the window. Sections
     /// and values the file does not have are the defaults, as they are for training.
-    pub(crate) fn load(&mut self, text: &str) -> Result<(), String> {
+    pub(crate) fn load(&mut self, text: &str, from: &Path) -> Result<(), String> {
         let file: Value = serde_json::from_str(text).map_err(|e| e.to_string())?;
         let section = |i: usize| {
             file.get(SECTIONS[i])
@@ -95,6 +111,7 @@ impl Forms {
             ])
         };
         self.draft = Some(read().map_err(|e| e.to_string())?);
+        self.from = Some(from.to_path_buf());
         self.open = true;
         Ok(())
     }
@@ -118,11 +135,13 @@ const TAB_HINTS: [&str; 3] = [
     "the task where drones fly to waypoints",
 ];
 
-/// What a parameter is, for its tooltip. `salt` tells the FireSPIN fields (in "….spin") from
-/// the rest. A parameter without an entry fails the test below.
+/// What a parameter is, for its tooltip. `salt` is its section; it tells the FireSPIN fields
+/// (in "sim.spin") from the rest. A parameter without an entry fails the test below.
 fn hint(name: &str, salt: &str) -> &'static str {
     match (name, salt.ends_with(".spin")) {
         ("dt_s", false) => "length of one tick, seconds",
+        ("fire_model", _) => "which fire model runs: Rothermel spread rates or FireSPIN particles",
+        ("spin", _) => "parameters of the FireSPIN particle model; used only while it is chosen",
         ("fire_every", _) => "the fire advances once every this many ticks",
         ("water_crit_l_m2", _) => {
             "lowest water load (L/m²) that stops fire: what a weak front needs"
@@ -238,74 +257,326 @@ fn hint(name: &str, salt: &str) -> &'static str {
     }
 }
 
+/// A configuration as the form holds it: fields in the order they are declared (serde_json's
+/// `preserve_order`), numbers as they are written (0.1, not the f32's 0.10000000149).
 fn json<T: serde::Serialize>(value: &T) -> Value {
-    serde_json::to_value(value).expect("a configuration is plain data")
+    let text = serde_json::to_string(value).expect("a configuration is plain data");
+    serde_json::from_str(&text).expect("it was just written")
 }
 
-/// One row per number and switch of a JSON object; nested objects fold out below. Fields that
-/// differ from `default` are bold and can be put back. Text fields are skipped: the one there
-/// is, the fire model, has its own menu entry.
-fn form(ui: &mut egui::Ui, value: &mut Value, default: &Value, salt: &str) {
+/// Group headings: (section, the key the group starts with, title). Keys follow in the order
+/// the struct declares them, so a new parameter lands in the group it is declared in. For a
+/// nested section the key is its name and the title that of its fold.
+const HEADINGS: [(&str, &str, &str); 18] = [
+    ("sim", "dt_s", "Clock"),
+    ("sim", "water_crit_l_m2", "Water"),
+    ("sim", "sheltered_waf", "Fire"),
+    ("sim", "spin", "FireSPIN particle model"),
+    ("sim.spin", "dt_s", "Particles"),
+    ("sim.spin", "conv_y_st", "Convection"),
+    ("sim.spin", "rad_y_st", "Radiation"),
+    ("sim.spin", "generic_burn_s", "Cells without land cover"),
+    ("allocate", "max_speed_ms", "Drone"),
+    ("allocate", "service_s", "Ground station"),
+    ("allocate", "arrive_m", "Flight"),
+    ("allocate", "sense_m", "Finding the fire"),
+    ("allocate", "block_cells", "Targets"),
+    ("allocate", "time_limit_s", "Episode"),
+    ("navigate", "drones", "Drones"),
+    ("navigate", "view_m", "Distances"),
+    ("navigate", "goals", "Episode"),
+    ("navigate", "near_drone", "Reward bands"),
+];
+
+fn heading(salt: &str, name: &str) -> Option<&'static str> {
+    let found = HEADINGS.iter().find(|(s, n, _)| (*s, *n) == (salt, name));
+    found.map(|h| h.2)
+}
+
+/// The unit shown after a number, from the ending of the parameter's name.
+fn unit(name: &str) -> &'static str {
+    // Longer endings first: `_kw_m` is not metres.
+    const UNITS: [(&str, &str); 7] = [
+        ("_l_m2", " L/m²"),
+        ("_kw_m", " kW/m"),
+        ("_cells", " cells"),
+        ("_ms", " m/s"),
+        ("_s", " s"),
+        ("_m", " m"),
+        ("_l", " L"),
+    ];
+    let found = UNITS.iter().find(|(ending, _)| name.ends_with(ending));
+    found.map_or("", |u| u.1)
+}
+
+/// What a text parameter can be.
+/// ponytail: the one text parameter there is. A new one needs its choices here; a test fails
+/// without them.
+fn choices(name: &str) -> &'static [&'static str] {
+    match name {
+        "fire_model" => &["rothermel", "firespin"],
+        _ => &[],
+    }
+}
+
+/// Why a parameter changes nothing right now, given the tab's values (`root`); None when it
+/// does. Such rows are dimmed but stay editable.
+fn idle(salt: &str, name: &str, root: &Value) -> Option<&'static str> {
+    let firespin = root["fire_model"] == "firespin";
+    let rothermel_only = matches!(name, "ros_noise" | "sheltered_waf" | "water_limit_kw_m")
+        || name.starts_with("water_per_mw");
+    match (salt, name) {
+        ("sim.spin", _) if !firespin => Some("the FireSPIN model is not chosen"),
+        ("sim", _) if firespin && rothermel_only => Some("the FireSPIN model does not use it"),
+        ("allocate", "explorer_sense_m" | "explorers_follow")
+            if root["explorers_per_station"] == 0 =>
+        {
+            Some("explorers_per_station is 0")
+        }
+        ("allocate", "preburn_cells") if root["preburn_s"] == 0.0 => Some("preburn_s is 0"),
+        _ => None,
+    }
+}
+
+/// Why a whole tab changes nothing right now.
+fn idle_tab(tab: usize, mode: Mode) -> Option<&'static str> {
+    match (tab, mode) {
+        (1, Mode::Navigate) => Some("The fly task is running: these apply to a scenario."),
+        (1, Mode::Fire) => Some(
+            "This scenario has no ground station, so no drones: place one with the station tool.",
+        ),
+        (2, Mode::Fire | Mode::Allocate) => {
+            Some("The fly task is not running: switch to it in the Simulation menu.")
+        }
+        _ => None,
+    }
+}
+
+/// The filter box: `filter` is found in the parameter's name or in its description.
+fn matches(name: &str, hint: &str, filter: &str) -> bool {
+    let filter = filter.trim().to_lowercase();
+    name.contains(&filter) || hint.to_lowercase().contains(&filter)
+}
+
+/// Takes over what changed in the running world (`was` to `now`) for every value the user
+/// has not edited, so that Apply never undoes a change made elsewhere (the fire model in the
+/// menu, a loaded checkpoint's settings).
+fn rebase(draft: &mut Value, was: &Value, now: &Value) {
+    if let Value::Object(fields) = draft {
+        for (name, v) in fields.iter_mut() {
+            rebase(v, &was[name.as_str()], &now[name.as_str()]);
+        }
+    } else if draft == was {
+        *draft = now.clone();
+    }
+}
+
+/// What Apply would change, one line per value: "pads 8 → 16".
+fn changes(draft: &Value, now: &Value, prefix: &str) -> Vec<String> {
+    let Value::Object(fields) = draft else {
+        return vec![];
+    };
+    let mut out = vec![];
+    for (name, v) in fields {
+        let old = &now[name.as_str()];
+        if v.is_object() {
+            out.extend(changes(v, old, &format!("{prefix}{name}.")));
+        } else if v != old {
+            out.push(format!("{prefix}{name} {old} → {v}"));
+        }
+    }
+    out
+}
+
+/// The part of a configuration that differs from `default`, as an object of its own.
+fn differing(value: &Value, default: &Value) -> Value {
+    let mut out = serde_json::Map::new();
+    for (name, v) in value.as_object().into_iter().flatten() {
+        let standard = &default[name.as_str()];
+        let part = if v.is_object() {
+            differing(v, standard)
+        } else {
+            v.clone()
+        };
+        if part != *standard && part != json_value!({}) {
+            out.insert(name.clone(), part);
+        }
+    }
+    Value::Object(out)
+}
+
+/// The draft as flags for `python -m roshan.eval`: what differs from the defaults in the
+/// simulation and in the allocate task. Empty when nothing does.
+fn overrides(draft: &[Value; 3], defaults: &[Value; 3]) -> String {
+    let flag = |(name, i): (&str, usize)| {
+        let part = differing(&draft[i], &defaults[i]);
+        (part != json_value!({})).then(|| format!("{name} '{part}'"))
+    };
+    let flags: Vec<String> = [("--sim", 0), ("--config", 1)]
+        .into_iter()
+        .filter_map(flag)
+        .collect();
+    flags.join(" ")
+}
+
+/// Puts every number and switch back to its default; text (the fire model) stays.
+fn to_default(value: &mut Value, default: &Value) {
+    if let Value::Object(fields) = value {
+        for (name, v) in fields.iter_mut() {
+            to_default(v, &default[name.as_str()]);
+        }
+    } else if !value.is_string() {
+        *value = default.clone();
+    }
+}
+
+/// The draft as configurations, or why the simulation would refuse it.
+fn parse(draft: &[Value; 3]) -> Result<(SimConfig, AllocConfig, NavConfig), String> {
+    fn read<T: serde::de::DeserializeOwned>(draft: &[Value; 3], i: usize) -> Result<T, String> {
+        serde_json::from_value(draft[i].clone()).map_err(|e| format!("[{}] {e}", SECTIONS[i]))
+    }
+    let (sim, alloc, nav): (SimConfig, AllocConfig, NavConfig) =
+        (read(draft, 0)?, read(draft, 1)?, read(draft, 2)?);
+    sim.check()?;
+    alloc.check()?;
+    nav.check()?;
+    Ok((sim, alloc, nav))
+}
+
+/// Which rows the form shows.
+struct View<'a> {
+    filter: &'a str,
+    changed_only: bool,
+    /// The tab's values as they were at the start of the frame, for `idle`.
+    root: &'a Value,
+}
+
+const LABEL_W: f32 = 190.0;
+const VALUE_W: f32 = 96.0;
+
+/// The rows of a JSON object under their group headings; nested objects fold out below.
+fn form(ui: &mut egui::Ui, value: &mut Value, default: &Value, salt: &str, view: &View) {
     let Value::Object(fields) = value else { return };
-    egui::Grid::new(salt)
-        .num_columns(3)
-        .striped(true)
-        .show(ui, |ui| {
-            for (name, v) in fields.iter_mut() {
-                let standard = &default[name.as_str()];
-                if !(v.is_number() || v.is_boolean()) {
-                    continue;
+    let mut groups: Vec<(&str, Vec<String>)> = vec![("", vec![])];
+    for (name, v) in fields.iter().filter(|(_, v)| !v.is_object()) {
+        if let Some(title) = heading(salt, name) {
+            groups.push((title, vec![]));
+        }
+        let changed = *v != default[name.as_str()];
+        if matches(name, hint(name, salt), view.filter) && (changed || !view.changed_only) {
+            groups.last_mut().unwrap().1.push(name.clone());
+        }
+    }
+    for (title, names) in groups.iter().filter(|g| !g.1.is_empty()) {
+        ui.add_space(6.0);
+        if !title.is_empty() {
+            ui.strong(*title);
+        }
+        egui::Grid::new((salt, *title))
+            .num_columns(3)
+            .striped(true)
+            .show(ui, |ui| {
+                for name in names {
+                    let (v, standard) = (&mut fields[name.as_str()], &default[name.as_str()]);
+                    row(ui, name, v, standard, salt, view.root);
+                    ui.end_row();
                 }
-                let differs = v != standard;
-                let label = egui::RichText::new(name);
-                ui.label(if differs { label.strong() } else { label })
-                    .on_hover_text(hint(name, salt));
-                if let Value::Bool(on) = v {
-                    ui.checkbox(on, "");
-                } else if let Some(mut whole) = v.as_u64() {
-                    if ui.add(egui::DragValue::new(&mut whole)).changed() {
-                        *v = whole.into();
-                    }
-                } else {
-                    let mut x = v.as_f64().unwrap_or(0.0);
-                    let lowest = if standard.as_f64() < Some(0.0) {
-                        f64::MIN
-                    } else {
-                        0.0
-                    };
-                    let speed = (x.abs() * 0.01).max(0.001);
-                    let field = egui::DragValue::new(&mut x)
-                        .speed(speed)
-                        .range(lowest..=f64::MAX)
-                        .max_decimals(4);
-                    if ui.add(field).changed() {
-                        *v = x.into();
-                    }
-                }
-                if differs {
-                    let back = ui
-                        .small_button("⟲")
-                        .on_hover_text(format!("back to {standard}"));
-                    if back.clicked() {
-                        *v = standard.clone();
-                    }
-                } else {
-                    ui.label("");
-                }
-                ui.end_row();
+            });
+    }
+    for (name, v) in fields.iter_mut().filter(|(_, v)| v.is_object()) {
+        let inner = format!("{salt}.{name}");
+        let running = idle(&inner, "", view.root).is_none();
+        // While rows are being searched for, a fold must not hide them.
+        let searching = !view.filter.trim().is_empty() || view.changed_only;
+        ui.add_space(6.0);
+        egui::CollapsingHeader::new(heading(salt, name).unwrap_or(name))
+            .id_salt(&inner)
+            .default_open(running)
+            .open(searching.then_some(true))
+            .show_unindented(ui, |ui| {
+                form(ui, v, &default[name.as_str()], &inner, view);
+            })
+            .header_response
+            .on_hover_text(hint(name, salt));
+    }
+}
+
+/// One parameter: its name, its value with the unit, and a way back to the default.
+fn row(ui: &mut egui::Ui, name: &str, v: &mut Value, standard: &Value, salt: &str, root: &Value) {
+    let differs = v != standard;
+    let idle = idle(salt, name, root);
+    let mut tip = format!("{}\ndefault: {standard}", hint(name, salt));
+    if let Some(why) = idle {
+        tip += &format!("\nno effect right now: {why}");
+    }
+    let label = egui::RichText::new(name);
+    let label = match (idle, differs) {
+        (Some(_), _) => label.weak(),
+        (None, true) => label.strong(),
+        (None, false) => label,
+    };
+    ui.horizontal(|ui| {
+        ui.set_min_width(LABEL_W);
+        ui.label(label).on_hover_text(&tip);
+    });
+    let size = egui::vec2(VALUE_W, ui.spacing().interact_size.y);
+    if let Value::Bool(on) = v {
+        ui.checkbox(on, "").on_hover_text(&tip);
+    } else if let Value::String(chosen) = v {
+        ui.horizontal(|ui| {
+            for choice in choices(name) {
+                ui.radio_value(chosen, choice.to_string(), *choice)
+                    .on_hover_text(&tip);
             }
         });
-    for (name, v) in fields.iter_mut().filter(|(_, v)| v.is_object()) {
-        ui.collapsing(name.clone(), |ui| {
-            form(ui, v, &default[name.as_str()], &format!("{salt}.{name}"));
-        });
+    } else if let Some(mut whole) = v.as_u64() {
+        let field = egui::DragValue::new(&mut whole)
+            .min_size(size)
+            .suffix(unit(name));
+        if ui.add(field).on_hover_text(&tip).changed() {
+            *v = whole.into();
+        }
+    } else {
+        let mut x = v.as_f64().unwrap_or(0.0);
+        let lowest = if standard.as_f64() < Some(0.0) {
+            f64::MIN
+        } else {
+            0.0
+        };
+        let speed = (x.abs() * 0.01).max(0.001);
+        let field = egui::DragValue::new(&mut x)
+            .min_size(size)
+            .suffix(unit(name))
+            .speed(speed)
+            .range(lowest..=f64::MAX)
+            .max_decimals(4)
+            // As short as the number allows: 0.7, not 0.700.
+            .custom_formatter(|x, _| (x as f32).to_string());
+        if ui.add(field).on_hover_text(&tip).changed() {
+            *v = x.into();
+        }
+    }
+    if differs {
+        // Not reachable with Tab: Enter on it would undo the value just typed.
+        let back = egui::Button::new("⟲")
+            .small()
+            .frame(false)
+            .sense(egui::Sense::CLICK);
+        if ui
+            .add(back)
+            .on_hover_text(format!("back to the default, {standard}"))
+            .clicked()
+        {
+            *v = standard.clone();
+        }
+    } else {
+        ui.label("");
     }
 }
 
 impl Viewer<'_> {
-    pub(crate) fn settings_window(&mut self, ctx: &egui::Context) {
+    pub(crate) fn settings_window(&mut self, ctx: &egui::Context, mode: Mode) {
         if !self.forms.open {
-            self.forms.draft = None;
             return;
         }
         let defaults = [
@@ -313,19 +584,43 @@ impl Viewer<'_> {
             json(&AllocConfig::default()),
             json(&NavConfig::default()),
         ];
-        let shared = &self.shared;
-        let draft = self.forms.draft.get_or_insert_with(|| {
-            let s = shared.lock().unwrap();
+        let now = {
+            let s = self.shared.lock().unwrap();
             [json(&s.cfg), json(&s.alloc), json(&s.nav)]
-        });
-        let tab = &mut self.forms.tab;
-        let (mut open, mut apply) = (true, false);
+        };
+        let Forms {
+            tab,
+            draft,
+            base,
+            filter,
+            changed_only,
+            from,
+            ..
+        } = &mut self.forms;
+        match draft {
+            Some(draft) => {
+                for i in 0..3 {
+                    rebase(&mut draft[i], &base[i], &now[i]);
+                }
+            }
+            None => *draft = Some(now.clone()),
+        }
+        *base = now.clone();
+        let draft = draft.as_mut().expect("just made");
+        let problem = parse(draft).err();
+        let pending: Vec<String> = (0..3)
+            .flat_map(|i| changes(&draft[i], &now[i], ""))
+            .collect();
+        let can_apply = problem.is_none() && !pending.is_empty();
         let (can_load, can_save) = (self.load_settings.is_some(), self.save_settings.is_some());
-        // Set by the buttons: read a file; write these sections (JSON).
-        let (mut load, mut save) = (false, None);
+        // Set by the buttons: apply; read a file; write these sections (JSON); copied text.
+        let mut revert = false;
+        let (mut open, mut apply, mut load, mut save, mut copied) =
+            (true, false, false, None, None);
         egui::Window::new("Settings")
             .open(&mut open)
-            .default_width(340.0)
+            .default_size([450.0, 700.0])
+            .min_width(440.0)
             .show(ctx, |ui| {
                 ui.horizontal(|ui| {
                     for (i, name) in TABS.iter().enumerate() {
@@ -333,52 +628,145 @@ impl Viewer<'_> {
                             .on_hover_text(TAB_HINTS[i]);
                     }
                 });
-                ui.separator();
-                egui::ScrollArea::vertical()
-                    .max_height(520.0)
-                    .show(ui, |ui| {
-                        form(ui, &mut draft[*tab], &defaults[*tab], TABS[*tab]);
-                    });
-                ui.separator();
                 ui.horizontal(|ui| {
-                    apply = ui
-                        .button("Apply and restart")
-                        .on_hover_text("use these values; the run starts over, paused")
-                        .clicked();
+                    let find = egui::TextEdit::singleline(filter)
+                        .hint_text("filter")
+                        .desired_width(150.0);
+                    ui.add(find).on_hover_text(
+                        "show only the parameters whose name or description holds this text, \
+                         from all three tabs",
+                    );
+                    ui.checkbox(changed_only, "changed only")
+                        .on_hover_text("show only the values that differ from the defaults");
                     if ui
                         .button("All to default")
-                        .on_hover_text("put every value on this tab back")
+                        .on_hover_text("put every number and switch on this tab back")
                         .clicked()
                     {
-                        draft[*tab] = defaults[*tab].clone();
-                    }
-                    load = ui
-                        .add_enabled(can_load, egui::Button::new("Load ..."))
-                        .on_hover_text(
-                            "show the [sim], [allocate] and [navigate] of an experiment file \
-                             (one written by hand, by this window, or the experiment.toml of a run)",
-                        )
-                        .clicked();
-                    if ui
-                        .add_enabled(can_save, egui::Button::new("Save ..."))
-                        .on_hover_text(
-                            "write every value of all three tabs as the [sim], [allocate] and \
-                             [navigate] of an experiment file",
-                        )
-                        .clicked()
-                    {
-                        let sections = SECTIONS.iter().zip(draft.iter());
-                        let all = sections.map(|(name, values)| (name.to_string(), values.clone()));
-                        save = Some(Value::Object(all.collect()).to_string());
+                        to_default(&mut draft[*tab], &defaults[*tab]);
                     }
                 });
-                ui.small(
-                    "Names are the parameters' own: _s seconds, _m metres, _l litres, _ms m/s.",
-                );
+                ui.separator();
+                egui::Panel::bottom("settings_actions")
+                    .frame(egui::Frame::NONE)
+                    .show(ui, |ui| {
+                        ui.add_space(4.0);
+                        if let Some(why) = &problem {
+                            let why = egui::RichText::new(why).color(egui::Color32::LIGHT_RED);
+                            ui.add(egui::Label::new(why).wrap());
+                        }
+                        if let Some(path) = from.as_ref() {
+                            let text = format!("loaded from {}", path.display());
+                            let text = egui::RichText::new(text).small();
+                            ui.add(egui::Label::new(text).truncate());
+                        }
+                        egui::Sides::new().show(
+                            ui,
+                            |ui| {
+                                load = ui
+                                    .add_enabled(can_load, egui::Button::new("Load ..."))
+                                    .on_hover_text(
+                                        "show the [sim], [allocate] and [navigate] of an \
+                                         experiment file (one written by hand, by this window, \
+                                         or the experiment.toml of a run)",
+                                    )
+                                    .clicked();
+                                if ui
+                                    .add_enabled(can_save, egui::Button::new("Save ..."))
+                                    .on_hover_text(
+                                        "write every value of all three tabs as the [sim], \
+                                         [allocate] and [navigate] of an experiment file",
+                                    )
+                                    .clicked()
+                                {
+                                    let sections = SECTIONS.iter().zip(draft.iter());
+                                    let all = sections.map(|(n, v)| (n.to_string(), v.clone()));
+                                    save = Some(Value::Object(all.collect()).to_string());
+                                }
+                                if ui
+                                    .button("Copy")
+                                    .on_hover_text(
+                                        "copy what differs from the defaults as --sim and \
+                                         --config flags for python -m roshan.eval",
+                                    )
+                                    .clicked()
+                                {
+                                    copied = Some(overrides(draft, &defaults));
+                                }
+                            },
+                            |ui| {
+                                let count = match pending.len() {
+                                    0 => String::new(),
+                                    n => format!(" ({n})"),
+                                };
+                                let button = egui::Button::new(format!("Apply and restart{count}"))
+                                    .selected(can_apply);
+                                let tip = format!(
+                                    "use these values; the run starts over (Ctrl+Enter)\n{}",
+                                    pending.join("\n")
+                                );
+                                apply = ui
+                                    .add_enabled(can_apply, button)
+                                    .on_hover_text(&tip)
+                                    .on_disabled_hover_text(match &problem {
+                                        Some(why) => why.as_str(),
+                                        None => "nothing differs from what is running",
+                                    })
+                                    .clicked();
+                                let back = egui::Button::new("Revert");
+                                if ui
+                                    .add_enabled(!pending.is_empty(), back)
+                                    .on_hover_text("drop the edits and show what is running now")
+                                    .clicked()
+                                {
+                                    revert = true;
+                                }
+                            },
+                        );
+                    });
+                egui::ScrollArea::vertical()
+                    .auto_shrink(false)
+                    .show(ui, |ui| {
+                        // A filter looks through all three tabs.
+                        let all = !filter.trim().is_empty();
+                        for i in (0..3).filter(|&i| all || i == *tab) {
+                            if all {
+                                ui.add_space(6.0);
+                                ui.label(egui::RichText::new(TABS[i]).heading());
+                            }
+                            if let Some(note) = idle_tab(i, mode) {
+                                ui.add(egui::Label::new(egui::RichText::new(note).weak()).wrap());
+                            }
+                            let root = draft[i].clone();
+                            let view = View {
+                                filter: filter.as_str(),
+                                changed_only: *changed_only,
+                                root: &root,
+                            };
+                            form(ui, &mut draft[i], &defaults[i], SECTIONS[i], &view);
+                        }
+                    });
             });
+        let enter =
+            |i: &mut egui::InputState| i.consume_key(egui::Modifiers::COMMAND, egui::Key::Enter);
+        apply |= can_apply && ctx.input_mut(enter);
+        let name = match from.as_ref().and_then(|p| p.file_stem()) {
+            Some(stem) => format!("{}-edited.toml", stem.to_string_lossy()),
+            None => "settings.toml".to_string(),
+        };
+        if revert {
+            (*draft, *from) = (now, None);
+        }
         self.forms.open = open;
         if apply {
-            self.apply_settings();
+            self.apply_settings(&pending);
+        }
+        if let Some(text) = copied {
+            self.message = match text.is_empty() {
+                true => "nothing differs from the defaults".to_string(),
+                false => format!("copied: {text}"),
+            };
+            ctx.copy_text(text);
         }
         if let (true, Some(read)) = (load, self.load_settings.clone()) {
             self.spawn("choose an experiment file ...", move || {
@@ -390,7 +778,7 @@ impl Viewer<'_> {
         }
         if let (Some(text), Some(write)) = (save, self.save_settings.clone()) {
             self.spawn("choose where to save ...", move || {
-                let Some(path) = dialog().set_file_name("settings.toml").save_file() else {
+                let Some(path) = dialog().set_file_name(name).save_file() else {
                     return Ok(Outcome::Cancelled);
                 };
                 write(&path, &text).map(Outcome::Message)
@@ -398,34 +786,25 @@ impl Viewer<'_> {
         }
     }
 
-    /// Puts the edited values to use; anything the simulation rejects changes nothing.
-    fn apply_settings(&mut self) {
-        let Some([sim, alloc, nav]) = self.forms.draft.clone() else {
+    /// Puts the edited values to use; anything the simulation rejects changes nothing. The
+    /// run goes on as it was: paused stays paused.
+    fn apply_settings(&mut self, pending: &[String]) {
+        let Some(draft) = &self.forms.draft else {
             return;
-        };
-        let parsed = || -> Result<(SimConfig, AllocConfig, NavConfig), serde_json::Error> {
-            Ok((
-                serde_json::from_value(sim)?,
-                serde_json::from_value(alloc)?,
-                serde_json::from_value(nav)?,
-            ))
         };
         let mut s = self.shared.lock().unwrap();
         let before = (s.cfg, s.alloc, s.nav);
-        let applied = parsed().map_err(|e| e.to_string()).and_then(|new| {
+        let applied = parse(draft).and_then(|new| {
             (s.cfg, s.alloc, s.nav) = new;
             s.restart()
         });
-        match applied {
-            Ok(()) => {
-                s.paused = true;
-                self.message = "settings applied".to_string();
-            }
+        self.message = match applied {
+            Ok(()) => format!("applied: {}", pending.join(", ")),
             Err(why) => {
                 (s.cfg, s.alloc, s.nav) = before;
-                self.message = format!("not applied: {why}");
+                format!("not applied: {why}")
             }
-        }
+        };
     }
 }
 
@@ -463,14 +842,183 @@ mod tests {
             for (name, v) in value.as_object().unwrap() {
                 if v.is_object() {
                     check(v, &format!("{salt}.{name}"));
-                } else if !v.is_string() {
-                    assert!(!hint(name, salt).is_empty(), "no tooltip for {salt}.{name}");
+                }
+                assert!(!hint(name, salt).is_empty(), "no tooltip for {salt}.{name}");
+                if let Some(text) = v.as_str() {
+                    assert!(
+                        choices(name).contains(&text),
+                        "no choices for {salt}.{name}"
+                    );
                 }
             }
         }
-        check(&json(&SimConfig::default()), TABS[0]);
-        check(&json(&AllocConfig::default()), TABS[1]);
-        check(&json(&NavConfig::default()), TABS[2]);
+        check(&json(&SimConfig::default()), SECTIONS[0]);
+        check(&json(&AllocConfig::default()), SECTIONS[1]);
+        check(&json(&NavConfig::default()), SECTIONS[2]);
+    }
+
+    fn defaults() -> [Value; 3] {
+        [
+            json(&SimConfig::default()),
+            json(&AllocConfig::default()),
+            json(&NavConfig::default()),
+        ]
+    }
+
+    /// Numbers read as they are written, and fields come in the order they are declared.
+    #[test]
+    fn the_form_shows_clean_numbers_in_declared_order() {
+        let [sim, alloc, _] = defaults();
+        assert_eq!(sim["dt_s"], 0.1);
+        assert_eq!(alloc["drop_efficiency"], 0.7);
+        let names: Vec<&String> = alloc.as_object().unwrap().keys().collect();
+        assert_eq!(names[..3], ["max_speed_ms", "tank_l", "drop_l"]);
+    }
+
+    /// Every heading names a parameter that exists, and every section starts with one.
+    #[test]
+    fn headings_name_real_parameters() {
+        let [sim, alloc, nav] = defaults();
+        let sections = [
+            ("sim", &sim),
+            ("sim.spin", &sim["spin"]),
+            ("allocate", &alloc),
+            ("navigate", &nav),
+        ];
+        for (salt, name, _) in HEADINGS {
+            let (_, values) = sections.iter().find(|s| s.0 == salt).expect(salt);
+            assert!(values.get(name).is_some(), "{salt}.{name} does not exist");
+        }
+        for (salt, values) in sections {
+            let first = values.as_object().unwrap().keys().next().unwrap();
+            assert!(heading(salt, first).is_some(), "{salt} starts without one");
+        }
+    }
+
+    #[test]
+    fn units_come_from_the_ending_of_the_name() {
+        let cases = [
+            ("water_crit_l_m2", " L/m²"),
+            ("water_limit_kw_m", " kW/m"),
+            ("max_speed_ms", " m/s"),
+            ("preburn_cells", " cells"),
+            ("endurance_s", " s"),
+            ("sense_m", " m"),
+            ("tank_l", " L"),
+            ("pads", ""),
+            ("max_targets", ""),
+            ("conv_y_lim", ""),
+        ];
+        for (name, expected) in cases {
+            assert_eq!(unit(name), expected, "{name}");
+        }
+    }
+
+    /// What changed elsewhere reaches the draft; what the user edited stays.
+    #[test]
+    fn the_draft_follows_the_world_but_keeps_edits() {
+        let was = defaults();
+        let mut draft = was.clone();
+        draft[1]["pads"] = 16.into();
+        draft[0]["spin"]["lt_m"] = 90.0.into();
+        let mut now = was.clone();
+        now[0]["fire_model"] = "firespin".into(); // switched in the Simulation menu
+        now[0]["spin"]["lt_m"] = 70.0.into();
+        now[1]["pads"] = 4.into();
+        now[1]["tank_l"] = 250.0.into(); // a checkpoint's task
+        for i in 0..3 {
+            rebase(&mut draft[i], &was[i], &now[i]);
+        }
+        assert_eq!(draft[0]["fire_model"], "firespin");
+        assert_eq!(draft[1]["tank_l"], 250.0);
+        assert_eq!(
+            (&draft[1]["pads"], &draft[0]["spin"]["lt_m"]),
+            (&16.into(), &90.0.into())
+        );
+        let pending: Vec<String> = (0..3)
+            .flat_map(|i| changes(&draft[i], &now[i], ""))
+            .collect();
+        assert_eq!(pending, ["spin.lt_m 70.0 → 90.0", "pads 4 → 16"]);
+    }
+
+    /// The window says why a draft would be refused before Apply is pressed.
+    #[test]
+    fn a_draft_the_simulation_refuses_says_why() {
+        let good = defaults();
+        assert!(parse(&good).is_ok());
+        let broken = |i: usize, path: &[&str], v: Value| {
+            let mut draft = good.clone();
+            let mut at = &mut draft[i];
+            for name in path {
+                at = &mut at[*name];
+            }
+            *at = v;
+            parse(&draft).unwrap_err()
+        };
+        let why = broken(1, &["plan_on_belief"], true.into());
+        assert!(why.contains("plan_on_belief needs a sensor"), "{why}");
+        let why = broken(0, &["spin", "dt_s"], 0.0.into());
+        assert!(why.contains("spin.dt_s must be above zero"), "{why}");
+        let why = broken(2, &["goals"], 0.into());
+        assert!(why.contains("goals must be above zero"), "{why}");
+        let why = broken(1, &["pads"], 5_000_000_000u64.into());
+        assert!(why.starts_with("[allocate]"), "{why}");
+        let why = broken(0, &["fire_model"], "campfire".into());
+        assert!(why.starts_with("[sim]"), "{why}");
+    }
+
+    #[test]
+    fn parameters_without_effect_are_told_apart() {
+        let [mut sim, mut alloc, _] = defaults();
+        assert!(idle("sim.spin", "lt_m", &sim).is_some());
+        assert!(idle("sim", "ros_noise", &sim).is_none());
+        sim["fire_model"] = "firespin".into();
+        assert!(idle("sim.spin", "lt_m", &sim).is_none());
+        assert!(idle("sim", "water_per_mw_grass_l_m2", &sim).is_some());
+        assert!(idle("sim", "water_crit_l_m2", &sim).is_none());
+        assert!(idle("allocate", "explorers_follow", &alloc).is_some());
+        assert!(idle("allocate", "preburn_cells", &alloc).is_some());
+        assert!(idle("allocate", "sense_m", &alloc).is_none());
+        (alloc["explorers_per_station"], alloc["preburn_s"]) = (2.into(), 600.0.into());
+        assert!(idle("allocate", "explorers_follow", &alloc).is_none());
+        assert!(idle("allocate", "preburn_cells", &alloc).is_none());
+    }
+
+    #[test]
+    fn the_filter_finds_by_name_or_description() {
+        let found = |name: &str, filter: &str| matches(name, hint(name, "allocate"), filter);
+        assert!(found("sense_m", "sens") && found("sense_m", " Sees the fire "));
+        assert!(found("explorer_sense_m", "sense") && !found("pads", "sense"));
+        assert!(found("pads", ""));
+    }
+
+    /// Copy gives flags the evaluation accepts: only what differs, nested sections kept.
+    #[test]
+    fn copy_gives_the_differences_as_flags() {
+        let standard = defaults();
+        let mut draft = standard.clone();
+        assert_eq!(overrides(&draft, &standard), "");
+        draft[1]["explorers_per_station"] = 4.into();
+        draft[1]["plan_on_belief"] = true.into();
+        draft[2]["goals"] = 9.into(); // the fly task is not part of an evaluation
+        assert_eq!(
+            overrides(&draft, &standard),
+            r#"--config '{"explorers_per_station":4,"plan_on_belief":true}'"#
+        );
+        draft[0]["spin"]["lt_m"] = 90.0.into();
+        let text = overrides(&draft, &standard);
+        assert!(
+            text.starts_with(r#"--sim '{"spin":{"lt_m":90.0}}' --config"#),
+            "{text}"
+        );
+        let sim: Value = serde_json::from_str(r#"{"spin":{"lt_m":90.0}}"#).unwrap();
+        assert!(serde_json::from_value::<SimConfig>(sim).is_ok());
+
+        // "All to default" puts numbers and switches back and leaves the fire model alone.
+        draft[0]["fire_model"] = "firespin".into();
+        to_default(&mut draft[0], &standard[0]);
+        assert_eq!(draft[0]["spin"], standard[0]["spin"]);
+        assert_eq!(draft[0]["fire_model"], "firespin");
     }
 
     /// A loaded file shows as defaults plus its values, and a name the simulation does not
@@ -479,13 +1027,17 @@ mod tests {
     fn experiment_files_survive_the_window() {
         let file = json_value!({"allocate": {"tank_l": 250.0}, "sim": {"spin": {"lt_m": 90.0}}});
         let mut forms = Forms::default();
-        forms.load(&file.to_string()).unwrap();
+        forms.load(&file.to_string(), Path::new("a.toml")).unwrap();
         let draft = forms.draft.clone().unwrap();
         assert_eq!(draft[1]["drop_l"], json(&AllocConfig::default())["drop_l"]);
         assert_eq!(draft[1]["tank_l"], 250.0);
         assert_eq!(draft[0]["spin"]["lt_m"], 90.0);
         assert_eq!(draft[2], json(&NavConfig::default()));
-        assert!(forms.load(r#"{"allocate": {"tank": 1}}"#).is_err());
+        assert!(
+            forms
+                .load(r#"{"allocate": {"tank": 1}}"#, Path::new("b.toml"))
+                .is_err()
+        );
         assert_eq!(forms.draft, Some(draft));
     }
 

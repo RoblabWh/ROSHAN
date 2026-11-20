@@ -237,6 +237,11 @@ def world(path):
 def save_world(path, text):
     """Writes the viewer's settings (JSON of its three sections, every value)."""
     path = Path(path).with_suffix(".toml")
+    if path.exists():
+        with open(path, "rb") as f:
+            other = sorted(set(tomllib.load(f)) - set(WORLD))
+        if other:  # a training or evaluation file: writing over it would drop those sections
+            raise ValueError(f"{path.name} also holds {', '.join(f'[{k}]' for k in other)}: save under another name")
     path.write_text("# Settings saved from the viewer. For training, copy [sim] and the task into a file with [run].\n\n"
                     + dumps(json.loads(text)))
     return f"saved {path}"

@@ -87,6 +87,23 @@ impl Default for SimConfig {
     }
 }
 
+impl SimConfig {
+    /// Refuses settings no world can run with (`World::new` would panic on them).
+    pub fn check(&self) -> Result<(), String> {
+        let positive = [
+            ("dt_s", self.dt_s),
+            ("fire_every", self.fire_every as f32),
+            ("spin.dt_s", self.spin.dt_s),
+            ("spin.lt_m", self.spin.lt_m),
+            ("spin.conv_tau_mem_s", self.spin.conv_tau_mem_s),
+        ];
+        match positive.iter().find(|(_, v)| !(*v > 0.0 && v.is_finite())) {
+            Some((name, v)) => Err(format!("{name} must be above zero, got {v}")),
+            None => Ok(()),
+        }
+    }
+}
+
 /// Wind from `t_s` onward: speed at 10 m above ground and the unit vector it blows towards
 /// (grid coordinates).
 #[derive(Clone, Copy, Debug, PartialEq)]
