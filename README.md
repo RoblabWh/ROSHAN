@@ -1,4 +1,4 @@
-# ROSHAN2
+# ROSHAN
 
 Wildfire simulation and multi-UAV reinforcement learning. A reimplementation of ROSHAN
 (master thesis, "Hierarchical Reinforcement Learning for autonomous UAV-Based Fire

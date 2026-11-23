@@ -1,4 +1,4 @@
-# ROSHAN2
+# ROSHAN
 
 Wildfire simulation and multi-UAV reinforcement learning platform: a Rust simulator with
 Python bindings, training and evaluation in PyTorch, and an egui viewer. `README.md` lists
