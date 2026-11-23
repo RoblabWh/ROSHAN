@@ -1,4 +1,4 @@
-# ROSHAN2: how the systems work
+# ROSHAN: how the systems work
 
 The reference for what the system implements **today**. For running things, see the
 [README](../README.md). For the plan this follows and where the implementation departs from
@@ -1285,7 +1285,7 @@ below can be done while it runs.
 - **Keyboard**: Space pause, `.` step, R restart, F whole map, 1-7 tools, `[` `]` half or
   double speed, Esc close the inspector, Ctrl+O open, Ctrl+S save, Ctrl+Shift+S save as, F12
   screenshot, Ctrl+, Settings, Ctrl+Enter apply the settings. Help > Keyboard and mouse lists them.
-- **Remembered between runs** (in the user's data directory, `roshan2/app.ron`): the default
+- **Remembered between runs** (in the user's data directory, `roshan/app.ron`): the default
   scenario, recent files, the view settings, the speed, the brush, the last fetch area, and
   the window's place and size. Runs with `auto_close_s` neither read nor write it.
 - **Terrain of a real place** (File menu): latitude, longitude and size in km, or "choose on

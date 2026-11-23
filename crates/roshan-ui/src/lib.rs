@@ -1,4 +1,4 @@
-//! ROSHAN2 viewer, scenario editor and policy debugger. It knows nothing about Python: the
+//! ROSHAN viewer, scenario editor and policy debugger. It knows nothing about Python: the
 //! policies, file loading, saving and terrain fetching are closures.
 //!
 //! What runs in the window:
@@ -1021,7 +1021,7 @@ impl Viewer<'_> {
     fn title_and_closing(&mut self, ctx: &egui::Context) {
         let name = self.path.as_ref().and_then(|p| p.file_name());
         let name = name.map_or("not saved yet".into(), |n| n.to_string_lossy());
-        let title = format!("ROSHAN2 - {name}{}", if self.dirty { " *" } else { "" });
+        let title = format!("ROSHAN - {name}{}", if self.dirty { " *" } else { "" });
         if title != self.title {
             ctx.send_viewport_cmd(egui::ViewportCommand::Title(title.clone()));
             self.title = title;
@@ -1273,7 +1273,7 @@ pub fn run(
     let mut frames = 0u64;
     let native = eframe::NativeOptions {
         viewport: egui::ViewportBuilder::default()
-            .with_title("ROSHAN2")
+            .with_title("ROSHAN")
             .with_inner_size([1280.0, 860.0]),
         renderer: eframe::Renderer::Glow,
         // Automated checks neither see nor touch what the user's sessions remembered.
@@ -1283,7 +1283,7 @@ pub fn run(
         ..Default::default()
     };
     let result = eframe::run_native(
-        "roshan2",
+        "roshan",
         native,
         Box::new(|cc| {
             cc.egui_ctx.set_visuals(panels::visuals());

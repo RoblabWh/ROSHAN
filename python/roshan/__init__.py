@@ -1,4 +1,4 @@
-"""ROSHAN2: wildfire simulation and multi-UAV reinforcement learning platform."""
+"""ROSHAN: wildfire simulation and multi-UAV reinforcement learning platform."""
 
 from roshan.env import AllocateEnv, NavigateEnv
 

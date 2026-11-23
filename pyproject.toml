@@ -1,7 +1,7 @@
 [project]
 name = "roshan"
 version = "0.1.0"
-description = "ROSHAN2: wildfire simulation and multi-UAV reinforcement learning platform"
+description = "ROSHAN: wildfire simulation and multi-UAV reinforcement learning platform"
 requires-python = ">=3.11"
 dependencies = [
     "numpy",

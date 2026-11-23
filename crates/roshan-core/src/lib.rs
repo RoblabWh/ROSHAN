@@ -1,4 +1,4 @@
-//! ROSHAN2 simulation core. No Python, no UI, no file or network I/O.
+//! ROSHAN simulation core. No Python, no UI, no file or network I/O.
 
 pub mod allocate;
 pub mod belief;

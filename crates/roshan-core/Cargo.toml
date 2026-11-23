@@ -2,7 +2,7 @@
 name = "roshan-core"
 version.workspace = true
 edition.workspace = true
-description = "ROSHAN2 simulation core: no Python, no UI, no file or network I/O"
+description = "ROSHAN simulation core: no Python, no UI, no file or network I/O"
 
 [dependencies]
 rayon.workspace = true

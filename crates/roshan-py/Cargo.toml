@@ -2,7 +2,7 @@
 name = "roshan-py"
 version.workspace = true
 edition.workspace = true
-description = "Python bindings for ROSHAN2 (module roshan._core)"
+description = "Python bindings for ROSHAN (module roshan._core)"
 
 [lib]
 name = "_core"

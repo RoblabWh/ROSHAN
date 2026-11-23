@@ -2,7 +2,7 @@
 name = "roshan-ui"
 version.workspace = true
 edition.workspace = true
-description = "ROSHAN2 viewer and scenario editor (egui). Knows nothing about Python."
+description = "ROSHAN viewer and scenario editor (egui). Knows nothing about Python."
 
 [dependencies]
 roshan-core = { path = "../roshan-core" }

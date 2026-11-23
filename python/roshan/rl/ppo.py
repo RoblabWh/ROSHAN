@@ -1,4 +1,4 @@
-"""Proximal Policy Optimization for batched ROSHAN2 environments. One file on purpose."""
+"""Proximal Policy Optimization for batched ROSHAN environments. One file on purpose."""
 
 from dataclasses import dataclass
 
